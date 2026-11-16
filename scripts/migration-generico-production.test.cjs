@@ -380,6 +380,24 @@ test('antes de conectar: backup obrigatório, disco exigido, SQL divergente e id
 
 // ---- Privilégios (P3): lista declarada por id, conferida contra o SQL; CONFERIR recusa (3); APLICAR recusa antes do marcador ----
 const nomes = (sql, re) => [...sql.matchAll(re)].map(m => m[1].toLowerCase());
+// Funções que já existem e que gatilhos novos chamam: toda `EXECUTE FUNCTION|PROCEDURE <nome>(<argumentos>)`, com qualquer
+// espaço ou argumento (os argumentos do gatilho vão em TG_ARGV; a função é sempre `<nome>()`), menos as que a própria
+// migration cria. Nome entre aspas, de outro schema ou sem "(" reconhecível não tem regra aqui: o teste falha.
+function executadasDoSql(sql, criadas, id) {
+  const chamadas = [...sql.matchAll(/\bEXECUTE\s+(?:FUNCTION|PROCEDURE)\s+([^\s(]+)\s*\(/gi)].map(m => m[1]);
+  assert.equal(chamadas.length, (sql.match(/\bEXECUTE\s+(?:FUNCTION|PROCEDURE)\b/gi) || []).length, id + ': EXECUTE FUNCTION sem "(" reconhecível');
+  for (const c of chamadas) assert.match(c, /^(?:public\.)?[a-z0-9_]+$/i, id + ': formato de EXECUTE FUNCTION não reconhecido: ' + c);
+  return new Set(chamadas.map(c => c.replace(/^public\./i, '').toLowerCase()).filter(f => !criadas.has(f)).map(f => f + '()'));
+}
+test('executadasDoSql: argumentos, espaços, PROCEDURE e public. entram; aspas, outro schema e formato sem "(" falham', () => {
+  const sql = "CREATE TRIGGER a BEFORE UPDATE ON t FOR EACH ROW EXECUTE FUNCTION kidmais_set_atualizado_em('x', 2);\n"
+    + 'CREATE TRIGGER b AFTER INSERT ON t FOR EACH ROW EXECUTE  PROCEDURE public.Outra_Existente ();\n'
+    + 'CREATE TRIGGER c BEFORE DELETE ON t FOR EACH ROW EXECUTE FUNCTION criada_aqui();';
+  assert.deepEqual([...executadasDoSql(sql, new Set(['criada_aqui']), 's')].sort(), ['kidmais_set_atualizado_em()', 'outra_existente()']);
+  assert.throws(() => executadasDoSql('... EXECUTE FUNCTION "Citada"();', new Set(), 's'), /não reconhecido: "Citada"/);
+  assert.throws(() => executadasDoSql('... EXECUTE FUNCTION outro.f();', new Set(), 's'), /não reconhecido: outro\.f/);
+  assert.throws(() => executadasDoSql('... EXECUTE FUNCTION\n;', new Set(), 's'), /sem "\(" reconhecível/);
+});
 test('privilégios declarados por id batem com o SQL da migration (tabelas alteradas, funções substituídas, referenciadas, EXECUTE e CREATE no schema)', () => {
   for (const id of g.IDS) {
     const p = g.MIGRATIONS[id].privilegios, sql = lf(arquivo(id, 'migration')).split('\n').filter(l => !l.trim().startsWith('--')).join('\n');
@@ -398,7 +416,7 @@ test('privilégios declarados por id batem com o SQL da migration (tabelas alter
     assert.deepEqual([...p.funcoes].sort(), funcoesSubstituidas.sort(), id + ': funções substituídas');
     // Gatilho novo em função que a migration NÃO cria (nem substitui) exige EXECUTE nela: declarada em `executadas`.
     const criadas = new Set(nomes(sql, /^\s*CREATE (?:OR REPLACE )?FUNCTION (?:public\.)?([a-z0-9_]+)\(/gim));
-    const executadas = new Set(nomes(sql, /EXECUTE (?:FUNCTION|PROCEDURE) (?:public\.)?([a-z0-9_]+)\(\)/gi).filter(f => !criadas.has(f)).map(f => f + '()'));
+    const executadas = executadasDoSql(sql, criadas, id);
     assert.deepEqual([...p.executadas].sort(), [...executadas].sort(), id + ': funções existentes chamadas por gatilhos novos (EXECUTE)');
     assert.equal(/has_function_privilege\(current_user, to_regprocedure\('public\.' \|\| f\), 'EXECUTE'\)/.test(g.sqlPrivilegios(id)), true, id);
     assert.equal(p.criaNoSchema, novas.size > 0 || /^\s*CREATE FUNCTION /im.test(sql), id + ': CREATE no schema');

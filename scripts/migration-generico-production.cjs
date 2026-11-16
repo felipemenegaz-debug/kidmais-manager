@@ -112,7 +112,7 @@ const MIGRATIONS = Object.freeze({
   '125': congelar({escopo: 'área da família F3: avisos de pagamento, pendências da família, aviso fixo do buffet, tipos novos de evento e autoria pela família (aditiva; exige 123)',
     arquivos: [['precheck', 'database/checks/20261115_125_precheck.sql', '270c66124d01eed656ede7f9249b97d419b3bc0dc514cff306a51dae595a5c65'],
       ['migration', 'database/migrations/20261115_125_area_familia_acoes.sql', 'dff9af31c012f73074f8294eb830a1009ce9e1fc7a19b5cacb4daa93cf015e37'],
-      ['postcheck', 'database/checks/20261115_125_postcheck.sql', '554d1122723d0b80a2c4dbe44e68c27af76a9d6b6e5833eed803695131af46ec']],
+      ['postcheck', 'database/checks/20261115_125_postcheck.sql', 'f0f6ab83c0e9b71c851b35257803c627f0e4fee82cc39fb10ec461af5ec4431c']],
     criados: [tabela('area_familia_avisos_pagamento'), tabela('festa_pendencias_familia'), tabela('area_familia_aviso_empresa')],
     // CHECK de tipo e gatilho em area_familia_eventos e gatilhos de autoria em festa_pessoas e festa_links_area exigem a posse dessas tabelas.
     // Gatilhos de atualizado_em em kidmais_set_atualizado_em() (função que já existe) exigem EXECUTE nela (achado P3 do Astra em c71bae8a).

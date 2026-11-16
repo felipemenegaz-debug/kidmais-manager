@@ -2,9 +2,11 @@
 -- c71bae8a: com as três tabelas presentes o aplicador genérico só roda este postcheck, então ele não pode aceitar a 125
 -- incompleta): nas três tabelas novas, colunas, constraints (toda FK, inclusive as inline, com tabela, colunas e ON DELETE;
 -- todo CHECK com a expressão), índices e gatilhos exatamente como a 125 cria; o CHECK novo de area_familia_eventos.tipo; os
--- três gatilhos da 125 nas tabelas da 123 com tabela, eventos e função; as 7 funções da 125 com o corpo da 125; e a função
+-- três gatilhos da 125 nas tabelas da 123 com tabela, eventos e função; as 7 funções da 125 pela definição completa
+-- (pg_get_functiondef: argumentos, retorno, linguagem, volatilidade, SECURITY, STRICT, SET e corpo; achado P3 da pré-revisão); e a função
 -- existente kidmais_set_atualizado_em() ligada aos gatilhos de atualizado_em. As linhas NOT NULL de pg_constraint (PG 18)
--- ficam de fora da comparação de constraints: o NOT NULL é conferido pelas colunas, igual em qualquer versão.
+-- ficam de fora da comparação de constraints (o NOT NULL é conferido pelas colunas), mas têm de estar validadas; as três
+-- tabelas são comuns, persistentes (não UNLOGGED) e sem RLS, como a 125 cria.
 BEGIN TRANSACTION READ ONLY;
 SET LOCAL search_path = public, pg_catalog;
 DO $$
@@ -17,6 +19,10 @@ BEGIN
   -- CHECK com a expressão), índices válidos e gatilhos ligados: exatamente estes, nada a mais e nada a menos.
   t := 'public.area_familia_avisos_pagamento';
   IF to_regclass(t) IS NULL THEN RAISE EXCEPTION '125 postcheck: tabela % ausente', t; END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_class WHERE oid = to_regclass(t) AND relkind = 'r' AND relpersistence = 'p' AND NOT relrowsecurity AND NOT relforcerowsecurity)
+     OR EXISTS (SELECT 1 FROM pg_constraint WHERE conrelid = to_regclass(t) AND contype = 'n' AND NOT convalidated) THEN
+    RAISE EXCEPTION '125 postcheck: % não é tabela comum persistente sem RLS com NOT NULL validado', t;
+  END IF;
   IF (SELECT coalesce(array_agg(attname || ' ' || format_type(atttypid, atttypmod) || CASE WHEN attnotnull THEN ' NOT NULL' ELSE '' END
                 || coalesce(' DEFAULT ' || pg_get_expr(d.adbin, d.adrelid), '') ORDER BY a.attnum), ARRAY[]::text[])
         FROM pg_attribute a LEFT JOIN pg_attrdef d ON d.adrelid = a.attrelid AND d.adnum = a.attnum
@@ -67,6 +73,10 @@ BEGIN
   -- CHECK com a expressão), índices válidos e gatilhos ligados: exatamente estes, nada a mais e nada a menos.
   t := 'public.area_familia_aviso_empresa';
   IF to_regclass(t) IS NULL THEN RAISE EXCEPTION '125 postcheck: tabela % ausente', t; END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_class WHERE oid = to_regclass(t) AND relkind = 'r' AND relpersistence = 'p' AND NOT relrowsecurity AND NOT relforcerowsecurity)
+     OR EXISTS (SELECT 1 FROM pg_constraint WHERE conrelid = to_regclass(t) AND contype = 'n' AND NOT convalidated) THEN
+    RAISE EXCEPTION '125 postcheck: % não é tabela comum persistente sem RLS com NOT NULL validado', t;
+  END IF;
   IF (SELECT coalesce(array_agg(attname || ' ' || format_type(atttypid, atttypmod) || CASE WHEN attnotnull THEN ' NOT NULL' ELSE '' END
                 || coalesce(' DEFAULT ' || pg_get_expr(d.adbin, d.adrelid), '') ORDER BY a.attnum), ARRAY[]::text[])
         FROM pg_attribute a LEFT JOIN pg_attrdef d ON d.adrelid = a.attrelid AND d.adnum = a.attnum
@@ -102,6 +112,10 @@ BEGIN
   -- CHECK com a expressão), índices válidos e gatilhos ligados: exatamente estes, nada a mais e nada a menos.
   t := 'public.festa_pendencias_familia';
   IF to_regclass(t) IS NULL THEN RAISE EXCEPTION '125 postcheck: tabela % ausente', t; END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_class WHERE oid = to_regclass(t) AND relkind = 'r' AND relpersistence = 'p' AND NOT relrowsecurity AND NOT relforcerowsecurity)
+     OR EXISTS (SELECT 1 FROM pg_constraint WHERE conrelid = to_regclass(t) AND contype = 'n' AND NOT convalidated) THEN
+    RAISE EXCEPTION '125 postcheck: % não é tabela comum persistente sem RLS com NOT NULL validado', t;
+  END IF;
   IF (SELECT coalesce(array_agg(attname || ' ' || format_type(atttypid, atttypmod) || CASE WHEN attnotnull THEN ' NOT NULL' ELSE '' END
                 || coalesce(' DEFAULT ' || pg_get_expr(d.adbin, d.adrelid), '') ORDER BY a.attnum), ARRAY[]::text[])
         FROM pg_attribute a LEFT JOIN pg_attrdef d ON d.adrelid = a.attrelid AND d.adnum = a.attnum
@@ -167,16 +181,16 @@ BEGIN
       RAISE EXCEPTION '125 postcheck: gatilho % ausente, desligado ou fora do formato da 125', g[2];
     END IF;
   END LOOP;
-  -- Funções da 125: [assinatura, sha256 LF do corpo].
+  -- Funções da 125: [assinatura, sha256 LF de pg_get_functiondef].
   FOREACH f SLICE 1 IN ARRAY ARRAY[
-      ['public.kidmais_125_aviso_pagamento_validar()', '82a48a96dc50db0db67d227c9ff0591af161f1b2bd2a3722c8a766d5eabd3b50'],
-      ['public.kidmais_125_contratante_ativo(uuid,uuid)', '0a2cb07178f82dc1d4c7d6466ea68ec7f1a914f9e20e49e397a0da129c9295e0'],
-      ['public.kidmais_125_evento_pessoas_da_festa()', 'eb8464d2e45ff08c13909f8fd31f84de3343351374393dc2d5c0599e6aa7035a'],
-      ['public.kidmais_125_link_por_pessoa()', 'b1449dd4ab817564aba10fc6baf9fa450ed4d4069656aa9993b5770b44cdbf45'],
-      ['public.kidmais_125_pendencia_familia_validar()', '8b5e98279b8e758af29738e4f07db49d7bb268245229580ebfa038127736523e'],
-      ['public.kidmais_125_pessoa_ativa(uuid,uuid)', 'de727ab3697038dec8513cfa69dbf2db9c7791a5ce224b5df3c27927727ef98c'],
-      ['public.kidmais_125_remocao_por_pessoa()', '77a8af5924d1f00ae949791960916ead9fc7621e06cc73deed9504cb19d05e9e']] LOOP
-    IF to_regprocedure(f[1]) IS NULL OR (SELECT encode(sha256(convert_to(replace(prosrc, E'\r', ''), 'UTF8')), 'hex') FROM pg_proc
+      ['public.kidmais_125_aviso_pagamento_validar()', '03e05bdb7d029bb7406f507173c1867880c816fb042d2008b0413fd9fcfce42d'],
+      ['public.kidmais_125_contratante_ativo(uuid,uuid)', '41a613fc806a8fa0b84363de9db795d2eea577bb782279b87a10685a277e9afb'],
+      ['public.kidmais_125_evento_pessoas_da_festa()', '7471d58edfcdeff2e5c9b92278bd56a4e09c0d80e077df5423c29b82e352c4d0'],
+      ['public.kidmais_125_link_por_pessoa()', '9118748f64edff3f7608636d4fa153d85876a64cbdba4dd65e12b2c0e0b56812'],
+      ['public.kidmais_125_pendencia_familia_validar()', 'bcf4909ab0e0a75bcdfd5f366e6a5137a5c5dd13cff2280e2153f69a412f67dc'],
+      ['public.kidmais_125_pessoa_ativa(uuid,uuid)', '0ef4672f360cad8a9fecdbb03d9c3f45680e1ff4e58b45371aa3423c51568495'],
+      ['public.kidmais_125_remocao_por_pessoa()', '5d0b6e4dfb2ccb4bc6bfaf3bdd601088e2cf2f4312e9731bfc6bb24043221149']] LOOP
+    IF to_regprocedure(f[1]) IS NULL OR (SELECT encode(sha256(convert_to(replace(pg_get_functiondef(oid), E'\r', ''), 'UTF8')), 'hex') FROM pg_proc
          WHERE oid = to_regprocedure(f[1])) IS DISTINCT FROM f[2] THEN
       RAISE EXCEPTION '125 postcheck: função % ausente ou divergente da 125', f[1];
     END IF;
