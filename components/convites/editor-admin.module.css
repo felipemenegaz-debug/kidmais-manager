@@ -201,3 +201,13 @@
 .logoBuffet { margin: 16px auto 0; max-width: 440px; text-align: left; }
 .logoBuffetPrevia { display: flex; justify-content: center; padding: 14px 12px 4px; }
 .logoBuffetPrevia img { max-height: 48px; max-width: 160px; object-fit: contain; }
+/* Etapa 3: controles da logo sobre a arte, fora da imagem (§6). Alvos de 44 px. */
+.controlesLogo { border: 0; margin: 8px 0 0; padding: 0; min-width: 0; }
+.ajudaLogo { margin: 0; }
+.lugaresLogo { display: grid; grid-template-columns: repeat(3, 44px); gap: 4px; justify-content: center; margin: 10px 0; }
+.editor .lugaresLogo button { width: 44px; height: 44px; min-width: 44px; padding: 0; display: grid; place-items: center; }
+.setasLogo { display: grid; grid-template-columns: repeat(4, 44px); gap: 4px; justify-content: center; margin: 10px 0; }
+.editor .setasLogo button { width: 44px; height: 44px; min-width: 44px; padding: 0; }
+.tamanhosLogo { display: flex; flex-wrap: wrap; gap: 4px 14px; justify-content: center; margin: 10px 0; }
+.editor .tamanhosLogo label { display: flex; align-items: center; gap: 6px; min-height: 44px; margin: 0; }
+.editor .tamanhosLogo input { width: 18px; height: 18px; }

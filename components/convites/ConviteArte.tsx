@@ -2,22 +2,43 @@
 // Artes já são reencodadas no servidor; URLs privadas não devem passar pelo cache do otimizador Next.
 /* eslint-disable @next/next/no-img-element */
 import { enderecoDoConvite, localDoConvite, type Conteudo } from '@/lib/convites/domain';
-import { useId } from 'react';
+import { useId, useState, type ReactNode } from 'react';
 import { modeloBiblioteca, modeloComFoto, planetasModelo, svgModelo } from '@/lib/convites/modelos';
 import { enquadramento, temaVisual, visualPadrao } from '@/lib/convites/visual';
 import { FUNDO_FAIXA_LOGO, LINHA_FAIXA_LOGO, medidasFaixaLogo } from '@/lib/convites/faixa-logo';
+import { caixaDaLogo, caixaEmPorcento, type CaixaDaLogo } from '@/lib/convites/posicao-logo';
 import styles from './convites.module.css';
 export function dataBonita(data: string) {
   return data ? new Date(`${data}T12:00:00`).toLocaleDateString('pt-BR', { day: 'numeric', month: 'long' }) : 'Data da festa';
 }
-export default function ConviteArte({ conteudo: c, arte }: { conteudo: Conteudo; arte?: string }) {
+/** Posição da logo sobre a arte (§2): centro e largura em % da imagem natural. */
+export type PosicaoSobre = { x: number; y: number; largura: number; fundo: boolean };
+/** Caixa em % da arte mostrada (left/top/width/height). */
+export type CaixaPct = { left: number; top: number; width: number; height: number };
+/**
+ * Logo sobre a arte (etapa 3, §2 e §7). Só existe no modo `completa`. A camada aparece depois do `onLoad` da arte
+ * atual (o tamanho natural guardado é o da imagem que carregou, conferido pelo `src`) e da logo.
+ */
+export type SobreArte = {
+  logo: string; posicao: PosicaoSobre;
+  /** Controle do editor desenhado na camada (alvo de toque, arraste); recebe a caixa final em % da arte. */
+  controle?: (caixa: CaixaPct) => ReactNode;
+  aoCarregarArte?: (src: string) => void; aoFalharArte?: (src: string) => void; aoFalharLogo?: () => void;
+};
+export default function ConviteArte({ conteudo: c, arte, sobre }: { conteudo: Conteudo; arte?: string; sobre?: SobreArte | null }) {
   const id = useId();
+  const [naturalArte, setNaturalArte] = useState<{ src: string; W: number; H: number } | null>(null);
+  const [naturalLogo, setNaturalLogo] = useState<{ src: string; proporcao: number } | null>(null);
   const tema = temaVisual(c), visual = c.visual ?? visualPadrao;
   const completa = visual.modo === 'completa' && !!arte;
   if ((modeloBiblioteca(c.tema) || (arte && !modeloComFoto(c.tema))) && !completa) return <article className={`${styles.convite} ${styles.conviteBiblioteca}`} aria-label="Prévia do convite"><div dangerouslySetInnerHTML={{ __html: svgModelo(c, { arte, id }) }} /></article>;
   return <article className={styles.convite} style={{ background: tema.fundo, color: tema.tinta }} aria-label="Prévia do convite">
     <div className={completa ? styles.arteCompleta : styles.capa} style={{ color: tema.destaque }}>
-      {arte ? <img src={arte} alt="Arte escolhida para o convite" style={{ objectFit: visual.ajuste === 'preencher' ? 'cover' : 'contain', objectPosition: `${visual.x}% ${visual.y}%` }} /> : <><span className={styles.orbita} /><span className={styles.simbolo}>{tema.simbolo}</span><span className={styles.estrela}>✦</span><span className={styles.estrela2}>✧</span><p>VOCÊ FAZ PARTE DESSA FESTA</p></>}
+      {arte ? <img src={arte} alt="Arte escolhida para o convite" style={{ objectFit: visual.ajuste === 'preencher' ? 'cover' : 'contain', objectPosition: `${visual.x}% ${visual.y}%` }}
+        onLoad={e => { const i = e.currentTarget; if (i.naturalWidth > 0 && i.naturalHeight > 0) { setNaturalArte({ src: arte, W: i.naturalWidth, H: i.naturalHeight }); sobre?.aoCarregarArte?.(arte); } }}
+        onError={() => { setNaturalArte(n => n?.src === arte ? null : n); sobre?.aoFalharArte?.(arte); }} /> : <><span className={styles.orbita} /><span className={styles.simbolo}>{tema.simbolo}</span><span className={styles.estrela}>✦</span><span className={styles.estrela2}>✧</span><p>VOCÊ FAZ PARTE DESSA FESTA</p></>}
+      {completa && sobre && <CamadaLogo sobre={sobre} arte={naturalArte?.src === arte ? naturalArte : null} logo={naturalLogo?.src === sobre.logo ? naturalLogo : null}
+        aoCarregarLogo={proporcao => setNaturalLogo({ src: sobre.logo, proporcao })} />}
     </div>
     <div className={completa ? styles.somenteLeitor : styles.conviteTexto}><p className={styles.sobretitulo}>VAMOS COMEMORAR</p><h2>{c.nome || 'Nome do aniversariante'}</h2><p className={styles.idade}>{c.idade || 'Um dia muito especial'}</p><p className={styles.mensagem}>{c.mensagem}</p>
       <div className={styles.quando}><strong>{dataBonita(c.data)}</strong><span>às {c.horario || '00:00'}</span></div>
@@ -26,8 +47,26 @@ export default function ConviteArte({ conteudo: c, arte }: { conteudo: Conteudo;
   </article>;
 }
 
-/** Exportação local, sem chamada à IA: textos ficam independentes da arte. `logo` (data URL ou mesma origem) acrescenta a faixa do buffet. */
-export async function baixarConvite(c: Conteudo, arte?: string, logo?: string | null) {
+/** A logo só aparece depois de carregar (proporção real); a caixa vem de `caixaDaLogo` sobre o tamanho natural da arte. */
+function CamadaLogo({ sobre, arte, logo, aoCarregarLogo }: { sobre: SobreArte; arte: { W: number; H: number } | null; logo: { proporcao: number } | null; aoCarregarLogo: (proporcao: number) => void }) {
+  const caixa: CaixaDaLogo | null = arte && logo ? caixaDaLogo(arte, sobre.posicao, logo.proporcao) : null;
+  const pct = (b: CaixaDaLogo['logo'] | null | undefined): CaixaPct | null => b && arte ? caixaEmPorcento(b, arte) : null;
+  const css = (b: CaixaPct) => ({ left: `${b.left}%`, top: `${b.top}%`, width: `${b.width}%`, height: `${b.height}%` });
+  const logoPct = pct(caixa?.logo), pilulaPct = pct(caixa?.pilula), finalPct = pct(caixa?.final);
+  return <div className={styles.camadaLogo} data-camada-logo={caixa ? 'pronta' : 'carregando'}>
+    {pilulaPct && <span className={styles.pilulaLogo} style={css(pilulaPct)} aria-hidden="true" />}
+    <img src={sobre.logo} alt="Logo do buffet" className={styles.logoSobre} style={logoPct ? css(logoPct) : { visibility: 'hidden', width: 1, height: 1 }}
+      onLoad={e => { const i = e.currentTarget; if (i.naturalWidth > 0 && i.naturalHeight > 0) aoCarregarLogo(i.naturalWidth / i.naturalHeight); }}
+      onError={() => sobre.aoFalharLogo?.()} />
+    {finalPct && sobre.controle?.(finalPct)}
+  </div>;
+}
+
+/**
+ * Exportação local, sem chamada à IA: textos ficam independentes da arte. `logo` (data URL ou mesma origem) acrescenta a
+ * faixa do buffet; com `sobre` (só quando a regra de exibição vale) e arte completa, a logo vai sobre a arte (§7).
+ */
+export async function baixarConvite(c: Conteudo, arte?: string, logo?: string | null, sobre?: PosicaoSobre | null) {
   if ((modeloBiblioteca(c.tema) || (arte && !modeloComFoto(c.tema))) && !(arte && c.visual?.modo === 'completa')) return baixarModelo(c, arte, logo);
   const canvas = document.createElement('canvas'); canvas.width = 1080; canvas.height = 1440;
   const ctx = canvas.getContext('2d'); if (!ctx) return;
@@ -74,7 +113,7 @@ export async function baixarConvite(c: Conteudo, arte?: string, logo?: string | 
   linhas(c.mensagem, 850, 30, 4); texto(`${dataBonita(c.data)} · ${c.horario}`, 1090, 40, true);
   texto(localDoConvite(c), 1200, 38, true); linhas(enderecoDoConvite(c), 1260, 27, 3);
   }
-  const blob = await pngComFaixa(canvas, logo);
+  const blob = completa && sobre && logo ? await pngComLogoSobre(canvas, logo, sobre) : await pngComFaixa(canvas, logo);
   if (!blob) return; const url = URL.createObjectURL(blob); const a = document.createElement('a');
   a.href = url; a.download = 'convite.png'; a.click(); setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
@@ -97,6 +136,31 @@ async function pngComFaixa(arte: HTMLCanvasElement, logo?: string | null) {
     }
   }
   return new Promise<Blob | null>(resolve => final.toBlob(resolve, 'image/png'));
+}
+
+/**
+ * §7: pílula clara e logo na caixa de `caixaDaLogo` sobre o tamanho natural da arte; a altura do PNG não muda.
+ * Arredonda só no desenho. Se a logo não carregar, o PNG sai sem logo.
+ */
+async function pngComLogoSobre(arte: HTMLCanvasElement, logo: string, posicao: PosicaoSobre) {
+  const img = new Image(); img.src = logo;
+  const carregou = await img.decode().then(() => true, () => false);
+  const ctx = arte.getContext('2d');
+  if (carregou && ctx && img.naturalWidth > 0 && img.naturalHeight > 0) {
+    const { logo: l, pilula } = caixaDaLogo({ W: arte.width, H: arte.height }, posicao, img.naturalWidth / img.naturalHeight);
+    if (pilula) {
+      const x = Math.round(pilula.x0), y = Math.round(pilula.y0), w = Math.round(pilula.w), h = Math.round(pilula.h), r = Math.min(w, h) / 2;
+      ctx.fillStyle = FUNDO_FAIXA_LOGO;
+      ctx.beginPath();
+      ctx.moveTo(x + r, y); ctx.lineTo(x + w - r, y); ctx.arc(x + w - r, y + r, r, -Math.PI / 2, 0);
+      ctx.lineTo(x + w, y + h - r); ctx.arc(x + w - r, y + h - r, r, 0, Math.PI / 2);
+      ctx.lineTo(x + r, y + h); ctx.arc(x + r, y + h - r, r, Math.PI / 2, Math.PI);
+      ctx.lineTo(x, y + r); ctx.arc(x + r, y + r, r, Math.PI, Math.PI * 1.5);
+      ctx.closePath(); ctx.fill();
+    }
+    ctx.drawImage(img, Math.round(l.x0), Math.round(l.y0), Math.round(l.w), Math.round(l.h));
+  }
+  return new Promise<Blob | null>(resolve => arte.toBlob(resolve, 'image/png'));
 }
 
 /** SVG exportado com imagens embutidas: navegador não descarta recursos externos. */

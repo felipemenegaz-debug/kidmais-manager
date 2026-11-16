@@ -5,7 +5,7 @@ import { enderecoDoConvite, localDoConvite, type Conteudo } from '@/lib/convites
 import type { FamiliaPublica } from '@/lib/convites/familias-domain';
 import { contraste, luminancia, temaVisual, tintaLegivel } from '@/lib/convites/visual';
 import AvisoPresenca from './AvisoPresenca';
-import ConviteArte from './ConviteArte';
+import ConviteArte, { type PosicaoSobre } from './ConviteArte';
 import styles from './publico.module.css';
 export default function ConvitePublico({ token }: { token: string }) {
   const [conteudo, setConteudo] = useState<Conteudo | null>(null), [erro, setErro] = useState(''), [aviso, setAviso] = useState('');
@@ -13,6 +13,10 @@ export default function ConvitePublico({ token }: { token: string }) {
   const [efeitosPausados, setEfeitosPausados] = useState(false), [marcaKidmais, setMarcaKidmais] = useState(false), [logoBuffet, setLogoBuffet] = useState(false);
   const [familia, setFamilia] = useState<FamiliaPublica | null>(null), [buffet, setBuffet] = useState('');
   const chave = useRef(''), acessoFamilia = useRef<string | null>(null);
+  // Etapa 3 (§7): logo sobre a arte publicada. `divergencia` conta respostas 409/erro da arte por id: 1 = já releu o JSON uma vez;
+  // 2 = mostra a arte sem a logo por cima e a logo volta ao rodapé.
+  const [logoSobre, setLogoSobre] = useState<PosicaoSobre | null>(null), [divergencia, setDivergencia] = useState(0), [logoSobreFalhou, setLogoSobreFalhou] = useState(false);
+  const releitura = useRef<(() => void) | null>(null);
   const endpoint = `/api/convites/publico/${encodeURIComponent(token)}`;
   useEffect(() => {
     let controller: AbortController | undefined, anterior: string | null | undefined;
@@ -21,19 +25,31 @@ export default function ConvitePublico({ token }: { token: string }) {
       if (anterior === acesso) return;
       anterior = acesso; controller?.abort(); const atual = new AbortController(); controller = atual;
       acessoFamilia.current = acesso;
-      setConteudo(null); setFamilia(null); setErro(''); setAviso(''); setNome(''); setPresenca(true); setAdultos(1); setCriancas(0);
+      setConteudo(null); setLogoSobre(null); setDivergencia(0); setLogoSobreFalhou(false); setFamilia(null); setErro(''); setAviso(''); setNome(''); setPresenca(true); setAdultos(1); setCriancas(0);
       try { const k = `convite-rsvp:${token}`; chave.current = acesso != null ? crypto.randomUUID() : localStorage.getItem(k) || crypto.randomUUID(); if (acesso == null) localStorage.setItem(k, chave.current); }
       catch { chave.current = crypto.randomUUID(); }
       void fetch(endpoint, { cache: 'no-store', signal: atual.signal, headers: acesso != null ? { Authorization: `Bearer ${acesso}` } : {} }).then(async r => {
-        const j = await r.json(); if (atual.signal.aborted) return; if (!r.ok) throw new Error(j.erro); setConteudo(j.data.conteudo); setMarcaKidmais(j.data.marcaKidmais === true); setLogoBuffet(j.data.logoBuffet === true); setBuffet(j.data.buffet ?? '');
+        const j = await r.json(); if (atual.signal.aborted) return; if (!r.ok) throw new Error(j.erro); setConteudo(j.data.conteudo); setMarcaKidmais(j.data.marcaKidmais === true); setLogoBuffet(j.data.logoBuffet === true); setLogoSobre(j.data.logoSobre ?? null); setBuffet(j.data.buffet ?? '');
         const f = j.data.familia as FamiliaPublica | null; setFamilia(f ?? null);
         if (f) { setNome(f.nome); setPresenca(f.presenca ?? true); setAdultos(f.adultos); setCriancas(f.criancas); }
       }).catch(e => { if (!atual.signal.aborted) setErro(e.message); });
     }
+    // Relê só o convite (arte, logo e textos) sem tocar no formulário de presença.
+    releitura.current = () => {
+      const atual = controller; const acesso = acessoFamilia.current;
+      void fetch(endpoint, { cache: 'no-store', signal: atual?.signal, headers: acesso != null ? { Authorization: `Bearer ${acesso}` } : {} }).then(async r => {
+        const j = await r.json(); if (atual?.signal.aborted) return; if (!r.ok) throw new Error(j.erro);
+        setConteudo(j.data.conteudo); setLogoBuffet(j.data.logoBuffet === true); setLogoSobre(j.data.logoSobre ?? null);
+      }).catch(() => { if (!atual?.signal.aborted) setDivergencia(2); });
+    };
     carregar(); window.addEventListener('hashchange', carregar);
     return () => { controller?.abort(); window.removeEventListener('hashchange', carregar); };
   }, [endpoint, token]);
   const tema = conteudo ? temaVisual(conteudo) : null;
+  // D-L3-2: com a logo sobre a arte valendo, o rodapé fica sem logo.
+  const sobreAtiva = !!conteudo?.arteId && conteudo.visual?.modo === 'completa' && !!logoSobre && logoBuffet && divergencia < 2 && !logoSobreFalhou;
+  const arteSrc = conteudo?.arteId ? (sobreAtiva ? `${endpoint}?arte=${encodeURIComponent(conteudo.arteId)}` : `${endpoint}?arte=1`) : undefined;
+  const aoFalharArte = () => { if (!sobreAtiva) return; if (divergencia === 0) { setDivergencia(1); releitura.current?.(); } else setDivergencia(2); };
   const cores = tema ? { '--convite-fundo': tema.fundo, '--convite-tinta': tema.tinta, '--convite-destaque': tema.destaque, '--botao-tinta': tintaLegivel(tema.destaque), '--brilho-fundo': contraste(tema.fundo, tema.tinta) < 10 ? 0 : 1, colorScheme: luminancia(tema.fundo) < .18 ? 'dark' : 'light' } as CSSProperties : undefined;
   return <main className={styles.publico} data-tema={conteudo?.tema} data-cores-proprias={!!conteudo?.visual?.cores} data-efeitos-pausados={efeitosPausados} style={cores}>
     {!conteudo && <div className={styles.estado}>{erro ? <p role="alert" className={styles.erro}>{erro}</p> : <p role="status">Preparando um convite especial…</p>}</div>}
@@ -44,7 +60,8 @@ export default function ConvitePublico({ token }: { token: string }) {
         <button type="button" className={styles.controleEfeitos} aria-pressed={efeitosPausados} onClick={() => setEfeitosPausados(v => !v)}>{efeitosPausados ? 'Ativar efeitos' : 'Pausar efeitos'}</button>
       </header>
       <div className={styles.colunas} data-com-rsvp={conteudo.confirmarPresenca}>
-      <section className={styles.arte} aria-label="Convite da festa"><div className={`${styles.moldura} ${styles.bordaAnimada}`}><ConviteArte conteudo={conteudo} arte={conteudo.arteId ? `${endpoint}?arte=1` : undefined} /></div>
+      <section className={styles.arte} aria-label="Convite da festa"><div className={`${styles.moldura} ${styles.bordaAnimada}`}><ConviteArte key={`${arteSrc ?? 'sem-arte'}|${divergencia}`} conteudo={conteudo} arte={arteSrc}
+        sobre={sobreAtiva && logoSobre ? { logo: `${endpoint}?logo=1`, posicao: logoSobre, aoFalharArte, aoFalharLogo: () => setLogoSobreFalhou(true) } : null} /></div>
       {/* D-LIB-3/5: o bloco "Local" fica visível na página mesmo quando a arte completa traz os textos na imagem. */}
       {conteudo.blocoLocal && <p className={styles.localFixo} data-bloco-local={conteudo.blocoLocal.origem}><strong>Local</strong> {localDoConvite(conteudo)}{enderecoDoConvite(conteudo) ? <span>{enderecoDoConvite(conteudo)}</span> : null}</p>}
       <a className={styles.mapa} href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(`${localDoConvite(conteudo)} ${enderecoDoConvite(conteudo)}`)}`} target="_blank" rel="noreferrer">Como chegar ↗</a></section>
@@ -59,7 +76,7 @@ export default function ConvitePublico({ token }: { token: string }) {
         {presenca && <div className={styles.campos}><label>Adultos<input required type="number" min={0} max={20} value={adultos} onChange={e => setAdultos(Number(e.target.value))} /></label><label>Crianças<input required type="number" min={0} max={20} value={criancas} onChange={e => setCriancas(Number(e.target.value))} /></label></div>}
         <div className={styles.isca} aria-hidden="true"><label>Site<input name="site" tabIndex={-1} autoComplete="off" /></label></div><button className={styles.primario} type="submit">{busy ? 'Enviando…' : 'Enviar resposta'}</button></fieldset>{erro && <p role="alert" className={styles.erro}>{erro}</p>}{aviso && <p role="status" className={styles.aviso}>{aviso}</p>}</form>}
       </div>
-      <footer className={styles.rodape}>{logoBuffet && <img className={styles.logoBuffet} src={`${endpoint}?logo=1`} alt="Logo do buffet" onError={() => setLogoBuffet(false)} />}{marcaKidmais ? 'Um momento especial, organizado com KidMais.' : 'Um momento especial.'}</footer>
+      <footer className={styles.rodape}>{logoBuffet && !sobreAtiva && <img className={styles.logoBuffet} src={`${endpoint}?logo=1`} alt="Logo do buffet" onError={() => setLogoBuffet(false)} />}{marcaKidmais ? 'Um momento especial, organizado com KidMais.' : 'Um momento especial.'}</footer>
     </>}
   </main>;
 }

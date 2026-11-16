@@ -31,8 +31,12 @@ test('rascunho pode estar incompleto; publicação exige dados e datas reais', (
   assert.equal(conteudoSchema.safeParse({ ...valido, horario: '25:00' }).success, false);
 });
 test('cliente não escolhe custo, modelo, empresa nem envia referência remota', () => {
-  const gerar = { acao: 'gerar', chave: '11111111-1111-4111-8111-111111111111', prompt: 'Festa no jardim', referencias: [] };
+  const gerar = { acao: 'gerar', chave: '11111111-1111-4111-8111-111111111111', prompt: 'Festa no jardim', referencias: [], logoLigada: false };
   assert.equal(comandoSchema.safeParse(gerar).success, true);
+  // Etapa 3b: logoLigada é obrigatório (o que a tela mostra); sem ele → 400.
+  const { logoLigada: _l, ...semLogo } = gerar; void _l;
+  assert.equal(comandoSchema.safeParse(semLogo).success, false);
+  assert.equal(comandoSchema.safeParse({ ...gerar, logoLigada: 'sim' }).success, false);
   for (const extra of [{ empresaId: 'outra' }, { custo: 0 }, { modelo: 'caro' }]) assert.equal(comandoSchema.safeParse({ ...gerar, ...extra }).success, false);
   assert.equal(comandoSchema.safeParse({ ...gerar, referencias: ['https://intranet/segredo'] }).success, false);
 });

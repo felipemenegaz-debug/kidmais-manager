@@ -99,3 +99,11 @@
 .blocoLocal { margin: 0 0 16px; padding: 12px 14px; border: 1px solid currentColor; border-radius: 12px; font-size: 13px; line-height: 1.5; overflow-wrap: anywhere; }
 .blocoLocal strong { display: block; font-size: 11px; letter-spacing: .08em; text-transform: uppercase; }
 .blocoLocal small { display: block; margin-top: 6px; }
+/* Etapa 3: logo do buffet sobre a arte completa (mesma geometria no editor, na página pública e no PNG). */
+.camadaLogo { position: absolute; inset: 0; pointer-events: none; }
+.arteCompleta .camadaLogo img.logoSobre { position: absolute; display: block; max-width: none; object-fit: fill; pointer-events: none; }
+.pilulaLogo { position: absolute; background: #FFFFFF; border-radius: 9999px; }
+/* Controle do editor (§6): alvo de toque de 44 px, transparente, sobre a logo; contorno de foco de 3 px. */
+.arteCompleta .camadaLogo .controleLogo { position: absolute; pointer-events: auto; touch-action: none; transform: translate(-50%, -50%); min-width: 44px; min-height: 44px; padding: 0; margin: 0; border: 0; background: transparent; border-radius: 6px; cursor: grab; }
+.arteCompleta .camadaLogo .controleLogo:focus-visible { outline: 3px solid #0B1220; outline-offset: 0; box-shadow: 0 0 0 6px #FFFFFF; }
+.arteCompleta .camadaLogo .controleLogo[data-arrastando=true] { cursor: grabbing; }

@@ -13,7 +13,9 @@ function montar({ biblioteca = false, arte = { w: 1024, h: 1536 }, logo = { w: 3
   const canvases = [], baixados = [];
   const novoCanvas = () => {
     const c = { width: 0, height: 0, ops: [] };
-    c.getContext = () => ({ fillRect: (...a) => c.ops.push(['fillRect', ...a]), drawImage: (img, ...a) => c.ops.push(['drawImage', img.origem ?? (img.ops ? 'canvas' : 'img'), ...a]), set fillStyle(v) { c.ops.push(['fillStyle', v]); } });
+    const caminho = nome => (...a) => c.ops.push([nome, ...a]);
+    c.getContext = () => ({ fillRect: (...a) => c.ops.push(['fillRect', ...a]), drawImage: (img, ...a) => c.ops.push(['drawImage', img.origem ?? (img.ops ? 'canvas' : 'img'), ...a]), set fillStyle(v) { c.ops.push(['fillStyle', v]); },
+      beginPath: caminho('beginPath'), moveTo: caminho('moveTo'), lineTo: caminho('lineTo'), arc: caminho('arc'), closePath: caminho('closePath'), fill: caminho('fill') });
     c.toBlob = cb => cb({ canvas: c });
     canvases.push(c); return c;
   };
@@ -22,6 +24,7 @@ function montar({ biblioteca = false, arte = { w: 1024, h: 1536 }, logo = { w: 3
     exports,
     require: id => id.includes('modelos') ? { modeloBiblioteca: () => biblioteca, modeloComFoto: () => false, svgModelo: () => '<svg/>', planetasModelo: [] }
       : id.includes('faixa-logo') ? faixaLogo
+      : id.includes('posicao-logo') ? posicaoLogo
       : id.includes('visual') ? { temaVisual: () => ({ fundo: '#000' }), visualPadrao: {} } : {},
     document: { createElement: tag => tag === 'canvas' ? novoCanvas() : { click() { baixados.push(this.href); } } },
     Image: class {
@@ -38,6 +41,10 @@ function montar({ biblioteca = false, arte = { w: 1024, h: 1536 }, logo = { w: 3
 const faixaLogo = (() => {
   const js = ts.transpileModule(fs.readFileSync('lib/convites/faixa-logo.ts', 'utf8'), { compilerOptions: { module: ts.ModuleKind.CommonJS } }).outputText;
   const exports = {}; vm.runInNewContext(js, { exports, Math, Number }); return exports;
+})();
+const posicaoLogo = (() => {
+  const js = ts.transpileModule(fs.readFileSync('lib/convites/posicao-logo.ts', 'utf8'), { compilerOptions: { module: ts.ModuleKind.CommonJS } }).outputText;
+  const exports = {}; vm.runInNewContext(js, { exports, Math, Number, Uint8Array, Uint8ClampedArray, Float64Array, Array, Object, Infinity }); return exports;
 })();
 const completa = { tema: 'livre', visual: { modo: 'completa', ajuste: 'preencher', x: 0, y: 0 } };
 
@@ -93,3 +100,43 @@ for (const [nome, opcoes, conteudo, arte, altura] of modelos) {
     }
   });
 }
+
+// Etapa 3 (§7): com a logo sobre a arte, o PNG tem a altura da arte; pílula e logo na caixa de caixaDaLogo, arredondadas no desenho.
+test('logo sobre a arte: mesma altura, sem faixa, logo na caixa de caixaDaLogo', async () => {
+  for (const fundo of [false, true]) {
+    const f = montar();
+    const sobre = { x: 50, y: 90, largura: 18, fundo };
+    await f.baixar(completa, 'arte', 'logo', sobre);
+    const final = f.baixados.final;
+    assert.equal(final, f.canvases[0], 'desenha no próprio canvas da arte');
+    assert.equal(final.width, 1024); assert.equal(final.height, 1536, 'altura não muda');
+    assert.equal(final.ops.filter(o => o[0] === 'fillRect').length, 1, 'só o fundo inicial; nenhuma faixa');
+    const c = posicaoLogo.caixaDaLogo({ W: 1024, H: 1536 }, sobre, 2);
+    assert.deepEqual(final.ops.at(-1), ['drawImage', 'logo', Math.round(c.logo.x0), Math.round(c.logo.y0), Math.round(c.logo.w), Math.round(c.logo.h)]);
+    const arcos = final.ops.filter(o => o[0] === 'arc');
+    assert.equal(arcos.length, fundo ? 4 : 0, 'pílula só com fundo claro');
+    if (fundo) {
+      const raio = Math.min(Math.round(c.pilula.w), Math.round(c.pilula.h)) / 2;
+      assert.ok(arcos.every(a => a[3] === raio), 'raio = metade da menor medida');
+      assert.ok(final.ops.some(o => o[0] === 'fill'));
+      assert.ok(final.ops.findIndex(o => o[0] === 'fill') < final.ops.length - 1, 'pílula antes da logo');
+    }
+    assert.equal(f.baixados.length, 1);
+  }
+});
+
+test('logo sobre a arte que não carrega: PNG da arte, sem logo e sem faixa', async () => {
+  const f = montar({ logoFalha: true });
+  await f.baixar(completa, 'arte', 'logo', { x: 50, y: 50, largura: 18, fundo: true });
+  assert.equal(f.baixados.final, f.canvases[0]); assert.equal(f.baixados.final.height, 1536);
+  assert.ok(!f.baixados.final.ops.some(o => o[0] === 'arc' || (o[0] === 'drawImage' && o[1] === 'logo')));
+});
+
+test('posição "sobre" sem logo ou fora da arte completa: segue a regra antiga', async () => {
+  const sobre = { x: 50, y: 50, largura: 18, fundo: false };
+  const semLogo = montar(); await semLogo.baixar(completa, 'arte', null, sobre);
+  assert.equal(semLogo.baixados.final.height, 1536); assert.ok(!semLogo.baixados.final.ops.some(o => o[1] === 'logo'));
+  const modelo = montar(); await modelo.baixar({ tema: 'livre', visual: {} }, 'arte', 'logo', sobre);
+  const m = faixaLogo.medidasFaixaLogo(1080, 1440, 300, 150);
+  assert.equal(modelo.baixados.final.height, 1440 + m.faixa, 'modelo continua com a faixa');
+});
