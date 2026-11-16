@@ -31,7 +31,7 @@ async function ate(cond, msg, ms = 8000) { const fim = Date.now() + ms; while (D
   const browser = await chromium.launch({ channel: process.env.PLAYWRIGHT_CHANNEL || 'chrome', headless: true });
   const resumo = [];
 
-  async function abrirEditor({ admin = true, posicoes = {}, mostrar = true, viewport = { width: 1440, height: 1100 }, hasTouch = false, arteAtrasada = false } = {}) {
+  async function abrirEditor({ admin = true, posicoes = {}, mostrar = true, viewport = { width: 1440, height: 1100 }, hasTouch = false, arteAtrasada = false, falharGets = [], esperarEditor = true, segurarGets = false } = {}) {
     const dados = {
       id: id(1), festaId: id(5),
       conteudo: { tema: 'celebrar', nome: 'Lucas', idade: '5 anos', mensagem: 'Venha comemorar comigo!', data: '2027-04-20', horario: '15:00', local: 'Buffet KidMais', endereco: 'Asa Norte · Brasília',
@@ -44,8 +44,8 @@ async function ate(cond, msg, ms = 8000) { const fim = Date.now() + ms; while (D
     };
     // Servidor simulado: sessões por id, seq por sessão, comandos em voo, falhas e retenção sob demanda.
     const estado = { posts: [], logo: [], sessoes: new Map(), emVoo: 0, maxEmVoo: 0, erros: [], segurar: false, presos: [], falharProximo: null, expirarProximo: false, outras: new Set(),
-      // r3 (Astra r2): GETs contados; leitura segurada (devolve o JSON do momento do pedido) e falhas de leitura em fila.
-      gets: 0, segurarGet: false, getsPresos: [], falharGets: [], liberarArte: null };
+      // r3/r4: GETs contados; leitura segurada (devolve o JSON do momento do pedido) e falhas de leitura em fila.
+      gets: 0, segurarGet: segurarGets, getsPresos: [], falharGets: [...falharGets], liberarArte: null };
     const context = await browser.newContext({ viewport, hasTouch, acceptDownloads: true });
     await context.route('**/*', async route => {
       const request = route.request(), url = new URL(request.url());
@@ -59,11 +59,14 @@ async function ate(cond, msg, ms = 8000) { const fim = Date.now() + ms; while (D
       if (request.method() === 'GET') {
         estado.gets++;
         const foto = JSON.parse(JSON.stringify(dados));
-        if (estado.segurarGet) await new Promise(r => estado.getsPresos.push(r));
+        // r4: um GET segurado pode ter sido abortado pela página; responder a ele então falha e é ignorado.
+        const segurado = estado.segurarGet;
+        if (segurado) await new Promise(r => estado.getsPresos.push(r));
+        const responder = p => p.catch(e => { if (!segurado) throw e; });
         const falha = estado.falharGets.shift();
-        if (falha === 'sem-logo') { delete foto.logoBuffet; return json(foto); }
-        if (falha) return json('Falha simulada da leitura.', falha);
-        return json(foto);
+        if (falha === 'sem-logo') { delete foto.logoBuffet; return responder(json(foto)); }
+        if (falha) return responder(json('Falha simulada da leitura.', falha));
+        return responder(json(foto));
       }
       const b = request.postDataJSON(); estado.posts.push(b);
       // r2 (Astra r1, P1): todo comando da logo vai para a URL com o UUID deste convite na query, desde a primeira abertura.
@@ -94,7 +97,7 @@ async function ate(cond, msg, ms = 8000) { const fim = Date.now() + ms; while (D
     });
     const page = await context.newPage(); page.on('pageerror', e => estado.erros.push(e.message));
     await page.goto(admin ? `${base}/admin/festas/${id(5)}/convite` : `${base}/convites/criar#${'a'.repeat(43)}`);
-    await page.getByLabel('Nome do aniversariante', { exact: true }).waitFor();
+    if (esperarEditor) await page.getByLabel('Nome do aniversariante', { exact: true }).waitFor();
     return { page, context, estado, dados };
   }
   const ultimaPosicao = estado => [...estado.logo].reverse().find(b => b.acao === 'logo_buffet' && b.posicoes?.length)?.posicoes.at(-1);
@@ -290,47 +293,68 @@ async function ate(cond, msg, ms = 8000) { const fim = Date.now() + ms; while (D
       await context.close();
     }
 
-    // 16. r3 (Astra r2, P2): leitura segurada até a confirmação. O JSON chega velho depois do comando confirmado:
-    // a tela não volta para a posição antiga e o editor lê uma vez de novo (marca das filas mudou). Antes da nova leitura,
-    // outra aba muda a posição no servidor: a tela tem de mostrar essa (prova que a releitura foi aplicada).
+    // 16. r4 (Felipe 16/11: "Cortar releitura"): sem releitura automática. Depois de uma confirmação, outra aba muda a
+    // posição no servidor; foco e volta à aba não fazem GET e a tela continua com a escolha desta aba.
     {
       const { page, context, estado, dados } = await abrirEditor({ posicoes: { [ARTE]: { modo: 'sobre', arteId: ARTE, x: 50, y: 50, largura: 18, fundo: true, origem: 'sugerida' } } });
-      const controle = page.getByRole('button', { name: 'Logo do buffet sobre a arte' }); await controle.waitFor();
       const lugar = page.getByRole('button', { name: 'Em cima, à esquerda', exact: true });
       await ate(async () => !(await lugar.isDisabled()), 'lugar habilitado com a caixa pronta');
-      estado.segurarGet = true; const g0 = estado.gets;
-      await page.evaluate(() => window.dispatchEvent(new Event('focus')));
-      await ate(async () => estado.getsPresos.length === 1, 'GET de releitura preso');
+      const g0 = estado.gets;
       await lugar.click(); await salvo(page);
       const nova = ultimaPosicao(estado); assert.ok(nova.x < 20 && nova.y < 20, 'comando confirmado no canto');
-      const outraAba = { ...nova, x: 70, y: 75 }; dados.conteudo.logoPosicoes[ARTE] = { ...outraAba };
-      estado.segurarGet = false; estado.getsPresos.splice(0).forEach(r => r());
-      await ate(async () => estado.gets === g0 + 2, 'uma nova leitura depois do JSON velho');
-      await esperar(800);
-      assert.equal(estado.gets, g0 + 2, 'só uma nova leitura');
-      await noLugar(page, outraAba, [70, 75], 'JSON velho descartado; a releitura vale');
-      assert.equal(await page.locator('[data-falha-leitura-logo]').count(), 0, 'sem aviso de falha');
+      dados.conteudo.logoPosicoes[ARTE] = { ...nova, x: 70, y: 75 };
+      await page.evaluate(() => { window.dispatchEvent(new Event('focus')); document.dispatchEvent(new Event('visibilitychange')); });
+      await esperar(2000);
+      assert.equal(estado.gets, g0, `nenhum GET no foco (${estado.gets - g0})`);
+      await noLugar(page, nova, [0, 0], 'a tela fica com a escolha desta aba');
+      assert.equal(await page.locator('[data-logo-conferindo]').count(), 0);
       assert.deepEqual(estado.erros, []);
-      resumo.push({ cenario: 'leitura-segurada', gets: estado.gets - g0 });
+      resumo.push({ cenario: 'sem-releitura', gets: estado.gets - g0 });
       await context.close();
     }
-    // 17. r3 (Astra r2, P2): leitura com 500 e depois sem os campos da logo: uma nova tentativa, depois para e avisa;
-    // nada de GETs sem fim. "Ler de novo" lê uma vez e tira o aviso.
+    // 17. r4 (Astra r3, P2): a primeira carga tem limite e uma nova tentativa. 500 e depois JSON sem a logo: para em
+    // duas leituras e mostra "Tentar de novo"; o clique lê uma vez e abre o editor. 404 (sem convite) não repete.
     {
-      const { page, context, estado } = await abrirEditor({ posicoes: { [ARTE]: { modo: 'sobre', arteId: ARTE, x: 50, y: 50, largura: 18, fundo: true, origem: 'sugerida' } } });
-      await page.getByRole('button', { name: 'Logo do buffet sobre a arte' }).waitFor();
-      const g0 = estado.gets; estado.falharGets.push(500, 'sem-logo');
-      await page.evaluate(() => window.dispatchEvent(new Event('focus')));
-      const aviso = page.locator('[data-falha-leitura-logo]'); await aviso.waitFor({ timeout: 8000 });
+      const { page, context, estado } = await abrirEditor({ falharGets: [500, 'sem-logo'], esperarEditor: false, posicoes: { [ARTE]: { modo: 'sobre', arteId: ARTE, x: 50, y: 50, largura: 18, fundo: true, origem: 'sugerida' } } });
+      const aviso = page.locator('[data-falha-carga]'); await aviso.waitFor({ timeout: 8000 });
       await esperar(3000);
-      assert.equal(estado.gets - g0, 2, `duas leituras e para (${estado.gets - g0})`);
-      await page.screenshot({ path: path.join(out, '13-falha-leitura-logo.png') });
-      await aviso.getByRole('button', { name: 'Ler de novo' }).click();
-      await ate(async () => (await aviso.count()) === 0, 'aviso some depois da leitura boa');
+      assert.equal(estado.gets, 2, `duas leituras e para (${estado.gets})`);
+      assert.equal(await page.getByLabel('Nome do aniversariante', { exact: true }).count(), 0, 'editor não abre com a carga falhando');
+      await page.screenshot({ path: path.join(out, '13-falha-carga.png') });
+      await aviso.getByRole('button', { name: 'Tentar de novo' }).click();
+      await page.getByRole('button', { name: 'Logo do buffet sobre a arte' }).waitFor();
       await esperar(500);
-      assert.equal(estado.gets - g0, 3, 'Ler de novo faz uma leitura');
+      assert.equal(estado.gets, 3, 'Tentar de novo faz uma leitura');
+      assert.equal(await aviso.count(), 0);
       assert.deepEqual(estado.erros, []);
-      resumo.push({ cenario: 'falha-leitura', gets: estado.gets - g0 });
+      resumo.push({ cenario: 'falha-carga', gets: estado.gets });
+      await context.close();
+    }
+    {
+      const { page, context, estado } = await abrirEditor({ falharGets: [404], esperarEditor: false });
+      await page.getByRole('button', { name: 'Criar convite da festa' }).waitFor({ timeout: 8000 });
+      await esperar(2500);
+      assert.equal(estado.gets, 1, '404 não repete');
+      assert.equal(await page.locator('[data-falha-carga]').count(), 0, '404 segue o painel de criação');
+      resumo.push({ cenario: 'sem-convite-404', gets: estado.gets });
+      await context.close();
+    }
+    // 17b. r4 (Astra r3, P2): o limite aborta o pedido. O primeiro GET fica sem resposta; depois de 10 s a página
+    // aborta esse fetch (requestfailed) antes da nova tentativa, que abre o editor.
+    {
+      const abortados = [];
+      const { page, context, estado } = await abrirEditor({ segurarGets: true, esperarEditor: false });
+      page.on('requestfailed', r => { if (r.method() === 'GET' && new URL(r.url()).pathname === '/api/admin/convites') abortados.push(estado.gets); });
+      await ate(async () => estado.gets === 1, 'primeiro GET preso', 8000);
+      await ate(async () => abortados.length === 1, 'GET abortado no limite', 14000);
+      assert.equal(abortados[0], 1, 'abortado antes da nova tentativa');
+      estado.segurarGet = false;
+      await ate(async () => estado.gets === 2, 'nova tentativa', 5000);
+      estado.getsPresos.splice(0).forEach(r => r());
+      await page.getByLabel('Nome do aniversariante', { exact: true }).waitFor();
+      assert.equal(estado.gets, 2);
+      assert.deepEqual(estado.erros, []);
+      resumo.push({ cenario: 'limite-aborta-fetch', gets: estado.gets, abortados: abortados.length });
       await context.close();
     }
     // 18. r3 (Astra r2, P3): arte atrasada. Lugares e setas ficam desligados até a caixa da arte existir; nada grava 0/0.
@@ -352,6 +376,32 @@ async function ate(cond, msg, ms = 8000) { const fim = Date.now() + ms; while (D
       await noLugar(page, pos, [0, 0], 'canto com a caixa pronta');
       assert.deepEqual(estado.erros, []);
       resumo.push({ cenario: 'arte-atrasada', posicao: [pos.x, pos.y] });
+      await context.close();
+    }
+    // 19. r4 (Astra r3, P3): o tamanho muda durante o arraste. O gesto é cancelado: soltar não grava a largura velha
+    // e a logo fica onde estava, já com o tamanho novo.
+    {
+      const { page, context, estado } = await abrirEditor({ posicoes: { [ARTE]: { modo: 'sobre', arteId: ARTE, x: 50, y: 50, largura: 18, fundo: true, origem: 'sugerida' } } });
+      const controle = page.getByRole('button', { name: 'Logo do buffet sobre a arte' }); await controle.waitFor();
+      await page.locator('[data-camada-logo="pronta"]').first().waitFor();
+      const caixa = await controle.boundingBox();
+      await page.mouse.move(caixa.x + caixa.width / 2, caixa.y + caixa.height / 2); await page.mouse.down();
+      await page.mouse.move(caixa.x + caixa.width / 2 + 60, caixa.y + caixa.height / 2 + 80, { steps: 3 });
+      const n0 = estado.logo.length;
+      // Outra parte da tela muda o tamanho enquanto o botão do mouse continua apertado.
+      await page.evaluate(() => { const r = [...document.querySelectorAll('[role="radiogroup"][aria-label="Tamanho da logo"] label')].find(l => l.textContent.includes('Grande')); r.querySelector('input').click(); });
+      await salvo(page);
+      await page.mouse.move(caixa.x + caixa.width / 2 + 120, caixa.y + caixa.height / 2 + 140, { steps: 3 });
+      await page.mouse.up(); await esperar(900);
+      const depois = estado.logo.slice(n0).filter(b => b.acao === 'logo_buffet' && b.posicoes?.length).flatMap(b => b.posicoes);
+      assert.ok(depois.length >= 1, 'o tamanho foi gravado');
+      assert.ok(depois.every(p => p.largura === 26), `nada gravado com a largura do início do arraste (${JSON.stringify(depois)})`);
+      const ultima = ultimaPosicao(estado);
+      assert.deepEqual([ultima.x, ultima.y, ultima.largura], [50, 50, 26], 'soltar não move: o gesto foi cancelado');
+      assert.equal(await controle.getAttribute('data-arrastando'), 'false');
+      await noLugar(page, ultima, [50, 50], 'logo no lugar de antes, com o tamanho novo');
+      assert.deepEqual(estado.erros, []);
+      resumo.push({ cenario: 'arraste-geometria-mudou', ultima: [ultima.x, ultima.y, ultima.largura] });
       await context.close();
     }
     // 13–15. Página pública: logo sobre a arte; 409 na arte → relê uma vez; segunda divergência → logo no rodapé.

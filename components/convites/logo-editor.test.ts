@@ -5,7 +5,7 @@ import { readFileSync } from 'node:fs';
 import {
   TAMANHOS_LOGO, LUGARES_LOGO, moverLogo, passoDaTecla, arrastarLogo, anuncioPosicao, logoEfetiva, avisoOrigem,
   avisoSemNome, logoLigadaParaGerar, ESPERA_MOSTRAR_MS, PASSO_SETA, PASSO_SETA_SHIFT, limitarAoExibido, incorporarConfirmados,
-  decidirLeitura, comLimite, chaveDaCaixa, TENTATIVAS_LEITURA_LOGO, LIMITE_LEITURA_LOGO_MS,
+  chaveDaCaixa, controleDeCarga, LeituraCancelada, lerComLimite, lerComRecuperacao, TENTATIVAS_LEITURA_LOGO, LIMITE_LEITURA_LOGO_MS,
 } from './logo-editor.ts';
 import type { LogoLocal } from './logo-editor.ts';
 
@@ -109,34 +109,85 @@ test('r2 P2: a base só recebe os campos confirmados depois do número já incor
   assert.deepEqual(incorporarConfirmados(base, { n: 0, posicoes: {} }, 0), base);
 });
 
-test('r3 P2: leitura só vale com a fila vazia e sem mudança durante ela; nunca mistura leituras', () => {
-  assert.equal(decidirLeitura({ pendente: false, marcaAntes: 4, marcaAgora: 4 }), 'aplicar');
-  assert.equal(decidirLeitura({ pendente: true, marcaAntes: 4, marcaAgora: 4 }), 'esperar', 'comando pendente: espera esvaziar');
-  assert.equal(decidirLeitura({ pendente: true, marcaAntes: 4, marcaAgora: 5 }), 'esperar');
-  assert.equal(decidirLeitura({ pendente: false, marcaAntes: 4, marcaAgora: 5 }), 'reler', 'confirmação chegou antes do JSON: lê de novo');
-  assert.equal(TENTATIVAS_LEITURA_LOGO, 2, 'uma nova tentativa, depois para');
+// Relógio de teste: guarda os timers e deixa o teste disparar cada um.
+function relogioFalso() {
+  let id = 0; const pendentes = new Map<number, () => void>();
+  return {
+    pendentes,
+    set: (fn: () => void) => { const i = ++id; pendentes.set(i, fn); return i; },
+    clear: (i: unknown) => { pendentes.delete(i as number); },
+    disparar() { const [i, fn] = [...pendentes][0]; pendentes.delete(i); fn(); },
+  };
+}
+const nunca = () => new Promise<never>(() => undefined);
+const tique = () => new Promise(r => setImmediate(r));
+
+test('r4 P2: base = leitura + confirmações desta aba depois do início dela; pendências não entram', () => {
+  const lida: LogoLocal = { mostrar: true, posicoes: { a: { ...p, x: 10, origem: 'reservada' } } };
+  const conf = { n: 5, mostrar: { valor: false, n: 4 }, posicoes: { a: { valor: { ...p, x: 70 }, n: 5 } } };
+  const depois = incorporarConfirmados(lida, conf, 3);
+  assert.equal(depois.posicoes.a.x, 70, 'confirmação posterior ao início vence a leitura (JSON velho)');
+  assert.equal(depois.mostrar, false);
+  assert.equal(incorporarConfirmados(lida, conf, 5), lida, 'confirmações anteriores ao início já estão na leitura');
+  assert.equal(incorporarConfirmados(lida, conf, 0).posicoes.a.x, 70, 'fila criada depois do início: tudo é posterior');
+});
+
+test('r4 P2: lerComLimite aborta o pedido no limite e no cancelamento, e limpa o relógio', async () => {
+  assert.equal(await lerComLimite(async () => 1, 50), 1, 'relógio padrão (setTimeout real)');
+  await assert.rejects(lerComLimite(() => nunca(), 5), /Tempo esgotado/);
+  const r = relogioFalso();
+  let sinal: AbortSignal | null = null;
+  const presa = lerComLimite(s => { sinal = s; return nunca(); }, 10, undefined, r);
+  assert.equal(r.pendentes.size, 1); r.disparar();
+  await assert.rejects(presa, /Tempo esgotado/);
+  assert.equal(sinal!.aborted, true, 'o fetch é abortado no limite');
+  assert.equal(await lerComLimite(async () => 7, 10, undefined, r), 7);
+  await assert.rejects(lerComLimite(async () => { throw new Error('403'); }, 10, undefined, r), /403/);
+  assert.equal(r.pendentes.size, 0, 'relógio limpo nos dois caminhos');
+  const ext = new AbortController(); let s2: AbortSignal | null = null;
+  const cancelada = lerComLimite(s => { s2 = s; return nunca(); }, 10, ext.signal, r);
+  ext.abort();
+  await assert.rejects(cancelada, LeituraCancelada);
+  assert.equal(s2!.aborted, true, 'cancelamento externo aborta o fetch');
+  assert.equal(r.pendentes.size, 0);
+  const ja = new AbortController(); ja.abort(); let chamou = false;
+  await assert.rejects(lerComLimite(async () => { chamou = true; return 1; }, 10, ja.signal, r), LeituraCancelada);
+  assert.equal(chamou, false, 'já cancelada não pede nada');
+});
+
+test('r4 P2: lerComRecuperacao tenta duas vezes, espera entre elas e para; cancelamento e 4xx não repetem', async () => {
+  const r = relogioFalso(); let pedidos = 0;
+  const falha = lerComRecuperacao(async () => { pedidos++; throw new Error('500'); }, { relogio: r, esperaMs: 1500 });
+  await tique(); assert.equal(pedidos, 1); assert.equal(r.pendentes.size, 1, 'espera antes da nova tentativa');
+  r.disparar(); await assert.rejects(falha, /500/);
+  assert.equal(pedidos, TENTATIVAS_LEITURA_LOGO, 'uma nova tentativa, depois para');
+  assert.equal(r.pendentes.size, 0);
+  pedidos = 0;
+  const ok = lerComRecuperacao(async () => { if (++pedidos === 1) throw new Error('x'); return 'bom'; }, { relogio: r });
+  await tique(); r.disparar(); assert.equal(await ok, 'bom');
+  pedidos = 0;
+  await assert.rejects(lerComRecuperacao(async () => { pedidos++; throw Object.assign(new Error('404'), { status: 404 }); }, { relogio: r, repetir: e => (e as { status: number }).status >= 500 }), /404/);
+  assert.equal(pedidos, 1, '4xx não repete');
+  const ext = new AbortController(); pedidos = 0;
+  const espera = lerComRecuperacao(async () => { pedidos++; throw new Error('500'); }, { relogio: r, externo: ext.signal });
+  await tique(); ext.abort();
+  await assert.rejects(espera, LeituraCancelada); assert.equal(pedidos, 1, 'cancelada durante a espera não pede de novo');
+  assert.equal(r.pendentes.size, 0);
   assert.ok(LIMITE_LEITURA_LOGO_MS > 0 && LIMITE_LEITURA_LOGO_MS <= 15000);
 });
 
-test('r3 P2: comLimite rejeita no tempo e limpa o relógio nos dois caminhos', async () => {
-  const ativos = new Set<number>(); let id = 0; const pendentes = new Map<number, () => void>();
-  const relogio = {
-    set: (fn: () => void) => { const i = ++id; ativos.add(i); pendentes.set(i, fn); return i; },
-    clear: (i: unknown) => { ativos.delete(i as number); pendentes.delete(i as number); },
-  };
-  // Relógio padrão (setTimeout real, sem "this" de outro objeto): resolve e rejeita no tempo.
-  assert.equal(await comLimite(Promise.resolve(1), 50), 1);
-  await assert.rejects(comLimite(new Promise<number>(() => undefined), 5), /Tempo esgotado/);
-  assert.equal(await comLimite(Promise.resolve(7), 10, relogio), 7);
-  assert.equal(ativos.size, 0);
-  await assert.rejects(comLimite(Promise.reject(new Error('403')), 10, relogio), /403/);
-  assert.equal(ativos.size, 0);
-  const nunca = comLimite(new Promise<number>(() => undefined), 10, relogio);
-  const [i, fn] = [...pendentes][0]; ativos.delete(i); fn();
-  await assert.rejects(nunca, /Tempo esgotado/);
+test('r4 P2: só a última carga vale; encerrar cancela e invalida a resposta atrasada', () => {
+  const c = controleDeCarga();
+  const a = c.iniciar(); const b = c.iniciar();
+  assert.equal(a.sinal.aborted, true, 'carga nova cancela a anterior');
+  assert.equal(c.vale(a.seq), false); assert.equal(c.vale(b.seq), true);
+  c.encerrar();
+  assert.equal(b.sinal.aborted, true, 'trocar de convite cancela a carga em voo');
+  assert.equal(c.vale(b.seq), false, 'resposta de A não vale depois da troca');
+  const d = c.iniciar(); assert.equal(c.vale(d.seq), true); assert.equal(d.sinal.aborted, false);
 });
 
-test('r3 P3: a chave da caixa muda com arte, largura e fundo, não com a posição', () => {
+test('r3 P3: a chave da caixa muda com arte, largura e fundo, não com a posição (r4: também guarda o arraste)', () => {
   const outroLugar = { ...p, x: 10, y: 90 };
   assert.equal(chaveDaCaixa(p), chaveDaCaixa(outroLugar));
   assert.notEqual(chaveDaCaixa(p), chaveDaCaixa({ ...p, largura: 24 }));

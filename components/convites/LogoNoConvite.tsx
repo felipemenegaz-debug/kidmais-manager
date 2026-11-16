@@ -3,17 +3,17 @@
 /**
  * Logo do buffet no editor (plano etapa 3 r15.1, §4, §5 e §6). Toda escrita da logo passa pela fila (`filaDaLogo`):
  * o rascunho de textos nunca leva a logo, e salvar/publicar mantêm o que está gravado. A tela mostra o gravado com as
- * intenções da fila por cima. r3 (Astra r2): uma leitura só troca a logo se nenhuma fila mudou durante ela e a fila do
- * convite está vazia; senão espera esvaziar e lê uma vez, com limite de tempo e uma nova tentativa. Nada mistura leituras.
+ * intenções da fila por cima. r4 (Astra r3; Felipe 16/11: "Cortar releitura"): a logo é lida só na carga do convite
+ * (ConviteEditor, com destino, limite e cancelamento). A base é essa leitura mais as confirmações desta aba posteriores
+ * ao início dela; não há releitura automática nem espera pela fila.
  */
 import { useCallback, useEffect, useRef, useState, type KeyboardEvent, type PointerEvent as ReactPointerEvent, type ReactNode } from 'react';
 import Link from 'next/link';
-import { filaDaLogo, marcaDasFilas, type EstadoFilaLogo, type FilaLogo, type PosicaoLogoEnvio } from '@/lib/convites/fila-logo';
+import { filaDaLogo, type EstadoFilaLogo, type FilaLogo, type PosicaoLogoEnvio } from '@/lib/convites/fila-logo';
 import { analisarArte, LIMIAR_SEM_LUGAR, pontuacaoNaPosicao, sugerirPosicaoLogo, type AnaliseArte, type PosicaoLogo } from '@/lib/convites/posicao-logo';
 import type { CaixaPct, PosicaoSobre, SobreArte } from './ConviteArte';
 import {
-  anuncioPosicao, arrastarLogo, chaveDaCaixa, comLimite, decidirLeitura, incorporarConfirmados, limitarAoExibido, AVISO_COBRINDO, AVISO_FALHA_LEITURA_LOGO,
-  ESPERA_NOVA_LEITURA_LOGO_MS, LIMITE_LEITURA_LOGO_MS, TENTATIVAS_LEITURA_LOGO, AVISO_PERMANENTE_SOBRE, AVISO_PREVIA_NAO_PUBLICADA, AVISO_SEM_LUGAR, avisoOrigem, avisoSemNome,
+  anuncioPosicao, arrastarLogo, chaveDaCaixa, incorporarConfirmados, limitarAoExibido, AVISO_COBRINDO, AVISO_PERMANENTE_SOBRE, AVISO_PREVIA_NAO_PUBLICADA, AVISO_SEM_LUGAR, avisoOrigem, avisoSemNome,
   LUGARES_LOGO, logoEfetiva, logoLigadaParaGerar, moverLogo, passoDaTecla, PASSO_SETA, TAMANHOS_LOGO, TEXTO_SITUACAO_FILA,
   type EntradaLogo, type LogoLocal,
 } from './logo-editor';
@@ -45,8 +45,8 @@ function daLeitura(d: LeituraLogo, conviteId: string): Gravada {
 }
 
 export type LogoNoConvite = {
-  /** Aplica os campos da logo de uma leitura iniciada com `marca` (`marcaDasFilas()` antes do pedido), se a regra deixar. */
-  aplicarLeitura(d: LeituraLogo, marca: number): void;
+  /** Aplica os campos da logo de uma carga; `antes` = `confirmadosDasFilas()` tirado antes do pedido. */
+  aplicarLeitura(d: LeituraLogo, antes: ReadonlyMap<string, number>): void;
   /** §4: valor de `logoLigada` para `gerar` (espera o `mostrar` até 5 s); null = não gerar. */
   logoLigada(esperando?: () => void): Promise<boolean | null>;
   esquecerArte(arteId: string): void;
@@ -60,10 +60,10 @@ export type LogoNoConvite = {
 /**
  * `ativo`: editor do buffet, fora do laboratório, com convite carregado. `conteudo` traz só o que a regra de exibição usa.
  */
-export function useLogoNoConvite({ ativo, conviteId, logoDataUrl, publicado, conteudo, arteUrl, ler, busy, ui }: {
+export function useLogoNoConvite({ ativo, conviteId, logoDataUrl, publicado, conteudo, arteUrl, busy, ui }: {
   ativo: boolean; conviteId?: string; logoDataUrl: string | null; publicado: boolean;
   conteudo: { arteId?: string | null; visual?: { modo: 'modelo' | 'completa' } | null } | null; arteUrl?: string;
-  ler: () => Promise<LeituraLogo>; busy: boolean; ui: Record<string, string>;
+  busy: boolean; ui: Record<string, string>;
 }): LogoNoConvite {
   // r2 (Astra r1, P1): o endereço da fila nasce do id do convite dentro de filaDaLogo.
   const fila: FilaLogo | null = ativo && conviteId ? filaDaLogo(conviteId) : null;
@@ -76,20 +76,15 @@ export function useLogoNoConvite({ ativo, conviteId, logoDataUrl, publicado, con
   const [cobrindo, setCobrindo] = useState(false);
   const [falhaSugestao, setFalhaSugestao] = useState('');
   const [avisoDesligar, setAvisoDesligar] = useState<string | null>(null);
-  const [falhaLeitura, setFalhaLeitura] = useState(false);
   // r3 (Astra r2, P3): caixa exibida, registrada pela camada depois do commit (nunca durante o render).
   const [caixaExibida, setCaixaExibida] = useState<{ chave: string; caixa: CaixaPct } | null>(null);
   const analises = useRef(new Map<string, AnaliseArte>()), proporcaoLogo = useRef<number | null>(null);
-  const inicioArraste = useRef<{ pos: PosicaoLogoEnvio; px: number; py: number; w: number; h: number; id: number } | null>(null);
+  // r4 (Astra r3, P3): o arraste guarda a chave da geometria do início; se a entrada mudar de largura, fundo ou arte, cancela.
+  const inicioArraste = useRef<{ pos: PosicaoLogoEnvio; chave: string; px: number; py: number; w: number; h: number; id: number } | null>(null);
   // Base = última leitura aceita (deste convite) + só o que a fila confirmou depois dela (número da confirmação).
   const confirmacaoIncorporada = useRef<{ conviteId: string; n: number } | null>(null);
-  // r3: leitura em curso (geração), espera da fila esvaziar, nova tentativa agendada e tentativas usadas.
-  const lendo = useRef(false), geracao = useRef(0), esperaDrenar = useRef(false), tentativas = useRef(0);
-  const relogio = useRef<ReturnType<typeof setTimeout> | null>(null), agendarRef = useRef<(ms: number) => void>(() => undefined);
   // r2 (Astra r1, P2): versão por arte das intenções desta tela; a sugestão só vale se nada mudou na arte enquanto lia as imagens.
   const versaoArte = useRef(new Map<string, number>());
-  const lerRef = useRef(ler); useEffect(() => { lerRef.current = ler; });
-  const relerRef = useRef<() => void>(() => undefined);
 
   useEffect(() => {
     if (!fila) return;
@@ -102,76 +97,26 @@ export function useLogoNoConvite({ ativo, conviteId, logoDataUrl, publicado, con
         confirmacaoIncorporada.current = { conviteId: base.conviteId, n: e.confirmados.n };
         setGravada(g => g.conviteId === base.conviteId ? incorporarConfirmados(g, e.confirmados, desde) : g);
       }
-      if (esperaDrenar.current && !e.pendente) { esperaDrenar.current = false; relerRef.current(); }
     };
     aplicar(fila.estado());
     const sair = fila.assinar(aplicar);
-    return () => {
-      sair(); fila.drenar();
-      // Desmontar ou trocar de convite: resposta atrasada é ignorada e nenhum relógio sobra.
-      geracao.current += 1; lendo.current = false; esperaDrenar.current = false; tentativas.current = 0;
-      if (relogio.current !== null) { clearTimeout(relogio.current); relogio.current = null; }
-    };
+    return () => { sair(); fila.drenar(); };
   }, [fila, conviteId]);
 
-  /** 'aplicada' | 'descartada' (a regra agendou nova leitura ou espera) | 'sem-logo' (resposta sem os campos da logo). */
-  const aplicarLeitura = useCallback((d: LeituraLogo, marca: number): 'aplicada' | 'descartada' | 'sem-logo' => {
-    if (!d.logoBuffet || d.laboratorioLocal || !d.id) return 'sem-logo';
-    const f = filaDaLogo(d.id);
-    const decisao = decidirLeitura({ pendente: f.temPendencia(), marcaAntes: marca, marcaAgora: marcaDasFilas() });
-    if (decisao === 'aplicar') {
-      confirmacaoIncorporada.current = { conviteId: d.id, n: f.estado().confirmados.n };
-      esperaDrenar.current = false; tentativas.current = 0;
-      setGravada(daLeitura(d, d.id)); setFalhaLeitura(false);
-      return 'aplicada';
-    }
-    // O id publicado não é campo gravado pela fila: atualiza a base já aceita.
-    const id = d.id;
-    setGravada(g => g.conviteId === id ? { ...g, publicadoArteId: d.publicadoArteId ?? null } : g);
-    if (decisao === 'esperar') esperaDrenar.current = true;
-    else agendarRef.current(0);
-    return 'descartada';
+  // A carga vem do ConviteEditor (só a última vale). Base = leitura + confirmações desta aba depois do início dela.
+  const aplicarLeitura = useCallback((d: LeituraLogo, antes: ReadonlyMap<string, number>) => {
+    if (!d.logoBuffet || d.laboratorioLocal || !d.id) return;
+    const conf = filaDaLogo(d.id).estado().confirmados;
+    confirmacaoIncorporada.current = { conviteId: d.id, n: conf.n };
+    setGravada(incorporarConfirmados(daLeitura(d, d.id), conf, antes.get(d.id) ?? 0));
   }, []);
-
-  // §5: ao voltar à aba, relê só os campos da logo (nunca o conteúdo em edição); também reconcilia depois da drenagem.
-  const reler = useCallback(() => {
-    if (!fila || lendo.current) return;
-    if (relogio.current !== null) { clearTimeout(relogio.current); relogio.current = null; }
-    lendo.current = true;
-    const minha = ++geracao.current, marca = marcaDasFilas();
-    const falhou = () => {
-      tentativas.current += 1;
-      if (tentativas.current < TENTATIVAS_LEITURA_LOGO) agendarRef.current(ESPERA_NOVA_LEITURA_LOGO_MS);
-      else { tentativas.current = 0; setFalhaLeitura(true); }
-    };
-    comLimite(lerRef.current(), LIMITE_LEITURA_LOGO_MS).then(d => {
-      if (minha !== geracao.current) return;
-      lendo.current = false;
-      if (aplicarLeitura(d, marca) === 'sem-logo') falhou();
-    }, () => {
-      if (minha !== geracao.current) return;
-      lendo.current = false; falhou();
-    });
-  }, [fila, aplicarLeitura]);
-  useEffect(() => {
-    agendarRef.current = (ms: number) => {
-      if (relogio.current !== null) clearTimeout(relogio.current);
-      relogio.current = setTimeout(() => { relogio.current = null; relerRef.current(); }, ms);
-    };
-  }, []);
-  useEffect(() => { relerRef.current = reler; }, [reler]);
-  useEffect(() => {
-    if (!fila) return;
-    const aoVoltar = () => { if (document.visibilityState === 'visible') reler(); };
-    window.addEventListener('focus', aoVoltar); document.addEventListener('visibilitychange', aoVoltar);
-    return () => { window.removeEventListener('focus', aoVoltar); document.removeEventListener('visibilitychange', aoVoltar); };
-  }, [fila, reler]);
 
   // Até a primeira leitura aceita deste convite, a base é vazia e os controles ficam parados (fila drenando ao reabrir).
   const carregada = !!conviteId && gravada.conviteId === conviteId;
   const carregadaRef = useRef(carregada); useEffect(() => { carregadaRef.current = carregada; });
   const efetiva = logoEfetiva(carregada ? gravada : SEM_LOGO, estadoFila);
   const efetivaRef = useRef(efetiva); useEffect(() => { efetivaRef.current = efetiva; });
+  const arteRef = useRef<string | null>(null); useEffect(() => { arteRef.current = conteudo?.arteId ?? null; });
   const arteId = conteudo?.arteId ?? null;
   const completa = conteudo?.visual?.modo === 'completa' && !!arteId && !!arteUrl;
   const entrada: EntradaLogo | null = arteId ? efetiva.posicoes[arteId] ?? null : null;
@@ -179,7 +124,8 @@ export function useLogoNoConvite({ ativo, conviteId, logoDataUrl, publicado, con
   const sobreValendo = ativo && temLogo && efetiva.mostrar && completa && entrada?.modo === 'sobre';
   const superada = estadoFila?.situacao === 'superada';
   const bloqueado = busy || superada || !carregada;
-  const posicaoMostrada = sobreValendo && entrada ? (arraste && arraste.arteId === entrada.arteId ? arraste : entrada) : null;
+  // r4 (Astra r3, P3): o arraste só aparece enquanto tem a geometria (arte, largura, fundo) da entrada atual.
+  const posicaoMostrada = sobreValendo && entrada ? (arraste && chaveDaCaixa(arraste) === chaveDaCaixa(entrada) ? arraste : entrada) : null;
 
   // beforeunload: intenção na fila ou arraste em curso (§5).
   useEffect(() => {
@@ -243,12 +189,18 @@ export function useLogoNoConvite({ ativo, conviteId, logoDataUrl, publicado, con
     const camada = e.currentTarget.parentElement?.getBoundingClientRect();
     if (!camada) return;
     e.currentTarget.setPointerCapture(e.pointerId);
-    inicioArraste.current = { pos: limitarAoExibido(entrada, caixaDe(entrada)), px: e.clientX, py: e.clientY, w: camada.width, h: camada.height, id: e.pointerId };
+    inicioArraste.current = { pos: limitarAoExibido(entrada, caixaDe(entrada)), chave: chaveDaCaixa(entrada), px: e.clientX, py: e.clientY, w: camada.width, h: camada.height, id: e.pointerId };
     setArraste(inicioArraste.current.pos); setCobrindo(false);
     if (arteId && arteUrl) void prepararAnalise(arteId, arteUrl);
   }
+  /** r4 (Astra r3, P3): a entrada atual ainda tem a geometria do início do arraste? */
+  function mesmaGeometria(chave: string) {
+    const id = arteRef.current, atual = id ? efetivaRef.current.posicoes[id] : undefined;
+    return !!atual && atual.modo === 'sobre' && chaveDaCaixa(atual) === chave;
+  }
   function movimento(e: ReactPointerEvent<HTMLButtonElement>) {
     const i = inicioArraste.current; if (!i || i.id !== e.pointerId) return;
+    if (!mesmaGeometria(i.chave)) { cancelar(); return; }
     const p = limitarAoExibido(arrastarLogo(i.pos, e.clientX - i.px, e.clientY - i.py, i.w, i.h), caixaDe(i.pos));
     setArraste(p);
     const analise = arteId ? analises.current.get(arteId) : undefined;
@@ -256,6 +208,7 @@ export function useLogoNoConvite({ ativo, conviteId, logoDataUrl, publicado, con
   }
   function fim(e: ReactPointerEvent<HTMLButtonElement>) {
     const i = inicioArraste.current; if (!i || i.id !== e.pointerId) return;
+    if (!mesmaGeometria(i.chave)) { cancelar(); return; }
     const p = limitarAoExibido(arrastarLogo(i.pos, e.clientX - i.px, e.clientY - i.py, i.w, i.h), caixaDe(i.pos));
     inicioArraste.current = null; setArraste(null);
     if (p.x !== i.pos.x || p.y !== i.pos.y) enviar(p);
@@ -332,8 +285,7 @@ export function useLogoNoConvite({ ativo, conviteId, logoDataUrl, publicado, con
       </fieldset>}
       {falhaSugestao && <p role="alert"><small>{falhaSugestao}</small></p>}
     </>}
-    {ativo && !carregada && !falhaLeitura && <p role="status" data-logo-conferindo><small>Conferindo a logo gravada…</small></p>}
-    {falhaLeitura && <p role="status" data-falha-leitura-logo><small>{AVISO_FALHA_LEITURA_LOGO} <button type="button" className={ui.linkBotao} onClick={() => { setFalhaLeitura(false); reler(); }}>Ler de novo</button></small></p>}
+    {ativo && !carregada && <p role="status" data-logo-conferindo><small>Conferindo a logo gravada…</small></p>}
     <p className={styles.somenteLeitor} aria-live="polite" data-anuncio-logo>{anuncio}</p>
     <p aria-live="polite" data-situacao-logo={situacao ?? 'ocioso'}>{situacao && <small>
       {TEXTO_SITUACAO_FILA[situacao]}

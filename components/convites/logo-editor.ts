@@ -59,6 +59,9 @@ export function limitarAoExibido(p: PosicaoLogoEnvio, caixa: { width: number; he
 /**
  * r2 (Astra r1, P2): a base gravada só recebe o que o servidor confirmou depois de `desde` (número da confirmação já
  * incorporada). Intenção descartada pela fila nunca entra na base.
+ * r4 (Astra r3; Felipe 16/11: "Cortar releitura"): a logo é lida só na carga do convite, sem releitura automática. A base
+ * é a leitura mais as confirmações desta aba posteriores ao início dela (`desde` = número confirmado da fila do convite
+ * no início; 0 se a fila ainda não existia). Pendências ficam por cima na tela (`logoEfetiva`); nada espera a fila.
  */
 export function incorporarConfirmados<T extends LogoLocal>(base: T, conf: ConfirmadosLogo, desde: number): T {
   if (conf.n <= desde) return base;
@@ -68,35 +71,73 @@ export function incorporarConfirmados<T extends LogoLocal>(base: T, conf: Confir
   return { ...base, mostrar, posicoes };
 }
 
-/**
- * r3 (Astra r2, P2): uma leitura só troca a logo da tela se nenhuma fila do documento mudou entre o início e a chegada
- * (`marcaDasFilas`) e a fila do convite está vazia. Com comando pendente, espera a fila esvaziar e lê uma vez; se a marca
- * mudou com a fila vazia, lê de novo. Nunca mistura duas leituras.
- */
-export type DecisaoLeitura = 'aplicar' | 'esperar' | 'reler';
-export function decidirLeitura(o: { pendente: boolean; marcaAntes: number; marcaAgora: number }): DecisaoLeitura {
-  if (o.pendente) return 'esperar';
-  return o.marcaAgora === o.marcaAntes ? 'aplicar' : 'reler';
-}
-
-/** r3: limite da leitura da logo; uma nova tentativa depois da espera; na segunda falha, para e mostra o aviso. */
+/** r4: limite de cada leitura, uma nova tentativa depois da espera; na segunda falha, para e mostra o aviso. */
 export const LIMITE_LEITURA_LOGO_MS = 10000;
 export const ESPERA_NOVA_LEITURA_LOGO_MS = 1500;
 export const TENTATIVAS_LEITURA_LOGO = 2;
 export const AVISO_FALHA_LEITURA_LOGO = 'Não foi possível conferir a logo gravada.';
+export const FALHA_CARGA_CONVITE = 'Não foi possível abrir o convite agora. Confira a conexão e tente de novo.';
 
 export type RelogioLimite = { set(fn: () => void, ms: number): unknown; clear(t: unknown): void };
 // setTimeout chamado como método de outro objeto dá "Illegal invocation" no navegador: sempre por função própria.
 const RELOGIO_PADRAO: RelogioLimite = { set: (fn, ms) => setTimeout(fn, ms), clear: t => clearTimeout(t as ReturnType<typeof setTimeout>) };
-/** Rejeita se `p` não terminar em `ms`; o relógio é sempre limpo e a rejeição de `p` sempre tem quem a trate. */
-export function comLimite<T>(p: Promise<T>, ms: number, relogio: RelogioLimite = RELOGIO_PADRAO): Promise<T> {
+
+/** Leitura cancelada (destino mudou, leitura mais nova ou editor fechado): não é falha, não repete e não avisa. */
+export class LeituraCancelada extends Error { constructor() { super('Leitura cancelada.'); this.name = 'LeituraCancelada'; } }
+
+/**
+ * r4 (Astra r3, P2): uma leitura com limite que de fato para o pedido. `fazer` recebe o sinal e o repassa ao fetch;
+ * no limite ou no cancelamento externo, o pedido é abortado, o relógio é limpo e a promessa rejeita na hora.
+ */
+export function lerComLimite<T>(fazer: (sinal: AbortSignal) => Promise<T>, ms: number, externo?: AbortSignal, relogio: RelogioLimite = RELOGIO_PADRAO): Promise<T> {
   return new Promise<T>((ok, falha) => {
-    const t = relogio.set(() => falha(new Error('Tempo esgotado.')), ms);
-    p.then(v => { relogio.clear(t); ok(v); }, e => { relogio.clear(t); falha(e); });
+    if (externo?.aborted) { falha(new LeituraCancelada()); return; }
+    const ctrl = new AbortController();
+    let fim = false;
+    const sair = (f: () => void) => { if (fim) return; fim = true; relogio.clear(t); externo?.removeEventListener('abort', cancelar); f(); };
+    const cancelar = () => sair(() => { ctrl.abort(); falha(new LeituraCancelada()); });
+    const t = relogio.set(() => sair(() => { ctrl.abort(); falha(new Error('Tempo esgotado.')); }), ms);
+    externo?.addEventListener('abort', cancelar, { once: true });
+    let p: Promise<T>;
+    try { p = fazer(ctrl.signal); } catch (e) { sair(() => falha(e)); return; }
+    p.then(v => sair(() => ok(v)), e => sair(() => falha(e)));
   });
 }
 
-/** r3 (Astra r2, P3): chave da caixa exibida; ações de posição só valem com a caixa desta arte, largura e fundo. */
+/** r4: até `tentativas` leituras com limite, esperando `esperaMs` entre elas; cancelamento não repete. */
+export async function lerComRecuperacao<T>(fazer: (sinal: AbortSignal) => Promise<T>, o: { externo?: AbortSignal; relogio?: RelogioLimite; limiteMs?: number; esperaMs?: number; tentativas?: number; repetir?: (e: unknown) => boolean } = {}): Promise<T> {
+  const relogio = o.relogio ?? RELOGIO_PADRAO, tentativas = o.tentativas ?? TENTATIVAS_LEITURA_LOGO;
+  for (let i = 1; ; i++) {
+    try { return await lerComLimite(fazer, o.limiteMs ?? LIMITE_LEITURA_LOGO_MS, o.externo, relogio); }
+    catch (e) {
+      if (e instanceof LeituraCancelada || i >= tentativas || (o.repetir && !o.repetir(e))) throw e;
+      await new Promise<void>((ok, falha) => {
+        if (o.externo?.aborted) { falha(new LeituraCancelada()); return; }
+        const cancelar = () => { relogio.clear(t); falha(new LeituraCancelada()); };
+        const t = relogio.set(() => { o.externo?.removeEventListener('abort', cancelar); ok(); }, o.esperaMs ?? ESPERA_NOVA_LEITURA_LOGO_MS);
+        o.externo?.addEventListener('abort', cancelar, { once: true });
+      });
+    }
+  }
+}
+
+/**
+ * r4 (Astra r3, P2): ordem das cargas do editor. Cada carga nova cancela a anterior; só a última vale. `encerrar`
+ * (troca de convite ou saída do editor) cancela a atual e invalida as respostas que ainda chegarem.
+ */
+export function controleDeCarga() {
+  let seq = 0, atual: AbortController | null = null;
+  return {
+    iniciar() { atual?.abort(); atual = new AbortController(); return { seq: ++seq, sinal: atual.signal }; },
+    vale(n: number) { return n === seq; },
+    encerrar() { seq++; atual?.abort(); atual = null; },
+  };
+}
+
+/**
+ * r3 (Astra r2, P3): chave da caixa exibida; ações de posição só valem com a caixa desta arte, largura e fundo.
+ * r4 (Astra r3, P3): um arraste só termina se a chave do início continua a da entrada atual.
+ */
 export const chaveDaCaixa = (p: { arteId: string; largura: number; fundo: boolean }) => `${p.arteId}|${p.largura}|${p.fundo ? 1 : 0}`;
 
 export const anuncioPosicao =(p: { x: number; y: number }) => `Logo a ${Math.round(p.x)}% da esquerda e ${Math.round(p.y)}% do topo.`;

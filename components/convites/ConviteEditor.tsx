@@ -24,8 +24,8 @@ import { opcoesComposicao } from './composicao';
 import { conferirPrompt, alinharPrompt } from '@/lib/convites/conferencia-prompt';
 import VincularFesta from './VincularFesta';
 import { useLogoNoConvite, type LogoNoConvite } from './LogoNoConvite';
-import { marcaDasFilas } from '@/lib/convites/fila-logo';
-import { TEXTO_ESPERANDO_LOGO, TEXTO_LOGO_NAO_SALVA } from './logo-editor';
+import { confirmadosDasFilas } from '@/lib/convites/fila-logo';
+import { AVISO_FALHA_LEITURA_LOGO, controleDeCarga, FALHA_CARGA_CONVITE, LeituraCancelada, lerComRecuperacao, TEXTO_ESPERANDO_LOGO, TEXTO_LOGO_NAO_SALVA } from './logo-editor';
 type Arte = { id: string; url: string; origem: string; completo?: boolean };
 // Situação simples de um pedido de geração; pendências técnicas ficam com o operador da plataforma.
 type SituacaoGeracao = { chave: string; estado: 'EM_ANDAMENTO' | 'CONCLUIDA' | 'VERIFICANDO' | 'NAO_INICIADA' | 'ENCERRADA' | 'DEVOLVIDA'; arteId?: string | null; completo?: boolean; acompanhando?: boolean };
@@ -58,6 +58,8 @@ export default function ConviteEditor({ festaId, conviteId }: { festaId?: string
   // Convites completos (textos na imagem) abrem em modo "completa"; modos já salvos nunca são rebaixados ao carregar.
   const conteudo = conteudoBase ? aplicarModoArteLocal(conteudoBase, dados?.artes.find(a => a.id === conteudoBase.arteId), !!dados?.laboratorioLocal) : null;
   const [carregando, setCarregando] = useState(true), [busy, setBusy] = useState(false), [erro, setErro] = useState(''), [aviso, setAviso] = useState('');
+  // r4 (Astra r3, P2): a primeira carga falhou (tempo, servidor ou resposta sem a logo): aviso com "Tentar de novo".
+  const [falhaCarga, setFalhaCarga] = useState('');
   const [prompt, setPrompt] = useState(''), [referencias, setReferencias] = useState<string[]>([]), [linkCliente, setLinkCliente] = useState('');
   const [preparado, setPreparado] = useState<{ pedido: string; tema: string; promptArte: string } | null>(null);
   const [etapaLocal, setEtapaLocal] = useState(''), [jobLocal, setJobLocal] = useState('');
@@ -110,33 +112,58 @@ export default function ConviteEditor({ festaId, conviteId }: { festaId?: string
   useEffect(() => { if (arteExcluir) dialogo.current?.showModal(); else dialogo.current?.close(); }, [arteExcluir]);
   const token = useRef(''), pedido = useRef<{ assinatura: string; chave: string; seed?: number } | null>(null);
   const endpoint = admin ? `/api/admin/convites?${conviteId ? `conviteId=${conviteId}` : `festaId=${festaId}`}` : '/api/convites/cliente';
-  const api = useCallback(async (body?: object, consulta?: string) => {
-    const init: RequestInit = { method: body ? 'POST' : 'GET', headers: { 'Content-Type': 'application/json', ...(!admin ? { Authorization: `Bearer ${token.current}` } : {}) }, ...(body ? { body: JSON.stringify(body) } : {}), cache: 'no-store' };
+  const api = useCallback(async (body?: object, consulta?: string, sinal?: AbortSignal) => {
+    const init: RequestInit = { ...(sinal ? { signal: sinal } : {}), method: body ? 'POST' : 'GET', headers: { 'Content-Type': 'application/json', ...(!admin ? { Authorization: `Bearer ${token.current}` } : {}) }, ...(body ? { body: JSON.stringify(body) } : {}), cache: 'no-store' };
     const url = consulta ? `${endpoint}${admin ? '&' : '?'}${consulta}` : endpoint;
     const r = await (admin ? adminFetch(url, init) : fetch(url, init));
     const j = await r.json(); if (!r.ok) throw Object.assign(new Error(j.erro || 'Não foi possível concluir.'), { status: r.status }); return j.data;
   }, [admin, endpoint]);
   // Logo do buffet (etapa 3): ref para a leitura não depender da fila, que só existe depois da primeira carga.
   const logoRef = useRef<LogoNoConvite | null>(null);
+  // r4 (Astra r3, P2): cada carga cancela a anterior e só a última vale; trocar de convite ou sair do editor encerra.
+  // Leitura com limite (o fetch é abortado), uma nova tentativa e a logo conferida antes de ativar o painel.
+  const carga = useRef(controleDeCarga());
   const carregar = useCallback(async (criar = false, preservar = false) => {
-    // r3 (Astra r2, P2): a marca não depende da fila deste convite, que só existe depois da primeira carga.
-    const marca = marcaDasFilas();
-    const d = await api(criar ? { acao: 'criar' } : undefined) as Dados;
-    logoRef.current?.aplicarLeitura(d, marca);
+    const { seq, sinal } = carga.current.iniciar();
+    // Foto das confirmações antes do pedido: as que chegarem depois entram por cima da leitura.
+    const antes = confirmadosDasFilas();
+    let d: Dados;
+    try {
+      // Criar é escrita: sem limite nem repetição (o servidor pode já ter criado); as leituras têm os dois.
+      d = criar ? await api({ acao: 'criar' }) as Dados : await lerComRecuperacao(async s => {
+        const lido = await api(undefined, undefined, s) as Dados;
+        if (admin && lido?.id && !lido.laboratorioLocal && !lido.logoBuffet) throw new Error(AVISO_FALHA_LEITURA_LOGO);
+        return lido;
+      }, { externo: sinal, repetir: e => { const st = (e as { status?: number }).status; return !(st && st >= 400 && st < 500); } });
+    } catch (e) {
+      if (e instanceof LeituraCancelada || !carga.current.vale(seq)) return;
+      throw e;
+    }
+    if (!carga.current.vale(seq)) return;
+    logoRef.current?.aplicarLeitura(d, antes);
     setDados(d); if (!preservar) setConteudo(d.conteudo); setCotaFesta(d.cotas.festa); setCotaCliente(d.cotas.cliente);
-  }, [api, setCotaFesta, setCotaCliente]);
+  }, [admin, api, setCotaFesta, setCotaCliente]);
+  const primeiraCarga = useCallback(async (ativo: () => boolean) => {
+    try { await carregar(); setFalhaCarga(''); }
+    catch (e) {
+      if (!ativo()) return;
+      // 404 = convite ainda não criado: segue o painel de criação; o resto é falha da carga.
+      if ((e as { status?: number }).status === 404) setErro((e as Error).message); else setFalhaCarga(FALHA_CARGA_CONVITE);
+    } finally { if (ativo()) setCarregando(false); }
+  }, [carregar]);
   useEffect(() => {
     let ativo = true;
+    const controle = carga.current;
     token.current = window.location.hash.slice(1);
     // Token só no fragmento e memória desta aba; nunca em query string ou armazenamento persistente.
-    void Promise.resolve().then(async () => { if (ativo) { try { await carregar(); } catch (e) { if (ativo) setErro((e as Error).message); } finally { if (ativo) setCarregando(false); } } });
-    return () => { ativo = false; };
-  }, [carregar]);
+    void Promise.resolve().then(() => { if (ativo) void primeiraCarga(() => ativo); });
+    return () => { ativo = false; controle.encerrar(); };
+  }, [primeiraCarga]);
   const alterado = !!dados && !!conteudo && JSON.stringify(semCamposLogo(conteudo)) !== JSON.stringify(semCamposLogo(dados.conteudo));
   const logo = useLogoNoConvite({
     ativo: admin && !!dados?.logoBuffet && !dados.laboratorioLocal && !!dados.id, conviteId: dados?.id,
     logoDataUrl: dados?.logoBuffet?.logoDataUrl ?? null, publicado: !!dados?.publicado, conteudo, arteUrl: dados?.artes.find(a => a.id === conteudo?.arteId)?.url,
-    ler: () => api() as Promise<Dados>, busy, ui,
+    busy, ui,
   });
   useEffect(() => { logoRef.current = logo; });
   // Convite completo (arte + textos numa chamada): no produto, quando o servidor tem o provedor configurado.
@@ -416,7 +443,7 @@ export default function ConviteEditor({ festaId, conviteId }: { festaId?: string
     <header className={ui.cabecalho}><div><p className={ui.sobretitulo}>{admin ? 'FESTAS · CONVITE VIRTUAL' : 'CONVITES'}</p><h1>{admin ? (dados?.festaId === null ? 'Convite avulso' : 'Convite da festa') : <>Uma festa começa<br />com um convite.</>}</h1><p>{admin ? 'Personalize o convite, compartilhe com o cliente e acompanhe as confirmações.' : 'Escolha um tema, dê seu toque e compartilhe esse momento.'}</p></div>{admin && <div className={ui.acoesCabecalho}>{!dados?.laboratorioLocal && <button type="button" className={ui.primario} disabled={busy || !dados} onClick={abrirIA}>Crie uma arte com IA</button>}<Link className={ui.voltar} href={festaId ? `/admin/festas/${festaId}` : "/admin/convites"}>{festaId ? "← Voltar à festa" : "← Meus convites"}</Link></div>}</header>
     {admin && conviteId && dados?.festaId === null && <VincularFesta conviteId={conviteId} revisao={dados.revisao} bloqueado={busy || alterado || !!dados.geracaoEmAndamento || !!dados.geracaoIncerta} onVinculado={async () => { await carregar(); setAviso("Festa vinculada. Confira os dados e publique o convite."); }} />}
     {erro && <p className={ui.erro} role="alert">{erro}</p>}{aviso && <p className={ui.aviso} role="status">{aviso}</p>}
-    {carregando ? <p>Preparando seu convite…</p> : !dados || !conteudo ? <section className={ui.painel}><h2>Seu convite começa aqui</h2><p>Modelos prontos e arte própria não consomem créditos de IA.</p>{admin && <button disabled={busy} className={ui.primario} onClick={() => { setBusy(true); void carregar(true).then(() => setErro('')).catch(e => setErro(e.message)).finally(() => setBusy(false)); }}>Criar convite da festa</button>}</section> : <>
+    {carregando ? <p>Preparando seu convite…</p> : falhaCarga && !dados ? <section className={ui.painel} data-falha-carga><p className={ui.erro} role="alert">{falhaCarga}</p><button type="button" className={ui.primario} onClick={() => { setFalhaCarga(''); setCarregando(true); void primeiraCarga(() => true); }}>Tentar de novo</button></section> : !dados || !conteudo ? <section className={ui.painel}><h2>Seu convite começa aqui</h2><p>Modelos prontos e arte própria não consomem créditos de IA.</p>{admin && <button disabled={busy} className={ui.primario} onClick={() => { setBusy(true); void carregar(true).then(() => setErro('')).catch(e => setErro(e.message)).finally(() => setBusy(false)); }}>Criar convite da festa</button>}</section> : <>
       <div className={ui.barra}><span>{dados.publicado ? '● Publicado' : '○ Rascunho'}{alterado ? ' · Alterações não salvas' : ''}</span><span>{dados.laboratorioLocal ? 'Teste local' : dados.creditos?.motor === 'CREDITOS'
         ? <><strong>{dados.disponiveis}</strong> {comUnidade(dados.disponiveis, 'geração restante', 'gerações restantes')} neste convite · <strong>{dados.creditos.disponivel}</strong> {creditosDisponiveisDaEmpresa(dados.creditos.disponivel)}</>
         : <><strong>{dados.disponiveis}</strong> {comUnidade(dados.disponiveis, 'crédito de imagem disponível', 'créditos de imagem disponíveis')}</>}</span></div>

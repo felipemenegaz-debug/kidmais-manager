@@ -944,19 +944,21 @@ test('transporte real: adminFetch com POST, keepalive e os dois cabeçalhos; ses
         const cache = new Map();
         carregarModulo('lib/http/contexto-empresa-cliente.ts', {}, cache);
         const M = carregarModulo('lib/convites/fila-logo.ts', {}, cache) as unknown as typeof F;
-        assert.equal(M.marcaDasFilas(), 0, 'r3: sem fila, marca zero');
+        assert.deepEqual([...M.confirmadosDasFilas()], [], 'r4: sem fila, foto vazia');
         const fila = M.filaDaLogo('conv');
         assert.equal(M.filaDaLogo('conv'), fila, 'uma instância por convite no documento');
         assert.equal(posts.length, 0);
-        assert.equal(M.marcaDasFilas(), 0, 'r3: fila nova não muda a marca');
+        assert.deepEqual([...M.confirmadosDasFilas()], [['conv', 0]], 'r4: fila nova entra com 0 confirmado');
         fila.posicao(P('A', 10));
-        const mIntencao = M.marcaDasFilas();
-        assert.ok(mIntencao > 0, 'r3: a intenção sobe a marca');
+        const fotoIntencao = M.confirmadosDasFilas();
+        assert.equal(fotoIntencao.get('conv'), 0, 'r4: intenção pendente não é confirmação');
         for (let i = 0; i < 20 && fila.temPendencia(); i++) await esvaziar();
-        const mConfirmada = M.marcaDasFilas();
-        assert.ok(mConfirmada > mIntencao, 'r3: a confirmação sobe a marca (leitura em voo é descartada)');
+        const nConf = M.confirmadosDasFilas().get('conv')!;
+        assert.ok(nConf > 0, 'r4: a confirmação entra na foto');
+        assert.equal(nConf, fila.estado().confirmados.n);
+        assert.equal(fotoIntencao.get('conv'), 0, 'r4: a foto tirada antes não muda');
         M.filaDaLogo('outro');
-        assert.equal(M.marcaDasFilas(), mConfirmada, 'r3: outra fila nova não muda a marca');
+        assert.deepEqual([...M.confirmadosDasFilas()], [['conv', nConf], ['outro', 0]], 'r4: uma entrada por fila, sem somar');
         assert.deepEqual(posts.map((p) => p.corpo.acao), ['logo_sessao', 'logo_buffet']);
         for (const { init } of posts) {
             const h = new Headers(init.headers);

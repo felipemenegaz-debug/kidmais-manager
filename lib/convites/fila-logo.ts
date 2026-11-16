@@ -435,13 +435,11 @@ export const endpointDaLogo = (conviteId: string) => `/api/admin/convites?convit
 
 const instancias = new Map<string, FilaLogo>();
 /**
- * r3 (Astra r2, P2): marca de todas as filas deste documento (soma das épocas; só cresce, porque a época só sobe e
- * nenhuma fila sai do mapa). Não depende do id do convite, então vale antes da primeira leitura.
+ * r4 (Astra r3, P2): foto do número confirmado de cada fila deste documento, tirada antes de uma leitura. Não depende
+ * do id do convite (que só se sabe na resposta); fila ausente na foto = criada depois do início, então tudo dela é novo.
  */
-export function marcaDasFilas(): number {
-    let soma = 0;
-    for (const f of instancias.values()) soma += f.epoca();
-    return soma;
+export function confirmadosDasFilas(): ReadonlyMap<string, number> {
+    return new Map([...instancias].map(([id, f]) => [id, f.estado().confirmados.n]));
 }
 /** Uma instância por convite neste documento; sobrevive à desmontagem do editor numa navegação interna. */
 export function filaDaLogo(conviteId: string): FilaLogo {
