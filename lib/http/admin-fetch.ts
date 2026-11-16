@@ -526,12 +526,14 @@ export type ResultadoReautenticacao = { ok: true } | { ok: false; erro: string; 
 export async function reautenticarSessao(senha: string): Promise<ResultadoReautenticacao> {
     const confirmada = travarNoFim(await confirmarSessao());
     if (enderecoFinal()) return { ok: false, erro: ENDERECO_MUDOU_NADA_ENVIADO, senhaIncorreta: false };
-    if (confirmada.estado === 'falha' && !fimConfirmado(confirmada))
+    // 2ª revisão do merge (c72b9251, P2): resposta que cruzou uma troca desta página (obsoleta, 401 antigo, ou válida/
+    // encerrada cuja marca envelheceu antes deste ponto) não decide nada: nem "sessão terminou", nem contexto, nem envio.
+    if ((confirmada.estado === 'falha' && !fimConfirmado(confirmada)) || cruzouTroca(confirmada))
         return { ok: false, erro: 'Não foi possível confirmar a sessão. Tente novamente.', senhaIncorreta: false };
     const inicial: InfoSessao = confirmada.estado === 'valida' ? confirmada.info : {};
     if (!inicial.data?.usuarioId) {
-        // Fim da sessão confirmado (ou resposta obsoleta de uma troca em curso, que a própria troca descarta). Com o fim
-        // vigente, a busca guardada na aba já saiu em travarNoFim; a tela segue como está, com o aviso.
+        // Fim da sessão vigente (a resposta que cruzou uma troca já saiu acima): a busca guardada na aba já saiu em
+        // travarNoFim; a tela segue como está, com o aviso.
         return { ok: false, erro: 'Sua sessão terminou. Entre novamente.', senhaIncorreta: false };
     }
     if (!registrarContextoEmpresa(inicial.data.sessaoId!, empresaDe(inicial)))
@@ -570,7 +572,9 @@ export async function confirmarRenovacao(renovacao: { anterior: string; atual: s
     const confirmada = travarNoFim(await confirmarSessao());
     // Confirmação indisponível não prova divergência: a decisão da troca de host vem antes do descarte, sem repetir o POST.
     // A renovação pendente é cancelada: se a sessão voltar diferente, ela cai na regra normal de contexto mudou.
-    let manter = enderecoFinal();
+    // 2ª revisão do merge (c72b9251, P2): resposta que cruzou uma troca desta página não conclui nem recusa a renovação;
+    // o resultado fica em verificação, como na confirmação indisponível, e a própria troca decide a página.
+    let manter = enderecoFinal() || cruzouTroca(confirmada);
     if (!manter && falhaDoServidor(confirmada)) {
         const decisao = await decidirFalhaSessao({ tipo: tipoDaFalha(confirmada.status), telaCarregada: true, aindaValida });
         manter = enderecoFinal() || decisao !== 'COMO_HOJE';
@@ -605,7 +609,9 @@ export async function trocarEmpresaAtiva(empresaId: string): Promise<Response> {
     if (enderecoFinal()) throw Error(ENDERECO_MUDOU_NADA_ALTERADO);
     const previa = travarNoFim(await confirmarSessao());
     if (enderecoFinal()) throw Error(ENDERECO_MUDOU_NADA_ALTERADO);
-    if ((previa.estado === 'falha' && !fimConfirmado(previa)) || previa.estado === 'obsoleta')
+    // 2ª revisão do merge (c72b9251, P2): qualquer resposta que cruzou outra troca desta página (obsoleta, 401 antigo, ou
+    // válida/encerrada cuja marca envelheceu na volta do await) é rejeitada antes do login e do registro de contexto.
+    if ((previa.estado === 'falha' && !fimConfirmado(previa)) || cruzouTroca(previa))
         throw Error('Não foi possível confirmar a sessão. Nada foi alterado; tente novamente.');
     if (fimConfirmado(previa) || previa.estado !== 'valida' || !previa.info.data?.usuarioId) {
         // A busca guardada na aba já saiu em travarNoFim.
