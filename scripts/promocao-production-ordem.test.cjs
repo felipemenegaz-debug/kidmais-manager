@@ -38,8 +38,8 @@ test('a ordem bate com approvedFiles do inventário: mesma ordem relativa a part
   assert.ok(!executadas.includes('098') && !o.PASSOS.some(p => /098/.test(p.id) || /098/.test(arquivoDe(p))));
   // A cadeia pedida, passo a passo.
   assert.deepEqual(o.PASSOS.map(p => p.id), ['089', '090', '091', '092-093', '094', '095', '096', '097', '100', '102-103', '104-106', '107-108', '109',
-    '114', '112', '116', '117', '118', '120', '121', '110', '111', '115', '123', '122', '124']);
-  assert.deepEqual(o.PASSOS.filter(p => p.aplicador === 'generico').map(p => p.id), ['120', '121', '110', '111', '115', '123', '124']);
+    '114', '112', '116', '117', '118', '120', '121', '110', '111', '115', '123', '122', '124', '125']);
+  assert.deepEqual(o.PASSOS.filter(p => p.aplicador === 'generico').map(p => p.id), ['120', '121', '110', '111', '115', '123', '124', '125']);
   assert.deepEqual(o.PASSOS.filter(p => p.aplicador === 'generico').map(p => p.id), [...require('./migration-generico-production.cjs').IDS]);
   for (const p of o.ORDEM) { assert.ok(Object.isFrozen(p) && Object.isFrozen(p.migrations), p.id); assert.ok(typeof p.escopo === 'string' && p.escopo.length > 10, p.id); }
 });
@@ -55,7 +55,7 @@ test('todo passo aponta para um aplicador que EXISTE, ou está na lista nomeada 
   }
   assert.ok(ausentes.every(a => AUSENCIA_ACEITA_SO_DO_OUTRO_LOTE.includes(a)));
   // Os passos deste lote e os já existentes NÃO podem faltar.
-  for (const id of ['089', '090', '091', '092-093', '094', '095', '096', '097', '100', '114', '112', '116', '117', '118', '120', '121', '110', '111', '115', '123', '122', '124'])
+  for (const id of ['089', '090', '091', '092-093', '094', '095', '096', '097', '100', '114', '112', '116', '117', '118', '120', '121', '110', '111', '115', '123', '122', '124', '125'])
     assert.ok(existe(arquivoDe(o.PASSOS.find(p => p.id === id))), id);
   assert.ok(existe(o.GENERICO));
   // Geradores de bloco citados existem.
@@ -87,7 +87,7 @@ test('proximoPasso: começa no CONFERIR da 089, segue CONFERIR → APLICAR → C
     assert.equal(r.acao, 'EXECUTAR'); assert.deepEqual({id: r.id, fase: r.fase}, SEQUENCIA[n]);
     assert.equal(r.exige !== undefined, r.fase === 'APLICAR', 'autorização e backup lembrados só no APLICAR');
   }
-  assert.deepEqual(o.proximoPasso(ok(SEQUENCIA, SEQUENCIA.length)), {acao: 'CONCLUIDA', passos: 26});
+  assert.deepEqual(o.proximoPasso(ok(SEQUENCIA, SEQUENCIA.length)), {acao: 'CONCLUIDA', passos: 27});
   // O 094 lembra o deploy do código novo antes do CONFERIR dele.
   const i094 = SEQUENCIA.findIndex(x => x.id === '094');
   assert.match(o.proximoPasso(ok(SEQUENCIA, i094)).exigeAntes, /código NOVO já implantado/);
@@ -145,7 +145,7 @@ test('módulo puro: não conecta, não lê env, não grava; o roteiro em docs/ �
   assert.match(doc, /Isto é um roteiro, não uma autorização/); assert.match(doc, /Nada aqui foi executado em production nem em staging/);
   assert.match(doc, /Qualquer código de saída diferente de 0 para a cadeia/);
   for (const p of o.PASSOS) for (const fase of o.FASES) assert.ok(doc.includes('`' + o.comando(p, fase) + '`'), `${p.id} ${fase}`);
-  assert.ok(doc.indexOf('### 1. 089') < doc.indexOf('### 5. 094') && doc.indexOf('### 5. 094') < doc.indexOf('### 23. 115') && doc.indexOf('### 23. 115') < doc.indexOf('### 24. 123') && doc.indexOf('### 24. 123') < doc.indexOf('### 25. 122') && doc.indexOf('### 25. 122') < doc.indexOf('### 26. 124'));
+  assert.ok(doc.indexOf('### 1. 089') < doc.indexOf('### 5. 094') && doc.indexOf('### 5. 094') < doc.indexOf('### 23. 115') && doc.indexOf('### 23. 115') < doc.indexOf('### 24. 123') && doc.indexOf('### 24. 123') < doc.indexOf('### 25. 122') && doc.indexOf('### 25. 122') < doc.indexOf('### 26. 124') && doc.indexOf('### 26. 124') < doc.indexOf('### 27. 125'));
   assert.match(doc, /\| 098 \| EXCLUIDA \|/); assert.match(doc, /\| 099 \| JA_APLICADA \|/); assert.match(doc, /\| 105 \| JA_APLICADA \|/);
   assert.doesNotMatch(doc, /SENHA|postgres(ql)?:\/\/|dpg-/);
 });
