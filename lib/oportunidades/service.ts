@@ -31,7 +31,9 @@ export async function clienteDoAlvo(tx: DbExecutor, empresaId: string, alvo: Alv
 export async function executarOportunidade(tx: DbExecutor, empresaId: string, usuarioId: string, entrada: Comando, gestao: boolean, membershipId?: string) {
   const cmd = comandoSchema.parse(entrada);
   await exigirSchema(tx);
-  if (cmd.acao==='perder' && cmd.alvo.tipo==='FECHAMENTO') await travarConfiguracaoAgenda(tx,empresaId,{modo:'COMPARTILHADA',linha:'JA_TRAVADA'});
+  // Toda ação numa negociação grava em fechamentos (perda, responsável do próximo passo): a 114 exige a configuração
+  // da agenda travada nesta transação antes da linha do fechamento (empresa → configuração → resto).
+  if (cmd.alvo.tipo==='FECHAMENTO') await travarConfiguracaoAgenda(tx,empresaId,{modo:'COMPARTILHADA',linha:'JA_TRAVADA'});
   const atual = await clienteDoAlvo(tx, empresaId, cmd.alvo);
   if (!etapaDoEstado(atual.status, cmd.alvo.tipo === 'CONTATO')) conflito('Esta oportunidade já foi encerrada. Atualize a tela.');
   if (cmd.alvo.tipo === 'CONTATO' && (await tx.query(`SELECT 1 FROM marketing_contatos k WHERE k.empresa_id=$1::uuid AND k.id=$2::uuid AND

@@ -96,7 +96,8 @@ const PERMITIDOS_ROTAS: Readonly<Record<string, readonly string[]>> = {
   // 16/10: envio pelo canal da empresa (conexão Meta de Configurações > WhatsApp; sem ela, o Gupshup da transição).
   "lib/whatsapp/atendimento/meta": ["enviarPelaEmpresa"],
   // Wall-e (082): a porta é montada no domínio; a rota só entrega o entendimento pelo roteador (ou null = regras).
-  "lib/whatsapp/atendimento/walle/porta": ["criarPortaWallE", "modoEfetivoWallE", "modoEntendimentoWallE", "pedidoEntendimentoWallE"],
+  // Astra r3 (R-5, P2-2): o direito comercial ao atendimento é lido no domínio; a rota só o entrega como porta.
+  "lib/whatsapp/atendimento/walle/porta": ["criarPortaWallE", "direitoModeloAtendimento", "modoEfetivoWallE", "modoEntendimentoWallE", "pedidoEntendimentoWallE"],
   "lib/financeiro/servico": ["criarContaPagar", "listarCategoriasDespesa"],
   // Barreira de plano no servidor: a ação de conta a pagar respeita o mesmo plano das rotas de Contas a pagar.
   "lib/assinatura/recursos-plano": ["exigirRecursoPlano", "recursoIncluido"],

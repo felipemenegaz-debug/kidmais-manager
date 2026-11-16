@@ -91,6 +91,9 @@ jobs:
       - name: Convites — download da arte completa preserva dimensões, sem recorte ou textos sobrepostos
         run: node --test scripts/convites-exportacao-completa.test.cjs
 
+      - name: Convites — imagem baixada com a faixa da logo do buffet abaixo da arte, sem mudar a arte
+        run: node --test scripts/convites-exportacao-logo.test.cjs
+
       - name: Aplicador manual da 083 em staging — alvo, hashes, privilégio de DDL e tentativa única (cliente simulado)
         run: node --test scripts/migration-083-staging.test.cjs
 
@@ -271,6 +274,8 @@ jobs:
         run: node --test scripts/migration-generico-production.test.cjs
       - name: Aplicador da 123 em staging (adaptador do genérico)
         run: node --test scripts/migration-123-staging.test.cjs
+      - name: Aplicador da 124 em staging (adaptador do genérico)
+        run: node --test scripts/migration-124-staging.test.cjs
       - name: Promoção de production — blocos de Shell da 112 a 118 e do genérico
         run: node --test scripts/bloco-shell-promocao-production.test.cjs scripts/bloco-shell-118-production.test.cjs
       - name: Promoção de production — ordem da cadeia

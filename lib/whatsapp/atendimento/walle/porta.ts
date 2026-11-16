@@ -2,6 +2,7 @@ import { db } from '../../../db/postgres.ts';
 import { buscarClientesPorContatoExato } from '../../../clientes/repositories/cliente.repository';
 import { listarContratacoes } from '../../../fechamentos/contratacoes.ts';
 import { dadoSensivel, ocultarDadosPessoais } from '../core.ts';
+import { direitoAtendimentoWhatsApp } from '../multiempresa.ts';
 import { entendimentoSoRegras, modoEntendimento, type ModoEntendimento } from '../configuracao.ts';
 import { resolverLinkFechamento } from '../prontas-link.ts';
 import type { PortaWallE } from '../worker.ts';
@@ -45,17 +46,26 @@ export function pedidoEntendimentoWallE(texto: string, contexto: ContextoWallE, 
 }
 
 /**
+ * Astra r3 (R-5, P2-2): o modelo do atendimento só é chamado para empresa cujo plano dá direito ao Atendimento WhatsApp
+ * (C4), inclusive a piloto, que opera sem esse portão. Sem direito, ou leitura que falha, a mensagem segue pelas regras.
+ */
+export async function direitoModeloAtendimento(empresaId: string) {
+  return direitoAtendimentoWhatsApp(db(), empresaId).catch(() => false);
+}
+
+/**
  * Porta do Wall-e para o worker: entende (modelo revalidado ou regras) e resolve só com as fontes oficiais da empresa,
  * lidas na hora e só lendo. Contrato particular: no máximo o link protegido (CPF + código), com vínculo inequívoco.
  */
-export function criarPortaWallE(entender: EntenderWallE | null, opcoes: { sinais?: (texto: string) => SinaisMensagem } = {}): PortaWallE {
+export function criarPortaWallE(entender: EntenderWallE | null, opcoes: { sinais?: (texto: string) => SinaisMensagem; direitoModelo?: (empresaId: string) => Promise<boolean> } = {}): PortaWallE {
   return { async responder(e) {
     const catalogos = await catalogosWallE(db(), e.empresa, e.config, e.hoje);
     const contexto = lerContexto(e.contexto);
     // Proteção final: em modo regras o modelo nunca é chamado, mesmo que a porta tenha sido montada com ele.
     // D1: mensagem com dado de saúde (alergia, condição, medicação…) também não: entende pelas regras (alergia segue
     // para a equipe pelo próprio resolvedor).
-    const modelo = entender && !entendimentoSoRegras() && !dadoSensivel(e.texto) ? entender : null;
+    // Astra r3 (P2-2): sem direito comercial ao atendimento, nada de modelo (a piloto também).
+    const modelo = entender && !entendimentoSoRegras() && !dadoSensivel(e.texto) && (!opcoes.direitoModelo || await opcoes.direitoModelo(e.empresa)) ? entender : null;
     const entendimento = modelo
       ? revalidarEntendimento(await modelo(e.empresa, e.texto, contexto, catalogos), e.texto, catalogos, contexto)
       : entenderPorRegras(e.texto, catalogos, contexto);

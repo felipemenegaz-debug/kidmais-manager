@@ -173,3 +173,54 @@ test('funil real: ciclo, isolamento A/B, perdas, histórico, relatórios e assin
   await c.query('ROLLBACK');
  }finally{await encerrarDescartavel(c);}
 });
+// Bloco B item 9 (staging 15/11, erro 79F76F26/KD114): "Feito" e próximo passo numa negociação e o vínculo manual de um
+// contato a uma negociação gravam em fechamentos. Fixture COMITADA e entrada em transação NOVA, sem trava herdada (como
+// em staging): a 114 só deixa gravar se a própria entrada travar a configuração da agenda.
+test('KD114: agendar/concluir na negociação e vincular contato sem trava herdada',{timeout:180000},async(t)=>{
+ if(process.env.KIDMAIS_POSTGRES_DESCARTAVEL!=='kidmais_pacotes_v1_descartavel'){t.skip('postgres-descartavel: opt-in ausente');return;}
+ const c=await conectarDescartavel();
+ try{
+  await c.query('BEGIN');
+  const e=await empresa(c,'Funil KD114 sintética');
+  const u=(await c.query<{id:string}>("INSERT INTO usuarios_administrativos(email,nome,senha_hash,papel,ativo) VALUES($1,'Responsável KD114',$2,'REPRESENTANTE_AUTORIZADO',true) RETURNING id::text",[randomUUID()+'@funil.test',SENHA_FALSA])).rows[0].id;
+  const p=await vincular(c,e,u,'REPRESENTANTE_AUTORIZADO');
+  const cli=await cliente(c,e,'Cliente KD114 sintético','11988880114'),base=await comercial(c,e);
+  await travarConfiguracaoAgenda(executor(c),e,{modo:'COMPARTILHADA',linha:'KEY_SHARE'});
+  const negociacao=await fechamento(c,e,base,cli,{data:'2027-10-01'}),destino=await fechamento(c,e,base,cli,{data:'2027-10-02'});
+  await c.query('COMMIT');
+  await c.query('BEGIN');
+  const travas=async()=>(await c.query<{n:number}>(`SELECT count(*)::int AS n FROM pg_locks l WHERE l.locktype='advisory' AND l.pid=pg_backend_pid() AND l.objsubid=1
+    AND ((l.classid::bigint<<32)|l.objid::bigint)=hashtextextended('kidmais:agenda-config:'||$1::text,0)`,[e])).rows[0].n;
+  assert.equal(await travas(),0,'a entrada começa sem a configuração travada');
+  const cache=new Map(),carregar=<T,>(arq:string)=>carregarComBanco(arq,c,()=>p.sessao,{},cache) as T;
+  const rota=carregar<Rota>('app/api/admin/oportunidades/route.ts');
+  const ok=async(body:unknown)=>{const r=await rota.POST(pedido('http://127.0.0.1:3000/api/admin/oportunidades',body)),j=await r.json();assert.equal(r.status,200,JSON.stringify(j));return j.data as {id:string;hoje:string};};
+  const hoje=(await (await rota.GET(pedido('http://127.0.0.1:3000/api/admin/oportunidades'))).json()).data!.hoje as string;
+  assert.equal(await travas(),0,'a leitura do Funil não trava a configuração');
+  const primeira=(await ok({acao:'agendar',alvo:{tipo:'FECHAMENTO',id:negociacao},esperada:null,proxima:{tipo:'Ligar',data:hoje,responsavelId:u}})).id;
+  // Astra P3: "Feito" em transação própria (o harness usa savepoints; na mesma transação herdaria a trava do agendar).
+  await c.query('COMMIT');
+  await c.query('BEGIN');
+  assert.equal(await travas(),0,'o concluir começa sem a trava do agendar');
+  const segunda=(await ok({acao:'concluir',alvo:{tipo:'FECHAMENTO',id:negociacao},esperada:primeira,proxima:{tipo:'WhatsApp',data:hoje,responsavelId:u}})).id;
+  assert.equal((await c.query("SELECT resultado FROM oportunidades_acoes WHERE id=$1",[primeira])).rows[0].resultado,'FEITA');
+  assert.equal((await c.query('SELECT fechamento_id::text FROM oportunidades_acoes WHERE id=$1 AND encerrada_em IS NULL',[segunda])).rows[0].fechamento_id,negociacao);
+  assert.equal((await c.query('SELECT usuario_responsavel_id::text AS r FROM fechamentos WHERE id=$1',[negociacao])).rows[0].r,u);
+  await c.query('ROLLBACK');
+  // Vínculo manual numa transação nova, sem configuração travada.
+  await c.query('BEGIN');
+  const k=(await ok({acao:'registrar',nome:'Contato KD114 sintético',telefone:'11988880114',canal:'TELEFONE',chave:randomUUID()})).id;
+  const acao=(await ok({acao:'agendar',alvo:{tipo:'CONTATO',id:k},esperada:null,proxima:{tipo:'Ligar',data:hoje,responsavelId:u}})).id;
+  assert.equal(await travas(),0,'ações em contato não travam a configuração');
+  await c.query('COMMIT');
+  await c.query('BEGIN');
+  assert.equal(await travas(),0);
+  // Astra P3: o vínculo manual pelo POST real do Marketing (rotaMarketing → tenant em FOR UPDATE → serviço).
+  const marketing=carregar<Rota>('app/api/admin/marketing/contatos/route.ts');
+  const vinculo=await marketing.POST(pedido('http://127.0.0.1:3000/api/admin/marketing/contatos',{acao:'vincular-negociacao',id:k,fechamentoId:destino}));
+  assert.equal(vinculo.status,200,JSON.stringify(await vinculo.json()));
+  assert.equal((await c.query('SELECT fechamento_id::text FROM oportunidades_acoes WHERE id=$1',[acao])).rows[0].fechamento_id,destino,'ação transferida para a negociação');
+  assert.equal((await c.query('SELECT usuario_responsavel_id::text AS r FROM fechamentos WHERE id=$1',[destino])).rows[0].r,u);
+  await c.query('ROLLBACK');
+ }finally{await c.query('ROLLBACK').catch(()=>{});await encerrarDescartavel(c);}
+});
