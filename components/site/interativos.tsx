@@ -243,3 +243,75 @@ export function Calculadora({ planos, publicado, adicionaisVisiveis }: { planos:
         </div>
     </div>;
 }
+
+/* ---------- Ciclo com o cliente: início, meio e fim (painéis da primeira fileira) ---------- */
+const PERGUNTA_ATENDIMENTO = 'Oi! Tem data livre em outubro para 50 convidados?';
+const RESPOSTA_ATENDIMENTO = 'Oi, tudo bem? Tenho sábado 17 às 19h e domingo 25 às 15h. O pacote Festa Completa para 50 convidados fica em R$ 5.650,00. Quer que eu separe uma das datas?';
+/** Conversa de exemplo com roteiro fixo; a seção do Wall-e mais abaixo tem a versão completa. */
+export function PainelAtendimento() {
+    const [respondido, setRespondido] = useState(true);
+    const espera = useRef<ReturnType<typeof setTimeout> | null>(null);
+    useEffect(() => () => { if (espera.current) clearTimeout(espera.current); }, []);
+    useAoPausar(() => { if (espera.current) { clearTimeout(espera.current); espera.current = null; setRespondido(true); } });
+    function simular() {
+        if (espera.current) clearTimeout(espera.current);
+        if (semAnimacao()) { setRespondido(true); return; }
+        setRespondido(false);
+        espera.current = setTimeout(() => { espera.current = null; setRespondido(true); }, 1200);
+    }
+    return <>
+        <div className={cx('miniChat')} aria-live="polite">
+            <p className={cx('balao', 'cliente')}><small>Cliente · 22:47</small>{PERGUNTA_ATENDIMENTO}</p>
+            {respondido
+                ? <p className={cx('balao', 'ia')}><small>Wall-e · 22:47</small>{RESPOSTA_ATENDIMENTO}</p>
+                : <p className={cx('balao', 'ia', 'digitando')} aria-label="Wall-e digitando"><i /><i /><i /></p>}
+        </div>
+        <button type="button" className={cx('bt')} onClick={simular}>Simular a mensagem do cliente</button>
+        <a className={cx('linkPainel')} href="#wall-e">Veja o Wall-e responder outras perguntas →</a>
+    </>;
+}
+
+/** Meio do ciclo: a data livre vira festa com o preço do buffet e termina no contrato assinado por código. */
+export function PainelFechamento({ paginaDoBuffet }: { paginaDoBuffet: boolean }) {
+    return <>
+        <ol className={cx('etapas')}>
+            <li><span>{paginaDoBuffet ? 'O cliente escolhe a data livre na página do buffet' : 'Data livre escolhida na agenda'}</span><b>sáb 17/10 · 15h</b></li>
+            <li><span>Pacote e convidados com o seu preço</span><b>Festa Completa · 50</b></li>
+            <li><span>Total da festa</span><b>R$ 5.650,00</b></li>
+        </ol>
+        <PainelAssinatura />
+    </>;
+}
+
+type MensagemCiclo = { quando: string; texto: string };
+/** Um toque em "Avançar no tempo": envia a próxima mensagem (ou recomeça) e diz o que anunciar. Cada envio é anunciado, inclusive o último. */
+export function avancarMensagens(enviadas: number, textos: readonly string[]): { enviadas: number; anuncio: string } {
+    if (enviadas >= textos.length) return { enviadas: 0, anuncio: 'Linha do tempo reiniciada. Todas as mensagens estão programadas.' };
+    return { enviadas: enviadas + 1, anuncio: `Enviada: ${textos[enviadas]}.` };
+}
+/** Fim do ciclo: o que sai sozinho, do contrato assinado até depois da festa. Roteiro fixo, sem envio. Cada linha só cita recurso disponível. */
+export function PainelMensagens({ pesquisa, familia, pix, convite, clientes }: { pesquisa: boolean; familia: boolean; pix: boolean; convite: boolean; clientes: boolean }) {
+    const mensagens: MensagemCiclo[] = [
+        { quando: 'Contrato assinado', texto: 'Confirmação da festa com data, horário e pacote' },
+        { quando: '5 dias antes do vencimento', texto: pix ? 'Lembrete da parcela com Pix copia e cola' : 'Lembrete da parcela' },
+        { quando: 'Véspera da festa', texto: 'Horário de chegada e endereço do buffet' },
+        { quando: 'Dia seguinte', texto: 'Agradecimento à família' },
+        ...(pesquisa ? [{ quando: '3 dias depois', texto: 'Pesquisa de satisfação' }] : []),
+        // Mesma trava do passo 8 do fluxo ("Lembra o próximo aniversário"): depende do cadastro de clientes.
+        ...(clientes ? [{ quando: '1 mês antes do próximo aniversário', texto: 'Lembrete para comemorar de novo no buffet' }] : []),
+    ];
+    const [enviadas, setEnviadas] = useState(mensagens.length);
+    const [anuncio, setAnuncio] = useState(''); // vazio na renderização inicial: nada é anunciado antes do primeiro toque
+    const todas = enviadas === mensagens.length;
+    return <>
+        <ol className={cx('linhaTempo')}>{mensagens.map((m, i) => <li key={m.quando} className={cx(i < enviadas ? 'enviada' : '')}>
+            <small>{m.quando}</small><span>{m.texto}</span><span className={cx('selo', i < enviadas ? '' : 'b')}>{i < enviadas ? 'Enviada' : 'Programada'}</span>
+        </li>)}</ol>
+        <button type="button" className={cx('bt')} onClick={() => { const proximo = avancarMensagens(enviadas, mensagens.map(m => m.texto)); setEnviadas(proximo.enviadas); setAnuncio(proximo.anuncio); }}>
+            {todas ? 'Ver de novo desde o início' : 'Avançar no tempo'}
+        </button>
+        {/* O foco fica no botão: a mensagem que acabou de sair é anunciada aqui (achados do Astra r1 e r2). */}
+        <p role="status" className={cx('srOnly')}>{anuncio}</p>
+        {familia && <p className={cx('estado')}>A família acompanha tudo pela Área da Família: contrato, parcelas{convite ? ', convite' : ''}{pesquisa ? ' e pesquisa' : ''}.</p>}
+    </>;
+}
