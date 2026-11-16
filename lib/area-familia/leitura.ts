@@ -11,6 +11,7 @@ import { ContratoServiceError } from "../contratos/services/errors.ts";
 import { adquirirDocumentoParaLeitura, materializarDocumento, type DocumentoAdquirido } from "../contratos/services/fluxo-publico.ts";
 import { lerDocumento } from "../contratos/storage/postgres.ts";
 import type { SessaoArea } from "./acesso.ts";
+import { lerAcoesDaFamilia, type AcoesDaFamilia } from "./acoes.ts";
 
 /**
  * F2 da área da família (sem migration): leitura do que a família vê, sempre a partir da SESSÃO (lerSessao), nunca de
@@ -60,6 +61,9 @@ export type MinhaFesta = {
     parcelas: ParcelaFamilia[];
     proxima: ParcelaFamilia | null;
   };
+  /** F3 (125): papel de quem lê, aviso fixo, pendências da família, avisos de pagamento e o segundo responsável. */
+  papel: SessaoArea["papel"];
+  acoes: AcoesDaFamilia;
 };
 
 /** Festa, contrato e versão vigente da sessão, presos à empresa da sessão. Null = a sessão não alcança mais a festa. */
@@ -167,6 +171,8 @@ export async function lerMinhaFesta(tx: DbExecutor, sessao: SessaoArea, hoje: st
     documentos,
     assinadoEmPapel: papel,
     pagamentos: resumoDosPagamentos(recebiveis, hoje),
+    papel: sessao.papel,
+    acoes: await lerAcoesDaFamilia(tx, sessao),
   };
 }
 

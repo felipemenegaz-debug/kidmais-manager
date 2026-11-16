@@ -139,7 +139,15 @@ test("F2: contratante e segundo responsável leem o mesmo — festa, só as parc
     const d1 = await leitura().lerMinhaFesta(executor(a), contratante, HOJE);
     const d2 = await leitura().lerMinhaFesta(executor(a), segundo, HOJE);
     assert.ok(d1 && d2);
-    assert.deepEqual(d2, d1, "segundo responsável vê o mesmo que o contratante");
+    // F3 (125): só o papel e o bloco do segundo responsável (gestão de pessoas, só do contratante) diferem.
+    assert.equal(d1.papel, "CONTRATANTE");
+    assert.equal(d2.papel, "SEGUNDO_RESPONSAVEL");
+    assert.equal(d2.acoes.segundo, undefined, "o segundo responsável não gere pessoas");
+    const semPapel = (d: typeof d1) => ({ ...d, papel: null, acoes: { ...d.acoes, segundo: undefined } });
+    assert.deepEqual(semPapel(d2), semPapel(d1), "segundo responsável vê o mesmo que o contratante");
+    const com125 = (await a.query("SELECT to_regclass('public.festa_pendencias_familia') IS NOT NULL AS ok")).rows[0].ok;
+    assert.equal(d1.acoes.disponivel, com125, "sem a 125, a leitura segue sem ações");
+    if (com125) assert.equal(d1.acoes.segundo?.nome, "João Segundo");
     assert.equal(d1.festa.data, dia(40));
     assert.equal(d1.festa.diasAteFesta, 40);
     assert.equal(d1.festa.convidados, 30);

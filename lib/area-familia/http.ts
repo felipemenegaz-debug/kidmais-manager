@@ -57,6 +57,12 @@ export async function limitarRotaPublicaNoBanco(request: Request, regra: RegraLi
   }
 }
 
+/** Ação da família (F3) da sessão: null = segue; senão 429. Conta fora da transação do pedido (autocommit). */
+export async function limitarAcaoDaSessao(sessaoId: string, pepper: string) {
+  const espera = await consumirLimiteDaSessao(db(), LIMITES.AREA_ACAO_SESSAO, sessaoId, pepper);
+  return espera === null ? null : muitasTentativas(espera);
+}
+
 /** Leitura pesada (PDF, Pix) da sessão: null = segue; senão 429. Conta fora da transação do pedido (autocommit). */
 export async function limitarLeituraDaSessao(sessaoId: string, pepper: string) {
   const espera = await consumirLimiteDaSessao(db(), LIMITES.AREA_LEITURA_SESSAO, sessaoId, pepper);

@@ -246,8 +246,12 @@ export type SessaoArea = {
 /**
  * Sessão do cookie: ativa, da empresa do endereço e com o acesso ainda aberto. Prazo vencido só recusa (não há motivo
  * PRAZO). Marca o uso no máximo a cada 5 minutos.
+ *
+ * Com `travar` (dentro de transação), prende a pessoa e a sessão (FOR SHARE) até o fim da transação: quem tenta revogar
+ * (sair, troca de contato, remoção, desconectar todos) espera o COMMIT, e uma revogação já confirmada durante a espera
+ * faz a releitura falhar (o PostgreSQL reavalia o WHERE na versão nova da linha).
  */
-export async function lerSessao(conexao: DbExecutor, empresaCodigo: string, token: string | null | undefined): Promise<SessaoArea | null> {
+export async function lerSessao(conexao: DbExecutor, empresaCodigo: string, token: string | null | undefined, opcoes?: { travar?: boolean }): Promise<SessaoArea | null> {
   if (!token || !FORMATO_TOKEN_AREA.test(token) || !CODIGO_EMPRESA_AREA.test(empresaCodigo)) return null;
   const { rows } = await conexao.query<{
     id: string; pessoa_id: string; festa_id: string; empresa_id: string; papel: SessaoArea["papel"]; nome: string | null; tocar: boolean;
@@ -264,6 +268,13 @@ export async function lerSessao(conexao: DbExecutor, empresaCodigo: string, toke
   );
   const s = rows[0];
   if (!s) return null;
+  if (opcoes?.travar) {
+    // Mesma ordem dos gatilhos da 123 (pessoa → sessões), para não cruzar travas com troca de contato ou remoção.
+    const pessoa = await conexao.query("SELECT 1 FROM festa_pessoas WHERE id = $1::uuid AND removido_em IS NULL FOR SHARE", [s.pessoa_id]);
+    const sessao = await conexao.query(
+      "SELECT 1 FROM area_familia_sessoes WHERE id = $1::uuid AND revogada_em IS NULL AND expira_em > clock_timestamp() FOR SHARE", [s.id]);
+    if (pessoa.rowCount !== 1 || sessao.rowCount !== 1) return null;
+  }
   if (s.tocar) {
     await conexao.query("UPDATE area_familia_sessoes SET ultimo_uso_em = clock_timestamp() WHERE id = $1::uuid AND revogada_em IS NULL", [s.id]);
   }

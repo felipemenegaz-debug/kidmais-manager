@@ -67,9 +67,10 @@ const PASSOS = Object.freeze({
     aplicar: ['(uma transacao: colunas de perda e responsavel, 3 tabelas do funil, gatilhos em fechamentos e postcheck antes do COMMIT;', 'marketing_contatos e fechamentos ficam travadas por instantes).']}),
   '123': pelGenerico('123', 'tabelas, colunas e gatilhos da area da familia (Minha festa); trava por instantes clientes, contratos e validacoes_identidade_cliente'),
   '124': pelGenerico('124', 'tabela da assinatura do cliente em papel, CHECK de metodo de aceite e dois corpos da 061; trava por instantes contrato_versoes'),
+  '125': pelGenerico('125', 'tabelas das acoes da area da familia (avisos de pagamento, pendencias, aviso fixo), CHECK de tipo e gatilhos de autoria; trava por instantes area_familia_eventos, festa_pessoas e festa_links_area'),
 });
 /** Na ordem da cadeia (Object.keys ordenaria as chaves numéricas). */
-const IDS = Object.freeze(['114', '112', '116', '117', '120', '121', '110', '111', '115', '123', '122', '124']);
+const IDS = Object.freeze(['114', '112', '116', '117', '120', '121', '110', '111', '115', '123', '122', '124', '125']);
 const passo = id => { assert.ok(typeof id === 'string' && Object.hasOwn(PASSOS, id), 'PASSO_DESCONHECIDO'); return PASSOS[id]; };
 
 const sha = b => createHash('sha256').update(b).digest('hex');

@@ -11,9 +11,9 @@ const lf = a => fs.readFileSync(path.join(root, a), 'utf8').replace(/\r\n/g, '\n
 const sha = s => createHash('sha256').update(s).digest('hex');
 const posix = p => p.replace(/\\/g, '/');
 const SERVICO = 'srv-dak77m2d0e5s73b8rkkg';
-const PROPRIOS = ['114', '112', '116', '117', '122'], GENERICOS = ['120', '121', '110', '111', '115', '123', '124'];
-/** Ordem da cadeia: a 122 (adaptador próprio) vem depois da 123 (genérico); a 124 (genérico) depois da 122. */
-const ORDEM_IDS = ['114', '112', '116', '117', '120', '121', '110', '111', '115', '123', '122', '124'];
+const PROPRIOS = ['114', '112', '116', '117', '122'], GENERICOS = ['120', '121', '110', '111', '115', '123', '124', '125'];
+/** Ordem da cadeia: a 122 (adaptador próprio) vem depois da 123 (genérico); a 124 e a 125 (genéricos) depois da 122. */
+const ORDEM_IDS = ['114', '112', '116', '117', '120', '121', '110', '111', '115', '123', '122', '124', '125'];
 /** Arquivos extras que o adaptador carrega além do núcleo, da 092–094 e da conexão. */
 const EXTRAS = {'114': ['lib/agenda/trava-configuracao.ts'], '122': ['scripts/migration-118-comum.cjs', 'scripts/migration-122-hashes.json']};
 const BACKUP = 'dump 2026-11-12T03:00Z sha 1234abcd PITR';

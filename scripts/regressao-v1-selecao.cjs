@@ -300,8 +300,11 @@ const ESTADO_POSTGRES = {
   // 12/11/2026 (LOCAL): reserva por e-mail do código OTP contra as CHECKs da 008/010 (sem migration), corridas reais do botão.
   "lib/identidade/reserva-email.postgres.test.ts": { descartavel: "112" },
   // 14/11/2026 (LOCAL): área "Minha festa" F1 (123): entrada, recusas, limites, sair, painel do buffet e travas do banco.
-  "lib/area-familia/area-familia.postgres.test.ts": { descartavel: "123" },
-  "lib/area-familia/leitura.postgres.test.ts": { descartavel: "123" },
+  "lib/area-familia/area-familia.postgres.test.ts": { descartavel: "123", tambem: ["125"] },
+  "lib/area-familia/leitura.postgres.test.ts": { descartavel: "123", tambem: ["125"] },
+  // 15/11/2026 (LOCAL): área "Minha festa" F3 (125): ações da família e do painel, travas do banco, down com dados e ciclo.
+  "lib/area-familia/acoes.postgres.test.ts": { descartavel: "125", tambem: ["123"] },
+  "lib/area-familia/migration-125.postgres.test.ts": { descartavel: "125" },
   // 15/11/2026 (LOCAL): assinatura do cliente em papel (124): registro pela Gestão, travas do banco no COMMIT e down.
   "lib/contratos/assinatura-papel-cliente.postgres.test.ts": { descartavel: "124", tambem: ["123"] },
   // 15/11/2026 (LOCAL): ciclo da 124 — precheck/postcheck, up repetido, down com COMMIT, up/down/up com o mesmo catálogo.

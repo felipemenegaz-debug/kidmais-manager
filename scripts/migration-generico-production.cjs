@@ -1,6 +1,6 @@
 /* eslint-disable @typescript-eslint/no-require-imports */
 // Aplicador GENÉRICO de PRODUÇÃO para as migrations da promoção de 12/11/2026 que não têm aplicador próprio: 120, 121, 110,
-// 111, 115, 123 e 124 (nessa ordem, a do inventário; scripts/promocao-production-ordem.cjs). SOMENTE no PostgreSQL do web de produção,
+// 111, 115, 123, 124 e 125 (nessa ordem, a do inventário; scripts/promocao-production-ordem.cjs). SOMENTE no PostgreSQL do web de produção,
 // no Web Shell do srv-dak77m2d0e5s73b8rkkg, DEPOIS do deploy de uma árvore que traga este arquivo e os SQL.
 //   - LISTA FECHADA neste arquivo: para cada id, o sha256 (LF) fixado do precheck, da migration e do postcheck, e as
 //     SENTINELAS do estado — os mesmos objetos que o precheck da própria migration usa para dizer "já presente" (o teste
@@ -14,7 +14,7 @@
 //   - APLICAR: exige o registro de backup; marcador exclusivo no disco persistente (migration-<id>.json); UMA transação:
 //     precheck → corpo da migration (sem o BEGIN e sem o COMMIT do arquivo) → postcheck → COMMIT só com tudo PASS → estado
 //     relido (presente) → postcheck de novo em READ ONLY;
-//   - falha de check = erro do servidor (todo precheck/postcheck destas migrations sinaliza por RAISE EXCEPTION; 120, 121, 123 e 124
+//   - falha de check = erro do servidor (todo precheck/postcheck destas migrations sinaliza por RAISE EXCEPTION; 120, 121, 123, 124 e 125
 //     terminam com uma linha `aprovado`: se vier diferente de true, também é falha), como no precedente por manifesto
 //     (scripts/migrations-lancamento-production.cjs), que roda os checks e deixa a exceção abortar a transação;
 //   - situação do COMMIT como nos aplicadores recentes (regra da 109–118, a função é a do núcleo da 118): falha antes do
@@ -108,9 +108,17 @@ const MIGRATIONS = Object.freeze({
     // Troca do CHECK de método em contrato_versoes exige a posse dela; CREATE OR REPLACE das duas funções da 061 exige a posse delas.
     privilegios: {criaNoSchema: true, alteradas: ['contrato_versoes'], funcoes: ['kidmais019_formalizacao(uuid,uuid)', 'kidmais_validar_fluxo_contrato()'],
       referenciadas: ['contrato_versoes', 'contratos', 'empresas', 'memberships', 'usuarios_administrativos']}}),
+  '125': congelar({escopo: 'área da família F3: avisos de pagamento, pendências da família, aviso fixo do buffet, tipos novos de evento e autoria pela família (aditiva; exige 123)',
+    arquivos: [['precheck', 'database/checks/20261115_125_precheck.sql', '270c66124d01eed656ede7f9249b97d419b3bc0dc514cff306a51dae595a5c65'],
+      ['migration', 'database/migrations/20261115_125_area_familia_acoes.sql', 'dff9af31c012f73074f8294eb830a1009ce9e1fc7a19b5cacb4daa93cf015e37'],
+      ['postcheck', 'database/checks/20261115_125_postcheck.sql', '93a590f5aedc96b79f29d493218a4d0f2251e64c7ca343e4bf8e0080028817de']],
+    criados: [tabela('area_familia_avisos_pagamento'), tabela('festa_pendencias_familia'), tabela('area_familia_aviso_empresa')],
+    // CHECK de tipo e gatilho em area_familia_eventos e gatilhos de autoria em festa_pessoas e festa_links_area exigem a posse dessas tabelas.
+    privilegios: {criaNoSchema: true, alteradas: ['area_familia_eventos', 'festa_links_area', 'festa_pessoas'], funcoes: [],
+      referenciadas: ['empresas', 'festa_pendencias', 'festa_pessoas', 'pagamento_parcelas', 'usuarios_administrativos']}}),
 });
-/** Ordem do inventário (scripts/production/check-migrations.mjs, approvedFiles): 120, 121, 110, 111, 115, 123, 124. */
-const IDS = Object.freeze(['120', '121', '110', '111', '115', '123', '124']);
+/** Ordem do inventário (scripts/production/check-migrations.mjs, approvedFiles): 120, 121, 110, 111, 115, 123, 124, 125. */
+const IDS = Object.freeze(['120', '121', '110', '111', '115', '123', '124', '125']);
 const definicao = id => { assert.ok(typeof id === 'string' && Object.hasOwn(MIGRATIONS, id), 'MIGRATION_FORA_DA_LISTA'); return MIGRATIONS[id]; };
 const marcadorDe = id => `migration-${id}.json`;
 const curta = e => String(e?.message ?? e).replace(/postgres(?:ql)?:\/\/\S+/gi, '<url>').slice(0, 300);
