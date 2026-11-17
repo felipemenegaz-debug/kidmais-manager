@@ -33,6 +33,8 @@ export type CriarFechamentoComercialInput = {
   temaFesta?: string | null;
   formaPagamentoPretendida?: FormaPagamentoPretendida | null;
   condicaoPixPretendida?: PretensaoPixInput | null;
+  /** Percentual que a tela mostrou para a forma escolhida; diferente da regra vigente = 409 REGRAS_PAGAMENTO_MUDARAM. */
+  descontoFormaPagamentoExibido?: number;
   alteracoesPacote?: string | null;
   observacoesCliente?: string | null;
   buffetSalgados?: string | null;

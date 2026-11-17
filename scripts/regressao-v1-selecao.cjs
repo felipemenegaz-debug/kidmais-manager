@@ -406,6 +406,9 @@ const ESTADO_POSTGRES = {
   "lib/agenda/aplicador-098-com-102.postgres.test.ts": { descartavel: "102" },
   // 25/10/2026: migration 103 (categoria Serviços): aplicação/reexecução/divergência/rollback no 102; estado final no 103.
   "lib/comercial/servicos-103.postgres.test.ts": { descartavel: "103", tambem: ["102"] },
+  // 16/11/2026: D1 Descontos e formas de pagamento: com a 077 (122) e sem ela (075).
+  "lib/comercial/regras-pagamento-admin.postgres.test.ts": { descartavel: "122", tambem: ["075"] },
+  "lib/fechamentos/desconto-revisao.postgres.test.ts": { descartavel: "122" },
   // Canal MCP (105): persistência OAuth, atomicidade (código, pedido, refresh), revogação entre conexões, trava FOR SHARE.
   "lib/integracoes/oauth/oauth.postgres.test.ts": { descartavel: "105", tambem: ["104"] },
   // Aplicador da 105 em staging (27/10/2026): staging de hoje (103, sem 104/105/106) e com a 104 da S-E.

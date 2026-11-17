@@ -852,6 +852,7 @@ export async function criarFechamentoPublicoComIdentidade(
         temaFesta: input.temaFesta,
         formaPagamentoPretendida: input.formaPagamentoPretendida,
         condicaoPixPretendida: input.condicaoPixPretendida,
+        descontoFormaPagamentoExibido: input.descontoFormaPagamentoExibido,
         alteracoesPacote: input.alteracoesPacote,
         observacoesCliente: input.observacoesCliente,
         buffetSalgados: input.buffetSalgados,

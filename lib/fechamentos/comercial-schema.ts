@@ -52,6 +52,12 @@ export const camposComerciaisFechamento = {
 
   formaPagamento: z.enum(["pix_avista", "pix_parcelado", "cartao_cielo"]),
   condicaoPixPretendida: pretensaoPixSchema.nullable().optional(),
+  /**
+   * Percentual de desconto da forma escolhida que a tela mostrou ao cliente. Se a regra da empresa mudou desde então,
+   * o servidor recusa (409 REGRAS_PAGAMENTO_MUDARAM) e devolve as regras atuais para nova confirmação. Opcional:
+   * quem não envia (scripts, fluxo administrativo) segue com a regra vigente.
+   */
+  descontoFormaPagamentoExibido: z.number().int().min(0).max(100).optional(),
   condicaoPagamento: z.never().optional(),
   condicaoAprovada: z.never().optional(),
   valorAprovado: z.never().optional(),

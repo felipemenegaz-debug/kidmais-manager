@@ -73,6 +73,8 @@ const CONFIGURACAO: Array<ItemNavegacao & { autoridade: 'empresa' | 'plataforma'
     // aprovar o modelo de contrato já exige Gestão; o contrato de festa segue a regra da importação de contratos.
     { href: '/admin/configuracoes/importar-documentos', rotulo: 'Importar documentos', grupo: 'Configurações', autoridade: 'empresa' },
     { href: '/admin/configuracoes/acessos', rotulo: 'Usuários e acessos', grupo: 'Configurações', autoridade: 'empresa' },
+    // D1 (16/11/2026): descontos do Pix e nome do cartão da empresa; a API exige Gestão (exigirGestaoNoTenant).
+    { href: '/admin/configuracoes/descontos', rotulo: 'Descontos e formas de pagamento', grupo: 'Configurações', autoridade: 'empresa' },
     // 083: o WhatsApp é da EMPRESA (cada uma conecta o próprio número): Gestão na empresa selecionada.
     { href: '/admin/configuracoes/whatsapp', rotulo: 'WhatsApp', grupo: 'Configurações', autoridade: 'empresa' },
     // 095: compra e devolução de créditos são da Gestão da empresa (lib/creditos/compra.ts exigirGestao).
