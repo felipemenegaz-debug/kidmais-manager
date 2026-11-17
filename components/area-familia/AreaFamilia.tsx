@@ -5,7 +5,9 @@ import { useRouter } from "next/navigation";
 import { comLink, comMarca, marcasIniciais, marcasVigentes } from "@/lib/area-familia/visita";
 import { abasVisiveis, contagem, dataCurta, dataPorExtenso, reais, ROTULO_ESTADO, type Aba } from "@/lib/area-familia/formato";
 import type { MinhaFesta, ParcelaFamilia } from "@/lib/area-familia/leitura";
-import { MarcaPublicaCabecalho, useMarcaPublica } from "@/components/fechamento/MarcaPublica";
+import { useMarcaPublica } from "@/components/fechamento/MarcaPublica";
+import FundoFesta from "@/components/site/FundoFesta";
+import { PausaGlobal } from "@/components/site/PausaGlobal";
 import styles from "./AreaFamilia.module.css";
 
 type Sessao = { papel: "CONTRATANTE" | "SEGUNDO_RESPONSAVEL"; primeiroNome: string } | null;
@@ -21,18 +23,40 @@ async function postar(url: string, corpo: unknown) {
  * Área "Minha festa": entrada por link + documento + código (F1); logado, as abas de leitura Início, Festa, Pagamentos e
  * Documentos (F2), com a marca do buffet. Os dados chegam prontos do servidor (só o mínimo; nada de CPF nem contato).
  * O token do link fica no fragmento (#), que o navegador nunca manda ao servidor nem a terceiros.
+ * Visual iA.Fest (Parte 1): fundo animado do site atrás do conteúdo e pausa única (PausaGlobal) na raiz
+ * [data-site-venda], que pausa canvas, bordas, halo e pseudo-elementos (AF-LK-7). O logo do buffet vem do servidor.
  */
-export default function AreaFamilia({ empresa, sessao, dados = null }: { empresa: string; sessao: Sessao; dados?: Dados }) {
+export default function AreaFamilia({ empresa, sessao, dados = null, logo = null }: { empresa: string; sessao: Sessao; dados?: Dados; logo?: string | null }) {
   const base = `/b/${empresa}/minha-festa`;
   return (
-    <main className={styles.page}>
-      <div className={styles.shell}>
-        <MarcaPublicaCabecalho subtitle="Minha festa" />
-        <section className={styles.cartao}>
-          {sessao ? <Logado base={base} sessao={sessao} dados={dados} /> : <Entrada base={base} />}
-        </section>
+    <main className={styles.page} data-site-venda data-area-familia>
+      <FundoFesta />
+      <Topo logo={logo} />
+      <div className={sessao ? styles.shell : `${styles.shell} ${styles.shellEstreito}`}>
+        {sessao ? <Logado base={base} sessao={sessao} dados={dados} /> : <section className={styles.cartao}><Entrada base={base} /></section>}
       </div>
     </main>
+  );
+}
+
+/** Topo: logo e nome do buffet, assinatura "Minha festa · iA.Fest" e a pausa das animações. */
+function Topo({ logo }: { logo: string | null }) {
+  const marca = useMarcaPublica();
+  return (
+    <header className={styles.topo}>
+      <div className={styles.topoInterno}>
+        <div className={styles.buffet}>
+          {/* data: URL do logo do buffet (lib/convites/logo-buffet), sem otimização do next/image. */}
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          {logo ? <img className={styles.logo} src={logo} alt="" /> : null}
+          <div>
+            <strong className={styles.nomeBuffet}>{marca.nome}</strong>
+            <small className={styles.assinatura}><span className={styles.marca} aria-hidden="true">i</span>Minha festa · iA.Fest</small>
+          </div>
+        </div>
+        <PausaGlobal classe={styles.pausa} classeTexto={styles.pausaTexto} />
+      </div>
+    </header>
   );
 }
 
@@ -81,34 +105,52 @@ function Logado({ base, sessao, dados }: { base: string; sessao: NonNullable<Ses
     window.location.replace(base);
   }
   const whatsapp = marca.contato?.whatsapp ?? null;
+  const festa = dados?.festa ?? null;
+  const abertas = dados ? dados.acoes.pendencias.filter((p) => !p.feita && !feitas.includes(p.id)).length : 0;
   return (
     <>
-      <h1 className={styles.titulo}>{sessao.primeiroNome ? `Olá, ${sessao.primeiroNome}!` : "Olá!"}</h1>
-      <p className={styles.texto}>Esta é a área da sua festa{marca.kidmais ? "" : ` com ${marca.nome}`}.</p>
+      <section className={styles.heroi}>
+        <div className={styles.heroiTexto}>
+          <h1 className={styles.titulo}>{sessao.primeiroNome ? `Olá, ${sessao.primeiroNome}!` : "Olá!"}</h1>
+          <p className={styles.texto}>Esta é a área da sua festa{marca.kidmais ? "" : ` com ${marca.nome}`}.</p>
+          {festa ? (
+            <p className={styles.quando}>
+              <span>{dataPorExtenso(festa.data)}{festa.horarioInicio ? `, das ${festa.horarioInicio}${festa.horarioFim ? ` às ${festa.horarioFim}` : ""}` : ""}</span>
+              {festa.salao ? <span>{festa.salao}</span> : null}
+            </p>
+          ) : null}
+        </div>
+        {festa ? <strong className={styles.contagem}>{contagem(festa.diasAteFesta)}</strong> : null}
+      </section>
       {!dados ? (
-        <div className={styles.vazio}>Não conseguimos carregar os dados da festa agora. Tente de novo em alguns minutos.</div>
+        <div className={styles.bloco}><div className={styles.vazio}>Não conseguimos carregar os dados da festa agora. Tente de novo em alguns minutos.</div></div>
       ) : (
         <>
           <nav className={styles.abas} aria-label="Seções da festa">
             {abasVisiveis(dados).map((a) => (
               <button key={a.id} type="button" className={aba === a.id ? `${styles.aba} ${styles.abaAtiva}` : styles.aba} aria-pressed={aba === a.id} onClick={() => setAba(a.id)}>
                 {a.rotulo}
+                {a.id === "pendencias" && abertas ? <><span className={styles.contador} aria-hidden="true">{abertas}</span><span className={styles.srOnly}>{`, ${abertas} em aberto`}</span></> : null}
               </button>
             ))}
           </nav>
+          <div className={styles.bloco}>
           {aba === "inicio" ? <Inicio dados={dados} feitas={feitas} irPara={setAba} /> : null}
           {aba === "festa" ? <Festa dados={dados} /> : null}
           {aba === "pagamentos" ? <Pagamentos base={base} dados={dados} visita={acoesDaVisita} /> : null}
           {aba === "documentos" ? <Documentos base={base} dados={dados} /> : null}
           {aba === "pendencias" && dados.acoes.disponivel ? <Pendencias base={base} dados={dados} visita={acoesDaVisita} /> : null}
           {aba === "pessoas" && dados.acoes.disponivel && dados.papel === "CONTRATANTE" ? <Pessoas base={base} dados={dados} visita={acoesDaVisita} /> : null}
+          </div>
         </>
       )}
-      {whatsapp ? (
-        <a className={styles.botaoLink} href={whatsapp.url} target="_blank" rel="noopener noreferrer">Falar com o buffet no WhatsApp</a>
-      ) : null}
-      <button type="button" className={styles.secundario} disabled={ocupado} onClick={() => sair(false)}>Sair deste aparelho</button>
-      <button type="button" className={styles.secundario} disabled={ocupado} onClick={() => sair(true)}>Sair de todos os aparelhos</button>
+      <div className={styles.rodape}>
+        {whatsapp ? (
+          <a className={styles.botaoLink} href={whatsapp.url} target="_blank" rel="noopener noreferrer">Falar com o buffet no WhatsApp</a>
+        ) : null}
+        <button type="button" className={styles.secundario} disabled={ocupado} onClick={() => sair(false)}>Sair deste aparelho</button>
+        <button type="button" className={styles.secundario} disabled={ocupado} onClick={() => sair(true)}>Sair de todos os aparelhos</button>
+      </div>
     </>
   );
 }
@@ -126,11 +168,6 @@ function Inicio({ dados, feitas, irPara }: { dados: MinhaFesta; feitas: string[]
           <strong>Ver</strong>
         </button>
       ) : null}
-      <div className={styles.destaque}>
-        <strong>{contagem(festa.diasAteFesta)}</strong>
-        <span>{dataPorExtenso(festa.data)}{festa.horarioInicio ? `, das ${festa.horarioInicio}${festa.horarioFim ? ` às ${festa.horarioFim}` : ""}` : ""}</span>
-        {festa.salao ? <span>{festa.salao}</span> : null}
-      </div>
       <dl className={styles.lista}>
         <div><dt>Aniversariante</dt><dd>{festa.aniversariante}</dd></div>
         {festa.tema ? <div><dt>Tema</dt><dd>{festa.tema}</dd></div> : null}
@@ -375,7 +412,12 @@ function Documentos({ base, dados }: { base: string; dados: MinhaFesta }) {
   return (
     <div className={styles.secao}>
       {dados.assinadoEmPapel ? <p className={styles.texto}>Seu contrato foi assinado em papel. O original fica com você e com o buffet.</p> : null}
-      {dados.assinadoPeloClienteEmPapel ? <p className={styles.texto} data-testid="papel-cliente">{dados.assinadoPeloClienteEmPapel}</p> : null}
+      {dados.assinadoPeloClienteEmPapel ? (
+        <div className={styles.papel}>
+          <span className={styles.selo} aria-hidden="true">✓</span>
+          <p className={styles.texto} data-testid="papel-cliente">{dados.assinadoPeloClienteEmPapel}</p>
+        </div>
+      ) : null}
       <ul className={styles.parcelas}>
         {dados.documentos.map((d) => (
           <li key={d.tipo === "comprovante" ? d.id : d.tipo}>
