@@ -11,7 +11,7 @@ import { textoFundador } from './fundador.ts';
 import type { ResumoCampanha } from '../assinatura/campanha.ts';
 
 const semBanco = { db: () => { throw new Error('teste não acessa banco'); }, withTransaction: () => { throw new Error('teste não acessa banco'); } };
-const dubles = { 'components/site/estilos': { cx: (...nomes: string[]) => nomes.filter(Boolean).join(' ') }, 'components/site/fonte': { fonteTexto: { variable: 'texto' }, fonteTitulo: { variable: 'titulo' } }, 'lib/db/postgres': semBanco };
+const dubles = { 'components/site/estilos': { cx: (...nomes: string[]) => nomes.filter(Boolean).join(' ') }, 'components/site/fonte': { fonteTexto: { variable: 'texto' }, fonteTitulo: { variable: 'titulo' } }, 'lib/db/postgres': semBanco, 'components/site/fundo-festa.module.css': {} };
 function componente(nome: string, exportado: string) { return carregarModulo(nome, dubles, new Map())[exportado] as ComponentType<Record<string, unknown>>; }
 const Cadastro = componente('components/site/elementos.tsx', 'Cadastro');
 const Contato = componente('components/site/elementos.tsx', 'Contato');
@@ -133,7 +133,9 @@ test('abas WAI: tablist, aria-selected, aria-controls, roving tabindex e painéi
 test('pausa global: botão único com aria-pressed, ligado ao movimento reduzido', () => {
     const html = render(interativo('PausaGlobal'));
     assert.match(html, /<button[^>]*aria-pressed="false"[^>]*>.*Pausar animações/);
-    const fonte = readFileSync('components/site/interativos.tsx', 'utf8');
+    // D-LK-6: o componente mora em PausaGlobal.tsx (também usado na área "Minha festa"); interativos.tsx reexporta.
+    assert.match(readFileSync('components/site/interativos.tsx', 'utf8'), /from '\.\/PausaGlobal'/);
+    const fonte = readFileSync('components/site/PausaGlobal.tsx', 'utf8');
     assert.match(fonte, /prefers-reduced-motion/); assert.match(fonte, /addEventListener\('change'/);
     assert.doesNotMatch(readFileSync('components/site/FundoFesta.tsx', 'utf8'), /<button/, 'sem botão de pausa por seção');
     assert.match(readFileSync('components/site/site.module.css', 'utf8'), /\.site\[data-pausado=true\][^{]*\{animation-play-state:paused!important\}/);

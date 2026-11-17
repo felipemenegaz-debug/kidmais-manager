@@ -3,35 +3,22 @@
  * Partes interativas do /conheca. Tudo aqui é simulação com dados fictícios: nada chama a API nem grava dados.
  * Cada componente renderiza no servidor um estado completo e legível (sem JavaScript, a página continua informativa).
  */
-import { useEffect, useId, useRef, useState, useSyncExternalStore, type KeyboardEvent } from 'react';
+import { useEffect, useId, useRef, useState, type KeyboardEvent } from 'react';
 import Image from 'next/image';
 import { custoPorFesta, precoExibido, type Modulo, type Plano } from '@/lib/site/catalogo';
-import { aplicarPausa, EVENTO_PAUSA, pausaAtual } from './pausa';
+import { EVENTO_PAUSA, pausaAtual } from './pausa';
+import { MOVIMENTO_REDUZIDO, PausaGlobal as PausaBase } from './PausaGlobal';
 import { cx } from './estilos';
 
 const brl = (centavos: number) => new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(centavos / 100);
-const MOVIMENTO_REDUZIDO = '(prefers-reduced-motion: reduce)';
 function semAnimacao() { return pausaAtual() === true || (typeof matchMedia !== 'undefined' && matchMedia(MOVIMENTO_REDUZIDO).matches); }
 export function Ficticio({ texto = 'Simulação com dados fictícios.' }: { texto?: string }) {
     return <p className={cx('ficticio')}>{texto}</p>;
 }
 
-/* ---------- Pausa única da página ---------- */
-function assinarMovimento(aviso: () => void) {
-    const consulta = matchMedia(MOVIMENTO_REDUZIDO);
-    consulta.addEventListener('change', aviso);
-    return () => consulta.removeEventListener('change', aviso);
-}
-/** Um botão para canvas, bordas, halo, botões e pseudo-elementos. Começa pela preferência do sistema e a acompanha. */
+/* ---------- Pausa única da página (componente em PausaGlobal.tsx, com as classes do site) ---------- */
 export function PausaGlobal() {
-    const reduzido = useSyncExternalStore(assinarMovimento, () => matchMedia(MOVIMENTO_REDUZIDO).matches, () => false);
-    // A escolha do visitante vale enquanto a preferência do sistema não muda.
-    const [escolha, setEscolha] = useState<{ pausado: boolean; preferencia: boolean } | null>(null);
-    const pausado = escolha && escolha.preferencia === reduzido ? escolha.pausado : reduzido;
-    useEffect(() => { aplicarPausa(pausado); }, [pausado]);
-    return <button type="button" className={cx('pausaGlobal')} aria-pressed={pausado} onClick={() => setEscolha({ pausado: !pausado, preferencia: reduzido })}>
-        <span aria-hidden="true">{pausado ? '▶' : '❚❚'}</span><span className={cx('pausaTexto')}>Pausar animações</span>
-    </button>;
+    return <PausaBase classe={cx('pausaGlobal')} classeTexto={cx('pausaTexto')} />;
 }
 
 /* ---------- Topo: monte uma festa ---------- */

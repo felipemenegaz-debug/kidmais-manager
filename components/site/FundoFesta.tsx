@@ -2,7 +2,7 @@
 
 import { useEffect, useRef } from 'react';
 import { iniciarFundo } from './fundo-festa';
-import { cx } from './estilos';
+import styles from './fundo-festa.module.css';
 import { EVENTO_PAUSA, pausaAtual } from './pausa';
 
 /** Apenas decoração: conteúdo e links continuam renderizados pelo servidor. A pausa é única na página (PausaGlobal). */
@@ -24,8 +24,8 @@ export default function FundoFesta() {
         window.addEventListener(EVENTO_PAUSA, pausa);
         return () => { observar.disconnect(); window.removeEventListener(EVENTO_PAUSA, pausa); controle.current?.destruir(); controle.current = null; };
     }, []);
-    return <div ref={camada} className={cx('fundoFesta')} aria-hidden="true" data-fundo-festa>
-        <div data-gradiente-container className={cx('fundoGradiente')} />
+    return <div ref={camada} className={styles.fundoFesta} aria-hidden="true" data-fundo-festa>
+        <div data-gradiente-container className={styles.fundoGradiente} />
         <canvas data-elementos />
         <canvas data-coracoes />
     </div>;
