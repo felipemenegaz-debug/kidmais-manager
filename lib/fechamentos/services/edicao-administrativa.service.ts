@@ -2,7 +2,7 @@ import type { DbExecutor } from '../../db/contracts';
 import type { FechamentoRecord } from '../repositories';
 import { calcularResumoComercial } from '../../comercial/services';
 import { calcularCondicaoComercial, centavosComerciais, validarPretensaoPix } from '../../comercial/condicao-pagamento';
-import { regraNaCondicao } from '../../comercial/regras-pagamento';
+import { regraNaRevisao } from '../../comercial/regras-pagamento';
 
 import { consultarDisponibilidadeData, duracaoDoIntervalo, intervaloSemConflito } from '../../disponibilidade/services';
 import { adquirirLockConfirmacaoAgenda } from '../../disponibilidade/repositories';
@@ -35,7 +35,7 @@ export async function editarFechamentoAdministrativo(id: string, raw: EdicaoFest
         recusar('Após assinatura, prepare a alteração em uma nova versão pelo painel de Contratos.');
     const anteriorAdicionais = await listarAdicionaisDoFechamento(id, tx);
     const { fechamento: novo, resumo } = await calcularEdicaoFechamento(f, input, tx);
-    if (input.comercial) await criarAprovacaoNegociacao({ fechamentoId: id, status: 'APROVADO', valorInformado: resumo.valorTotalTabela, valorAprovado: novo.valorAprovado ?? resumo.valorTotalTabela, motivo: input.motivo, aprovadoPorUsuarioId: usuarioId, condicaoPagamento: { ...novo.condicaoPagamento!, valores: calcularCondicaoComercial(novo.valorAprovado ?? resumo.valorTotalTabela, input.comercial.forma) } }, tx);
+    if (input.comercial) await criarAprovacaoNegociacao({ fechamentoId: id, status: 'APROVADO', valorInformado: resumo.valorTotalTabela, valorAprovado: novo.valorAprovado ?? resumo.valorTotalTabela, motivo: input.motivo, aprovadoPorUsuarioId: usuarioId, condicaoPagamento: { ...novo.condicaoPagamento!, valores: calcularCondicaoComercial(novo.valorAprovado ?? resumo.valorTotalTabela, input.comercial.forma, novo.condicaoPagamento!.descontoPercentual) } }, tx);
     await persistirEdicaoFechamento(tx, novo, resumo, { caminho: 'EDICAO_LIMPA_SALAO', origem: 'EQUIPE' });
     const fotografia = await fotografarEstadoFechamento(tx, id, { motivo: input.motivo, atorUsuarioId: usuarioId });
     await registrarAuditoria({ atorTipo: 'USUARIO', usuarioId, clienteId: f.clienteId, acao: 'ALTERACAO_ADMINISTRATIVA', entidadeTipo: 'FECHAMENTO', entidadeId: id, origem: 'CONTRATO_ADMIN', requestId, dadosAntes: { fechamento: f, adicionais: anteriorAdicionais }, dadosDepois: { fechamento: novo, adicionais: resumo.adicionais.itens, motivo: input.motivo, pacoteSnapshotId: fotografia?.id ?? null, empresaId: fotografia?.empresaId ?? null } }, tx);
@@ -91,7 +91,7 @@ export async function calcularEdicaoFechamento(f: FechamentoRecord, raw: EdicaoF
         novo.valorNegociado = base === resumo.valorTotalTabela ? null : base;
         novo.valorAprovado = novo.valorNegociado;
         novo.status = 'AGUARDANDO_CONTRATO';
-        novo.condicaoPagamento = { schemaVersao: 1, forma: com.forma, pretendida: f.condicaoPagamento?.forma === com.forma ? f.condicaoPagamento.pretendida : null, aprovada: condicao, revisaoStatus: 'APROVADA', ...(await regraNaCondicao(tx, empresaEsperada, com.forma)) };
+        novo.condicaoPagamento = { schemaVersao: 1, forma: com.forma, pretendida: f.condicaoPagamento?.forma === com.forma ? f.condicaoPagamento.pretendida : null, aprovada: condicao, revisaoStatus: 'APROVADA', ...(await regraNaRevisao(tx, empresaEsperada, com.forma, f.condicaoPagamento, f.formaPagamentoPretendida)) };
     }
     else if (resumo.valorTotalTabela !== f.valorTabela && (f.valorNegociado !== null || f.formaPagamentoPretendida === 'PIX_PARCELADO'))
         recusar('O novo preço exige confirmação explícita da negociação/condição comercial nesta edição.');

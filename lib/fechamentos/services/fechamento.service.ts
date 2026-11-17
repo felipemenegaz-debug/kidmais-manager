@@ -2,7 +2,7 @@ import { buscarClientePorId } from "../../clientes/repositories";
 import { calcularResumoComercial } from "../../comercial/services";
 import { observacoesDasEscolhas } from "../../comercial/adicionais-escolhas";
 import { centavosComerciais, validarPretensaoPix, type CondicaoPagamento } from "../../comercial/condicao-pagamento";
-import { regraNaCondicao } from "../../comercial/regras-pagamento";
+import { regraConferidaNaCriacao, RegrasPagamentoMudaramError } from "../../comercial/regras-pagamento";
 
 import type { DbExecutor } from "../../db/contracts";
 import { withTransaction } from "../../db/postgres";
@@ -109,10 +109,19 @@ async function criarFechamentoComercialNaTransacao(
     throw new FechamentoServiceError("DADOS_INVALIDOS", "A condição de PIX parcelado exige essa forma de pagamento.");
   }
   const revisaoNecessaria = negociacaoNecessaria || input.formaPagamentoPretendida === "PIX_PARCELADO";
+  const regraDaCondicao = input.formaPagamentoPretendida
+    ? await regraConferidaNaCriacao(tx, resumoComercial.pacote.pacote.empresaId ?? null, input.formaPagamentoPretendida,
+      input.descontoFormaPagamentoExibido).catch((erro: unknown) => {
+      if (!(erro instanceof RegrasPagamentoMudaramError)) throw erro;
+      throw new FechamentoServiceError("REGRAS_PAGAMENTO_MUDARAM", erro.message, 409, {
+        pagamento: erro.regras, exibido: erro.exibido, vigente: erro.vigente,
+      });
+    })
+    : {};
   const condicaoPagamento: CondicaoPagamento | null = input.formaPagamentoPretendida ? {
     schemaVersao: 1, forma: input.formaPagamentoPretendida, pretendida, aprovada: null,
-    // Regra de pagamento da empresa do pacote (077); sem a 077, nenhum campo novo (legado inalterado).
-    ...(await regraNaCondicao(tx, resumoComercial.pacote.pacote.empresaId ?? null, input.formaPagamentoPretendida)),
+    // Regra da empresa do pacote (077), conferida contra o percentual exibido na tela (Astra r1, P2); sem a 077, nada novo.
+    ...regraDaCondicao,
     revisaoStatus: revisaoNecessaria ? "PENDENTE" : "DISPENSADA",
   } : null;
 

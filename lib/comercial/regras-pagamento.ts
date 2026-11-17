@@ -49,6 +49,52 @@ export async function lerRegrasPagamento(tx: DbExecutor, empresaId: string | nul
   };
 }
 
+/**
+ * Revisão de uma condição já gravada (edição administrativa, revisão operacional). Mesma forma → mantém o percentual
+ * gravado; condição antiga sem o campo continua sem ele (legado). Só forma nova consulta a regra vigente: mudar a tela de
+ * Descontos nunca reaplica percentual a fechamento existente (Astra r1, P1, 16/11/2026).
+ *
+ * Fechamento anterior à condição (migration 012: `condicao_pagamento` nula) com a mesma `formaPagamentoPretendida`:
+ * o contrato dele usa a base integral (sem condição não há desconto), então a revisão grava 0% explícito para manter o
+ * valor; nem a regra vigente nem o legado 10/3 entram (Astra r2, P1, 16/11/2026).
+ */
+export async function regraNaRevisao(tx: DbExecutor, empresaId: string | null, forma: FormaComercial,
+  anterior: { forma?: string | null; descontoPercentual?: number | null } | null | undefined,
+  formaRegistrada?: string | null) {
+  if (anterior && anterior.forma === forma)
+    return typeof anterior.descontoPercentual === "number" ? { descontoPercentual: anterior.descontoPercentual } : {};
+  if (!anterior && formaRegistrada === forma) return { descontoPercentual: 0 };
+  return regraNaCondicao(tx, empresaId, forma);
+}
+
+/**
+ * Criação com a confirmação da tela: `exibido` é o percentual que o cliente viu para a forma escolhida. Se a regra
+ * vigente (ou o legado, sem a 077) diverge, lança RegrasPagamentoMudaramError com as regras atuais, sem gravar nada,
+ * para a tela mostrar os valores novos e pedir nova confirmação. Sem `exibido`, igual a regraNaCondicao.
+ */
+export async function regraConferidaNaCriacao(tx: DbExecutor, empresaId: string | null, forma: FormaComercial, exibido?: number) {
+  const regras = await lerRegrasPagamento(tx, empresaId);
+  if (typeof exibido === "number") {
+    const vigentes = regras ?? REGRAS_LEGADAS;
+    const vigente = percentualDaForma(vigentes, forma);
+    if (vigente !== exibido) throw new RegrasPagamentoMudaramError(exibido, vigente, vigentes);
+  }
+  return regras ? { descontoPercentual: percentualDaForma(regras, forma) } : {};
+}
+
+export class RegrasPagamentoMudaramError extends Error {
+  readonly exibido: number;
+  readonly vigente: number;
+  readonly regras: RegrasPagamento;
+  constructor(exibido: number, vigente: number, regras: RegrasPagamento) {
+    super(`O desconto desta forma de pagamento mudou de ${exibido}% para ${vigente}%. Confira o novo valor e envie de novo.`);
+    this.name = "RegrasPagamentoMudaramError";
+    this.exibido = exibido;
+    this.vigente = vigente;
+    this.regras = regras;
+  }
+}
+
 /** Campo a acrescentar na condição nova: `{ descontoPercentual }` com a 077; `{}` sem ela (legado inalterado). */
 export async function regraNaCondicao(tx: DbExecutor, empresaId: string | null, forma: FormaComercial) {
   const regras = await lerRegrasPagamento(tx, empresaId);

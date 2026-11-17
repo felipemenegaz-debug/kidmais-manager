@@ -286,7 +286,9 @@ export default function FechamentoWizard({ empresa = null }: { empresa?: string 
   // Endereço por empresa: regras entregues pela página (servidor). Endereço atual: regras da empresa configurada,
   // lidas em /api/fechamentos/pacotes; até chegarem (ou antes da 077), o legado — o mesmo que o servidor aplica.
   const [regrasDoServidor, setRegrasDoServidor] = useState<RegrasPagamento | null>(null);
-  const pagamento = empresa ? marca.pagamento : (regrasDoServidor ?? marca.pagamento);
+  // Regra devolvida pelo envio recusado (409 REGRAS_PAGAMENTO_MUDARAM): vale sobre as anteriores e o cliente confirma de novo.
+  const [regrasAtualizadas, setRegrasAtualizadas] = useState<RegrasPagamento | null>(null);
+  const pagamento = regrasAtualizadas ?? (empresa ? marca.pagamento : (regrasDoServidor ?? marca.pagamento));
   const router = useRouter();
   const [etapa, setEtapa] = useState(0);
   const [form, setForm] = useState<FechamentoForm>(FORM_INICIAL);
@@ -1420,6 +1422,11 @@ export default function FechamentoWizard({ empresa = null }: { empresa?: string 
               : null,
           ...form,
           escolhasBuffet: form.buffetDefinicao === 'agora' ? escolhasBuffet : {},
+          // Percentual mostrado para a forma escolhida: se a regra mudou desde então, o servidor recusa (409) e devolve a atual.
+          ...(form.formaPagamento ? {
+            descontoFormaPagamentoExibido: form.formaPagamento === "pix_avista" ? pagamento.pixAvistaPercentual
+              : form.formaPagamento === "pix_parcelado" ? pagamento.pixParceladoPercentual : 0,
+          } : {}),
           condicaoPixPretendida: form.formaPagamento === "pix_parcelado" ? {
             entrada: form.pixEntrada ? form.pixEntrada.replace(",", ".") : null,
             valorParcela: form.pixParcela ? form.pixParcela.replace(",", ".") : null,
@@ -1456,6 +1463,12 @@ export default function FechamentoWizard({ empresa = null }: { empresa?: string 
         const volta = destinoDaRecusaDoSalao(empresa, new URLSearchParams(window.location.search), enviado, falha);
         if (volta) {
           router.replace(volta);
+          return;
+        }
+        // Regra de pagamento mudou depois que a tela carregou: mostra os valores novos e pede nova confirmação.
+        if (falha?.codigo === "REGRAS_PAGAMENTO_MUDARAM" && falha?.detalhes?.pagamento) {
+          setRegrasAtualizadas(falha.detalhes.pagamento as RegrasPagamento);
+          setErro(falha.erro || "O desconto desta forma de pagamento mudou. Confira o novo valor e envie de novo.");
           return;
         }
         throw new Error(
