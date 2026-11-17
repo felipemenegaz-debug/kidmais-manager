@@ -122,10 +122,12 @@ export const adicionais: { nome: string; recursos: RecursoId[]; centavos: number
 ];
 
 /** Painéis interativos da seção "Toque e veja como funciona". */
-export type PainelId = 'orcamento' | 'assinatura' | 'convite' | 'parcelas' | 'ajuda' | 'marca';
+/** A primeira fileira conta o ciclo com o cliente: atendimento (início), fechamento (meio) e pós-festa (fim). */
+export type PainelId = 'atendimento' | 'assinatura' | 'mensagens' | 'convite' | 'parcelas' | 'ajuda' | 'marca';
 export const paineis: { id: PainelId; recursos: RecursoId[] }[] = [
-    { id: 'orcamento', recursos: ['orcamento'] },
-    { id: 'assinatura', recursos: ['assinatura_codigo', 'contratos'] },
+    { id: 'atendimento', recursos: ['walle_whatsapp', 'agenda', 'festas'] },
+    { id: 'assinatura', recursos: ['assinatura_codigo', 'contratos', 'agenda', 'festas'] },
+    { id: 'mensagens', recursos: ['mensagens', 'contratos', 'assinatura_codigo', 'festas'] },
     { id: 'convite', recursos: ['convite'] },
     { id: 'parcelas', recursos: ['pix', 'financeiro'] },
     { id: 'ajuda', recursos: ['ajuda'] },
@@ -160,9 +162,11 @@ export const modulos: Modulo[] = [
     { id: 'importacao', nome: 'Importação por IA', recursos: ['importacao'], titulo: 'Seu buffet já tem história. Traga ela para o iA.Fest.', texto: 'A IA lê a tabela de preços, o modelo de contrato e os contratos já vendidos. Você revisa antes de aplicar.',
         itens: ['Pacotes e adicionais', 'Modelo de contrato', 'Festas antigas'], tela: [['tabela-2027.pdf', '3 pacotes · 12 adicionais']] },
     { id: 'copiloto', nome: 'Copiloto', recursos: ['copiloto'], titulo: 'Pergunte ao sistema como perguntaria à equipe.', texto: 'O copiloto resume a festa e mostra o que precisa da sua atenção. Ele sugere; quem decide é você.',
-        itens: ['O que precisa da minha atenção hoje?'], tela: [['Hoje', '2 contratos aguardando assinatura']] },
-    { id: 'mcp', nome: 'ChatGPT e Claude', recursos: ['mcp'], titulo: 'Use o assistente que você já tem.', texto: 'Conecte o ChatGPT ou o Claude à sua conta e consulte a agenda e os recebíveis por conversa. A conexão é só de leitura.',
-        itens: ['Quais festas tenho no sábado?'], tela: [['Você', 'Quais festas tenho no sábado?']] },
+        itens: ['O que precisa da minha atenção hoje?', 'Resumo da festa: contrato, parcelas e o que falta', 'Festas com pendências perto da data', 'Valores em atraso, com o próximo passo sugerido'],
+        tela: [['Hoje', '2 contratos aguardando assinatura'], ['Festa da Sofia · sáb', '1 parcela vencida'], ['Em atraso', 'R$ 2.825,00 · 2 famílias'], ['Próximo passo', 'Ver o procedimento de cobrança']] },
+    { id: 'mcp', nome: 'ChatGPT e Claude', recursos: ['mcp'], titulo: 'Use o assistente que você já tem.', texto: 'Conecte o ChatGPT ou o Claude à sua conta e pergunte sobre a agenda, os recebíveis e os documentos do buffet. O assistente cruza as respostas e raciocina com você. A conexão é só de leitura.',
+        itens: ['Quantas festas tenho amanhã e quais ainda estão sem contrato assinado?', 'Monte a prioridade de cobrança da semana com o que está vencido e o que vence em 7 dias.', 'Pelos procedimentos do buffet, como respondo a um pedido de remarcação? Escreva a mensagem para a família.', 'Quanto do que tenho a receber está atrasado há mais de 60 dias?'],
+        tela: [['Você', 'Monte a prioridade de cobrança da semana.'], ['Vencido há mais de 60 dias', 'R$ 1.412,50 · comece por aqui'], ['Vencido até 30 dias', 'R$ 2.825,00'], ['Vence em 7 dias', '3 parcelas · R$ 4.237,50']] },
     { id: 'familia', nome: 'Área da família', recursos: ['familia'], titulo: 'Tudo o que a família precisa, num link.', texto: 'O contratante acompanha contrato, parcelas e convite da própria festa.',
         itens: ['Sem senha e sem aplicativo'], tela: [['Contrato', 'assinado']] },
     { id: 'pesquisa', nome: 'Pesquisa de satisfação', recursos: ['pesquisa'], titulo: 'Saiba como foi cada festa.', texto: 'Depois do evento, a família responde uma pesquisa curta pelo celular.',
@@ -178,6 +182,7 @@ export const passos: { quem: 'Cliente' | 'Você' | 'Automático'; titulo: string
     { quem: 'Cliente', titulo: 'Convida os amigos', texto: 'Cria o convite e acompanha as confirmações de presença.', recursos: ['convite'] },
     { quem: 'Você', titulo: 'Acompanha os recebimentos', texto: 'Dá baixa nas parcelas, inclusive pagamentos parciais, com a data real.', recursos: ['financeiro'] },
     { quem: 'Automático', titulo: 'Cuida do pós-festa', texto: 'Agradecimento e pesquisa de satisfação para a família.', recursos: ['mensagens', 'pesquisa'] },
+    { quem: 'Automático', titulo: 'Lembra o próximo aniversário', texto: 'Perto da data, a família recebe uma mensagem para comemorar de novo no buffet.', recursos: ['mensagens', 'clientes'] },
 ];
 export function tituloFluxo(): string {
     return visivel(['mensagens', 'pesquisa']) ? 'Uma festa, do pedido ao pós-festa.' : 'Uma festa, do fechamento ao dia da festa.';

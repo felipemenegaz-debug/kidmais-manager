@@ -78,6 +78,104 @@ test('lançamento: ocultar cada recurso disponível, um por vez, tira todas as p
     assert.deepEqual(falhas, []);
 });
 
+test('lançamento com tudo ligado: nos painéis e no passo novo, ocultar qualquer recurso tira as promessas dele (cards do ciclo inclusive)', () => {
+    // Simula o catálogo completo (todos os recursos disponíveis) e oculta um por vez: protege os cards que hoje não aparecem.
+    // Recorte: painéis "Toque e veja" + o passo novo do fluxo. Outras seções têm vazamentos anteriores no estado "tudo ligado" (registrados no vault).
+    const ids = Object.keys(recursos);
+    const falhas: string[] = [];
+    for (const id of ids) {
+        const cache = new Map<string, Record<string, unknown>>();
+        const catalogo = carregarModulo('lib/site/catalogo.ts', dubles, cache) as { recursos: Record<string, { status: string; nome: string; termos: readonly string[] }> };
+        for (const outro of ids) catalogo.recursos[outro].status = 'disponivel';
+        catalogo.recursos[id].status = 'oculto';
+        const cat = catalogo as unknown as { passos: { titulo: string; texto: string }[]; filtrar: <T>(itens: T[]) => T[] };
+        const passoNovo = cat.filtrar(cat.passos).filter(p => p.titulo === 'Lembra o próximo aniversário').map(p => `${p.titulo} ${p.texto}`).join(' ');
+        const pagina = textoDaPagina(render(carregarModulo('components/site/secoes.tsx', dubles, cache).Paineis as ComponentType<Record<string, unknown>>)) + ' ' + passoNovo.toLowerCase();
+        for (const termo of [catalogo.recursos[id].nome, ...catalogo.recursos[id].termos])
+            if (pagina.includes(termo.toLowerCase())) falhas.push(`${id} oculto (resto ligado), mas "${termo}" segue na página: …${pagina.slice(Math.max(0, pagina.indexOf(termo.toLowerCase()) - 60), pagina.indexOf(termo.toLowerCase()) + 40).replace(/\s+/g, ' ')}…`);
+    }
+    assert.deepEqual(falhas, []);
+});
+
+test('cards do ciclo: com tudo ligado, atendimento, fechamento e mensagens abrem a fileira e a grade fecha sem buraco', () => {
+    const cache = new Map<string, Record<string, unknown>>();
+    const catalogo = carregarModulo('lib/site/catalogo.ts', dubles, cache) as { recursos: Record<string, { status: string }>; paineis: { id: string }[]; passos: { titulo: string }[]; filtrar: <T>(itens: T[]) => T[] };
+    for (const r of Object.values(catalogo.recursos)) r.status = 'disponivel';
+    assert.deepEqual(catalogo.filtrar(catalogo.paineis).map(p => p.id), ['atendimento', 'assinatura', 'mensagens', 'convite', 'parcelas', 'ajuda', 'marca']);
+    assert.equal(catalogo.filtrar(catalogo.passos).at(-1)?.titulo, 'Lembra o próximo aniversário');
+    const html = render(carregarModulo('components/site/secoes.tsx', dubles, cache).Paineis as ComponentType<Record<string, unknown>>);
+    const larguras = [...html.matchAll(/<article class="bentoItem ?([^"]*)"[^>]*data-painel="([a-z]+)"/g)].map(m => [m[2], m[1]]);
+    // 3 + convite (fileira inteira) + parcelas/ajuda/marca: duas fileiras de 3, sem card sozinho.
+    assert.deepEqual(larguras, [['atendimento', 'g2'], ['assinatura', 'g2'], ['mensagens', 'g2'], ['convite', 'g6'], ['parcelas', 'g2'], ['ajuda', 'g2'], ['marca', 'g2']]);
+    assert.match(html, /Área da Família/);
+    // Catálogo real: com 2 cards g2 no fim (parcelas e ajuda), cada um ocupa metade da fileira; o vídeo real aparece na ajuda.
+    const real = render(secao('Paineis'));
+    assert.deepEqual([...real.matchAll(/<article class="bentoItem ?([^"]*)"[^>]*data-painel="([a-z]+)"/g)].map(m => [m[2], m[1]]), [['assinatura', 'g6'], ['convite', 'g6'], ['parcelas', ''], ['ajuda', '']]);
+    const video = real.match(/<video [^>]*>[\s\S]*?<\/video>/)?.[0] ?? '';
+    assert.match(video, /src="\/ajuda\/videos\/do-fechamento-ao-contrato\.mp4"/);
+    // Achado P3 do Astra r1: capa leve e nada do MP4 antes de tocar.
+    assert.match(video, /poster="\/ajuda\/videos\/do-fechamento-ao-contrato\.jpg"/);
+    assert.match(video, /preload="none"/);
+    // Achado P2 do Astra r1: legenda sincronizada e versão em texto.
+    assert.match(video, /<track kind="captions" src="\/ajuda\/videos\/do-fechamento-ao-contrato\.vtt" srcLang="pt-BR"[^>]*default/i);
+    for (const arquivo of ['do-fechamento-ao-contrato.mp4', 'do-fechamento-ao-contrato.jpg', 'do-fechamento-ao-contrato.vtt'])
+        assert.ok(readdirSync('public/ajuda/videos').includes(arquivo), `${arquivo} existe na central de ajuda`);
+    // O passo a passo em texto é a legenda inteira, na ordem, menos a abertura (título) e o fecho (onde pedir ajuda no sistema).
+    const falas = readFileSync('public/ajuda/videos/do-fechamento-ao-contrato.vtt', 'utf8').split(/\r?\n\r?\n/)
+        .map(bloco => bloco.split(/\r?\n/).filter(l => l && !/^\d+$/.test(l) && !l.includes('-->') && l !== 'WEBVTT').join(' ')).filter(Boolean);
+    const passoATexto = real.match(/<details class="passoVideo">[\s\S]*?<\/details>/)?.[0] ?? '';
+    assert.match(passoATexto, /<summary>Passo a passo em texto<\/summary>/);
+    const itens = [...passoATexto.matchAll(/<li>([^<]*)<\/li>/g)].map(m => m[1].replace(/&#x27;/g, "'"));
+    assert.deepEqual(itens, falas.slice(1, -1));
+});
+
+test('lembrete do próximo aniversário: passo 8 e linha do painel de mensagens seguem juntos o recurso clientes (achado do Astra r1)', () => {
+    const lembrete = '1 mês antes do próximo aniversário';
+    for (const clientesLigado of [true, false]) {
+        const cache = new Map<string, Record<string, unknown>>();
+        const catalogo = carregarModulo('lib/site/catalogo.ts', dubles, cache) as { recursos: Record<string, { status: string }>; passos: { titulo: string }[]; filtrar: <T>(itens: T[]) => T[] };
+        for (const r of Object.values(catalogo.recursos)) r.status = 'disponivel';
+        catalogo.recursos.clientes.status = clientesLigado ? 'disponivel' : 'oculto';
+        const temPasso = catalogo.filtrar(catalogo.passos).some(p => p.titulo === 'Lembra o próximo aniversário');
+        const html = render(carregarModulo('components/site/secoes.tsx', dubles, cache).Paineis as ComponentType<Record<string, unknown>>);
+        const mensagens = html.match(/data-painel="mensagens"[\s\S]*?<\/article>/)?.[0] ?? '';
+        assert.ok(mensagens, 'o painel de mensagens aparece com o resto ligado');
+        assert.equal(temPasso, clientesLigado, `passo 8 com clientes ${clientesLigado ? 'ligado' : 'oculto'}`);
+        assert.equal(mensagens.includes(lembrete), clientesLigado, `linha do painel com clientes ${clientesLigado ? 'ligado' : 'oculto'}`);
+        assert.equal(/comemorar de novo/.test(mensagens), clientesLigado);
+        // P3 do Astra r1: o avanço da linha do tempo é anunciado numa região viva.
+        assert.match(mensagens, /<p role="status" class="srOnly"><\/p>/, 'renderização inicial não anuncia nada');
+    }
+    // Ciclo completo (achado P3 do Astra r2): do reinício até a última mensagem, cada envio é anunciado, inclusive o último.
+    const { avancarMensagens } = carregarModulo('components/site/interativos.tsx', dubles, new Map()) as { avancarMensagens: (n: number, t: readonly string[]) => { enviadas: number; anuncio: string } };
+    const textos = ['Confirmação', 'Lembrete da parcela', 'Lembrete para comemorar de novo no buffet'];
+    let estado = { enviadas: textos.length, anuncio: '' };
+    const anuncios: string[] = [];
+    for (let i = 0; i <= textos.length; i++) { estado = avancarMensagens(estado.enviadas, textos); anuncios.push(estado.anuncio); }
+    assert.deepEqual(anuncios, ['Linha do tempo reiniciada. Todas as mensagens estão programadas.', 'Enviada: Confirmação.', 'Enviada: Lembrete da parcela.', 'Enviada: Lembrete para comemorar de novo no buffet.']);
+    assert.equal(estado.enviadas, textos.length);
+    const fonte = readFileSync('components/site/interativos.tsx', 'utf8');
+    const painel = fonte.slice(fonte.indexOf('export function PainelMensagens'));
+    assert.match(painel.slice(0, painel.indexOf('\n}\n')), /avancarMensagens\(enviadas[\s\S]*?setAnuncio\(proximo\.anuncio\)[\s\S]*?<p role="status" className=\{cx\('srOnly'\)\}>\{anuncio\}<\/p>/);
+});
+
+test('vídeo do card de ajuda: título, player e passo a passo somem juntos com cada dependência (achado do Astra r2)', () => {
+    const titulo = 'Do fechamento ao contrato assinado';
+    for (const oculto of [null, 'contratos', 'assinatura_codigo', 'agenda', 'festas', 'clientes']) {
+        const cache = new Map<string, Record<string, unknown>>();
+        const catalogo = carregarModulo('lib/site/catalogo.ts', dubles, cache) as { recursos: Record<string, { status: string }> };
+        for (const r of Object.values(catalogo.recursos)) r.status = 'disponivel';
+        if (oculto) catalogo.recursos[oculto].status = 'oculto';
+        const html = render(carregarModulo('components/site/secoes.tsx', dubles, cache).Paineis as ComponentType<Record<string, unknown>>);
+        const ajuda = html.match(/data-painel="ajuda"[\s\S]*?<\/article>/)?.[0] ?? '';
+        assert.ok(ajuda, `card de ajuda aparece (${oculto ?? 'tudo ligado'})`);
+        const esperado = oculto === null;
+        assert.equal(ajuda.includes(`<li>${titulo}</li>`), esperado, `título na lista com ${oculto ?? 'tudo ligado'}`);
+        assert.equal(ajuda.includes('<video'), esperado, `player com ${oculto ?? 'tudo ligado'}`);
+        assert.equal(ajuda.includes('Passo a passo em texto'), esperado, `passo a passo com ${oculto ?? 'tudo ligado'}`);
+    }
+});
+
 test('lançamento: o teste pega a promessa — ligar um recurso oculto faz o termo dele aparecer', () => {
     // Prova de que a guarda acima não passa por acaso: com o Wall-e "disponível", a seção e a dúvida dele aparecem.
     const cache = new Map<string, Record<string, unknown>>();
@@ -404,12 +502,14 @@ test('pausa interrompe as simulações em andamento: assinatura e convite ouvem 
     const fonte = readFileSync('components/site/interativos.tsx', 'utf8');
     assert.match(fonte, /function useAoPausar\([\s\S]*?addEventListener\(EVENTO_PAUSA[\s\S]*?consulta\.addEventListener\('change'/);
     const chamadas = fonte.match(/useAoPausar\(\(\) =>/g) ?? [];
-    assert.equal(chamadas.length, 2, 'PainelAssinatura e PainelConvite');
+    assert.equal(chamadas.length, 3, 'PainelAssinatura, PainelConvite e PainelAtendimento');
     for (const painel of ['PainelAssinatura', 'PainelConvite']) {
         const corpo = fonte.slice(fonte.indexOf(`export function ${painel}`), fonte.indexOf('\n}\n', fonte.indexOf(`export function ${painel}`)));
         assert.match(corpo, /useAoPausar\(/, painel);
         assert.match(corpo, /clearInterval/, `${painel}: para o temporizador`);
     }
+    const atendimento = fonte.slice(fonte.indexOf('export function PainelAtendimento'), fonte.indexOf('\n}\n', fonte.indexOf('export function PainelAtendimento')));
+    assert.match(atendimento, /useAoPausar\([\s\S]*?clearTimeout/, 'PainelAtendimento: a pausa cancela a resposta simulada');
 });
 
 test('topo pelo catálogo: sem agenda, festas ou contratos o topo vira institucional e a demo some', () => {

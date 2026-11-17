@@ -616,3 +616,30 @@
 .site .aceite{display:flex;flex-wrap:wrap;align-items:center;gap:10px;margin-top:12px}
 .site .aceite label{display:flex;align-items:center;gap:8px;min-height:44px;font-size:14px;color:var(--text);cursor:pointer}
 .site .aceite input{width:20px;height:20px;accent-color:#80f5c4}
+
+/* Ciclo com o cliente: atendimento, fechamento e mensagens */
+.site .miniChat{display:grid;gap:8px;font-size:14px;line-height:1.45}
+.site .balao{margin:0;color:var(--text);padding:10px 12px;border-radius:14px;max-width:92%;display:grid;gap:3px}
+.site .balao small{font-size:11px;letter-spacing:.04em;color:var(--muted,#a9b4d0)}
+.site .balao.cliente{justify-self:end;background:#ffffff10;border-bottom-right-radius:4px}
+.site .balao.ia{justify-self:start;background:#80f5c41c;border:1px solid #80f5c440;border-bottom-left-radius:4px}
+.site .balao.digitando{display:flex;gap:5px;padding:14px}
+.site .balao.digitando i{width:7px;height:7px;border-radius:50%;background:var(--mint);animation:digitando 1s infinite ease-in-out}
+.site .balao.digitando i:nth-child(2){animation-delay:.15s}.site .balao.digitando i:nth-child(3){animation-delay:.3s}
+@keyframes digitando{0%,80%,100%{opacity:.25}40%{opacity:1}}
+.site .linkPainel{font-size:14px;color:var(--mint);text-decoration:none}.site .linkPainel:hover{text-decoration:underline}
+.site .etapas{list-style:none;margin:0;padding:0;display:grid;gap:6px;font-size:14px}
+.site .etapas li{display:flex;justify-content:space-between;gap:10px;padding:9px 12px;border-radius:10px;background:#ffffff08}
+.site .etapas b{font-weight:600;color:var(--mint);white-space:nowrap}
+.site .linhaTempo{list-style:none;margin:0;padding:0 0 0 14px;display:grid;gap:10px;font-size:14px;border-left:2px solid #ffffff1c}
+.site .linhaTempo li{position:relative;display:grid;grid-template-columns:1fr auto;gap:2px 10px;align-items:center;opacity:.6;transition:opacity .2s}
+.site .linhaTempo li::before{content:"";position:absolute;left:-20px;top:5px;width:10px;height:10px;border-radius:50%;background:#1e2a4d;border:2px solid #ffffff3a}
+.site .linhaTempo li.enviada{opacity:1}.site .linhaTempo li.enviada::before{background:var(--mint);border-color:var(--mint)}
+.site .linhaTempo small{grid-column:1/-1;font-size:11px;letter-spacing:.04em;text-transform:uppercase;color:var(--muted,#a9b4d0)}
+@media (prefers-reduced-motion:reduce){.site .balao.digitando i{animation:none;opacity:.7}}
+.site .capaVideo{position:relative;margin:0;border-radius:12px;overflow:hidden;border:1px solid var(--line-2);background:#000}
+.site .capaVideo video{display:block;width:100%;height:auto;aspect-ratio:16/9;object-fit:cover}
+.site .capaVideo figcaption{padding:8px 12px;font-size:12px;color:var(--muted);background:#060d22}
+.site .passoVideo{padding:8px 12px 10px;background:#060d22;border-top:1px solid var(--line-2);font-size:13px;color:var(--muted)}
+.site .passoVideo summary{cursor:pointer;color:var(--text);font-weight:600}
+.site .passoVideo ol{margin:8px 0 0;padding-left:20px;display:grid;gap:4px}
