@@ -116,7 +116,6 @@ export function useLogoNoConvite({ ativo, conviteId, logoDataUrl, publicado, con
   const carregadaRef = useRef(carregada); useEffect(() => { carregadaRef.current = carregada; });
   const efetiva = logoEfetiva(carregada ? gravada : SEM_LOGO, estadoFila);
   const efetivaRef = useRef(efetiva); useEffect(() => { efetivaRef.current = efetiva; });
-  const arteRef = useRef<string | null>(null); useEffect(() => { arteRef.current = conteudo?.arteId ?? null; });
   const arteId = conteudo?.arteId ?? null;
   const completa = conteudo?.visual?.modo === 'completa' && !!arteId && !!arteUrl;
   const entrada: EntradaLogo | null = arteId ? efetiva.posicoes[arteId] ?? null : null;
@@ -195,8 +194,8 @@ export function useLogoNoConvite({ ativo, conviteId, logoDataUrl, publicado, con
   }
   /** r4 (Astra r3, P3): a entrada atual ainda tem a geometria do início do arraste? */
   function mesmaGeometria(chave: string) {
-    const id = arteRef.current, atual = id ? efetivaRef.current.posicoes[id] : undefined;
-    return !!atual && atual.modo === 'sobre' && chaveDaCaixa(atual) === chave;
+    // r5 (Astra r4, P3): a `entrada` deste render (o handler é sempre o do último commit), não uma ref de efeito.
+    return !!entrada && entrada.modo === 'sobre' && chaveDaCaixa(entrada) === chave;
   }
   function movimento(e: ReactPointerEvent<HTMLButtonElement>) {
     const i = inicioArraste.current; if (!i || i.id !== e.pointerId) return;

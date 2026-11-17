@@ -116,16 +116,19 @@ export default function ConviteEditor({ festaId, conviteId }: { festaId?: string
     const init: RequestInit = { ...(sinal ? { signal: sinal } : {}), method: body ? 'POST' : 'GET', headers: { 'Content-Type': 'application/json', ...(!admin ? { Authorization: `Bearer ${token.current}` } : {}) }, ...(body ? { body: JSON.stringify(body) } : {}), cache: 'no-store' };
     const url = consulta ? `${endpoint}${admin ? '&' : '?'}${consulta}` : endpoint;
     const r = await (admin ? adminFetch(url, init) : fetch(url, init));
-    const j = await r.json(); if (!r.ok) throw Object.assign(new Error(j.erro || 'Não foi possível concluir.'), { status: r.status }); return j.data;
+    // r5 (Astra r4, P2): o status vale mesmo com corpo vazio ou HTML; um 404 assim não é repetido.
+    const j = await r.json().catch(() => null);
+    if (!r.ok || !j) throw Object.assign(new Error(j?.erro || 'Não foi possível concluir.'), r.ok ? {} : { status: r.status });
+    return j.data;
   }, [admin, endpoint]);
   // Logo do buffet (etapa 3): ref para a leitura não depender da fila, que só existe depois da primeira carga.
   const logoRef = useRef<LogoNoConvite | null>(null);
-  // r4 (Astra r3, P2): cada carga cancela a anterior e só a última vale; trocar de convite ou sair do editor encerra.
-  // Leitura com limite (o fetch é abortado), uma nova tentativa e a logo conferida antes de ativar o painel.
+  // r5 (Astra r4, P2): cargas em série (nenhuma cancela outra; aplicam na ordem do pedido); sair do editor encerra.
+  // Trocar de convite remonta o editor (key nas páginas). Leitura com limite (o fetch é abortado), uma nova tentativa
+  // e a logo conferida antes de ativar o painel.
   const carga = useRef(controleDeCarga());
-  const carregar = useCallback(async (criar = false, preservar = false) => {
-    const { seq, sinal } = carga.current.iniciar();
-    // Foto das confirmações antes do pedido: as que chegarem depois entram por cima da leitura.
+  const carregar = useCallback((criar = false, preservar = false) => carga.current.executar(async sinal => {
+    // Foto das confirmações no início do pedido: as que chegarem depois entram por cima da leitura.
     const antes = confirmadosDasFilas();
     let d: Dados;
     try {
@@ -136,13 +139,13 @@ export default function ConviteEditor({ festaId, conviteId }: { festaId?: string
         return lido;
       }, { externo: sinal, repetir: e => { const st = (e as { status?: number }).status; return !(st && st >= 400 && st < 500); } });
     } catch (e) {
-      if (e instanceof LeituraCancelada || !carga.current.vale(seq)) return;
+      if (e instanceof LeituraCancelada || sinal.aborted) return;
       throw e;
     }
-    if (!carga.current.vale(seq)) return;
+    if (sinal.aborted) return;
     logoRef.current?.aplicarLeitura(d, antes);
     setDados(d); if (!preservar) setConteudo(d.conteudo); setCotaFesta(d.cotas.festa); setCotaCliente(d.cotas.cliente);
-  }, [admin, api, setCotaFesta, setCotaCliente]);
+  }), [admin, api, setCotaFesta, setCotaCliente]);
   const primeiraCarga = useCallback(async (ativo: () => boolean) => {
     try { await carregar(); setFalhaCarga(''); }
     catch (e) {
@@ -153,7 +156,7 @@ export default function ConviteEditor({ festaId, conviteId }: { festaId?: string
   }, [carregar]);
   useEffect(() => {
     let ativo = true;
-    const controle = carga.current;
+    const controle = carga.current; controle.abrir();
     token.current = window.location.hash.slice(1);
     // Token só no fragmento e memória desta aba; nunca em query string ou armazenamento persistente.
     void Promise.resolve().then(() => { if (ativo) void primeiraCarga(() => ativo); });

@@ -65,6 +65,7 @@ async function ate(cond, msg, ms = 8000) { const fim = Date.now() + ms; while (D
         const responder = p => p.catch(e => { if (!segurado) throw e; });
         const falha = estado.falharGets.shift();
         if (falha === 'sem-logo') { delete foto.logoBuffet; return responder(json(foto)); }
+        if (falha === 'html404') return responder(route.fulfill({ status: 404, contentType: 'text/html', body: '<!doctype html><title>404</title>' }));
         if (falha) return responder(json('Falha simulada da leitura.', falha));
         return responder(json(foto));
       }
@@ -337,6 +338,32 @@ async function ate(cond, msg, ms = 8000) { const fim = Date.now() + ms; while (D
       assert.equal(estado.gets, 1, '404 não repete');
       assert.equal(await page.locator('[data-falha-carga]').count(), 0, '404 segue o painel de criação');
       resumo.push({ cenario: 'sem-convite-404', gets: estado.gets });
+      await context.close();
+    }
+    // r5 (Astra r4, P2): 404 com corpo HTML (json ilegível) guarda o status: não repete e mostra a criação.
+    {
+      const { page, context, estado } = await abrirEditor({ falharGets: ['html404'], esperarEditor: false });
+      await page.getByRole('button', { name: 'Criar convite da festa' }).waitFor({ timeout: 8000 });
+      await esperar(2500);
+      assert.equal(estado.gets, 1, '404 em HTML não repete');
+      assert.equal(await page.locator('[data-falha-carga]').count(), 0);
+      resumo.push({ cenario: 'sem-convite-404-html', gets: estado.gets });
+      await context.close();
+    }
+    // r5 (Astra r4, P2): trocar de convite pela navegação interna remonta o editor. A está aberto; B responde 404:
+    // a tela mostra a criação de B, nada de A (sem a key, A ficava na tela com o erro de B).
+    {
+      const { page, context, estado } = await abrirEditor({ posicoes: { [ARTE]: { modo: 'sobre', arteId: ARTE, x: 50, y: 50, largura: 18, fundo: true, origem: 'sugerida' } } });
+      const g0 = estado.gets;
+      estado.falharGets.push(404);
+      await page.evaluate(destino => window.next.router.push(destino), '/admin/festas/' + id(6) + '/convite');
+      await page.waitForURL('**/admin/festas/' + id(6) + '/convite');
+      await page.getByRole('button', { name: 'Criar convite da festa' }).waitFor({ timeout: 8000 });
+      assert.equal(await page.getByLabel('Nome do aniversariante', { exact: true }).count(), 0, 'o editor de A não fica na tela de B');
+      assert.equal(await page.getByRole('button', { name: 'Logo do buffet sobre a arte' }).count(), 0, 'a logo de A não fica na tela de B');
+      assert.equal(estado.gets - g0, 1, 'B lê uma vez');
+      assert.deepEqual(estado.erros, []);
+      resumo.push({ cenario: 'troca-de-convite', gets: estado.gets - g0 });
       await context.close();
     }
     // 17b. r4 (Astra r3, P2): o limite aborta o pedido. O primeiro GET fica sem resposta; depois de 10 s a página

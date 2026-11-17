@@ -176,15 +176,39 @@ test('r4 P2: lerComRecuperacao tenta duas vezes, espera entre elas e para; cance
   assert.ok(LIMITE_LEITURA_LOGO_MS > 0 && LIMITE_LEITURA_LOGO_MS <= 15000);
 });
 
-test('r4 P2: só a última carga vale; encerrar cancela e invalida a resposta atrasada', () => {
+test('r5 P2: cargas em série — nenhuma cancela outra, aplicam na ordem, falha não trava; encerrar cancela; abrir reabre', async () => {
   const c = controleDeCarga();
-  const a = c.iniciar(); const b = c.iniciar();
-  assert.equal(a.sinal.aborted, true, 'carga nova cancela a anterior');
-  assert.equal(c.vale(a.seq), false); assert.equal(c.vale(b.seq), true);
+  const ordem: string[] = [];
+  let soltarA!: () => void;
+  const sinais: AbortSignal[] = [];
+  const a = c.executar(async s => { sinais.push(s); ordem.push('A início'); await new Promise<void>(r => { soltarA = r; }); ordem.push('A fim'); return 'A'; });
+  const b = c.executar(async s => { sinais.push(s); ordem.push('B início'); return 'B'; });
+  await new Promise(r => setTimeout(r, 0));
+  assert.deepEqual(ordem, ['A início'], 'B espera A terminar');
+  assert.equal(sinais[0].aborted, false, 'a carga pedida depois não cancela a anterior (pós-salvamento sobrevive ao acompanhamento)');
+  soltarA();
+  assert.equal(await a, 'A'); assert.equal(await b, 'B');
+  assert.deepEqual(ordem, ['A início', 'A fim', 'B início']);
+  await assert.rejects(c.executar(async () => { throw new Error('500'); }), /500/);
+  assert.equal(await c.executar(async () => 'depois da falha'), 'depois da falha', 'uma falha não trava a fila');
+  let soltarC!: () => void, sinalC!: AbortSignal, rodouD = false;
+  const cc = c.executar(async s => { sinalC = s; await new Promise<void>(r => { soltarC = r; }); return 'C'; });
+  const dd = c.executar(async () => { rodouD = true; return 'D'; });
+  await new Promise(r => setTimeout(r, 0));
   c.encerrar();
-  assert.equal(b.sinal.aborted, true, 'trocar de convite cancela a carga em voo');
-  assert.equal(c.vale(b.seq), false, 'resposta de A não vale depois da troca');
-  const d = c.iniciar(); assert.equal(c.vale(d.seq), true); assert.equal(d.sinal.aborted, false);
+  assert.equal(sinalC.aborted, true, 'encerrar cancela a carga em voo');
+  soltarC(); await cc;
+  assert.equal(await dd, undefined); assert.equal(rodouD, false, 'a carga na fila não roda depois de encerrar');
+  assert.equal(await c.executar(async () => 'fechado'), undefined, 'fechado: nada roda');
+  c.abrir();
+  assert.equal(await c.executar(async s => (s.aborted ? 'abortado' : 'reaberto')), 'reaberto');
+});
+
+test('r5 P2: as páginas do editor remontam por destino (key)', () => {
+  const conv = readFileSync(new URL('../../app/admin/convites/[conviteId]/page.tsx', import.meta.url), 'utf8');
+  const festa = readFileSync(new URL('../../app/admin/festas/[festaId]/convite/page.tsx', import.meta.url), 'utf8');
+  assert.ok(conv.includes('<ConviteEditor key={conviteId} conviteId={conviteId} />'));
+  assert.ok(festa.includes('<ConviteEditor key={festaId} festaId={festaId} />'));
 });
 
 test('r3 P3: a chave da caixa muda com arte, largura e fundo, não com a posição (r4: também guarda o arraste)', () => {

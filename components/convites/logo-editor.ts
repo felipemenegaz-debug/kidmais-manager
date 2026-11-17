@@ -122,15 +122,22 @@ export async function lerComRecuperacao<T>(fazer: (sinal: AbortSignal) => Promis
 }
 
 /**
- * r4 (Astra r3, P2): ordem das cargas do editor. Cada carga nova cancela a anterior; só a última vale. `encerrar`
- * (troca de convite ou saída do editor) cancela a atual e invalida as respostas que ainda chegarem.
+ * r5 (Astra r4, P2): cargas do editor em série. Cada uma começa depois de a anterior terminar e aplica na ordem em que
+ * foi pedida, então nenhuma carga cancela outra (a carga depois de salvar sempre sincroniza o rascunho). `encerrar`
+ * (saída do editor; trocar de convite remonta o editor pela `key`) cancela a carga em voo e as que estão na fila, que
+ * resolvem `undefined` sem rodar. `abrir` reabre depois de encerrar (efeito montado de novo).
  */
 export function controleDeCarga() {
-  let seq = 0, atual: AbortController | null = null;
+  let fila: Promise<unknown> = Promise.resolve(), ctrl = new AbortController();
   return {
-    iniciar() { atual?.abort(); atual = new AbortController(); return { seq: ++seq, sinal: atual.signal }; },
-    vale(n: number) { return n === seq; },
-    encerrar() { seq++; atual?.abort(); atual = null; },
+    abrir() { if (ctrl.signal.aborted) ctrl = new AbortController(); },
+    encerrar() { ctrl.abort(); },
+    executar<T>(fazer: (sinal: AbortSignal) => Promise<T>): Promise<T | undefined> {
+      const sinal = ctrl.signal;
+      const p = fila.then(() => (sinal.aborted ? undefined : fazer(sinal)));
+      fila = p.catch(() => undefined);
+      return p;
+    },
   };
 }
 
