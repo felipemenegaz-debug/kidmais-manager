@@ -98,7 +98,7 @@ const uuid = () => crypto.randomUUID();
 const evidenciaRecuperacao = 'Verificado no painel do provedor; registro sintético da validação.';
 const conteudo = { tema: 'jardim', nome: 'Criança fictícia', idade: '5 anos', mensagem: 'Vamos comemorar!',
   data: '2099-12-20', horario: '16:00', local: 'Buffet fictício', endereco: 'Endereço fictício', arteId: null, confirmarPresenca: true };
-const pedido = () => ({ acao: 'gerar', chave: uuid(), prompt: 'Jardim de flores coloridas', referencias: [] });
+const pedido = () => ({ acao: 'gerar', chave: uuid(), prompt: 'Jardim de flores coloridas', referencias: [], logoLigada: false });
 async function empresa(limite = 10) {
   const id = uuid(); await pool.query("INSERT INTO empresas VALUES($1,'ATIVA')", [id]);
   await pool.query('INSERT INTO convite_carteiras VALUES($1,$2,true)', [id, limite]); return id;
@@ -323,7 +323,7 @@ async function run() {
   });
   await check('convite completo: uma chamada com os dados oficiais, persistência como completa e repetição sem nova chamada', async () => {
     const f = await festa(await empresa()), antes = chamadasCompleto.length;
-    const p = { acao: 'gerar', chave: uuid(), prompt: 'Jardim de flores coloridas com borboletas', referencias: [], completo: true, estilo: 'cartoon3d' };
+    const p = { acao: 'gerar', chave: uuid(), prompt: 'Jardim de flores coloridas com borboletas', referencias: [], completo: true, estilo: 'cartoon3d', logoLigada: false };
     const r = await service.comandar(f.admin, p);
     assert.equal(r.estado, 'CONCLUIDA'); assert.equal(r.completo, true); assert.equal(chamadasCompleto.length - antes, 1);
     const chamada = chamadasCompleto.at(-1);
@@ -340,7 +340,7 @@ async function run() {
   await check('convite completo: conflito de nome ou idade é recusado antes da reserva, sem créditos nem chamada', async () => {
     const f = await festa(await empresa()), antes = chamadasCompleto.length;
     for (const prompt of ['Convite da Joana com 7 anos no jardim', 'Festa de 9 anos com dinossauros']) {
-      await assert.rejects(service.comandar(f.acesso, { acao: 'gerar', chave: uuid(), prompt, referencias: [], completo: true, estilo: 'cartoon2d' }), e => e.status === 409 || /divergem/.test(e.message));
+      await assert.rejects(service.comandar(f.acesso, { acao: 'gerar', chave: uuid(), prompt, referencias: [], completo: true, estilo: 'cartoon2d', logoLigada: false }), e => e.status === 409 || /divergem/.test(e.message));
     }
     assert.equal(chamadasCompleto.length - antes, 0);
     const row = (await pool.query('SELECT usado_festa,usado_cliente FROM convites WHERE id=$1', [f.id])).rows[0];

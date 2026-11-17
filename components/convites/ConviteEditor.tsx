@@ -23,6 +23,9 @@ import SeletorComposicao from './SeletorComposicao';
 import { opcoesComposicao } from './composicao';
 import { conferirPrompt, alinharPrompt } from '@/lib/convites/conferencia-prompt';
 import VincularFesta from './VincularFesta';
+import { useLogoNoConvite, type LogoNoConvite } from './LogoNoConvite';
+import { confirmadosDasFilas } from '@/lib/convites/fila-logo';
+import { AVISO_FALHA_LEITURA_LOGO, controleDeCarga, FALHA_CARGA_CONVITE, LeituraCancelada, lerComRecuperacao, TEXTO_ESPERANDO_LOGO, TEXTO_LOGO_NAO_SALVA } from './logo-editor';
 type Arte = { id: string; url: string; origem: string; completo?: boolean };
 // Situação simples de um pedido de geração; pendências técnicas ficam com o operador da plataforma.
 type SituacaoGeracao = { chave: string; estado: 'EM_ANDAMENTO' | 'CONCLUIDA' | 'VERIFICANDO' | 'NAO_INICIADA' | 'ENCERRADA' | 'DEVOLVIDA'; arteId?: string | null; completo?: boolean; acompanhando?: boolean };
@@ -40,9 +43,13 @@ type Dados = { festaId?: string | null; laboratorioLocal?: boolean; conteudo: Co
   geradoresLocais?: { id: string; nome: string; disponivel: boolean; pago: boolean }[];
   trabalhosLocais?: { id: string; estado: string; tipo: string; criadoEm: string; erro?: string }[];
   logoBuffet?: { mostrar: boolean; logoDataUrl: string | null } | null;
+  /** Etapa 3 (só o buffet): id da arte publicada, para o aviso ao desligar a logo. */
+  publicadoArteId?: string | null;
   artes: Arte[]; respostas: { nome: string; presenca: boolean; adultos: number; criancas: number }[]; historico: { acao: string; ator: string; criado_em: string }[] };
 // Biblioteca de molduras temporariamente desativada no editor; modelos e convites existentes continuam renderizando.
 const MOLDURAS_NO_EDITOR = false;
+// Campos da logo vêm do servidor e são gravados só pela fila da logo; não contam como alteração do rascunho.
+const semCamposLogo = (c: Conteudo) => { const { logoBuffet: _b, logoPosicoes: _p, logoSemNome: _s, ...resto } = c as Conteudo & { logoPosicoes?: unknown; logoSemNome?: unknown }; void _b; void _p; void _s; return resto; };
 const campos = [['nome', 'Nome do aniversariante'], ['idade', 'Idade ou celebração'], ['data', 'Data'], ['horario', 'Horário'], ['local', 'Local da festa'], ['endereco', 'Endereço']] as const;
 export default function ConviteEditor({ festaId, conviteId }: { festaId?: string; conviteId?: string }) {
   const admin = !!(festaId || conviteId);
@@ -51,6 +58,8 @@ export default function ConviteEditor({ festaId, conviteId }: { festaId?: string
   // Convites completos (textos na imagem) abrem em modo "completa"; modos já salvos nunca são rebaixados ao carregar.
   const conteudo = conteudoBase ? aplicarModoArteLocal(conteudoBase, dados?.artes.find(a => a.id === conteudoBase.arteId), !!dados?.laboratorioLocal) : null;
   const [carregando, setCarregando] = useState(true), [busy, setBusy] = useState(false), [erro, setErro] = useState(''), [aviso, setAviso] = useState('');
+  // r4 (Astra r3, P2): a primeira carga falhou (tempo, servidor ou resposta sem a logo): aviso com "Tentar de novo".
+  const [falhaCarga, setFalhaCarga] = useState('');
   const [prompt, setPrompt] = useState(''), [referencias, setReferencias] = useState<string[]>([]), [linkCliente, setLinkCliente] = useState('');
   const [preparado, setPreparado] = useState<{ pedido: string; tema: string; promptArte: string } | null>(null);
   const [etapaLocal, setEtapaLocal] = useState(''), [jobLocal, setJobLocal] = useState('');
@@ -103,24 +112,63 @@ export default function ConviteEditor({ festaId, conviteId }: { festaId?: string
   useEffect(() => { if (arteExcluir) dialogo.current?.showModal(); else dialogo.current?.close(); }, [arteExcluir]);
   const token = useRef(''), pedido = useRef<{ assinatura: string; chave: string; seed?: number } | null>(null);
   const endpoint = admin ? `/api/admin/convites?${conviteId ? `conviteId=${conviteId}` : `festaId=${festaId}`}` : '/api/convites/cliente';
-  const api = useCallback(async (body?: object, consulta?: string) => {
-    const init: RequestInit = { method: body ? 'POST' : 'GET', headers: { 'Content-Type': 'application/json', ...(!admin ? { Authorization: `Bearer ${token.current}` } : {}) }, ...(body ? { body: JSON.stringify(body) } : {}), cache: 'no-store' };
+  const api = useCallback(async (body?: object, consulta?: string, sinal?: AbortSignal) => {
+    const init: RequestInit = { ...(sinal ? { signal: sinal } : {}), method: body ? 'POST' : 'GET', headers: { 'Content-Type': 'application/json', ...(!admin ? { Authorization: `Bearer ${token.current}` } : {}) }, ...(body ? { body: JSON.stringify(body) } : {}), cache: 'no-store' };
     const url = consulta ? `${endpoint}${admin ? '&' : '?'}${consulta}` : endpoint;
     const r = await (admin ? adminFetch(url, init) : fetch(url, init));
-    const j = await r.json(); if (!r.ok) throw Object.assign(new Error(j.erro || 'Não foi possível concluir.'), { status: r.status }); return j.data;
+    // r5 (Astra r4, P2): o status vale mesmo com corpo vazio ou HTML; um 404 assim não é repetido.
+    const j = await r.json().catch(() => null);
+    if (!r.ok || !j) throw Object.assign(new Error(j?.erro || 'Não foi possível concluir.'), r.ok ? {} : { status: r.status });
+    return j.data;
   }, [admin, endpoint]);
-  const carregar = useCallback(async (criar = false, preservar = false) => {
-    const d = await api(criar ? { acao: 'criar' } : undefined) as Dados;
+  // Logo do buffet (etapa 3): ref para a leitura não depender da fila, que só existe depois da primeira carga.
+  const logoRef = useRef<LogoNoConvite | null>(null);
+  // r5 (Astra r4, P2): cargas em série (nenhuma cancela outra; aplicam na ordem do pedido); sair do editor encerra.
+  // Trocar de convite remonta o editor (key nas páginas). Leitura com limite (o fetch é abortado), uma nova tentativa
+  // e a logo conferida antes de ativar o painel.
+  const carga = useRef(controleDeCarga());
+  const carregar = useCallback((criar = false, preservar = false) => carga.current.executar(async sinal => {
+    // Foto das confirmações no início do pedido: as que chegarem depois entram por cima da leitura.
+    const antes = confirmadosDasFilas();
+    let d: Dados;
+    try {
+      // Criar é escrita: sem limite nem repetição (o servidor pode já ter criado); as leituras têm os dois.
+      d = criar ? await api({ acao: 'criar' }) as Dados : await lerComRecuperacao(async s => {
+        const lido = await api(undefined, undefined, s) as Dados;
+        if (admin && lido?.id && !lido.laboratorioLocal && !lido.logoBuffet) throw new Error(AVISO_FALHA_LEITURA_LOGO);
+        return lido;
+      }, { externo: sinal, repetir: e => { const st = (e as { status?: number }).status; return !(st && st >= 400 && st < 500); } });
+    } catch (e) {
+      if (e instanceof LeituraCancelada || sinal.aborted) return;
+      throw e;
+    }
+    if (sinal.aborted) return;
+    logoRef.current?.aplicarLeitura(d, antes);
     setDados(d); if (!preservar) setConteudo(d.conteudo); setCotaFesta(d.cotas.festa); setCotaCliente(d.cotas.cliente);
-  }, [api, setCotaFesta, setCotaCliente]);
+  }), [admin, api, setCotaFesta, setCotaCliente]);
+  const primeiraCarga = useCallback(async (ativo: () => boolean) => {
+    try { await carregar(); setFalhaCarga(''); }
+    catch (e) {
+      if (!ativo()) return;
+      // 404 = convite ainda não criado: segue o painel de criação; o resto é falha da carga.
+      if ((e as { status?: number }).status === 404) setErro((e as Error).message); else setFalhaCarga(FALHA_CARGA_CONVITE);
+    } finally { if (ativo()) setCarregando(false); }
+  }, [carregar]);
   useEffect(() => {
     let ativo = true;
+    const controle = carga.current; controle.abrir();
     token.current = window.location.hash.slice(1);
     // Token só no fragmento e memória desta aba; nunca em query string ou armazenamento persistente.
-    void Promise.resolve().then(async () => { if (ativo) { try { await carregar(); } catch (e) { if (ativo) setErro((e as Error).message); } finally { if (ativo) setCarregando(false); } } });
-    return () => { ativo = false; };
-  }, [carregar]);
-  const alterado = !!dados && !!conteudo && JSON.stringify(conteudo) !== JSON.stringify(dados.conteudo);
+    void Promise.resolve().then(() => { if (ativo) void primeiraCarga(() => ativo); });
+    return () => { ativo = false; controle.encerrar(); };
+  }, [primeiraCarga]);
+  const alterado = !!dados && !!conteudo && JSON.stringify(semCamposLogo(conteudo)) !== JSON.stringify(semCamposLogo(dados.conteudo));
+  const logo = useLogoNoConvite({
+    ativo: admin && !!dados?.logoBuffet && !dados.laboratorioLocal && !!dados.id, conviteId: dados?.id,
+    logoDataUrl: dados?.logoBuffet?.logoDataUrl ?? null, publicado: !!dados?.publicado, conteudo, arteUrl: dados?.artes.find(a => a.id === conteudo?.arteId)?.url,
+    busy, ui,
+  });
+  useEffect(() => { logoRef.current = logo; });
   // Convite completo (arte + textos numa chamada): no produto, quando o servidor tem o provedor configurado.
   // Desligar a IA bloqueia o envio, mas mantém os controles do convite completo para comparação.
   const completoAtivo = dados?.laboratorioLocal ? conviteCompleto && geradorLocal === 'openai' : !!dados?.completoDisponivel || dados?.iaDisponivel === false;
@@ -139,16 +187,6 @@ export default function ConviteEditor({ festaId, conviteId }: { festaId?: string
     setBusy(true); setErro(''); setAviso('');
     try { const r = await api(body); await carregar(false, preservar); setAviso(mensagem); return r; }
     catch (e) { setErro((e as Error).message); return null; } finally { setBusy(false); }
-  }
-  // Logo do buffet no rodapé da página pública: vale na hora (inclusive publicado) e não recarrega o que está sendo editado.
-  async function mudarLogoBuffet(mostrar: boolean) {
-    // Muda na hora e volta ao valor anterior se o servidor recusar.
-    const trocar = (valor: boolean) => setDados(d => d?.logoBuffet ? { ...d, logoBuffet: { ...d.logoBuffet, mostrar: valor } } : d);
-    setBusy(true); setErro(''); setAviso(''); trocar(mostrar);
-    try {
-      await api({ acao: 'logo_buffet', mostrar });
-      setAviso(mostrar ? 'A logo do buffet vai aparecer no rodapé deste convite.' : 'A logo do buffet não vai aparecer neste convite.');
-    } catch (e) { trocar(!mostrar); setErro((e as Error).message); } finally { setBusy(false); }
   }
   function campo<K extends keyof Conteudo>(k: K, value: Conteudo[K]) { setConteudo(c => c ? { ...c, [k]: value } : c); }
   async function extrairCores() {
@@ -247,13 +285,22 @@ export default function ConviteEditor({ festaId, conviteId }: { festaId?: string
     const comando = completo
       ? { acao: 'gerar', chave: pedido.current.chave, prompt, referencias: [], completo: true, estilo, qualidade, ...(foto && fotoLiberada ? { foto, ...confirmacaoImagens } : {}) }
       : { acao: 'gerar', chave: pedido.current.chave, prompt, referencias, ...confirmacaoImagens };
+    // §4: o buffet espera o "Mostrar a logo" pendente (até 5 s); a família sempre envia false (o servidor não confere).
+    let logoLigada = false;
+    if (admin && dados?.logoBuffet) {
+      setBusy(true); setErro('');
+      const valor = await logo.logoLigada(() => setAviso(TEXTO_ESPERANDO_LOGO));
+      setBusy(false);
+      if (valor === null) { setAviso(''); setErro(TEXTO_LOGO_NAO_SALVA); return; }
+      logoLigada = valor;
+    }
     const chave = pedido.current.chave, pronta = completo ? 'Convite pronto. Confira a escrita de todos os textos e dados antes de publicar.' : 'Confira a arte e publique quando estiver pronta.';
     guardarPedido(pedido.current);
     // Uso único: a confirmação das imagens vale só para este pedido; a próxima geração pede de novo.
     if (!dados?.laboratorioLocal) setAutorizacaoFoto(false);
     setBusy(true); setErro(''); setAviso(MENSAGEM_GERANDO);
     let r: SituacaoGeracao;
-    try { r = await api(comando) as SituacaoGeracao; }
+    try { r = await api({ ...comando, logoLigada }) as SituacaoGeracao; }
     catch (e) {
       const status = (e as { status?: number }).status;
       setBusy(false);
@@ -333,6 +380,7 @@ export default function ConviteEditor({ festaId, conviteId }: { festaId?: string
     const id = arteExcluir.id;
     const r = await executar({ acao: 'excluir_arte', arteId: id, revisao: dados.revisao }, 'Imagem excluída da galeria. As demais alterações no editor foram preservadas.', true);
     if (r) {
+      logo.esquecerArte(id);
       setConteudo(c => c?.arteId === id ? semArte(c) : c);
       setReferencias(refs => refs.filter(ref => ref !== id));
       setArteExcluir(null);
@@ -398,7 +446,7 @@ export default function ConviteEditor({ festaId, conviteId }: { festaId?: string
     <header className={ui.cabecalho}><div><p className={ui.sobretitulo}>{admin ? 'FESTAS · CONVITE VIRTUAL' : 'CONVITES'}</p><h1>{admin ? (dados?.festaId === null ? 'Convite avulso' : 'Convite da festa') : <>Uma festa começa<br />com um convite.</>}</h1><p>{admin ? 'Personalize o convite, compartilhe com o cliente e acompanhe as confirmações.' : 'Escolha um tema, dê seu toque e compartilhe esse momento.'}</p></div>{admin && <div className={ui.acoesCabecalho}>{!dados?.laboratorioLocal && <button type="button" className={ui.primario} disabled={busy || !dados} onClick={abrirIA}>Crie uma arte com IA</button>}<Link className={ui.voltar} href={festaId ? `/admin/festas/${festaId}` : "/admin/convites"}>{festaId ? "← Voltar à festa" : "← Meus convites"}</Link></div>}</header>
     {admin && conviteId && dados?.festaId === null && <VincularFesta conviteId={conviteId} revisao={dados.revisao} bloqueado={busy || alterado || !!dados.geracaoEmAndamento || !!dados.geracaoIncerta} onVinculado={async () => { await carregar(); setAviso("Festa vinculada. Confira os dados e publique o convite."); }} />}
     {erro && <p className={ui.erro} role="alert">{erro}</p>}{aviso && <p className={ui.aviso} role="status">{aviso}</p>}
-    {carregando ? <p>Preparando seu convite…</p> : !dados || !conteudo ? <section className={ui.painel}><h2>Seu convite começa aqui</h2><p>Modelos prontos e arte própria não consomem créditos de IA.</p>{admin && <button disabled={busy} className={ui.primario} onClick={() => { setBusy(true); void carregar(true).then(() => setErro('')).catch(e => setErro(e.message)).finally(() => setBusy(false)); }}>Criar convite da festa</button>}</section> : <>
+    {carregando ? <p>Preparando seu convite…</p> : falhaCarga && !dados ? <section className={ui.painel} data-falha-carga><p className={ui.erro} role="alert">{falhaCarga}</p><button type="button" className={ui.primario} onClick={() => { setFalhaCarga(''); setCarregando(true); void primeiraCarga(() => true); }}>Tentar de novo</button></section> : !dados || !conteudo ? <section className={ui.painel}><h2>Seu convite começa aqui</h2><p>Modelos prontos e arte própria não consomem créditos de IA.</p>{admin && <button disabled={busy} className={ui.primario} onClick={() => { setBusy(true); void carregar(true).then(() => setErro('')).catch(e => setErro(e.message)).finally(() => setBusy(false)); }}>Criar convite da festa</button>}</section> : <>
       <div className={ui.barra}><span>{dados.publicado ? '● Publicado' : '○ Rascunho'}{alterado ? ' · Alterações não salvas' : ''}</span><span>{dados.laboratorioLocal ? 'Teste local' : dados.creditos?.motor === 'CREDITOS'
         ? <><strong>{dados.disponiveis}</strong> {comUnidade(dados.disponiveis, 'geração restante', 'gerações restantes')} neste convite · <strong>{dados.creditos.disponivel}</strong> {creditosDisponiveisDaEmpresa(dados.creditos.disponivel)}</>
         : <><strong>{dados.disponiveis}</strong> {comUnidade(dados.disponiveis, 'crédito de imagem disponível', 'créditos de imagem disponíveis')}</>}</span></div>
@@ -443,16 +491,11 @@ export default function ConviteEditor({ festaId, conviteId }: { festaId?: string
           </label>
           <small>{conviteProprioPronto ? 'Sua imagem aparece como está. Os dados abaixo continuam valendo para a página do convite e a confirmação de presença.' : conteudo.visual?.modo === 'completa' ? 'Os textos já estão na arte: alterações aqui valem para a próxima geração e para a página do convite.' : 'Alterar os textos não consome créditos.'}</small>
         </fieldset>
-      </div><aside className={`${ui.preview} ${ui.previewLocal}`}><p className={ui.sobretitulo}>É ASSIM QUE SEU CONVITE VAI FICAR</p><ConviteArte conteudo={conteudo} arte={arte} />
-        {admin && dados.logoBuffet && <div className={ui.logoBuffet} data-logo-buffet>
-          {dados.logoBuffet.mostrar && dados.logoBuffet.logoDataUrl && <div className={ui.logoBuffetPrevia} aria-label="Rodapé da página do convite"><img src={dados.logoBuffet.logoDataUrl} alt="Logo do buffet" /></div>}
-          <label className={ui.check}><input type="checkbox" checked={dados.logoBuffet.mostrar && !!dados.logoBuffet.logoDataUrl} disabled={busy || !dados.logoBuffet.logoDataUrl} aria-describedby="logo-buffet-nota" onChange={e => void mudarLogoBuffet(e.target.checked)} />
-            Mostrar a logo do buffet neste convite</label>
-          <small id="logo-buffet-nota">{dados.logoBuffet.logoDataUrl ? 'Aparece no rodapé da página do convite e numa faixa abaixo da arte na imagem baixada. A arte não muda. Vale na hora, mesmo depois de publicado.' : <>Envie uma logo no <Link href="/admin/configuracoes/perfil-empresa">Perfil da empresa</Link> para mostrar neste convite.</>}</small>
-        </div>}
+      </div><aside className={`${ui.preview} ${ui.previewLocal}`}><p className={ui.sobretitulo}>É ASSIM QUE SEU CONVITE VAI FICAR</p><ConviteArte conteudo={conteudo} arte={arte} sobre={logo.sobre} />
+        {admin && dados.logoBuffet && logo.painel}
         {opcoesPosicao.length > 0 && <div className={ui.posicaoImagem}><SeletorComposicao conteudo={conteudo} opcoes={opcoesPosicao} busy={busy} className={ui.seletorCriacao} mudar={v => campo('visual', v)} />
           {conviteProprioPronto && <p role="status" data-conferencia-convite><small>Confira se a sua imagem tem os mesmos dados da festa{dadosConferencia ? `: ${dadosConferencia}` : ''}.</small></p>}</div>}
-        <div className={ui.acoes}><button disabled={busy} onClick={() => void baixarConvite(conteudo, arte, dados.logoBuffet?.mostrar ? dados.logoBuffet.logoDataUrl : null).catch(() => setErro('Não foi possível baixar. Tente novamente.'))}>Baixar imagem</button></div>
+        <div className={ui.acoes}><button disabled={busy} onClick={() => void baixarConvite(conteudo, arte, logo.baixar.logo, logo.baixar.sobre).catch(() => setErro('Não foi possível baixar. Tente novamente.'))}>Baixar imagem</button></div>
         {painelGeracao}<div className={ui.acoes}><button disabled={busy} onClick={() => void executar({ acao: 'salvar', revisao: dados.revisao, conteudo }, 'Rascunho salvo.')}>Salvar rascunho</button>{!dados.laboratorioLocal && <button disabled={busy} className={ui.primario} onClick={() => void executar({ acao: 'publicar', revisao: dados.revisao, conteudo }, 'Convite publicado. Agora você pode compartilhar!')}>Publicar convite</button>}</div>
         {dados.publicado && <div className={ui.painel}><a href={dados.linkPublico} target="_blank" rel="noreferrer">Abrir convite publicado ↗</a><div className={ui.acoes}><button onClick={() => void copiar(dados.linkPublico)}>Copiar link público</button><button onClick={() => { const url = new URL(dados.linkPublico, window.location.origin).href; window.open(`https://wa.me/?text=${encodeURIComponent(`Você está convidado! ${url}`)}`, '_blank', 'noopener,noreferrer'); }}>Compartilhar no WhatsApp</button><button disabled={busy} onClick={() => void executar({ acao: 'despublicar', revisao: dados.revisao }, 'Convite despublicado.', true)}>Despublicar</button></div></div>}
       </aside></div>

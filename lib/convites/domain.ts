@@ -33,6 +33,25 @@ export const blocoLocalSchema = z.object({
 }).strict();
 export type BlocoLocal = z.infer<typeof blocoLocalSchema>;
 
+/**
+ * Logo sobre a arte (etapa 3): uma entrada por arte em `logoPosicoes`. A tela pode reenviar o mapa e as listas
+ * (o buffet as recebe), mas salvar e publicar sempre descartam o que veio e mantêm o gravado.
+ */
+const pctLogo = z.number().min(0).max(100);
+export const logoPosicaoSchema = z.object({
+  modo: z.enum(['faixa', 'sobre']), arteId: z.uuid(), x: pctLogo, y: pctLogo,
+  largura: z.number().min(8).max(40), fundo: z.boolean(),
+  origem: z.enum(['reservada', 'sugerida', 'faixa', 'buffet']),
+}).strict();
+export type LogoPosicaoGravada = z.infer<typeof logoPosicaoSchema>;
+const SEQ_MAX = 2 ** 31;
+const seqLogo = z.int().min(1).max(SEQ_MAX);
+export const logoOrdemSchema = z.object({ sessoes: z.array(z.object({ id: z.uuid(), mostrar: seqLogo.optional(),
+  posicoes: z.record(z.uuid(), seqLogo).optional() }).strict()).max(20) }).strict();
+export type LogoOrdem = z.infer<typeof logoOrdemSchema>;
+/** Posição enviada pelo buffet: sem `origem` (o servidor grava 'buffet'). */
+export const logoPosicaoComandoSchema = logoPosicaoSchema.omit({ origem: true });
+
 export const conteudoSchema = z.object({
   tema: z.enum(['celebrar', 'jardim', 'espaco', 'planetas', 'arco', 'ondulada', 'aquarela', 'degrade', 'geometrica', 'foto_arco', 'foto_aquarela', 'foto_degrade', 'botanica', 'confete', 'estrelas', 'acervo_folhas', 'acervo_estrelas', 'acervo_baloes']),
   nome: z.string().trim().min(1).max(80),
@@ -48,6 +67,10 @@ export const conteudoSchema = z.object({
   confirmarPresenca: z.boolean(),
   // Logo do buffet no rodapé da página pública (ausente = ligado). Só o buffet muda, pela ação 'logo_buffet'.
   logoBuffet: z.boolean().optional(),
+  logoPosicoes: z.record(z.uuid(), logoPosicaoSchema).optional(),
+  logoOrdem: logoOrdemSchema.optional(),
+  logoGeracoes: z.array(z.uuid()).max(5).optional(),
+  logoSemNome: z.array(z.uuid()).max(20).optional(),
   visual: z.object({
     modo: z.enum(['modelo', 'completa']),
     posicao: z.enum(['fundo', 'topo']).optional(),
@@ -68,12 +91,19 @@ export const comandoSchema = z.discriminatedUnion('acao', [
   z.object({ acao: z.literal('publicar'), revisao: z.int().positive(), conteudo: conteudoSchema }).strict(),
   z.object({ acao: z.literal('despublicar'), revisao: z.int().positive() }).strict(),
   z.object({ acao: z.literal('acesso'), habilitado: z.boolean() }).strict(),
-  z.object({ acao: z.literal('logo_buffet'), mostrar: z.boolean() }).strict(),
+  // Etapa 3: sessão da aba (aberta só pelo servidor) + seq por campo; pelo menos um campo, artes distintas.
+  z.object({ acao: z.literal('logo_buffet'), sessao: z.uuid(), seq: seqLogo, mostrar: z.boolean().optional(),
+    posicoes: z.array(logoPosicaoComandoSchema).min(1).max(4).optional() }).strict()
+    .refine(v => v.mostrar !== undefined || v.posicoes !== undefined, 'Informe a logo.')
+    .refine(v => !v.posicoes || new Set(v.posicoes.map(p => p.arteId)).size === v.posicoes.length, 'Artes repetidas.'),
+  z.object({ acao: z.literal('logo_sessao'), substitui: z.uuid().optional() }).strict(),
   z.object({ acao: z.literal('cotas'), festa: z.int().min(0).max(100), cliente: z.int().min(0).max(100) }).strict(),
   z.object({ acao: z.literal('upload'), imagem: z.string().max(7_000_000) }).strict(),
   z.object({ acao: z.literal('excluir_arte'), arteId: z.uuid(), revisao: z.int().positive() }).strict(),
   // Convite completo: estilo, qualidade validada e foto opcional; modelo e referências são do servidor.
+  // logoLigada: o que a tela mostra em "Mostrar a logo" (etapa 3b); o servidor confere com o gravado antes de reservar.
   z.object({ acao: z.literal('gerar'), chave: z.uuid(), prompt: z.string().trim().min(5).max(3000), referencias: z.array(z.uuid()).max(2),
+    logoLigada: z.boolean(),
     completo: z.literal(true).optional(), estilo: z.enum(['pedido', 'cartoon3d', 'cartoon2d', 'realista']).optional(),
     qualidade: z.enum(['high', 'xhigh', 'max']).optional(),
     foto: z.string().max(7_000_000).optional(),
@@ -101,7 +131,9 @@ export const respostaSchema = z.object({
 
 export class ConviteError extends Error {
   status: number;
-  constructor(message: string, status = 409) { super(message); this.status = status; }
+  /** Código público (etapa 3): só os erros com `publico` levam `codigo` na resposta HTTP. */
+  publico?: { codigo: string };
+  constructor(message: string, status = 409, publico?: { codigo: string }) { super(message); this.status = status; if (publico) this.publico = publico; }
 }
 export function exigir(ok: unknown, mensagem: string, status = 409): asserts ok {
   if (!ok) throw new ConviteError(mensagem, status);

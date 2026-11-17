@@ -18,18 +18,50 @@ export function mostrarLogoBuffet(conteudo: { logoBuffet?: boolean } | null | un
   return conteudo?.logoBuffet !== false;
 }
 
-/** O valor gravado prevalece sobre o enviado pela tela; sem valor gravado, o campo fica ausente (= ligado). */
-export function preservarLogoBuffet<T extends { logoBuffet?: boolean }>(novo: T, gravado: { logoBuffet?: boolean } | null | undefined): T {
-  const { logoBuffet: _enviado, ...resto } = novo;
-  void _enviado;
-  return (typeof gravado?.logoBuffet === 'boolean' ? { ...resto, logoBuffet: gravado.logoBuffet } : resto) as T;
+type CamposLogo = { logoBuffet?: boolean; logoPosicoes?: unknown; logoOrdem?: unknown; logoGeracoes?: unknown; logoSemNome?: unknown };
+
+/**
+ * Etapa 3: chaves que vivem só no rascunho e nunca saem do servidor como estão (a exportação também as retira).
+ * `logoSemNome` vai ao buffet (aviso do §4), mas nunca ao publicado nem à família.
+ */
+export const CHAVES_SO_RASCUNHO = ['logoOrdem', 'logoGeracoes', 'logoSemNome'] as const;
+
+function sem<T extends object>(conteudo: T, chaves: readonly string[]): T {
+  const r = { ...conteudo } as Record<string, unknown>;
+  for (const k of chaves) delete r[k];
+  return r as T;
 }
 
-/** A família não recebe o campo: o controle é só do buffet. */
-export function semLogoBuffet<T extends { logoBuffet?: boolean }>(conteudo: T): Omit<T, 'logoBuffet'> {
-  const { logoBuffet: _campo, ...resto } = conteudo;
-  void _campo;
-  return resto;
+/**
+ * O valor gravado prevalece sobre o enviado pela tela (`logoBuffet` e o mapa `logoPosicoes`); sem valor gravado,
+ * o campo fica ausente (= ligado / faixa). As chaves só do rascunho que vierem da tela também são descartadas.
+ */
+export function preservarLogoBuffet<T extends CamposLogo>(novo: T, gravado: CamposLogo | null | undefined): T {
+  const resto = sem(novo, ['logoBuffet', 'logoPosicoes', ...CHAVES_SO_RASCUNHO]) as Record<string, unknown>;
+  if (typeof gravado?.logoBuffet === 'boolean') resto.logoBuffet = gravado.logoBuffet;
+  if (gravado?.logoPosicoes && typeof gravado.logoPosicoes === 'object') resto.logoPosicoes = gravado.logoPosicoes;
+  return resto as T;
+}
+
+/**
+ * salvar/publicar: monta as duas colunas a partir do conteúdo já preservado. O rascunho recupera do gravado as
+ * chaves só do rascunho (se existirem); o publicado nunca as tem. Dois JSONs, dois parâmetros.
+ */
+export function colunasDoConteudo<T extends CamposLogo>(conteudo: T, rascunhoGravado: CamposLogo | null | undefined): { rascunho: T; publicado: T } {
+  const publicado = sem(conteudo, CHAVES_SO_RASCUNHO);
+  const rascunho = { ...publicado } as Record<string, unknown>;
+  for (const k of CHAVES_SO_RASCUNHO) if (rascunhoGravado?.[k] !== undefined) rascunho[k] = rascunhoGravado[k];
+  return { rascunho: rascunho as T, publicado };
+}
+
+/** Leitura do buffet: recebe `logoPosicoes` e `logoSemNome`; nunca `logoOrdem` nem `logoGeracoes`. */
+export function paraBuffet<T extends CamposLogo>(conteudo: T): Omit<T, 'logoOrdem' | 'logoGeracoes'> {
+  return sem(conteudo, ['logoOrdem', 'logoGeracoes']);
+}
+
+/** A família não recebe nenhum campo da logo: o controle é só do buffet. */
+export function semLogoBuffet<T extends CamposLogo>(conteudo: T): Omit<T, 'logoBuffet' | 'logoPosicoes' | 'logoOrdem' | 'logoGeracoes' | 'logoSemNome'> {
+  return sem(conteudo, ['logoBuffet', 'logoPosicoes', ...CHAVES_SO_RASCUNHO]);
 }
 
 const TIPOS_LOGO = new Set(['image/png', 'image/jpeg', 'image/webp']);

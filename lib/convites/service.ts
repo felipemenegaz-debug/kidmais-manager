@@ -1,4 +1,4 @@
-import { createHash, randomBytes } from 'node:crypto';
+import { createHash, randomBytes, randomUUID } from 'node:crypto';
 import { db, withTransaction } from '../db/postgres';
 import type { DbExecutor } from '../db/contracts';
 import type { SessaoAdmin } from '../autenticacao/service';
@@ -13,7 +13,10 @@ import { AUTORIZACAO_AINDA_VIGENTE, autorizacaoVigente, conferirImagens, MENSAGE
 import { ehProvedorIA, VERSAO_TEXTOS_IA, type ProvedorIA } from './consentimento-textos';
 import { adicionarReferenciaEstilo, orientacaoFoto, prepararConviteCompleto, type ConviteCompletoPreparado } from './estilos';
 import { dadosFamiliaPublica, listarFamilias, operarFamilia, validarFamilia } from './familias';
-import { bytesDaLogo, marcaDoBuffet, mostrarLogoBuffet, preservarLogoBuffet, semLogoBuffet } from './logo-buffet';
+import { bytesDaLogo, colunasDoConteudo, marcaDoBuffet, mostrarLogoBuffet, paraBuffet, preservarLogoBuffet, semLogoBuffet } from './logo-buffet';
+import { LOGO_AUTO_FAIXA, logoAutomatica, projecaoPublicaLogo, type LogoAuto } from './posicao-logo';
+import sharp from 'sharp';
+import type { LogoOrdem, LogoPosicaoGravada } from './domain';
 import { disponivelConvites, encerrarGeracao, infoCreditosConvites, motorConvites, reservarGeracao } from '../creditos/convites.ts';
 import { flagsCreditos } from '../creditos/config.ts';
 
@@ -35,9 +38,12 @@ export function habilitado() { exigir(process.env.CONVITES_ENABLED === 'true', '
 const ligacaoSql = `SELECT fe.empresa_id,fe.cliente_id,fe.estabelecimento_id,f.contrato_id,f.invalidada_em
  FROM festas f JOIN contratos co ON co.id=f.contrato_id JOIN fechamentos fe ON fe.id=co.fechamento_id`;
 
-async function comConvite<T>(a: Acesso, escrever: boolean, fn: (tx: DbExecutor, c: Convite, versao: string | null, convidados: number | null, podeAdministrar: boolean, bloco: BlocoLocal | null) => Promise<T>): Promise<T> {
+/** Só para os testes de ordem (etapa 3): roda depois de abrir a transação e antes do primeiro bloqueio. A rota nunca passa. */
+export type OpcoesInternas = { antesDosBloqueios?: () => Promise<void> };
+async function comConvite<T>(a: Acesso, escrever: boolean, fn: (tx: DbExecutor, c: Convite, versao: string | null, convidados: number | null, podeAdministrar: boolean, bloco: BlocoLocal | null) => Promise<T>, opcoes?: OpcoesInternas): Promise<T> {
   habilitado();
   return withTransaction(async tx => {
+    if (opcoes?.antesDosBloqueios) await opcoes.antesDosBloqueios();
     let empresa: string, festa: string | null, conviteId: string | undefined;
     let tenant: Awaited<ReturnType<typeof provarTenant>> | undefined;
     let podeAdministrar = false;
@@ -178,7 +184,10 @@ export async function consultar(a: Acesso, criar = false) {
     const autorizacaoIA = provedor ? { ...textosParaTela(provedor, operadorIA(a)), ...await resumoTolerante(tx, c, provedor) } : null;
     // Logo do buffet no rodapé: controle e prévia só para o buffet; a família não recebe nem o campo.
     const logoBuffet = a.tipo === 'admin' ? { mostrar: mostrarLogoBuffet(c.rascunho), logoDataUrl: (await marcaDoBuffet(tx, c.empresa_id)).logoDataUrl } : null;
-    return { id: c.id, festaId: c.festa_id, conteudo: a.tipo === 'admin' ? comBlocoLocal(c.rascunho, bloco) : semLogoBuffet(comBlocoLocal(c.rascunho, bloco)), logoBuffet, avisoLocal: bloco?.origem === 'UNIDADE' ? AVISO_CONVITE_SEM_SALAO : null, revisao: c.revisao, publicado: !!c.publicado, desatualizado: c.versao_contrato_id !== versao, convidadosContratados,
+    // Etapa 3: o buffet recebe logoPosicoes, logoSemNome e o id da arte publicada (aviso ao desligar); nunca logoOrdem nem logoGeracoes.
+    return { id: c.id, festaId: c.festa_id, conteudo: a.tipo === 'admin' ? paraBuffet(comBlocoLocal(c.rascunho, bloco)) : semLogoBuffet(comBlocoLocal(c.rascunho, bloco)), logoBuffet,
+      ...(a.tipo === 'admin' ? { publicadoArteId: c.publicado?.arteId ?? null } : {}),
+      avisoLocal: bloco?.origem === 'UNIDADE' ? AVISO_CONVITE_SEM_SALAO : null, revisao: c.revisao, publicado: !!c.publicado, desatualizado: c.versao_contrato_id !== versao, convidadosContratados,
       linkPublico: `/convite/${c.publico_token}`, clienteHabilitado: !!c.editor_hash && !!c.editor_expira_em && c.editor_expira_em > new Date(),
       cotas: a.tipo === 'admin' ? limite : { festa: limite.festa, festaUsado: limite.festaUsado, cliente: limite.cliente, clienteUsado: limite.clienteUsado },
       disponiveis: disponiveis(limite, a.tipo === 'cliente'), iaDisponivel: iaConfigurada(), completoDisponivel: completoDisponivel(),
@@ -208,8 +217,12 @@ async function guardarArte(tx: DbExecutor, c: Pick<Convite, 'id' | 'empresa_id'>
   return (await tx.query<{ id: string }>('INSERT INTO convite_artes(convite_id,empresa_id,imagem,origem) VALUES($1,$2,$3,$4) RETURNING id', [c.id, c.empresa_id, imagem, origem])).rows[0].id;
 }
 export async function comandar(a: Acesso, raw: unknown): Promise<object> {
+  return comandarInterno(a, raw);
+}
+/** Chamada direta dos testes de ordem (gancho `antesDosBloqueios`); o schema da ação não aceita o gancho. */
+export async function comandarInterno(a: Acesso, raw: unknown, opcoes?: OpcoesInternas): Promise<object> {
   const i = comandoSchema.parse(raw);
-  if (i.acao === 'gerar') return gerar(a, i);
+  if (i.acao === 'gerar') return gerar(a, i, opcoes);
   if (i.acao === 'autorizar_ia') return comConvite(a, true, async (tx, c) => {
     const provedor = provedorAtual();
     exigir(provedor, 'A geração com IA ainda não foi habilitada pelo buffet.', 503);
@@ -229,6 +242,17 @@ export async function comandar(a: Acesso, raw: unknown): Promise<object> {
   if (i.acao === 'upload') await comConvite(a, true, async () => undefined);
   const imagem = i.acao === 'upload' ? await normalizarImagem(i.imagem) : null;
   return comConvite(a, true, async (tx, c, versao, _convidados, _podeAdministrar, bloco) => {
+    if (i.acao === 'logo_sessao') {
+      exigir(a.tipo === 'admin', 'Somente o buffet pode mudar a logo do convite.', 403);
+      // Id só do servidor, aleatório e nunca reemitido; `substitui` (recarga da mesma aba) sai no mesmo commit.
+      const sessoes = sessoesDaLogo(c.rascunho).filter(x => x.id !== i.substitui);
+      const id = randomUUID();
+      sessoes.push({ id });
+      while (sessoes.length > LIMITE_SESSOES_LOGO) sessoes.shift();
+      // Só o rascunho; sem revisão, atualizado_em, conteúdo, publicado ou evento.
+      await tx.query(`UPDATE convites SET rascunho=jsonb_set(rascunho,'{logoOrdem}',$2::jsonb) WHERE id=$1`, [c.id, JSON.stringify({ sessoes })]);
+      return { logoSessao: id };
+    }
     if (i.acao === 'familia_adicionar' || i.acao === 'familia_editar' || i.acao === 'familia_link' || i.acao === 'familia_status') {
       const resultado = await operarFamilia(tx, c, i);
       if (!('repetida' in resultado && resultado.repetida)) await evento(tx, c, a, i.acao.toUpperCase(), { familiaId: i.id, ...('habilitado' in i ? { habilitado: i.habilitado } : {}), ...('ativa' in i ? { ativa: i.ativa } : {}) });
@@ -242,15 +266,7 @@ export async function comandar(a: Acesso, raw: unknown): Promise<object> {
       await evento(tx, c, a, i.habilitado ? 'ACESSO_RENOVADO' : 'ACESSO_REVOGADO');
       return { linkCliente: novo ? `/convites/criar#${novo}` : null };
     }
-    if (i.acao === 'logo_buffet') {
-      exigir(a.tipo === 'admin', 'Somente o buffet pode mudar a logo do convite.', 403);
-      // Vale na hora, inclusive no convite já publicado: grava rascunho e publicado juntos, sem mexer na revisão
-      // (quem está editando não perde o que digitou; salvar e publicar preservam este valor).
-      await tx.query(`UPDATE convites SET rascunho=jsonb_set(rascunho,'{logoBuffet}',to_jsonb($2::boolean)),
-        publicado=CASE WHEN publicado IS NULL THEN NULL ELSE jsonb_set(publicado,'{logoBuffet}',to_jsonb($2::boolean)) END,atualizado_em=now() WHERE id=$1`, [c.id, i.mostrar]);
-      await evento(tx, c, a, 'LOGO_BUFFET', { mostrar: i.mostrar });
-      return { logoBuffet: i.mostrar };
-    }
+    if (i.acao === 'logo_buffet') return gravarLogoBuffet(tx, c, a, i);
     if (i.acao === 'cotas') {
       exigir(a.tipo === 'admin', 'Somente o buffet pode distribuir créditos.', 403);
       const tenant = await provarTenant(tx, a.sessao);
@@ -272,9 +288,12 @@ export async function comandar(a: Acesso, raw: unknown): Promise<object> {
         await tx.query('UPDATE convite_geracoes SET arte_id=NULL WHERE arte_id=$1 AND convite_id=$2 AND empresa_id=$3', [i.arteId, c.id, c.empresa_id]);
         await tx.query('DELETE FROM convite_artes WHERE id=$1 AND convite_id=$2 AND empresa_id=$3', [i.arteId, c.id, c.empresa_id]);
         // Sem imagem não há "Convite pronto" (modo 'completa'): o rascunho volta à composição com os dados da festa.
-        const rascunho = c.rascunho.arteId !== i.arteId ? c.rascunho : c.rascunho.visual?.modo === 'completa'
+        const base = c.rascunho.arteId !== i.arteId ? c.rascunho : c.rascunho.visual?.modo === 'completa'
           ? { ...c.rascunho, arteId: null, visual: { ...c.rascunho.visual, modo: 'modelo' as const } } : { ...c.rascunho, arteId: null };
-        await tx.query('UPDATE convites SET rascunho=$2,revisao=revisao+1,atualizado_em=now() WHERE id=$1', [c.id, rascunho]);
+        const rascunho = semRegistroDaArte(base, i.arteId);
+        // No publicado, só o caminho da entrada desta arte (a arte publicada não pode ser excluída, acima).
+        await tx.query(`UPDATE convites SET rascunho=$2,publicado=CASE WHEN publicado IS NULL THEN NULL ELSE publicado #- ARRAY['logoPosicoes',$3::text] END,
+          revisao=revisao+1,atualizado_em=now() WHERE id=$1`, [c.id, rascunho, i.arteId]);
         await evento(tx, c, a, 'ARTE_EXCLUIDA', { arteId: i.arteId });
         return { excluida: true };
       }
@@ -285,13 +304,145 @@ export async function comandar(a: Acesso, raw: unknown): Promise<object> {
         const conteudo = preservarLogoBuffet(comBlocoLocal(i.conteudo, bloco), c.rascunho);
         if (i.acao === 'publicar') exigir(localDoConvite(conteudo), 'Informe o local da festa.', 400);
         if (conteudo.arteId) exigir((await tx.query('SELECT id FROM convite_artes WHERE id=$1 AND convite_id=$2 AND empresa_id=$3', [conteudo.arteId, c.id, c.empresa_id])).rows.length, 'Arte não pertence a este convite.', 400);
-        await tx.query(`UPDATE convites SET rascunho=$2,publicado=CASE WHEN $3 THEN $2::jsonb ELSE publicado END,
-          versao_contrato_id=CASE WHEN $3 THEN $4::uuid ELSE versao_contrato_id END,revisao=revisao+1,atualizado_em=now() WHERE id=$1`, [c.id, conteudo, i.acao === 'publicar', versao]);
+        // Etapa 3: rascunho com as chaves só do rascunho (do gravado), publicado sem elas; dois parâmetros.
+        const colunas = colunasDoConteudo(conteudo, c.rascunho);
+        await tx.query(`UPDATE convites SET rascunho=$2,publicado=CASE WHEN $3 THEN $5::jsonb ELSE publicado END,
+          versao_contrato_id=CASE WHEN $3 THEN $4::uuid ELSE versao_contrato_id END,revisao=revisao+1,atualizado_em=now() WHERE id=$1`, [c.id, colunas.rascunho, i.acao === 'publicar', versao, colunas.publicado]);
       }
     }
     await evento(tx, c, a, i.acao.toUpperCase(), i.acao === 'cotas' ? { festa: i.festa, cliente: i.cliente } : {});
     return { salvo: true };
-  });
+  }, opcoes);
+}
+
+// --- Logo sobre a arte (etapa 3) ------------------------------------------------------------------------------------
+export const LIMITE_SESSOES_LOGO = 20;
+type ComandoLogo = Extract<ReturnType<typeof comandoSchema.parse>, { acao: 'logo_buffet' }>;
+type SessaoLogo = LogoOrdem['sessoes'][number];
+function sessoesDaLogo(rascunho: Conteudo): SessaoLogo[] {
+  const lista = rascunho.logoOrdem?.sessoes;
+  return Array.isArray(lista) ? lista.map(x => ({ ...x })) : [];
+}
+/**
+ * Escrita no mapa por arte (r14): `jsonb_set` de dois níveis não cria `logoPosicoes` ausente, então o nível de cima
+ * é reescrito com o mapa gravado (ou vazio) mais as entradas novas. `entradas` é o parâmetro com {arteId: valor}.
+ */
+export function comEntradaLogo(col: string, entradas: string) {
+  return `jsonb_set(${col},'{logoPosicoes}',COALESCE((${col})->'logoPosicoes','{}'::jsonb)||${entradas}::jsonb)`;
+}
+const SEM_CHAVES_DO_RASCUNHO = `- 'logoOrdem' - 'logoGeracoes' - 'logoSemNome'`;
+function semRegistroDaArte<T extends Conteudo>(rascunho: T, arteId: string): T {
+  const r = { ...rascunho };
+  if (r.logoPosicoes && arteId in r.logoPosicoes) { const { [arteId]: _fora, ...resto } = r.logoPosicoes; void _fora; r.logoPosicoes = resto; }
+  if (r.logoSemNome) r.logoSemNome = r.logoSemNome.filter(x => x !== arteId);
+  if (r.logoOrdem) r.logoOrdem = { sessoes: r.logoOrdem.sessoes.map(x => {
+    if (!x.posicoes || !(arteId in x.posicoes)) return x;
+    const { [arteId]: _fora, ...posicoes } = x.posicoes; void _fora;
+    return { ...x, posicoes };
+  }) };
+  return r;
+}
+/**
+ * Ordem (§1): 2. sessão na lista, senão 409 `sessao_expirada` sem gravar; 3. campo com `registro >= seq` é ignorado;
+ * 4. posição aplicável cuja arte não está no convite é ignorada e volta em `artesAusentes`; 5. grava nas duas colunas
+ * (publicado sem as chaves só do rascunho) e as seqs só no rascunho; 6. responde o que foi aplicado.
+ */
+async function gravarLogoBuffet(tx: DbExecutor, c: Convite, a: Acesso, i: ComandoLogo) {
+  exigir(a.tipo === 'admin', 'Somente o buffet pode mudar a logo do convite.', 403);
+  const sessoes = sessoesDaLogo(c.rascunho);
+  const indice = sessoes.findIndex(x => x.id === i.sessao);
+  if (indice < 0) throw new ConviteError('A sessão da logo terminou.', 409, { codigo: 'sessao_expirada' });
+  const registro: SessaoLogo = { ...sessoes[indice]!, posicoes: { ...(sessoes[indice]!.posicoes ?? {}) } };
+  const aplicado: { mostrar?: boolean; posicoes?: Record<string, boolean> } = {};
+  const artesAusentes: string[] = [];
+  let mostrar: boolean | undefined;
+  if (i.mostrar !== undefined) {
+    if ((registro.mostrar ?? 0) >= i.seq) aplicado.mostrar = false;
+    else { aplicado.mostrar = true; mostrar = i.mostrar; registro.mostrar = i.seq; }
+  }
+  const entradas: Record<string, LogoPosicaoGravada> = {};
+  if (i.posicoes) {
+    const porArte: Record<string, boolean> = {};
+    aplicado.posicoes = porArte;
+    const candidatas = i.posicoes.filter(p => {
+      const nova = (registro.posicoes![p.arteId] ?? 0) < i.seq;
+      if (!nova) porArte[p.arteId] = false;
+      return nova;
+    });
+    // A arte só é consultada para posições que passaram pelo filtro de sequência.
+    const existentes = candidatas.length ? new Set((await tx.query<{ id: string }>('SELECT id::text AS id FROM convite_artes WHERE convite_id=$1 AND empresa_id=$2 AND id=ANY($3::uuid[])',
+      [c.id, c.empresa_id, candidatas.map(p => p.arteId)])).rows.map(r => r.id)) : new Set<string>();
+    for (const p of candidatas) {
+      if (!existentes.has(p.arteId)) { porArte[p.arteId] = false; artesAusentes.push(p.arteId); continue; }
+      porArte[p.arteId] = true; registro.posicoes![p.arteId] = i.seq;
+      entradas[p.arteId] = { modo: p.modo, arteId: p.arteId, x: p.x, y: p.y, largura: p.largura, fundo: p.fundo, origem: 'buffet' };
+    }
+  }
+  const aplicadas = Object.values(entradas);
+  if (mostrar === undefined && !aplicadas.length) return { aplicado, artesAusentes };
+  if (!Object.keys(registro.posicoes!).length) delete registro.posicoes;
+  sessoes[indice] = registro;
+  // SQL composto só com constantes: `let` reatribuído a partir de si mesmo faz a guarda estática de salão
+  // (scripts/guarda-salao-estatica.cjs) expandir a união de atribuições de forma exponencial e travar o CI.
+  const params: unknown[] = [c.id];
+  if (mostrar !== undefined) params.push(mostrar);
+  const pMostrar = mostrar !== undefined ? `$${params.length}` : null;
+  if (aplicadas.length) params.push(JSON.stringify(entradas));
+  const pEntradas = aplicadas.length ? `$${params.length}` : null;
+  params.push(JSON.stringify({ sessoes }));
+  const pOrdem = `$${params.length}`;
+  const compor = (col: string) => {
+    const comMostrar = pMostrar ? `jsonb_set(${col},'{logoBuffet}',to_jsonb(${pMostrar}::boolean))` : col;
+    return pEntradas ? comEntradaLogo(comMostrar, pEntradas) : comMostrar;
+  };
+  const rascunho = `jsonb_set(${compor('rascunho')},'{logoOrdem}',${pOrdem}::jsonb)`;
+  const publicado = compor('publicado');
+  // Vale na hora, inclusive no publicado; sem mexer na revisão (quem edita texto não perde nada).
+  await tx.query(`UPDATE convites SET rascunho=${rascunho},publicado=CASE WHEN publicado IS NULL THEN NULL ELSE (${publicado}) ${SEM_CHAVES_DO_RASCUNHO} END,
+    atualizado_em=now() WHERE id=$1`, params);
+  await evento(tx, c, a, 'LOGO_BUFFET', { ...(mostrar !== undefined ? { mostrar } : {}),
+    ...(aplicadas.length ? { posicoes: aplicadas.map(p => ({ modo: p.modo, x: p.x, y: p.y, largura: p.largura, fundo: p.fundo })) } : {}) });
+  return { aplicado, artesAusentes };
+}
+
+/** Etapa 3b atrás de CONVITE_LOGO_AUTO (desligada por padrão até a prova visual de Felipe). */
+export function logoAutoLigada() { return process.env.CONVITE_LOGO_AUTO === '1'; }
+const MAX_GERACOES_LOGO = 5;
+/** Retira a chave de `logoGeracoes` quando a geração termina de vez (convite já travado por quem chama). */
+async function retirarGeracaoDaLogo(tx: DbExecutor, conviteId: string, chave: string) {
+  await tx.query(`UPDATE convites SET rascunho=jsonb_set(rascunho,'{logoGeracoes}',(rascunho->'logoGeracoes') - $2::text)
+    WHERE id=$1 AND jsonb_typeof(rascunho->'logoGeracoes')='array' AND (rascunho->'logoGeracoes') ? $2::text`, [conviteId, chave]);
+}
+async function rgba(bytes: Buffer) {
+  const { data, info } = await sharp(bytes).ensureAlpha().raw().toBuffer({ resolveWithObject: true });
+  if (info.channels !== 4) throw new Error('canais');
+  return { rgba: new Uint8Array(data.buffer, data.byteOffset, data.byteLength), largura: info.width, altura: info.height };
+}
+/**
+ * §4 passo 4: só para chaves em `logoGeracoes`. Grava a entrada da arte nova (rascunho e publicado), acrescenta a arte a
+ * `logoSemNome` e retira a chave. Logo apagada ou falha de decodificação/cálculo → faixa. A geração nunca falha por isso.
+ */
+async function registrarLogoAuto(tx: DbExecutor, g: Pick<GeracaoAberta, 'id' | 'convite_id' | 'empresa_id'>, arteId: string, imagem: Buffer) {
+  const geracoes = (await tx.query<{ geracoes: unknown }>("SELECT rascunho->'logoGeracoes' AS geracoes FROM convites WHERE id=$1", [g.convite_id])).rows[0]?.geracoes;
+  if (!Array.isArray(geracoes) || !geracoes.includes(g.id)) return;
+  let resultado: LogoAuto = LOGO_AUTO_FAIXA;
+  let logoDataUrl: string | null = null;
+  await tx.query('SAVEPOINT logo_auto');
+  try { logoDataUrl = (await marcaDoBuffet(tx, g.empresa_id)).logoDataUrl; await tx.query('RELEASE SAVEPOINT logo_auto'); }
+  catch { await tx.query('ROLLBACK TO SAVEPOINT logo_auto'); }
+  try {
+    const logo = bytesDaLogo(logoDataUrl);
+    if (logo) {
+      const [arte, marca] = await Promise.all([rgba(imagem), rgba(logo.bytes)]);
+      resultado = logoAutomatica({ rgba: arte.rgba, W: arte.largura, H: arte.altura }, { rgba: marca.rgba, wl: marca.largura, hl: marca.altura });
+    }
+  } catch { console.error('[convites] Logo automática não calculada; a logo fica na faixa.'); resultado = LOGO_AUTO_FAIXA; }
+  const entrada = JSON.stringify({ [arteId]: { modo: resultado.modo, arteId, x: resultado.x, y: resultado.y, largura: resultado.largura, fundo: resultado.fundo, origem: resultado.origem } });
+  // Sem revisão nem atualizado_em; a arte é nova, então nenhuma outra entrada muda.
+  await tx.query(`UPDATE convites SET rascunho=jsonb_set(jsonb_set(${comEntradaLogo('rascunho', '$2')},'{logoSemNome}',
+      (COALESCE(rascunho->'logoSemNome','[]'::jsonb) - $3::text) || jsonb_build_array($3::text)),'{logoGeracoes}',COALESCE(rascunho->'logoGeracoes','[]'::jsonb) - $4::text),
+    publicado=CASE WHEN publicado IS NULL THEN NULL ELSE (${comEntradaLogo('publicado', '$2')}) ${SEM_CHAVES_DO_RASCUNHO} END WHERE id=$1`,
+  [g.convite_id, entrada, arteId, g.id]);
 }
 
 // --- Geração com IA: um pedido, uma chamada paga, resultado durável -------------------------------------------------
@@ -355,6 +506,7 @@ async function encerrarNaoEnviada(tx: DbExecutor, g: GeracaoAberta, diagnostico:
       WHERE id=$1 AND estado='RESERVADA' AND etapas_registradas AND enviado_em IS NULL RETURNING id`, [g.id, codigoDiagnostico(diagnostico)]);
     if (r.rowCount !== 1) { await tx.query('RELEASE SAVEPOINT devolucao_geracao'); return null; }
     await devolverReservas(tx, g);
+    await retirarGeracaoDaLogo(tx, g.convite_id, g.id);
     await tx.query('RELEASE SAVEPOINT devolucao_geracao');
   } catch (erro) {
     await tx.query('ROLLBACK TO SAVEPOINT devolucao_geracao');
@@ -385,6 +537,7 @@ async function concluirGeracao(tx: DbExecutor, g: Pick<GeracaoAberta, 'id' | 'co
   if (atual?.estado === 'CONCLUIDA') return atual.arte_id;
   if (atual?.estado !== 'RESERVADA' && atual?.estado !== 'INCERTA') return null;
   const arteId = await guardarArte(tx, { id: g.convite_id, empresa_id: g.empresa_id }, imagem, 'IA');
+  await registrarLogoAuto(tx, g, arteId, imagem);
   await tx.query("UPDATE convite_geracoes SET estado='CONCLUIDA',arte_id=$2,uso=COALESCE($3,uso),resultado_pendente=NULL WHERE id=$1 AND estado IN ('RESERVADA','INCERTA')",
     [g.id, arteId, uso ?? null]);
   // Geração concluída = 1 crédito consumido no motor novo (sem reserva lá, nada muda: motor legado).
@@ -525,6 +678,7 @@ export async function resolverGeracaoIncerta(tx: DbExecutor, operadorId: string,
     resolucao_em=now(),resolucao_evidencia=$5,resultado_pendente=NULL WHERE id=$1 AND estado='INCERTA' RETURNING id`,
   [g.id, estado, i.resultado, operadorId, i.evidencia]);
   exigir(transicao.rowCount === 1, 'A geração já foi resolvida por outra sessão. Atualize a página.', 409);
+  await retirarGeracaoDaLogo(tx, g.convite_id, g.id);
   const liberouReserva = i.resultado === 'SEM_COBRANCA';
   if (liberouReserva) await devolverReservas(tx, g);
   else await encerrarGeracao(tx, g.empresa_id, g.id, true, 'PLATAFORMA');
@@ -555,7 +709,7 @@ export async function concluirGeracaoComImagem(tx: DbExecutor, operadorId: strin
   return { concluida: true, estado: 'CONCLUIDA', liberouReserva: false, geracaoId: g.id, conviteId: g.convite_id, empresaId: g.empresa_id };
 }
 
-async function gerar(a: Acesso, i: Extract<ReturnType<typeof comandoSchema.parse>, { acao: 'gerar' }>) {
+async function gerar(a: Acesso, i: Extract<ReturnType<typeof comandoSchema.parse>, { acao: 'gerar' }>, opcoes?: OpcoesInternas) {
   exigir(iaConfigurada(), 'A geração com IA ainda não foi habilitada pelo buffet.', 503);
   const provedor = provedorAtual();
   exigir(provedor, 'A geração com IA ainda não foi habilitada pelo buffet.', 503);
@@ -602,10 +756,15 @@ async function gerar(a: Acesso, i: Extract<ReturnType<typeof comandoSchema.parse
     // desta geração (uso único), conferida abaixo com as imagens que de fato serão enviadas.
     const autorizacao = await autorizacaoVigente(tx, c, provedor);
     exigir(autorizacao, MENSAGEM_SEM_AUTORIZACAO, 403);
+    // Etapa 3b (§4): a escolha da logo que a tela mostra tem de ser a gravada; senão nada é reservado nem enviado.
+    // A família não vê nem muda a logo: o valor dela não é conferido e a geração dela nunca é "com logo".
+    if (a.tipo === 'admin' && i.logoLigada !== mostrarLogoBuffet(c.rascunho))
+      throw new ConviteError('A escolha da logo ainda está sendo salva. Aguarde e gere de novo.', 409, { codigo: 'logo_em_gravacao' });
+    const comLogo = completo && a.tipo === 'admin' && i.logoLigada && logoAutoLigada() && !!(await marcaDoBuffet(tx, c.empresa_id)).logoDataUrl;
     // Dados oficiais = rascunho salvo no servidor; conflito com o pedido falha antes de reservar créditos.
     let preparado: ConviteCompletoPreparado | null = null;
     if (completo) {
-      preparado = prepararConviteCompleto(i.prompt, campos, estilo);
+      preparado = comLogo ? prepararConviteCompleto(i.prompt, campos, estilo, { reservarLogo: true }) : prepararConviteCompleto(i.prompt, campos, estilo);
       if (foto) preparado = await adicionarReferenciaEstilo({ ...preparado, foto, promptImagem: preparado.promptImagem + orientacaoFoto(estilo) });
     }
     await limitarArtes(tx, c);
@@ -643,9 +802,14 @@ async function gerar(a: Acesso, i: Extract<ReturnType<typeof comandoSchema.parse
     await tx.query('UPDATE convites SET usado_festa=usado_festa+1,usado_cliente=usado_cliente+$2 WHERE id=$1', [c.id, a.tipo === 'cliente' ? 1 : 0]);
     // etapas_registradas=true: só gerações deste código podem ser devolvidas automaticamente (ver 084).
     await tx.query('INSERT INTO convite_geracoes(id,convite_id,empresa_id,ator,payload_hash,modelo,etapas_registradas) VALUES($1,$2,$3,$4,$5,$6,true)', [i.chave, c.id, c.empresa_id, ator(a, c), payload, completo ? MODELO_COMPLETO : modeloImagem()]);
-    await evento(tx, c, a, 'IA_RESERVADA', { geracao: i.chave, autorizacao: autorizacao.id, provedor, ...(imagens ? { imagens } : {}), ...(preparado ? { completo: true, estilo, foto: !!foto, referencia: preparado.referenciaEstiloId ?? null } : {}) });
+    // Na mesma transação da reserva: a conclusão só grava a logo automática para chaves desta lista (máx. 5, sai a mais antiga).
+    if (comLogo) {
+      const geracoes = [...(c.rascunho.logoGeracoes ?? []).filter(x => x !== i.chave), i.chave].slice(-MAX_GERACOES_LOGO);
+      await tx.query(`UPDATE convites SET rascunho=jsonb_set(rascunho,'{logoGeracoes}',$2::jsonb) WHERE id=$1`, [c.id, JSON.stringify(geracoes)]);
+    }
+    await evento(tx, c, a, 'IA_RESERVADA', { geracao: i.chave, autorizacao: autorizacao.id, provedor, ...(imagens ? { imagens } : {}), ...(preparado ? { completo: true, estilo, foto: !!foto, referencia: preparado.referenciaEstiloId ?? null } : {}), ...(comLogo ? { logoAuto: true } : {}) });
     return { repetida: false as const, c, refs, preparado, autorizacaoId: autorizacao.id };
-  });
+  }, opcoes);
   if (reserva.repetida) return reserva;
   const etapas: Etapas = { enviou: false, recebeu: false };
   const enviar = enviarComRegistro(i.chave, etapas, provedor, reserva.autorizacaoId);
@@ -693,9 +857,11 @@ export async function publico(tokenPublico: string, executor: DbExecutor = db())
   const conteudo = conteudoSchema.parse(c.publicado);
   return { c, conteudo, marcaKidmais: c.empresa_codigo === 'kidmais' };
 }
-export async function artePublica(tokenPublico: string) {
+export async function artePublica(tokenPublico: string, esperada: string | null = null) {
   const { c, conteudo } = await publico(tokenPublico);
   exigir(conteudo.arteId, 'Arte não encontrada.', 404);
+  // Etapa 3: a sobreposição é amarrada ao id; outra arte publicada nesse meio-tempo → 409 sem bytes.
+  if (esperada !== null) exigir(esperada === conteudo.arteId, 'A arte do convite mudou. Recarregue.', 409);
   const arte = (await db().query<{ imagem: Buffer }>('SELECT imagem FROM convite_artes WHERE id=$1 AND convite_id=$2 AND empresa_id=$3', [conteudo.arteId, c.id, c.empresa_id])).rows[0];
   exigir(arte, 'Arte não encontrada.', 404); return arte.imagem;
 }
@@ -713,7 +879,10 @@ export async function consultarPublico(tokenPublico: string, tokenFamilia: strin
   const { c, conteudo, marcaKidmais } = await publico(tokenPublico);
   // Identifica o buffet controlador no aviso exibido antes da confirmação de presença (R-5).
   const buffet = (await db().query<{ nome: string }>('SELECT nome FROM empresas WHERE id=$1', [c.empresa_id])).rows[0]?.nome ?? '';
-  return { conteudo: semLogoBuffet(conteudo), marcaKidmais, logoBuffet: !!(await logoDoConvitePublico(c, conteudo)), buffet, familia: tokenFamilia == null ? null : await dadosFamiliaPublica(db(), c, tokenFamilia) };
+  const temLogo = !!(await logoDoConvitePublico(c, conteudo));
+  // Etapa 3: posição só pela projeção (x, y, largura, fundo), e só quando a logo vai sobre a arte publicada.
+  const logoSobre = projecaoPublicaLogo(conteudo, temLogo);
+  return { conteudo: semLogoBuffet(conteudo), marcaKidmais, logoBuffet: temLogo, logoSobre, buffet, familia: tokenFamilia == null ? null : await dadosFamiliaPublica(db(), c, tokenFamilia) };
 }
 export async function confirmar(tokenPublico: string, raw: unknown, tokenFamilia: string | null = null) {
   const i = respostaSchema.parse(raw);

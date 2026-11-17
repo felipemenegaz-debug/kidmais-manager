@@ -699,7 +699,7 @@ test("095: Convites pelo serviço real com IA dublê — legado intacto, motor n
       comandar: (a: unknown, raw: unknown) => Promise<Record<string, unknown>>; consultar: (a: unknown) => Promise<Record<string, unknown>> };
     const autorizar = async (cv: Awaited<ReturnType<typeof festa>>) => svc.comandar({ tipo: "cliente", token: cv.token }, { acao: "autorizar_ia", versao: VERSAO_TEXTOS_IA, provedor: "openai",
       textoHash: hashTextoIA("openai", "CLIENTE"), responsavelNome: "Responsável Sintético", vinculo: "MAE", declaracao: true });
-    const gerar = (cv: Awaited<ReturnType<typeof festa>>) => svc.comandar({ tipo: "cliente", token: cv.token }, { acao: "gerar", chave: randomUUID(), prompt: "Tema jardim com borboletas", referencias: [] });
+    const gerar = (cv: Awaited<ReturnType<typeof festa>>) => svc.comandar({ tipo: "cliente", token: cv.token }, { acao: "gerar", chave: randomUUID(), prompt: "Tema jardim com borboletas", referencias: [], logoLigada: false });
 
     // 088 continua obrigatória: sem autorização, recusa ANTES de reservar (nenhuma reserva nem chamada).
     await assert.rejects(gerar(S.conviteA), /autorização específica do responsável/);
@@ -797,7 +797,7 @@ test("095: corte concorrente com geração (duas conexões): a geração espera 
     await c.query("BEGIN");
     const corteE = await aplicarCorte(c as unknown as DbExecutor, E, "TESTE corte concorrente 22/10");
     assert.equal(corteE.quantidadeLegado, 3);
-    const geracao = svc2.comandar({ tipo: "cliente", token: conviteE.token }, { acao: "gerar", chave: randomUUID(), prompt: "Tema jardim com borboletas", referencias: [] })
+    const geracao = svc2.comandar({ tipo: "cliente", token: conviteE.token }, { acao: "gerar", chave: randomUUID(), prompt: "Tema jardim com borboletas", referencias: [], logoLigada: false })
       .then((x) => x, (e: { status?: number; message?: string }) => e);
     assert.equal(await esperarBloqueio(obs, pGera, pCorte), true, "a geração espera o corte (trava da empresa)");
     const espera = (await obs.query<{ q: string }>("SELECT query AS q FROM pg_stat_activity WHERE pid = $1", [pGera])).rows[0].q;

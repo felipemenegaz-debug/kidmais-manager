@@ -309,6 +309,9 @@ const ESTADO_POSTGRES = {
   "lib/contratos/assinatura-papel-cliente.postgres.test.ts": { descartavel: "124", tambem: ["123"] },
   // 15/11/2026 (LOCAL): ciclo da 124 — precheck/postcheck, up repetido, down com COMMIT, up/down/up com o mesmo catálogo.
   "lib/contratos/migration-124.postgres.test.ts": { descartavel: "124" },
+  // 16/11/2026 (logo do buffet no convite, etapa 3): sessões/ordem da logo, intercalação real com travas, rotas reais,
+  // fila com o transporte real, logoOrdem na exportação e 3b com IA dublê, sobre o modelo 124 (estado de staging).
+  "lib/convites/logo-3.postgres.test.ts": { descartavel: "124" },
   // Entrega B: fechamento admin/público com contratante PJ e MODELO_INCOMPATIVEL_PJ na revisão; no 109, CNPJ → PJ_INDISPONIVEL.
   "lib/fechamentos/fechamento-pj.postgres.test.ts": { descartavel: "112", tambem: ["109", "b14-P12"] },
   "lib/assinatura/renovacao-schema.postgres.test.ts": { descartavel: "108" },

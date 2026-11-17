@@ -7,7 +7,9 @@ export async function responder(fn: () => Promise<unknown>) {
   catch (e) {
     const known = e as { httpStatus?: number; status?: number; message?: string };
     const status = e instanceof ZodError || e instanceof SyntaxError ? 400 : e instanceof ConviteError ? e.status : known.httpStatus ?? 500;
-    return NextResponse.json({ ok: false, erro: status === 400 ? 'Confira os campos do convite.' : status < 500 || e instanceof ConviteError ? known.message : 'Não foi possível concluir. Tente novamente mais tarde.' }, { status, headers: headersConvite });
+    return NextResponse.json({ ok: false, erro: status === 400 ? 'Confira os campos do convite.' : status < 500 || e instanceof ConviteError ? known.message : 'Não foi possível concluir. Tente novamente mais tarde.',
+      // Etapa 3: código público só para ConviteError que o declara (ex.: 'sessao_expirada'); os outros erros ficam iguais.
+      ...(e instanceof ConviteError && e.publico ? { codigo: e.publico.codigo } : {}) }, { status, headers: headersConvite });
   }
 }
 export function origemPublica(r: NextRequest) {
