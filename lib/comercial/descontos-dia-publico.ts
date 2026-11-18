@@ -1,5 +1,4 @@
 import type { DbExecutor } from "../db/contracts.ts";
-import { empresaDonaDaConfigLegada } from "../disponibilidade/config-legada.ts";
 import { regraPublicaDaLinha, type DescontosEmpresaPublicos } from "./descontos-dia.ts";
 
 /**
@@ -8,12 +7,12 @@ import { regraPublicaDaLinha, type DescontosEmpresaPublicos } from "./descontos-
  *
  *   - Só pacotes ativos e na revisão vigente (032) da própria empresa; só linhas ativas que ainda valem hoje ou depois (fuso de São Paulo).
  *   - Sai apenas dia, percentual, título, vigência, horário e prioridade: nada de observação interna ou id da regra.
- *   - Kidmais (código 'kidmais' ou dona da agenda legada) devolve `null`: continua pelo caminho atual (15% de segunda a
- *     quinta nos pacotes de sempre), sem mudança nenhuma.
+ *   - Kidmais também (desde 18/11/2026): as regras dela (a `DIA_UTIL_15` da 006 ou a que a tela gravar) saem daqui.
+ *     `null` só para empresa que não existe.
  */
 export async function descontosPublicosDaEmpresa(tx: DbExecutor, empresaId: string): Promise<DescontosEmpresaPublicos | null> {
   const codigo = (await tx.query<{ codigo: string }>("SELECT codigo FROM public.empresas WHERE id = $1::uuid", [empresaId])).rows[0]?.codigo;
-  if (codigo === undefined || codigo === "kidmais" || (await empresaDonaDaConfigLegada(tx)) === empresaId) return null;
+  if (codigo === undefined) return null;
   const linhas = (await tx.query<{ pacote: string; dia_semana: number; percentual: string; titulo: string | null; vigencia_inicio: string; vigencia_fim: string | null; configuracao_agenda_id: string | null; prioridade: number }>(
     `SELECT p.codigo AS pacote, r.dia_semana, r.percentual::text AS percentual, r.titulo,
             r.vigencia_inicio::text AS vigencia_inicio, r.vigencia_fim::text AS vigencia_fim,

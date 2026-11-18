@@ -9,10 +9,18 @@
  *   - A escolha de qual regra vale numa data repete a do servidor (`listarDescontosPacoteAplicaveis` + `selecionarDesconto`):
  *     regra do horário antes da genérica, depois a menor prioridade, depois o início de vigência mais recente.
  */
+import { PACOTES_CONTRATAVEIS_V1 } from "./pacotes-v1.ts";
+
 export const CODIGO_DESCONTO_DIA = "DIA_SEMANA_BUFFET";
 export const TETO_DESCONTO_DIA = 50;
 /** Regra de segunda a quinta da Kidmais (migration 006). */
 export const CODIGO_DESCONTO_DIA_UTIL_KIDMAIS = "DIA_UTIL_15";
+/**
+ * Códigos que a tela de Configurações administra (só regras sem horário): o da própria tela e o da 006. Desde 18/11/2026
+ * a Kidmais edita pela mesma tela: a regra antiga dela aparece como a que vale hoje e, quando outra é salva, termina no
+ * dia anterior ao novo início, como qualquer regra da tela.
+ */
+export const CODIGOS_DA_TELA_DIA: readonly string[] = [CODIGO_DESCONTO_DIA, CODIGO_DESCONTO_DIA_UTIL_KIDMAIS];
 
 export type OrigemDesconto = "empresa" | "personalizado" | "dia_util" | "nenhum";
 
@@ -53,6 +61,16 @@ export type RegraDescontoDiaPublica = {
 export type DescontosEmpresaPublicos = Record<string, RegraDescontoDiaPublica[]>;
 
 /**
+ * Endereço atual da Kidmais (sem /b/<código>): a tela usa os ids V1 (essencial, pizza_party_scienza…), não o código do
+ * pacote. Troca a chave pelo id V1; pacote sem id V1 não aparece nesse endereço e fica de fora.
+ */
+export function descontosPorIdV1(porCodigo: DescontosEmpresaPublicos): DescontosEmpresaPublicos {
+  const saida: DescontosEmpresaPublicos = {};
+  for (const { id, codigo } of PACOTES_CONTRATAVEIS_V1) if (porCodigo[codigo]) saida[id] = porCodigo[codigo]!;
+  return saida;
+}
+
+/**
  * Desconto sobre o valor do pacote, em centavos inteiros (meio centavo arredonda para cima no desconto).
  * Mesma rotina na cotação do servidor e na revisão de festa fechada: 50% de R$ 20,15 = R$ 10,08 de desconto e
  * R$ 10,07 de pacote (em ponto flutuante dava R$ 10,07 de desconto).
@@ -82,6 +100,28 @@ export function rotuloDias(dias: readonly number[]): string {
   if (consecutivos && lista.length >= 3) return `de ${NOMES[lista[0]!]} a ${NOMES[lista[lista.length - 1]!]}`;
   const nomes = lista.map((d) => NOMES[d]!);
   return nomes.length === 1 ? nomes[0]! : `${nomes.slice(0, -1).join(", ")} e ${nomes[nomes.length - 1]}`;
+}
+
+/** Dia seguinte de uma data AAAA-MM-DD, sem fuso. */
+export function diaSeguinte(dataIso: string): string {
+  return new Date(Date.parse(`${dataIso}T00:00:00Z`) + 86_400_000).toISOString().slice(0, 10);
+}
+
+type RegraDaTela = { dias: number[]; percentual: number; pacoteIds: string[]; inicio: string; fim: string | null };
+export type RascunhoDia = { dias: number[]; percentual: string; pacoteIds: string[]; inicio: string };
+
+/**
+ * Ponto de partida do formulário (Astra r1, P1): salvar sem mexer em nada não pode mudar preço. Por isso o rascunho
+ * repete a ÚLTIMA situação já marcada: a regra agendada (ou a vigente) com a data dela; se essa regra tem fim e nada
+ * vem depois (`desligaEm`), o rascunho é 0% a partir do dia seguinte ao fim. Sem regra nenhuma, segunda a quinta em
+ * todos os pacotes, com o percentual em branco.
+ */
+export function rascunhoDoEstado(e: { hoje: string; pacotes: readonly { id: string }[]; vigente: RegraDaTela | null; agendada: RegraDaTela | null; desligaEm: string | null }): RascunhoDia {
+  const base = e.agendada ?? e.vigente;
+  const pacoteIds = base ? base.pacoteIds.filter((id) => e.pacotes.some((p) => p.id === id)) : e.pacotes.map((p) => p.id);
+  if (e.desligaEm) return { dias: base?.dias ?? [1, 2, 3, 4], percentual: "0", pacoteIds, inicio: e.desligaEm > e.hoje ? e.desligaEm : e.hoje };
+  if (!base) return { dias: [1, 2, 3, 4], percentual: "", pacoteIds, inicio: e.hoje };
+  return { dias: base.dias, percentual: String(base.percentual), pacoteIds, inicio: base.inicio > e.hoje ? base.inicio : e.hoje };
 }
 
 /** Título gravado na regra e mostrado ao cliente: "10% de desconto de segunda a quinta". */

@@ -2,24 +2,17 @@
 import { useEffect, useState } from 'react';
 import { numeroParaMoeda } from '@/components/fechamento/calculos';
 import { EstadoCarga, enviarMarketing, useMarketing } from '@/components/admin/marketing/comum';
-import { DIAS_SEMANA_ISO, NOME_CURTO_DIA, rotuloDias, TETO_DESCONTO_DIA } from '@/lib/comercial/descontos-dia';
+import { DIAS_SEMANA_ISO, NOME_CURTO_DIA, rascunhoDoEstado, type RascunhoDia, rotuloDias, TETO_DESCONTO_DIA } from '@/lib/comercial/descontos-dia';
 import type { EstadoDescontoDia, RegraDia } from '@/lib/comercial/descontos-dia-admin';
 import styles from './descontos-pagamento.module.css';
 
 const URL_API = '/api/admin/configuracoes/descontos/dia';
 type Disponivel = Extract<EstadoDescontoDia, { disponivel: true }>;
-type Rascunho = { dias: number[]; percentual: string; pacoteIds: string[]; inicio: string };
+type Rascunho = RascunhoDia;
 type Aviso = { tipo: 'ok' | 'erro'; texto: string };
 
 const dataBr = (iso: string) => iso.split('-').reverse().join('/');
 const dataHora = (iso: string) => new Intl.DateTimeFormat('pt-BR', { dateStyle: 'short', timeStyle: 'short', timeZone: 'America/Sao_Paulo' }).format(new Date(iso));
-
-/** Ponto de partida do formulário: a regra agendada, senão a vigente, senão segunda a quinta em todos os pacotes. */
-function rascunhoInicial(e: Disponivel): Rascunho {
-  const base = e.agendada ?? e.vigente;
-  if (!base) return { dias: [1, 2, 3, 4], percentual: '', pacoteIds: e.pacotes.map((p) => p.id), inicio: e.hoje };
-  return { dias: base.dias, percentual: String(base.percentual), pacoteIds: base.pacoteIds.filter((id) => e.pacotes.some((p) => p.id === id)), inicio: base.inicio > e.hoje ? base.inicio : e.hoje };
-}
 
 /** Mesmas regras do servidor (lib/comercial/descontos-dia-admin.ts); o servidor continua sendo quem decide. */
 export function conferirDia(r: Rascunho, hoje: string): { pct: number | null; erros: Partial<Record<'percentual' | 'dias' | 'pacotes' | 'inicio', string>> } {
@@ -53,14 +46,14 @@ export default function DescontoDiaSemana({ numero, aoMudarPrevia }: { numero: n
     <h2 id="desc-dia">{numero}. Desconto por dia da semana</h2>
     <EstadoCarga carregando={carregando && !dados} falha={falha} aoTentar={recarregar} />
     {dados && !dados.disponivel && <p className={styles.muted} role="status">
-      Este buffet continua com as regras de desconto atuais (segunda a quinta, definidas pela equipe do sistema). Para mudar, fale com o suporte.
+      As regras de desconto por dia deste buffet foram montadas pela equipe do sistema e não cabem nesta tela. Elas continuam valendo. Para mudar, fale com o suporte.
     </p>}
     {dados && dados.disponivel && <FormularioDia key={dados.versao} estado={dados} aoSalvar={setDados} aviso={aviso} setAviso={setAviso} aoMudarPrevia={aoMudarPrevia} />}
   </section>;
 }
 
 function FormularioDia({ estado, aoSalvar, aviso, setAviso, aoMudarPrevia }: { estado: Disponivel; aoSalvar: (e: EstadoDescontoDia) => void; aviso: Aviso | null; setAviso: (a: Aviso | null) => void; aoMudarPrevia: (pct: number, dias: number[]) => void }) {
-  const [r, setR] = useState<Rascunho>(() => rascunhoInicial(estado));
+  const [r, setR] = useState<Rascunho>(() => rascunhoDoEstado(estado));
   const [enviando, setEnviando] = useState(false);
   const { pct, erros } = conferirDia(r, estado.hoje);
   const pacotesNovos = estado.pacotes.filter((p) => (estado.agendada ?? estado.vigente) && !(estado.agendada ?? estado.vigente)!.pacoteIds.includes(p.id));
@@ -91,6 +84,7 @@ function FormularioDia({ estado, aoSalvar, aviso, setAviso, aoMudarPrevia }: { e
     <ul className={styles.lista} aria-label="Situação do desconto por dia">
       <li><span>Valendo hoje</span><span>{estado.vigente ? resumoRegra(estado.vigente, estado.pacotes.length) : 'Nenhum desconto por dia'}</span></li>
       {estado.agendada && <li><span>Agendado</span><span>{resumoRegra(estado.agendada, estado.pacotes.length)}</span></li>}
+      {estado.desligaEm && <li><span>Agendado</span><span>Desligado para festas a partir de {dataBr(estado.desligaEm)}</span></li>}
     </ul>
     {estado.outrasRegras > 0 && <p className={styles.alerta} role="note">Há {estado.outrasRegras === 1 ? '1 outro desconto' : `${estado.outrasRegras} outros descontos`} por dia cadastrado nos pacotes (fora desta tela). {estado.outrasRegras === 1 ? 'Ele continua' : 'Eles continuam'} valendo.</p>}
     <form onSubmit={(e) => { e.preventDefault(); void salvar(); }} noValidate aria-busy={enviando}>

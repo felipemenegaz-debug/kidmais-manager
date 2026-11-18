@@ -123,9 +123,15 @@ test('limites estáticos: serviço só toca regras_desconto_pacote e auditoria; 
   const pub = codigo('lib/comercial/descontos-dia-publico.ts');
   assert.doesNotMatch(pub, /observacoes|r\.id\b/);
   assert.match(pub, /p\.empresa_id = \$1::uuid AND p\.ativo AND p\.vigente AND r\.ativo/);
-  assert.match(pub, /codigo === "kidmais"/);
+  assert.doesNotMatch(pub, /"kidmais"|empresaDonaDaConfigLegada/, 'Kidmais não tem mais caminho próprio (18/11)');
   const rota = codigo('app/api/disponibilidade/route.ts');
-  assert.match(rota, /codigo === null\s*\? lerComercialPublico\(\)/, 'endereço atual (Kidmais) segue pelo arquivo legado');
+  assert.match(rota, /codigo === null\s*\? Promise\.all\(\[lerComercialPublico\(\), escopo\.empresaId \? descontosPublicosDaEmpresa\(db\(\), escopo\.empresaId\) : Promise\.resolve\(null\)\]\)/,
+    'endereço atual (Kidmais): arquivo legado + regras da empresa do escopo');
+  assert.match(rota, /descontosEmpresa: descontosPorIdV1\(descontosEmpresa\)/, 'no endereço atual a chave é o id V1');
+  const admin = codigo('lib/comercial/descontos-dia-admin.ts');
+  assert.doesNotMatch(admin, /ehKidmais|"kidmais"|DESCONTO_DIA_KIDMAIS/, 'a tela não trava mais a Kidmais');
+  assert.equal((admin.match(/r\.codigo = ANY\(\$2::text\[\]\)/g) ?? []).length, 3, 'versão, linhas e outras regras usam os dois códigos da tela');
+  assert.match(admin, /VALUES \(\$1::uuid, \$2, NULL, \$3, 'PACOTE', \$4[\s\S]*CODIGO_DESCONTO_DIA, titulo, PRIORIDADE/, 'linha nova sai sempre com o código da tela');
   const wizard = codigo('components/fechamento/FechamentoWizard.tsx');
   assert.equal((wizard.match(/descontosEmpresa: json\.comercial\.descontosEmpresa/g) ?? []).length, 2, 'as duas leituras do assistente guardam as regras');
   assert.doesNotMatch(wizard, /Economize 15%/, 'o aviso não é mais fixo no assistente');
@@ -235,4 +241,89 @@ test('Astra r2: origem da cotação, cartão da data pela cotação, percentual 
   assert.doesNotMatch(codigo('components/fechamento/CalendarioDisponibilidade.tsx'), /Math\.round\(\s*desconto\.percentual \* 100/);
   assert.doesNotMatch(w, /Desconto dia útil/);
   assert.match(w, /label=\{descontoTela\.titulo \|\| "Desconto da data"\}/);
+});
+
+test('Kidmais na tela (18/11): regras da 006 entram no formulário só se couberem; endereço atual usa id V1', async () => {
+  const linha = (pacote_id: string, dia: number, extra: Record<string, unknown> = {}) =>
+    ({ pacote_id, dia, percentual: '15.00', inicio: '2026-09-07', fim: null, ativo: true, codigo: 'DIA_UTIL_15', prioridade: 100, ...extra });
+  const seed = [P1, P2].flatMap((p) => [1, 2, 3, 4].map((d) => linha(p, d)));
+  assert.equal(admin.regrasCabemNaTela(seed), true, 'semente da 006: 15% seg–qui, mesma prioridade, todas as combinações');
+  assert.deepEqual(admin.agruparRegras(seed), [{ dias: [1, 2, 3, 4], percentual: 15, pacoteIds: [P1, P2], inicio: '2026-09-07', fim: null }]);
+  assert.equal(admin.regrasCabemNaTela([...seed.slice(1), linha(P1, 1, { percentual: '10.00' })]), false, 'percentual diferente num dia');
+  assert.equal(admin.regrasCabemNaTela(seed.slice(1)), false, 'falta uma combinação pacote × dia');
+  assert.equal(admin.regrasCabemNaTela([...seed.slice(1), linha(P1, 1, { prioridade: 50 })]), false, 'prioridade diferente');
+  assert.equal(admin.regrasCabemNaTela(seed.map((l) => ({ ...l, percentual: '15.50' }))), false, 'percentual com casas');
+  assert.equal(admin.regrasCabemNaTela(seed.map((l) => ({ ...l, percentual: '60.00' }))), false, 'acima do teto');
+  assert.equal(admin.regrasCabemNaTela([...seed.slice(1), linha(P1, 1, { ativo: false }), linha(P1, 1, { ativo: true })]), true, 'linha inativa não conta');
+  // Astra r2, P1: grupo só da tela também é conferido. 10% seg no P1 e 20% ter no P2 viraria 20% nas 4 combinações.
+  assert.equal(admin.regrasCabemNaTela([linha(P1, 1, { codigo: 'DIA_SEMANA_BUFFET', inicio: '2026-12-01', percentual: '10' }), linha(P2, 2, { codigo: 'DIA_SEMANA_BUFFET', inicio: '2026-12-01', percentual: '20' })]), false, 'grupo só da tela com percentuais diferentes');
+  const telaCompleta = [P1, P2].flatMap((p) => [1, 2].map((d) => linha(p, d, { codigo: 'DIA_SEMANA_BUFFET', inicio: '2026-12-01', percentual: '10' })));
+  assert.equal(admin.regrasCabemNaTela(telaCompleta), true, 'grupo da tela como a tela grava');
+  assert.equal(admin.regrasCabemNaTela(telaCompleta.slice(1)), false, 'grupo da tela sem uma combinação');
+  assert.equal(admin.regrasCabemNaTela(telaCompleta.map((l) => ({ ...l, prioridade: 50 }))), false, 'grupo da tela com outra prioridade');
+  // Astra r2, P2/P3: painel da agenda pelo horário escolhido, percentual com casas e ajuda sem desconto manual.
+  const painel = codigo('components/admin/AdminDisponibilidade.tsx');
+  assert.match(painel, /descontoEfetivo\(config, pacote, selecionada, horario, true, idHorario\)/);
+  assert.match(painel, /descontoEfetivo\(config, pacote, data, horario, true, idHorario\)/);
+  assert.doesNotMatch(painel, /Math\.round\(\w+\.percentual \* 100\)/);
+  assert.match(painel, /textoPercentual\(desconto\.percentual \* 100\)/);
+  assert.match(painel, /textoPercentual\(descontoSelecionado\.percentual \* 100\)/);
+  assert.match(painel, /config\.descontosEmpresa\s*\?\s*"Regras comerciais por data existem/);
+  const rg = (pct: number, configuracaoId: string | null) => ({ dia: 1, percentual: pct, titulo: null, vigenciaInicio: '2026-09-07', vigenciaFim: null, configuracaoId, prioridade: 100 });
+  const porHorario = { pacoteOverrides: [], descontos: [], descontosEmpresa: { essencial: [rg(10, null), rg(12.5, 'T1')] } };
+  assert.equal(descontos.descontoEfetivo(porHorario, 'essencial', '2026-11-23', 'almoco', true, 'T1').percentual, 0.125, 'regra do horário escolhido');
+  assert.equal(descontos.descontoEfetivo(porHorario, 'essencial', '2026-11-23', 'almoco').percentual, 0.1, 'sem horário: genérica');
+  const { descontosPorIdV1 } = await import('./descontos-dia.ts');
+  const r = { dia: 1, percentual: 15, titulo: null, vigenciaInicio: '2026-09-07', vigenciaFim: null, configuracaoId: null, prioridade: 100 };
+  assert.deepEqual(descontosPorIdV1({ ESSENCIAL: [r], PIZZA_PARTY: [r], P_9F00: [r] }), { essencial: [r], pizza_party_scienza: [r] }, 'código sem id V1 fica de fora');
+  assert.deepEqual(descontosPorIdV1({}), {}, 'sem regra: objeto vazio (desligado), não volta ao 15% fixo');
+  // Com o campo vazio, a tela do cliente não cai no 15% fixo.
+  const vazio = { pacoteOverrides: [], descontos: [], descontosEmpresa: {} };
+  assert.equal(descontos.descontoEfetivo(vazio, 'essencial', '2026-11-23', 'almoco').ativo, false);
+  assert.equal(descontos.avisoDescontoDoPacote(vazio, 'essencial', true, '2026-11-18'), null);
+});
+
+test('Astra r1 da Kidmais na tela: linha do tempo, rascunho que não muda preço, sem 15% antes da resposta, painel pelas regras', async () => {
+  const linha = (pacote_id: string, dia: number, extra: Record<string, unknown> = {}) =>
+    ({ pacote_id, dia, percentual: '15.00', inicio: '2026-09-07', fim: null, ativo: true, codigo: 'DIA_UTIL_15', prioridade: 100, ...extra });
+  const seed = (extra: Record<string, unknown> = {}) => [P1, P2].flatMap((p) => [1, 2, 3, 4].map((d) => linha(p, d, extra)));
+  const tela = (extra: Record<string, unknown>) => [P1].flatMap((p) => [5, 6].map((d) => linha(p, d, { codigo: 'DIA_SEMANA_BUFFET', percentual: '10', ...extra })));
+  // Linha do tempo: grupos (de qualquer código) não se sobrepõem.
+  assert.equal(admin.regrasCabemNaTela([...seed({ fim: '2026-11-30' }), ...tela({ inicio: '2026-12-01' })]), true, '006 encerrada antes da regra da tela');
+  assert.equal(admin.regrasCabemNaTela([...seed(), ...tela({ inicio: '2026-12-01' })]), false, '006 sem fim e regra da tela depois');
+  assert.equal(admin.regrasCabemNaTela([...seed({ fim: '2026-12-01' }), ...tela({ inicio: '2026-12-01' })]), false, 'fim no mesmo dia do início seguinte');
+  assert.equal(admin.regrasCabemNaTela([...seed({ fim: '2026-11-30' }), ...seed({ fim: '2026-12-31', codigo: 'DIA_SEMANA_BUFFET' })]), false, 'mesmo início, fins diferentes');
+  assert.equal(admin.regrasCabemNaTela([...tela({ inicio: '2026-12-01' }), ...tela({ inicio: '2027-01-01' })]), false, 'só da tela também: sem fim seguido de outra');
+  // Rascunho: salvar sem mexer repete a última situação marcada.
+  const { rascunhoDoEstado, diaSeguinte } = await import('./descontos-dia.ts');
+  const pacotes = [{ id: P1 }, { id: P2 }];
+  const r15 = { dias: [1, 2, 3, 4], percentual: 15, pacoteIds: [P1, P2], inicio: '2026-09-07', fim: '2026-11-18' };
+  assert.equal(diaSeguinte('2026-12-31'), '2027-01-01');
+  assert.deepEqual(rascunhoDoEstado({ hoje: '2026-11-18', pacotes, vigente: r15, agendada: null, desligaEm: '2026-11-19' }),
+    { dias: [1, 2, 3, 4], percentual: '0', pacoteIds: [P1, P2], inicio: '2026-11-19' }, 'desligado de amanhã: 0% de amanhã, não 15% de hoje');
+  assert.deepEqual(rascunhoDoEstado({ hoje: '2026-11-18', pacotes, vigente: { ...r15, fim: null }, agendada: null, desligaEm: null }),
+    { dias: [1, 2, 3, 4], percentual: '15', pacoteIds: [P1, P2], inicio: '2026-11-18' });
+  assert.deepEqual(rascunhoDoEstado({ hoje: '2026-11-18', pacotes, vigente: r15, agendada: { ...r15, percentual: 10, pacoteIds: [P1, 'sumiu'], inicio: '2026-11-19', fim: null }, desligaEm: null }),
+    { dias: [1, 2, 3, 4], percentual: '10', pacoteIds: [P1], inicio: '2026-11-19' });
+  assert.deepEqual(rascunhoDoEstado({ hoje: '2026-11-18', pacotes, vigente: null, agendada: null, desligaEm: null }),
+    { dias: [1, 2, 3, 4], percentual: '', pacoteIds: [P1, P2], inicio: '2026-11-18' });
+  // Antes da resposta (ou com falha): nenhum desconto, nunca os 15% fixos.
+  const agenda = carregarModulo('lib/agenda/disponibilidade.ts', {}) as any;
+  assert.deepEqual(agenda.CONFIG_SEM_RESPOSTA.descontosEmpresa, {});
+  assert.equal(descontos.descontoEfetivo(agenda.CONFIG_SEM_RESPOSTA, 'essencial', '2026-11-23', 'almoco').ativo, false);
+  assert.equal(descontos.avisoDescontoDoPacote(agenda.CONFIG_SEM_RESPOSTA, 'essencial', true, '2026-11-18'), null);
+  for (const f of ['components/fechamento/CalendarioDisponibilidade.tsx', 'components/fechamento/FechamentoWizard.tsx', 'components/admin/AdminDisponibilidade.tsx'])
+    assert.doesNotMatch(codigo(f), /CONFIG_VAZIA/, `${f}: estado inicial/falha sem 15% fixo`);
+  // Painel: a rota manda as regras da empresa (ids V1 para a dona da agenda pública) e a tela as usa.
+  const rota = codigo('app/api/admin/disponibilidade/route.ts');
+  assert.match(rota, /descontosPublicosDaEmpresa\(tx, empresaComprovada\)/);
+  assert.match(rota, /configuracaoComercial \? descontosPorIdV1\(regrasDia\) : regrasDia/);
+  assert.match(rota, /\.\.\.\(descontosEmpresa \? \{ descontosEmpresa \} : \{\}\),\s*configuracaoComercial,/);
+  const painel = codigo('components/admin/AdminDisponibilidade.tsx');
+  assert.match(painel, /descontosEmpresa: admin\.descontosEmpresa/);
+  assert.match(painel, /config\.descontosEmpresa \? \(\s*<div className=\{styles\.actionGroup\}>\s*<h3>Desconto desta data<\/h3>/, 'sem formulário de desconto por data com regras da empresa');
+  // Tela usa o rascunho puro e mostra o desligamento agendado.
+  const tela2 = codigo('components/admin/DescontoDiaSemana.tsx');
+  assert.match(tela2, /useState<Rascunho>\(\(\) => rascunhoDoEstado\(estado\)\)/);
+  assert.match(tela2, /estado\.desligaEm && <li>/);
 });

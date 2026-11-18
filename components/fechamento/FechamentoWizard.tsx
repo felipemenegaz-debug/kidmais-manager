@@ -54,7 +54,7 @@ import {
 } from "@/lib/comercial/descontos";
 import { descontoSobreBase, textoPercentual, type OrigemDesconto } from "@/lib/comercial/descontos-dia";
 import {
-  CONFIG_VAZIA,
+  CONFIG_SEM_RESPOSTA,
   DisponibilidadeConfig,
   statusDataPacote,
   hojeIsoLocal,
@@ -306,7 +306,7 @@ export default function FechamentoWizard({ empresa = null }: { empresa?: string 
   // Resultado da última consulta, preso à chave (pacote, data, convidados, tentativa) que o gerou.
   const [consultaAdicionais,setConsultaAdicionais]=useState<{chave:string;estado:'ok'|'erro';codigo?:string}|null>(null);
   const [configDisponibilidade, setConfigDisponibilidade] =
-    useState<DisponibilidadeConfig>(CONFIG_VAZIA);
+    useState<DisponibilidadeConfig>(CONFIG_SEM_RESPOSTA);
   // Candidatos livres do horário escolhido na data e os horários configurados do dia (qualquer quantidade).
   const [candidatosHorario, setCandidatosHorario] =
     useState<HorarioCandidatoPublico[]>([]);

@@ -1,10 +1,9 @@
 import type { DbExecutor } from "../db/contracts.ts";
 import type { TenantComprovado } from "../saas/provar-tenant.ts";
 import { exigirGestaoNoTenant } from "../saas/provar-tenant.ts";
-import { empresaDonaDaConfigLegada } from "../disponibilidade/config-legada.ts";
 import { auditarMutacaoComercial } from "./auditoria-comercial.ts";
 import { PacoteAdminError } from "./pacotes-admin.ts";
-import { CODIGO_DESCONTO_DIA, rotuloDias, TETO_DESCONTO_DIA, tituloDescontoDia } from "./descontos-dia.ts";
+import { CODIGO_DESCONTO_DIA, CODIGOS_DA_TELA_DIA, diaSeguinte, rotuloDias, TETO_DESCONTO_DIA, tituloDescontoDia } from "./descontos-dia.ts";
 
 /**
  * D3 do plano de descontos (18/11/2026): a Gestão do buffet configura UMA regra de desconto por dia da semana
@@ -20,7 +19,10 @@ import { CODIGO_DESCONTO_DIA, rotuloDias, TETO_DESCONTO_DIA, tituloDescontoDia }
  *   - Percentual 0 = desligar a partir da data. Salvar igual ao que já vale não escreve nada.
  *   - Concorrência: trava consultiva por empresa + versão otimista (maior `atualizado_em` e quantidade das linhas).
  *   - Histórico pela `auditoria` (quem, quando, antes e depois), na mesma transação.
- *   - Kidmais continua pelo caminho atual (regras próprias da 006 e selo de segunda a quinta): a tela só mostra.
+ *   - Kidmais (desde 18/11/2026) usa a mesma tela: as linhas `DIA_UTIL_15` da 006 (sem horário) entram como regra da
+ *     tela; ao salvar outra regra, terminam no dia anterior ao novo início e as novas linhas saem com `CODIGO_DESCONTO_DIA`.
+ *     Se as linhas antigas não couberem no formulário (percentual diferente por pacote ou dia, prioridade diferente,
+ *     percentual com casas, combinação incompleta de dias × pacotes), a tela não edita: `REGRAS_FORA_DA_TELA`.
  */
 export const ENTIDADE_DESCONTO_DIA = "EMPRESA_DESCONTO_DIA";
 export const MOTIVO_TELA_DIA = "Configurações › Descontos e formas de pagamento › Desconto por dia da semana";
@@ -35,7 +37,7 @@ export type RegraDia = { dias: number[]; percentual: number; pacoteIds: string[]
 export type PacoteOpcao = { id: string; codigo: string; nome: string };
 export type ItemHistoricoDia = { em: string; por: string | null; texto: string };
 export type EstadoDescontoDia =
-  | { disponivel: false; motivo: "KIDMAIS" }
+  | { disponivel: false; motivo: "REGRAS_FORA_DA_TELA" }
   | {
       disponivel: true;
       hoje: string;
@@ -44,6 +46,8 @@ export type EstadoDescontoDia =
       vigente: RegraDia | null;
       /** A última regra que começa depois de hoje (a que fica valendo), se houver. Agendamentos intermediários ficam no histórico. */
       agendada: RegraDia | null;
+      /** Quando a última regra marcada tem fim e nada vem depois: o dia em que o desconto por dia fica desligado. */
+      desligaEm: string | null;
       /** Outras regras de dia da semana ativas nos pacotes (não criadas por esta tela). Continuam valendo. */
       outrasRegras: number;
       versao: string;
@@ -92,11 +96,38 @@ export function validarDescontoDia(raw: unknown): PedidoDescontoDia {
 }
 
 /** `vigente`: revisão atual do pacote (032). Revisões antigas guardam cópia das regras; são encerradas junto, mas não aparecem. */
-type LinhaRegra = { id: string; pacote_id: string; dia: number; percentual: string; titulo: string | null; inicio: string; fim: string | null; ativo: boolean; vigente: boolean };
+type LinhaRegra = { id: string; pacote_id: string; dia: number; percentual: string; titulo: string | null; inicio: string; fim: string | null; ativo: boolean; vigente: boolean; codigo: string; prioridade: number };
 
-async function ehKidmais(tx: DbExecutor, empresaId: string) {
-  const codigo = (await tx.query<{ codigo: string }>("SELECT codigo FROM public.empresas WHERE id = $1::uuid", [empresaId])).rows[0]?.codigo;
-  return codigo === "kidmais" || (await empresaDonaDaConfigLegada(tx)) === empresaId;
+/**
+ * As regras da tela (código da tela e a `DIA_UTIL_15` da Kidmais) cabem no formulário? Por grupo (mesmo início e fim),
+ * de QUALQUER código (Astra r2, P1: um grupo só da tela editado fora dela também pode ter percentuais diferentes): um só
+ * percentual inteiro de 1 ao teto, prioridade da tela e todas as combinações dias × pacotes presentes.
+ */
+export function regrasCabemNaTela(linhas: readonly Pick<LinhaRegra, "pacote_id" | "dia" | "percentual" | "inicio" | "fim" | "ativo" | "codigo" | "prioridade">[]): boolean {
+  const grupos = new Map<string, typeof linhas[number][]>();
+  for (const l of linhas) {
+    if (!l.ativo) continue;
+    const chave = `${l.inicio}|${l.fim ?? ""}`;
+    grupos.set(chave, [...(grupos.get(chave) ?? []), l]);
+  }
+  for (const g of grupos.values()) {
+    const percentuais = new Set(g.map((l) => Number(l.percentual)));
+    const pct = Number(g[0]!.percentual);
+    if (percentuais.size !== 1 || !Number.isInteger(pct) || pct < 1 || pct > TETO_DESCONTO_DIA) return false;
+    if (g.some((l) => Number(l.prioridade) !== PRIORIDADE)) return false;
+    const pares = new Set(g.map((l) => `${l.pacote_id}|${Number(l.dia)}`));
+    const dias = new Set(g.map((l) => Number(l.dia)));
+    const pacotes = new Set(g.map((l) => l.pacote_id));
+    if (pares.size !== g.length || pares.size !== dias.size * pacotes.size) return false;
+  }
+  // Linha do tempo (Astra r1, P1): os grupos, de qualquer código, não podem se sobrepor. Cada um termina antes do
+  // próximo começar; dois grupos com o mesmo início (fins diferentes) ou um sem fim seguido de outro não cabem.
+  const ordem = [...grupos.values()].map((g) => g[0]!).sort((a, b) => (a.inicio < b.inicio ? -1 : a.inicio > b.inicio ? 1 : 0));
+  for (let i = 1; i < ordem.length; i++) {
+    const antes = ordem[i - 1]!;
+    if (antes.fim === null || antes.fim >= ordem[i]!.inicio) return false;
+  }
+  return true;
 }
 
 async function hojeSaoPaulo(tx: DbExecutor) {
@@ -113,19 +144,20 @@ async function versaoAtual(tx: DbExecutor, empresaId: string) {
   return (await tx.query<{ v: string }>(
     `SELECT coalesce(max(r.atualizado_em)::text, '-') || '|' || count(*)::text AS v
        FROM public.regras_desconto_pacote r JOIN public.pacotes p ON p.id = r.pacote_id
-      WHERE p.empresa_id = $1::uuid AND r.codigo = $2`,
-    [empresaId, CODIGO_DESCONTO_DIA])).rows[0]!.v;
+      WHERE p.empresa_id = $1::uuid AND r.codigo = ANY($2::text[]) AND r.configuracao_agenda_id IS NULL`,
+    [empresaId, CODIGOS_DA_TELA_DIA])).rows[0]!.v;
 }
 
 /** Linhas desta tela (ativas ou não) dos pacotes da empresa. */
 async function linhasDaTela(tx: DbExecutor, empresaId: string, travar: boolean): Promise<LinhaRegra[]> {
   return (await tx.query<LinhaRegra>(
     `SELECT r.id::text AS id, r.pacote_id::text AS pacote_id, r.dia_semana AS dia, r.percentual::text AS percentual, r.titulo,
-            r.vigencia_inicio::text AS inicio, r.vigencia_fim::text AS fim, r.ativo, (p.ativo AND p.vigente) AS vigente
+            r.vigencia_inicio::text AS inicio, r.vigencia_fim::text AS fim, r.ativo, (p.ativo AND p.vigente) AS vigente,
+            r.codigo, r.prioridade
        FROM public.regras_desconto_pacote r JOIN public.pacotes p ON p.id = r.pacote_id
-      WHERE p.empresa_id = $1::uuid AND r.codigo = $2 AND r.configuracao_agenda_id IS NULL
+      WHERE p.empresa_id = $1::uuid AND r.codigo = ANY($2::text[]) AND r.configuracao_agenda_id IS NULL
       ORDER BY r.vigencia_inicio, r.pacote_id, r.dia_semana${travar ? " FOR UPDATE OF r" : ""}`,
-    [empresaId, CODIGO_DESCONTO_DIA])).rows;
+    [empresaId, CODIGOS_DA_TELA_DIA])).rows;
 }
 
 /** Agrupa as linhas ativas em regras (mesmo início e fim). */
@@ -169,28 +201,31 @@ async function outrasRegrasAtivas(tx: DbExecutor, empresaId: string, hoje: strin
     `SELECT count(*)::text AS n
        FROM public.regras_desconto_pacote r JOIN public.pacotes p ON p.id = r.pacote_id
       WHERE p.empresa_id = $1::uuid AND p.ativo AND p.vigente AND r.ativo
-        AND (r.codigo <> $2 OR r.configuracao_agenda_id IS NOT NULL)
+        AND (NOT (r.codigo = ANY($2::text[])) OR r.configuracao_agenda_id IS NOT NULL)
         AND (r.vigencia_fim IS NULL OR r.vigencia_fim >= $3::date)`,
-    [empresaId, CODIGO_DESCONTO_DIA, hoje])).rows[0]!.n);
+    [empresaId, CODIGOS_DA_TELA_DIA, hoje])).rows[0]!.n);
 }
 
 export async function lerDescontoDiaAdmin(tx: DbExecutor, tenant: TenantComprovado): Promise<EstadoDescontoDia> {
   exigirGestaoNoTenant(tenant, GESTAO);
   const empresaId = tenant.empresaComprovada;
-  if (await ehKidmais(tx, empresaId)) return { disponivel: false, motivo: "KIDMAIS" };
   // Leitura consistente com a gravação: a trava compartilhada espera um salvamento em andamento (que segura a trava
   // exclusiva até o commit), e a versão é lida ANTES das linhas. Se algo mudar entre as duas, a versão é a antiga e o
   // próximo salvamento recebe 409 — nunca dados antigos com versão nova.
   await tx.query(TRAVA_COMPARTILHADA, [empresaId]);
   const versao = await versaoAtual(tx, empresaId);
   const hoje = await hojeSaoPaulo(tx);
-  const regras = agruparRegras((await linhasDaTela(tx, empresaId, false)).filter((l) => l.vigente && (l.fim === null || l.fim >= hoje)));
+  const linhas = (await linhasDaTela(tx, empresaId, false)).filter((l) => l.vigente && (l.fim === null || l.fim >= hoje));
+  if (!regrasCabemNaTela(linhas)) return { disponivel: false, motivo: "REGRAS_FORA_DA_TELA" };
+  const regras = agruparRegras(linhas);
+  const ultima = regras[regras.length - 1];
   return {
     disponivel: true,
     hoje,
     pacotes: await pacotesAtivos(tx, empresaId),
     vigente: [...regras].reverse().find((r) => r.inicio <= hoje) ?? null,
     agendada: [...regras].reverse().find((r) => r.inicio > hoje) ?? null,
+    desligaEm: ultima?.fim ? diaSeguinte(ultima.fim) : null,
     outrasRegras: await outrasRegrasAtivas(tx, empresaId, hoje),
     versao,
     historico: await historico(tx, empresaId),
@@ -220,8 +255,6 @@ export async function salvarDescontoDiaAdmin(tx: DbExecutor, tenant: TenantCompr
   exigirGestaoNoTenant(tenant, GESTAO);
   const pedido = validarDescontoDia(raw);
   const empresaId = tenant.empresaComprovada;
-  if (await ehKidmais(tx, empresaId))
-    erro("DESCONTO_DIA_KIDMAIS", "A Kidmais continua com as regras de desconto atuais. Nada foi salvo.", 409);
   await tx.query(TRAVA_EXCLUSIVA, [empresaId]);
   const hoje = await hojeSaoPaulo(tx);
   if (pedido.inicio < hoje) erro("INICIO_NO_PASSADO", "A data de início não pode ser antes de hoje. Festas de datas passadas não mudam.", 400);
@@ -230,6 +263,8 @@ export async function salvarDescontoDiaAdmin(tx: DbExecutor, tenant: TenantCompr
   const linhas = await linhasDaTela(tx, empresaId, true);
   if ((await versaoAtual(tx, empresaId)) !== pedido.versao)
     erro("DESCONTO_DIA_VERSAO", "O desconto por dia foi alterado por outra pessoa. Atualize a página e confira antes de salvar.", 409);
+  if (!regrasCabemNaTela(linhas.filter((l) => l.vigente && (l.fim === null || l.fim >= hoje))))
+    erro("DESCONTO_DIA_FORA_DA_TELA", "As regras de desconto deste buffet não cabem nesta tela. Fale com o suporte. Nada foi salvo.", 409);
   const pacotes = await pacotesAtivos(tx, empresaId);
   const validos = new Set(pacotes.map((p) => p.id));
   if (pedido.pacoteIds.some((id) => !validos.has(id))) erro("PACOTE_INVALIDO", "Um dos pacotes escolhidos não existe mais. Atualize a página.", 400);
@@ -249,7 +284,10 @@ export async function salvarDescontoDiaAdmin(tx: DbExecutor, tenant: TenantCompr
   for (const l of linhas) {
     if (l.inicio !== pedido.inicio) continue;
     const chave = `${l.pacote_id}|${Number(l.dia)}`;
-    const pedida = pedidas.has(chave);
+    // Só linhas do código da tela são reaproveitadas (Astra r1, P2): a chave única inclui o código, então a linha nova
+    // nunca colide com uma DIA_UTIL_15 da mesma data; esta é desativada no passo 2 (recusado se já usada por festa).
+    const daTela = l.codigo === CODIGO_DESCONTO_DIA;
+    const pedida = daTela && pedidas.has(chave);
     if (!pedida && !l.ativo) continue;
     const usada = await regraUsada(tx, l.id);
     const mantida = pedida && Number(l.percentual) === pedido.percentual && l.titulo === titulo;

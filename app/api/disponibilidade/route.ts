@@ -14,6 +14,7 @@ import { limitarPublico } from "@/lib/http/limite-publico";
 import { convidadosDaConsulta } from "@/lib/fechamentos/convidados-consulta";
 import { combinadosPublicos } from "@/lib/agenda/combinados-publicos";
 import { descontosPublicosDaEmpresa } from "@/lib/comercial/descontos-dia-publico";
+import { descontosPorIdV1 } from "@/lib/comercial/descontos-dia";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -107,9 +108,12 @@ export async function GET(request: NextRequest) {
             ),
       // Ajustes do arquivo legado são da instalação (endereço atual); nunca aparecem no endereço de outra empresa.
       // D4: no endereço da empresa, os descontos por dia vêm das regras dela (as mesmas que a cotação aplica).
-      // Kidmais devolve null e segue pelo caminho atual; sem o campo, a tela também segue pelo caminho atual.
+      // Endereço atual (Kidmais, 18/11/2026): também as regras da empresa dona da agenda, com a chave no id V1 que a tela
+      // usa. Com o campo, a tela ignora o 15% fixo e os descontos de data do arquivo (que a cotação não cobra); sem
+      // empresa no escopo, sem o campo, e a tela segue pelo caminho antigo.
       codigo === null
-        ? lerComercialPublico()
+        ? Promise.all([lerComercialPublico(), escopo.empresaId ? descontosPublicosDaEmpresa(db(), escopo.empresaId) : Promise.resolve(null)])
+            .then(([legado, descontosEmpresa]) => ({ ...legado, ...(descontosEmpresa ? { descontosEmpresa: descontosPorIdV1(descontosEmpresa) } : {}) }))
         : (escopo.empresaId ? descontosPublicosDaEmpresa(db(), escopo.empresaId) : Promise.resolve(null)).then((descontosEmpresa) => ({
             pacoteOverrides: [], descontos: [], ...(descontosEmpresa ? { descontosEmpresa } : {}),
           })),
