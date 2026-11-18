@@ -214,7 +214,8 @@ export const PERIODOS_POR_DIA_MAX = 12;
 const DIAS_SEMANA = ["DOMINGO", "SEGUNDA", "TERCA", "QUARTA", "QUINTA", "SEXTA", "SABADO"] as const;
 const diaSemana = z.enum(DIAS_SEMANA);
 const situacaoContrato = z.enum(["CONTRATO_ASSINADO", "CONTRATO_PENDENTE"]);
-const motivo = z.enum(["OK", "OCUPADO", "CAPACIDADE"]);
+/** HORARIO_PASSADO: só hoje, quando todos os inícios do dia já passaram na hora de Brasília (homologação de 16/11). */
+const motivo = z.enum(["OK", "OCUPADO", "CAPACIDADE", "HORARIO_PASSADO"]);
 export type AlcanceDisponibilidade = "EMPRESA" | "UNIDADE_UNICA";
 
 export const saidaAgendaPeriodo = z.object({
@@ -283,7 +284,7 @@ export const saidaContratosPendentes = z.object({
   contratos: z.array(z.object({ diasDesdeCriacao: inteiro, diasAteFesta: z.number().int() }).strict()).max(LIMITE_CONTRATOS_PENDENTES),
   truncado: z.boolean(),
   limiteFonte: z.literal(LIMITE_CONTRATOS_PENDENTES),
-  observacao: z.string().max(400),
+  observacao: z.string().max(500),
 }).strict();
 
 type Saidas = {
@@ -299,6 +300,13 @@ type Saidas = {
 // ---------------------------------------------------------------- DTOs por lista positiva
 
 export const LIMITE_AGENDA = 50;
+
+/**
+ * Homologação de 16/11: a festa só nasce quando o contrato é assinado (`garantirFestaFormalizada`). Contrato que ainda
+ * aguarda a primeira assinatura não aparece na agenda; sem este aviso, o assistente lia "agenda vazia" e "2 pendentes"
+ * como contradição. Na agenda, CONTRATO_PENDENTE é festa já formalizada cujo contrato saiu de ASSINADO (ex.: revisão).
+ */
+export const SEM_PRIMEIRA_ASSINATURA = "Contrato que aguarda a primeira assinatura ainda não é festa e não entra aqui: use kidmais_consultar_contratos_pendentes.";
 
 /** Contexto sem mudar o contrato: fonte, período e a diferença entre "sem festas" e "sem permissão" (permissão negada volta como erro). */
 export function observacaoAgenda(data: string, truncado: boolean, total: number) {
@@ -453,8 +461,8 @@ export function dtoAgendaPeriodo(fonte: readonly FestaAgenda[], inicio: string, 
       ? `até ${coberturaAte}, dias ausentes não têm festas; depois de ${coberturaAte} os dias NÃO foram consultados. Não trate dia fora da cobertura como vazio: avise e consulte o restante em um período menor (se preciso, um dia por vez).`
       : `nenhum dia completo coube. Não trate o período como vazio: consulte um dia por vez; se um único dia ainda vier truncado, informe que o limite de ${LIMITE_AGENDA_PERIODO} festas por consulta impede a leitura completa desse dia.`} Não indica disponibilidade.`
     : totalFestas === 0
-      ? `${fonteTexto} Nenhuma festa registrada no período: é ausência de registros, não falta de permissão. Não indica disponibilidade de horários ou salões.`
-      : `${fonteTexto} Dias sem festas não aparecem na lista. Lista festas registradas; não indica disponibilidade de horários ou salões (use kidmais_consultar_datas_livres).`;
+      ? `${fonteTexto} Nenhuma festa registrada no período: é ausência de registros, não falta de permissão. ${SEM_PRIMEIRA_ASSINATURA} Não indica disponibilidade de horários ou salões.`
+      : `${fonteTexto} Dias sem festas não aparecem na lista. ${SEM_PRIMEIRA_ASSINATURA} Lista festas registradas; não indica disponibilidade (use kidmais_consultar_datas_livres).`;
   return {
     contrato: "kidmais.mcp.agenda.periodo.v1",
     inicio,
@@ -499,12 +507,15 @@ export function dtoDatasLivres(
     });
     // Livre olha TODOS os períodos do dia (não só os listados); o motivo com convidados é o agregado da própria fonte.
     const algumLivre = d.periodos.some((p) => p.horarios.some((h) => h.status === "DISPONIVEL" && (!h.capacidade || h.capacidade.motivo === "OK")));
-    const m = capacidadeConferida && d.motivoDia ? d.motivoDia.motivo : algumLivre ? "OK" as const : "OCUPADO" as const;
+    // Só quando o corte da hora atual tirou TODOS os inícios: dia que já vinha sem horários na fonte segue a conta normal.
+    const encerrado = d.data === agora.hoje && d.periodos.every((p) => p.horarios.length === 0)
+      && (fonteOriginal.find((o) => o.data === d.data)?.periodos.some((p) => p.horarios.length > 0) ?? false);
+    const m = encerrado ? "HORARIO_PASSADO" as const : capacidadeConferida && d.motivoDia ? d.motivoDia.motivo : algumLivre ? "OK" as const : "OCUPADO" as const;
     return { data: d.data, diaSemana: diaDaSemana(d.data), livre: m === "OK" && algumLivre, motivo: m, periodos, periodosTruncados: d.periodos.length > PERIODOS_POR_DIA_MAX };
   });
   const diasLivres = dias.filter((d) => d.livre).length;
   const alcanceTexto = alcance === "UNIDADE_UNICA" ? "da única unidade da empresa com agenda ativa" : "empresa inteira";
-  const hojeTexto = incluiHoje ? ` Hoje (${agora.hoje}) só contam inícios depois das ${agora.hora}.` : "";
+  const hojeTexto = incluiHoje ? ` Hoje (${agora.hoje}) só contam inícios depois das ${agora.hora}; sem nenhum, o motivo é HORARIO_PASSADO.` : "";
   const base = `Fonte: disponibilidade calculada pelo iA.Fest (reservas confirmadas e bloqueios), ${alcanceTexto}, de ${inicio} a ${fim} (fuso America/Sao_Paulo).${hojeTexto}`;
   const capacidade = convidados === null
     ? " Sem número de convidados: o motivo é só OK (há horário livre) ou OCUPADO."
@@ -582,7 +593,7 @@ export function dtoContratosPendentes(fonte: { total: number; contratos: readonl
   });
   const quantidade = Math.max(fonte.total, contratos.length);
   const truncado = quantidade > contratos.length;
-  const base = `Fonte: contratos aguardando assinatura no iA.Fest, empresa inteira, em ${hoje} (fuso America/Sao_Paulo). Contagem de dias em datas do calendário.`;
+  const base = `Fonte: contratos aguardando assinatura no iA.Fest, empresa inteira, em ${hoje} (fuso America/Sao_Paulo). Contagem de dias em datas do calendário. Antes da assinatura a festa não entra na agenda: estas datas não aparecem nas consultas de agenda.`;
   return {
     contrato: "kidmais.mcp.contratos.pendentes.v1",
     dataReferencia: hoje,

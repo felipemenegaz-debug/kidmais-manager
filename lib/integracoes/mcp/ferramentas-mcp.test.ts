@@ -506,7 +506,7 @@ test("r1 P2-1 datas livres: hoje só contam inícios depois da hora de Brasília
   assert.match(meio.observacao, /Hoje \(2026-10-27\) só contam inícios depois das 13:15/);
   // 21:00Z = 18:00 em Brasília: a vaga das 13:30 já passou e o dia deixa de ser livre.
   const noite = await executarFerramentaMcp("kidmais_consultar_datas_livres", { inicio: HOJE, fim: HOJE }, principalA, deps(mundo(), ENV_OK, [], { agora: () => new Date("2026-10-27T21:00:00Z") }));
-  assert.deepEqual({ livre: noite.dias[0].livre, motivo: noite.dias[0].motivo, livres: noite.dias[0].periodos[0].horariosLivres, primeiro: noite.dias[0].periodos[0].primeiroInicioLivre }, { livre: false, motivo: "OCUPADO", livres: 0, primeiro: null });
+  assert.deepEqual({ livre: noite.dias[0].livre, motivo: noite.dias[0].motivo, livres: noite.dias[0].periodos[0].horariosLivres, primeiro: noite.dias[0].periodos[0].primeiroInicioLivre }, { livre: false, motivo: "HORARIO_PASSADO", livres: 0, primeiro: null });
   assert.equal(noite.diasLivres, 0);
   // Exatamente no minuto do início: já não conta.
   const exato = await executarFerramentaMcp("kidmais_consultar_datas_livres", { inicio: HOJE, fim: HOJE }, principalA, deps(mundo(), ENV_OK, [], { agora: () => new Date("2026-10-27T16:30:00Z") }));
@@ -561,4 +561,33 @@ test("r1 P3 contratos pendentes: a fonte recebe a data de referência para orden
   const r = await executarFerramentaMcp("kidmais_consultar_contratos_pendentes", {}, principalA, deps(m, ENV_OK, [], { agora: () => new Date("2026-10-28T02:30:00Z") }));
   assert.deepEqual(m.leituras, [`contratosPendentes:${A}:100:2026-10-27`], "hoje de Brasília, não o dia UTC");
   assert.equal(r.dataReferencia, "2026-10-27");
+});
+
+// ---------------------------------------------------------------- homologação em staging (16/11)
+
+test("homologação: agenda e pendências explicam que contrato à espera da primeira assinatura ainda não é festa", async () => {
+  const agenda = await executarFerramentaMcp("kidmais_consultar_agenda_periodo", { inicio: HOJE, fim: "2026-11-30" }, principalA, deps(mundo()));
+  assert.match(agenda.observacao, /aguarda a primeira assinatura ainda não é festa[^.]*kidmais_consultar_contratos_pendentes/);
+  assert.match(agenda.observacao, /não indica disponibilidade/);
+  const vazia = await executarFerramentaMcp("kidmais_consultar_agenda_periodo", { inicio: HOJE, fim: "2026-11-30" }, principalA, deps(mundo(), ENV_OK, [], { async agendaPeriodo() { return []; } }));
+  assert.match(vazia.observacao, /ausência de registros[^]*kidmais_consultar_contratos_pendentes/);
+  const pend = await executarFerramentaMcp("kidmais_consultar_contratos_pendentes", {}, principalA, deps(mundo()));
+  assert.match(pend.observacao, /Antes da assinatura a festa não entra na agenda/);
+  // O texto mais longo (lista truncada) continua dentro do contrato de saída.
+  const muitos = await executarFerramentaMcp("kidmais_consultar_contratos_pendentes", {}, principalA, deps(mundo(), ENV_OK, [], {
+    async contratosPendentes() { return { total: 250, contratos: Array.from({ length: 100 }, () => PENDENTES[A].contratos[0]) }; },
+  }));
+  assert.match(muitos.observacao, /não entra na agenda[^]*a quantidade é o total da empresa/);
+  assert.ok(muitos.observacao.length <= 500);
+});
+
+test("homologação: HORARIO_PASSADO só hoje e só quando nenhum início do dia sobrou; os outros dias não mudam", async () => {
+  // 21:00Z = 18:00 em Brasília: hoje acabou; amanhã segue com o motivo da fonte.
+  const noite = await executarFerramentaMcp("kidmais_consultar_datas_livres", { inicio: HOJE, fim: "2026-10-28" }, principalA, deps(mundo(), ENV_OK, [], { agora: () => new Date("2026-10-27T21:00:00Z") }));
+  assert.equal(noite.dias[0].motivo, "HORARIO_PASSADO");
+  assert.notEqual(noite.dias[1].motivo, "HORARIO_PASSADO");
+  assert.match(noite.observacao, /sem nenhum, o motivo é HORARIO_PASSADO/);
+  // 13:15: ainda há início depois da hora atual ⇒ o motivo continua o da conta normal.
+  const meio = await executarFerramentaMcp("kidmais_consultar_datas_livres", { inicio: HOJE, fim: HOJE }, principalA, deps(mundo(), ENV_OK, [], { agora: () => new Date("2026-10-27T16:15:00Z") }));
+  assert.equal(meio.dias[0].motivo, "OK");
 });

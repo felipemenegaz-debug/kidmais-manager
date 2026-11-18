@@ -931,6 +931,10 @@ test("experiência: descrições dizem quando usar e o que não fazem; leitura p
     }
     assert.match(tools.find((x) => x.name === "kidmais_consultar_agenda")?.description ?? "", /não indica disponibilidade/);
     assert.match(tools.find((x) => x.name === "kidmais_consultar_recebiveis_resumo")?.description ?? "", /ESCOPO_INSUFICIENTE/);
+    // Homologação 16/11: a agenda remete às pendências, e as pendências avisam que ainda não estão na agenda.
+    for (const nome of ["kidmais_consultar_agenda", "kidmais_consultar_agenda_periodo"]) assert.match(tools.find((x) => x.name === nome)?.description ?? "", /primeira assinatura[^.]*kidmais_consultar_contratos_pendentes/, nome);
+    assert.match(tools.find((x) => x.name === "kidmais_consultar_contratos_pendentes")?.description ?? "", /não entra na agenda/);
+    assert.match(tools.find((x) => x.name === "kidmais_consultar_datas_livres")?.description ?? "", /HORARIO_PASSADO/);
     await c.close();
   } finally {
     await descer(a);
