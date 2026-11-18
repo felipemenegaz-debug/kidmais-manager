@@ -205,7 +205,7 @@ export default function ConviteEditor({ festaId, conviteId }: { festaId?: string
   const imagensSelecionadas = completoAtivo ? !!foto : referencias.length > 0;
   const fotoLiberada = autorizacaoFoto;
   const faltaAutorizacao = !!autorizacaoIA && (!autorizacaoIA.vigente || autorizacaoIA.precisaRenovar || !!autorizacaoIA.indisponivel);
-  const avisoGeracao = dados ? avisoSemGeracao({ disponiveis: dados.disponiveis, creditos: dados.creditos, laboratorio: !!dados.laboratorioLocal, avulso: dados.festaId === null, geracaoEmCurso: geracaoDoConviteEmCurso({ busy, acompanhando, geracaoIncerta: dados.geracaoIncerta, geracaoEmAndamento: dados.geracaoEmAndamento }) }) : null;
+  const avisoGeracao = dados && dados.iaDisponivel ? avisoSemGeracao({ disponiveis: dados.disponiveis, creditos: dados.creditos, laboratorio: !!dados.laboratorioLocal, avulso: dados.festaId === null, cliente: !admin, cotas: dados.cotas, geracaoEmCurso: geracaoDoConviteEmCurso({ busy, acompanhando, geracaoIncerta: dados.geracaoIncerta, geracaoEmAndamento: dados.geracaoEmAndamento }) }) : null;
   const imagensSemAutorizacao = !dados?.laboratorioLocal && imagensSelecionadas && !autorizacaoFoto;
   const geracaoBloqueada = !dados || busy || !!acompanhando || !dados.iaDisponivel || !!dados.geracaoIncerta
     || faltaAutorizacao || imagensSemAutorizacao
