@@ -13,6 +13,7 @@ import { db } from "@/lib/db/postgres";
 import { limitarPublico } from "@/lib/http/limite-publico";
 import { convidadosDaConsulta } from "@/lib/fechamentos/convidados-consulta";
 import { combinadosPublicos } from "@/lib/agenda/combinados-publicos";
+import { descontosPublicosDaEmpresa } from "@/lib/comercial/descontos-dia-publico";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -105,7 +106,13 @@ export async function GET(request: NextRequest) {
               ),
             ),
       // Ajustes do arquivo legado são da instalação (endereço atual); nunca aparecem no endereço de outra empresa.
-      codigo === null ? lerComercialPublico() : Promise.resolve({ pacoteOverrides: [], descontos: [] }),
+      // D4: no endereço da empresa, os descontos por dia vêm das regras dela (as mesmas que a cotação aplica).
+      // Kidmais devolve null e segue pelo caminho atual; sem o campo, a tela também segue pelo caminho atual.
+      codigo === null
+        ? lerComercialPublico()
+        : (escopo.empresaId ? descontosPublicosDaEmpresa(db(), escopo.empresaId) : Promise.resolve(null)).then((descontosEmpresa) => ({
+            pacoteOverrides: [], descontos: [], ...(descontosEmpresa ? { descontosEmpresa } : {}),
+          })),
     ]);
 
     return NextResponse.json(

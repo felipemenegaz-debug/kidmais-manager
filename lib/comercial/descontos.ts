@@ -3,6 +3,7 @@ import {
   DescontoData,
   DisponibilidadeConfig,
 } from "@/lib/agenda/disponibilidade";
+import { aindaPodeValer, avisoEconomize, regraDoDia } from "@/lib/comercial/descontos-dia";
 
 export const DESCONTO_DIA_UTIL = 0.15;
 
@@ -42,14 +43,30 @@ export function descontoPersonalizadoDaData(
   );
 }
 
-/** `automatico = false`: empresa sem a regra de -15% de segunda a quinta (só descontos manuais da data). */
+/**
+ * `automatico = false`: empresa sem a regra de -15% de segunda a quinta (só descontos manuais da data).
+ * D4: com `config.descontosEmpresa` (endereço /b/<código> de buffet que não é a Kidmais), o desconto vem das regras da
+ * empresa, escolhidas como no servidor (horário específico antes do genérico; `configuracaoId` do horário).
+ */
 export function descontoEfetivo(
   config: DisponibilidadeConfig,
   pacote: PacoteId | "",
   dataIso: string,
   horario: "almoco" | "noite" | "",
   automatico = true,
+  configuracaoId?: string | null,
 ) {
+  if (config.descontosEmpresa) {
+    const regra = pacote && dataIso ? regraDoDia(config.descontosEmpresa[pacote] ?? [], dataIso, configuracaoId) : null;
+    const pontos = regra ? Math.max(0, Math.min(100, regra.percentual)) : 0;
+    return {
+      ativo: pontos > 0,
+      percentual: pontos / 100,
+      origem: pontos > 0 ? ("empresa" as const) : ("nenhum" as const),
+      titulo: pontos > 0 ? regra!.titulo || `${pontos}% de desconto nesta data` : "",
+    };
+  }
+
   const personalizado = descontoPersonalizadoDaData(
     config,
     pacote,
@@ -87,6 +104,28 @@ export function descontoEfetivo(
       ? "15% de desconto de segunda a quinta"
       : "",
   };
+}
+
+/**
+ * Aviso "Economize" do pacote. Com regras da empresa: frase delas (ou null, sem desconto). Sem regras da empresa: o
+ * aviso de sempre (15% de segunda a quinta) quando a regra automática vale para o pacote.
+ */
+export function avisoDescontoDoPacote(
+  config: DisponibilidadeConfig,
+  pacote: PacoteId | "",
+  automatico: boolean,
+  hojeIso: string,
+): { titulo: string; selo: string } | null {
+  if (config.descontosEmpresa) {
+    const regras = pacote ? config.descontosEmpresa[pacote] ?? [] : [];
+    const titulo = avisoEconomize(regras, hojeIso);
+    if (!titulo) return null;
+    const pcts = [...new Set(regras.filter((r) => r.percentual > 0 && aindaPodeValer(r, hojeIso)).map((r) => r.percentual))];
+    return { titulo, selo: pcts.length === 1 ? `-${pcts[0]}%` : "o percentual do dia" };
+  }
+  return automatico && pacoteTemDescontoDiaUtil(pacote)
+    ? { titulo: "Economize 15% escolhendo de segunda a quinta.", selo: "-15%" }
+    : null;
 }
 
 export function aplicarDesconto(

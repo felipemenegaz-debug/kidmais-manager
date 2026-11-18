@@ -16,6 +16,7 @@ import {
   type RegraDescontoPacoteRecord,
 } from "../repositories/index.ts";
 import { PricingServiceError } from "./errors.ts";
+import { descontoSobreBase } from "../descontos-dia.ts";
 import type {
   AdicionalPrecificado,
   AdicionalSelecionadoInput,
@@ -416,12 +417,8 @@ export async function precificarPacote(
 
   const regraDesconto = selecionarDesconto(regrasDesconto);
   const percentual = regraDesconto?.percentual ?? 0;
-  const valorDesconto = arredondarDinheiro(
-    valorTabelaBase * (percentual / 100),
-  );
-  const valorTabelaAplicado = arredondarDinheiro(
-    valorTabelaBase - valorDesconto,
-  );
+  // Em centavos inteiros, a mesma rotina da revisão de festa fechada (manterDescontoDoDia).
+  const { valor: valorDesconto, aplicado: valorTabelaAplicado } = descontoSobreBase(valorTabelaBase, percentual);
 
   return {
     pacote,

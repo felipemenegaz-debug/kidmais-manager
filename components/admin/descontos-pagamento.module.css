@@ -51,3 +51,17 @@
   .lista li { flex-direction: column; gap: 2px; }
   .lista li span:last-child { text-align: left; white-space: normal; }
 }
+/* D3 (18/11/2026): desconto por dia da semana. */
+.grupo { border: 0; padding: 0; margin: 12px 0; min-width: 0; display: grid; gap: 8px; }
+.grupo legend { font-size: 13px; color: var(--secondary-text); margin-bottom: 6px; padding: 0; }
+.chips { display: flex; flex-wrap: wrap; gap: 8px; }
+.chip { position: relative; display: inline-flex; }
+.chip input { position: absolute; opacity: 0; inset: 0; margin: 0; cursor: pointer; }
+.chip span {
+  min-height: 40px; display: inline-flex; align-items: center; padding: 6px 14px; border-radius: 999px; font-size: 13px;
+  border: 1px solid var(--km-border); background: rgba(255,255,255,.03); color: var(--secondary-text);
+}
+.chip input:checked + span { border-color: color-mix(in srgb, var(--km-violet) 70%, transparent); background: color-mix(in srgb, var(--km-violet) 22%, transparent); color: var(--main-text); }
+.chip input:focus-visible + span { outline: 2px solid color-mix(in srgb, var(--km-violet) 60%, transparent); outline-offset: 2px; }
+.grupo:disabled .chip span { opacity: .6; }
+.subtitulo { margin: 20px 0 8px; font-size: 15px; }

@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import ts from 'typescript';
+import { manterDescontoDoDia } from '../revisao-preco.ts';
 
 /**
  * Correção de contrato com horário fora do padrão (08/11/2026): só com `horarioPersonalizado`, período configurado na data,
@@ -25,6 +26,7 @@ function edicao(periodos: unknown[], intervaloLivre: boolean) {
   const m = carregar('lib/fechamentos/services/edicao-administrativa.service.ts', {
     './errors': { FechamentoServiceError: Recusa },
     './edicao-administrativa-schema': { edicaoFestaSchema: { parse: (x: unknown) => x } },
+    '../revisao-preco': { manterDescontoDoDia },
     '../repositories': { empresaDoFechamentoComTrava: async () => 'empresa' },
     '../../comercial/services': { calcularResumoComercial: async () => ({ pacote: { pacote: { id: 'p', convidadosMinimos: 1 } }, adicionais: { itens: [] } }) },
     '../../comercial/composicao': { listarCodigosInclusos: async () => [] },
