@@ -33,6 +33,7 @@ const token = 'p'.repeat(43);
         if (url.origin !== new URL(base).origin && !['data:', 'blob:'].includes(url.protocol)) return route.abort();
         if (!url.pathname.startsWith('/api/')) return route.continue();
         let data;
+        if (url.pathname === '/api/endereco-atual') return route.fulfill({ json: { modoEfetivo: 'DESLIGADO' } });
         if (url.pathname === '/api/admin/autenticacao') data = { usuarioId: id(3), sessaoId: id(4), csrf: 'csrf-teste', nome: 'Teste', contexto, comercial: null };
         else if (url.pathname === '/api/admin/configuracoes/perfil-empresa/logo') data = { logoDataUrl: null };
         // AdminShell de staging (assistente da agenda): buffet já configurado, nenhuma unidade pendente.
@@ -69,6 +70,7 @@ const token = 'p'.repeat(43);
       assert.equal(await grupo.count(), 0, 'sem imagem não há seletor');
 
       // 1. Enviar a arte própria: dica do Convite pronto; composição começa em "fundo" (comportamento atual).
+      await page.getByRole('button', { name: 'Usar imagem minha' }).click();
       const envio = page.getByLabel('Usar uma arte própria');
       assert(await envio.count() >= 1, 'campo de envio da arte própria');
       await envio.first().setInputFiles(upload);
@@ -110,7 +112,7 @@ const token = 'p'.repeat(43);
       assert.equal(dados.conteudo.visual.modo, 'completa'); assert.equal(dados.conteudo.visual.posicao, undefined); assert.equal(dados.conteudo.arteId, id(200));
       await page.reload(); await grupo.waitFor();
       assert.deepEqual(await marcado(), ['Convite pronto']);
-      await page.getByText('Imagens anteriores', { exact: true }).click();
+      await page.getByText('Imagens da festa', { exact: true }).click();
       await page.getByRole('button', { name: 'Selecionar imagem 1', exact: true }).click();
       assert.deepEqual(await marcado(), ['Convite pronto']);
       assert.equal(await page.getByText('Alterações não salvas').count(), 0, 'reclicar não altera o rascunho');
@@ -140,7 +142,7 @@ const token = 'p'.repeat(43);
       // 7. Despublicado não interessa aqui; excluir a imagem selecionada e recarregar SEM salvar: volta à composição.
       publicado = null; dados.publicado = false;
       await page.reload(); await grupo.waitFor();
-      await page.getByText('Imagens anteriores', { exact: true }).click();
+      await page.getByText('Imagens da festa', { exact: true }).click();
       await page.getByRole('button', { name: 'Excluir imagem 1', exact: true }).click();
       await page.getByRole('button', { name: 'Confirmar exclusão', exact: true }).click();
       await page.getByRole('status').filter({ hasText: 'Imagem excluída' }).waitFor();
@@ -153,7 +155,8 @@ const token = 'p'.repeat(43);
       // na mesma linha da arte e da página pública (localDoConvite).
       dados.conteudo = { ...dados.conteudo, local: '', blocoLocal: { origem: 'SALAO', nome: 'Salão Jardim', endereco: 'Quadra 1 · Brasília' } };
       await page.reload(); await page.getByLabel('Complemento do local (opcional)', { exact: true }).waitFor();
-      await page.getByLabel('Usar uma arte própria').first().setInputFiles(upload);
+      await page.getByRole('button', { name: 'Usar imagem minha' }).click();
+      await page.getByLabel('Usar uma arte própria').setInputFiles(upload);
       await grupo.waitFor(); await botao('Convite pronto').click();
       assert.deepEqual(await marcado(), ['Convite pronto']);
       assert.equal((await aviso.textContent()).trim(), 'Confira se a sua imagem tem os mesmos dados da festa: 3 de março às 17:00, Salão Jardim.');

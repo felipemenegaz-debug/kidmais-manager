@@ -23,7 +23,9 @@ const out = path.resolve('.local-convites-qa'); fs.mkdirSync(out, { recursive: t
         const ctx = await browser.newContext({ viewport: { width: 1365, height: 1000 }, permissions: ['clipboard-read', 'clipboard-write'] });
         await ctx.route('**/api/**', async route => {
           const r = route.request(), u = new URL(r.url()); requisicoes.push(u.href); let data, status = 200;
-          if (u.pathname === '/api/admin/autenticacao') data = { usuarioId: id(3), sessaoId: id(4), csrf: 'csrf-sintetico', nome: 'Equipe de teste', contexto, comercial: null };
+          if (u.pathname === '/api/endereco-atual') return route.fulfill({ json: { modoEfetivo: 'DESLIGADO' } });
+          if (u.pathname === '/api/admin/configuracoes/agenda') data = { instalada: true, pendentes: [] };
+          else if (u.pathname === '/api/admin/autenticacao') data = { usuarioId: id(3), sessaoId: id(4), csrf: 'csrf-sintetico', nome: 'Equipe de teste', contexto, comercial: null };
           else if (u.pathname === '/api/admin/configuracoes/perfil-empresa/logo') data = { logoDataUrl: null };
           else if (['/api/admin/convites', '/api/convites/cliente'].includes(u.pathname)) {
             if (r.method() === 'POST') {
