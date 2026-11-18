@@ -1,4 +1,4 @@
-// Gera lib/cadastro/documentos-legais-historico.ts: catálogo das versões PUBLICADAS (commits ancestrais da base staging)
+// Gera lib/cadastro/documentos-legais-historico.ts (e as partes -dpa, -privacidade e -termos): catálogo das versões PUBLICADAS (commits ancestrais da base staging)
 // dos documentos legais, com o texto canônico e o hash de cada versão calculados pelo módulo da própria época
 // (revisão 00cecac, P2-B2). Só lê o Git e escreve o arquivo; não conecta a nada.
 //   node --experimental-strip-types scripts/gerar-documentos-legais-historico.mjs [base]
@@ -37,5 +37,14 @@ const cab = `/**
  */
 export type VersaoPublicada = { documento: 'TERMOS_USO' | 'PRIVACIDADE' | 'DPA'; versao: string; hash: string; commit: string; conteudo: string };
 `;
-writeFileSync('lib/cadastro/documentos-legais-historico.ts', cab + 'export const VERSOES_PUBLICADAS: readonly VersaoPublicada[] = ' + JSON.stringify(lista, null, 1) + ';\n');
+// Um arquivo por documento (18/11/2026): o arquivo único passou de 32 KB comprimido e não cabia numa parte do B-14.
+const PARTES = [['DPA', 'dpa', 'VERSOES_DPA'], ['PRIVACIDADE', 'privacidade', 'VERSOES_PRIVACIDADE'], ['TERMOS_USO', 'termos', 'VERSOES_TERMOS_USO']];
+for (const [doc, suf, nome] of PARTES) {
+  writeFileSync(`lib/cadastro/documentos-legais-historico-${suf}.ts`,
+    `// Versões PUBLICADAS de ${doc} (parte de documentos-legais-historico.ts, separada por documento para caber nos blocos do B-14).\n` +
+    "import type { VersaoPublicada } from './documentos-legais-historico.ts';\n" +
+    `export const ${nome}: readonly VersaoPublicada[] = ` + JSON.stringify(lista.filter((v) => v.documento === doc), null, 1) + ';\n');
+}
+writeFileSync('lib/cadastro/documentos-legais-historico.ts', cab.replace(/^export type/m, PARTES.map(([, suf, nome]) => `import { ${nome} } from './documentos-legais-historico-${suf}.ts';`).join('\n') + '\n\nexport type')
+  + 'export const VERSOES_PUBLICADAS: readonly VersaoPublicada[] = [...VERSOES_DPA, ...VERSOES_PRIVACIDADE, ...VERSOES_TERMOS_USO];\n');
 console.error(`commits ${commits.length}; versões ${lista.length}`);
