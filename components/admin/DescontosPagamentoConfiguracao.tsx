@@ -1,10 +1,12 @@
 'use client';
-import { useState } from 'react';
+import { useCallback, useState, type ReactNode } from 'react';
 import { calcularTotalPagamento, numeroParaMoeda } from '@/components/fechamento/calculos';
 import { EstadoCarga, enviarMarketing, useMarketing } from '@/components/admin/marketing/comum';
 import { REGRAS_NEUTRAS, type RegrasPagamento } from '@/lib/comercial/regras-pagamento';
 import { rotuloDescontoPix } from '@/lib/fechamentos/marca-publica';
 import type { CamposDescontos, EstadoDescontos } from '@/lib/comercial/regras-pagamento-admin';
+import DescontoDiaSemana from './DescontoDiaSemana';
+import { rotuloDias } from '@/lib/comercial/descontos-dia';
 import styles from './descontos-pagamento.module.css';
 
 const URL_API = '/api/admin/configuracoes/descontos';
@@ -40,23 +42,29 @@ export default function DescontosPagamentoConfiguracao() {
   const { dados, falha, carregando, recarregar, setDados } = useMarketing<EstadoDescontos>(URL_API);
   // Fora do formulário: salvar muda a versão e recria o formulário, e o aviso de resultado precisa continuar na tela.
   const [aviso, setAviso] = useState<Aviso | null>(null);
+  // D3: percentual do dia que a soma de exemplo usa (rascunho válido ou o que vale hoje).
+  const [dia, setDia] = useState<PreviaDia>({ pct: 0, dias: [] });
+  const aoMudarPrevia = useCallback((pct: number, dias: number[]) => setDia({ pct, dias }), []);
   return <main className={styles.pagina} data-admin-workspace>
     <header className={styles.topo}>
       <h1>Descontos e formas de pagamento</h1>
-      <p>O que o cliente vê ao escolher como pagar: o desconto do Pix e o nome do cartão. Vale para fechamentos novos.</p>
+      <p>O que o cliente vê ao escolher como pagar e ao escolher a data: o desconto do Pix, o nome do cartão e o desconto por dia da semana.</p>
     </header>
     <EstadoCarga carregando={carregando && !dados} falha={falha} aoTentar={recarregar} />
     {dados && !dados.instalada && <section className={styles.cartao} role="status">
       <h2>Ainda não disponível neste ambiente</h2>
       <p className={styles.muted}>Os descontos por forma de pagamento dependem de uma atualização do sistema que ainda não foi instalada aqui. Nada pode ser salvo por enquanto.</p>
     </section>}
-    {dados && dados.instalada && <Formulario key={dados.versao ?? 'sem-linha'} estado={dados} aoSalvar={setDados} aviso={aviso} setAviso={setAviso} />}
+    {dados && !dados.instalada && <DescontoDiaSemana numero={1} aoMudarPrevia={aoMudarPrevia} />}
+    {dados && dados.instalada && <Formulario key={dados.versao ?? 'sem-linha'} estado={dados} aoSalvar={setDados} aviso={aviso} setAviso={setAviso} dia={dia}
+      secaoDia={<DescontoDiaSemana numero={3} aoMudarPrevia={aoMudarPrevia} />} />}
   </main>;
 }
 
 type Aviso = { tipo: 'ok' | 'erro'; texto: string };
+type PreviaDia = { pct: number; dias: number[] };
 
-function Formulario({ estado, aoSalvar, aviso, setAviso }: { estado: Extract<EstadoDescontos, { instalada: true }>; aoSalvar: (e: EstadoDescontos) => void; aviso: Aviso | null; setAviso: (a: Aviso | null) => void }) {
+function Formulario({ estado, aoSalvar, aviso, setAviso, dia, secaoDia }: { estado: Extract<EstadoDescontos, { instalada: true }>; aoSalvar: (e: EstadoDescontos) => void; aviso: Aviso | null; setAviso: (a: Aviso | null) => void; dia: PreviaDia; secaoDia: ReactNode }) {
   const [rascunho, setRascunho] = useState<Rascunho>(() => rascunhoDe(estado.formulario));
   const [enviando, setEnviando] = useState(false);
   const { campos, erros } = conferir(rascunho);
@@ -117,10 +125,10 @@ function Formulario({ estado, aoSalvar, aviso, setAviso }: { estado: Extract<Est
         </ul>
       </section>
     </div>
-    <SomaDescontos regras={previa} />
-    {/* Futura seção "Desconto por dia" (D3): entra aqui, entre a soma e o histórico, nesta mesma página. Não implementada na D1. */}
+    {secaoDia}
+    <SomaDescontos regras={previa} dia={dia} />
     <section className={styles.cartao} aria-labelledby="desc-t4">
-      <h2 id="desc-t4">4. Histórico</h2>
+      <h2 id="desc-t4">5. Histórico das formas de pagamento</h2>
       {estado.historico.length === 0 ? <p className={styles.muted}>Nenhuma alteração feita por esta tela ainda.</p>
         : <ul className={styles.lista}>{estado.historico.map((h, i) => <li key={`${h.em}-${i}`}>
             <span>{dataHora(h.em)} · {h.por ?? 'Sistema'}</span>
@@ -134,17 +142,18 @@ function Forma({ titulo, sub, total }: { titulo: string; sub: string; total: num
   return <li className={styles.forma}><strong>{titulo}</strong><span>{sub}</span><b>{numeroParaMoeda(total)}</b></li>;
 }
 
-/** Ordem fixa: desconto do dia sobre o pacote, depois o da forma de pagamento sobre o total. O dia ainda não existe (D3). */
-function SomaDescontos({ regras }: { regras: RegrasPagamento }) {
-  const descontoDia = 0;
+/** Ordem fixa: desconto do dia sobre o pacote, depois o da forma de pagamento sobre o total (mesma conta do servidor). */
+function SomaDescontos({ regras, dia }: { regras: RegrasPagamento; dia: PreviaDia }) {
+  // Servidor: valorDesconto = arredondarDinheiro(base * pct / 100) (pricing.service.ts).
+  const descontoDia = Math.round(EXEMPLO * dia.pct) / 100;
   const posDia = EXEMPLO - descontoDia;
   const pix = calcularTotalPagamento(posDia, 'pix_avista', regras);
   return <section className={styles.cartao} aria-labelledby="desc-t3">
-    <h2 id="desc-t3">3. Como os descontos se somam</h2>
+    <h2 id="desc-t3">4. Como os descontos se somam</h2>
     <p className={styles.muted}>Primeiro entra o desconto do dia da semana sobre o pacote. Depois, o desconto da forma de pagamento sobre o total. O cliente vê cada linha separada. Exemplo com Pix à vista:</p>
     <ul className={styles.lista}>
       <li><span>Pacote</span><span>{numeroParaMoeda(EXEMPLO)}</span></li>
-      <li><span>Desconto do dia da semana <small>(ainda não configurável)</small></span><span>{numeroParaMoeda(0)}</span></li>
+      <li><span>Desconto do dia da semana {dia.pct > 0 ? `(${dia.pct}% sobre o pacote, ${rotuloDias(dia.dias)})` : <small>(nenhum)</small>}</span><span>{dia.pct > 0 ? `− ${numeroParaMoeda(descontoDia)}` : numeroParaMoeda(0)}</span></li>
       <li><span>Total da festa</span><span>{numeroParaMoeda(posDia)}</span></li>
       <li><span>Desconto do Pix à vista ({regras.pixAvistaPercentual}% sobre o total)</span><span>− {numeroParaMoeda(pix.valorDesconto)}</span></li>
       <li className={styles.total}><span>Cliente paga</span><span>{numeroParaMoeda(pix.total)}</span></li>

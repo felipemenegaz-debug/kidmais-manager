@@ -121,7 +121,8 @@ test('alteração comercial continua validando preço, elegibilidade e convidado
   assert.ok(iPreco > 0 && iPreco < editar.indexOf('await revalidarAgendaRevisao(tx, salvo, c, { mudouDestino })'), 'preço/elegibilidade/capacidade do pacote antes da agenda');
   assert.ok(editar.includes("recusar('Quantidade abaixo do mínimo do pacote.')"));
   assert.equal(fonte.split('horarioHistoricoPreservado(f, op, horarioOferecido)').length, 2, 'um único ponto de uso, na revalidação da agenda');
-  assert.ok(editar.includes('const resumo = preservarHistorico ? null : await calcularResumoComercial'));
+  // D3 (18/11/2026): a alteração comercial recalcula pelo catálogo e mantém o desconto do dia gravado da mesma festa.
+  assert.ok(editar.includes('const resumo = preservarHistorico ? null : manterDescontoDoDia(await calcularResumoComercial'));
 });
 
 // Parecer do Astra (23/10, P2): reserva NATIVA mantida no horário configurado que a agenda deixou de oferecer (modo livre).

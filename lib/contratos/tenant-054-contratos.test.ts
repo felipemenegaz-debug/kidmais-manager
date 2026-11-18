@@ -284,7 +284,7 @@ for (const [caso, payload] of payloads.slice(0, 3)) {
 function rotaEdicao(estado: { tenant: string; empresaFechamento: string | null; versaoExiste?: boolean }) {
     const k = contratos({ tenant: estado.tenant, empresaFechamento: estado.empresaFechamento, versaoExiste: estado.versaoExiste });
     const lidos: string[] = [];
-    const fonte = { fechamento: { id: 'f1', dataEvento: '2027-01-10', convidados: 30, configuracaoAgendaId: uuid(2), pacoteId: uuid(1) }, adicionais: [] };
+    const fonte = { fechamento: { id: 'f1', dataEvento: '2027-01-10', convidados: 30, configuracaoAgendaId: uuid(2), pacoteId: uuid(1), horarioInicio: '11:00:00', horarioFim: '15:00:00' }, adicionais: [] };
     const rota = carregar('app/api/admin/contratos/versoes/[versaoId]/edicao/route.ts', {
         'lib/http/admin-crm-api.ts': { exigirApiAdminCrmDisponivel: async () => ({ usuario_id: 'u1', papel: 'ADMINISTRATIVO' }) },
         'lib/http/api-response.ts': { jsonNoStore: (b: unknown) => Response.json(b), apiErrorResponse: (e: any) => Response.json({ erro: e.message, codigo: e.code }, { status: e.httpStatus ?? 500 }) },

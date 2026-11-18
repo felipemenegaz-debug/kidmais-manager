@@ -248,3 +248,87 @@ test("fechamento público: percentual exibido diferente da regra vigente → 409
     assert.equal((await condicaoDoFechamento(semCampo.fechamento.id)).descontoPercentual, 12, "sem o campo: regra vigente");
   });
 });
+
+/**
+ * D3 (18/11/2026): o desconto do dia da semana gravado na festa fica nas revisões que mantêm pacote, data e horário,
+ * mesmo depois de o buffet mudar a regra (10% → 25%); festa fechada sem desconto continua sem; trocar a data recalcula
+ * pela regra vigente. Edição administrativa e revisão operacional (contrato assinado → nova versão).
+ */
+test("D3: revisões mantêm o desconto do dia gravado; trocar a data recalcula pela regra vigente", { timeout: 300_000 }, async (t) => {
+  if (!(await regrasPagamentoInstaladas(executor(a)))) return t.skip("modelo sem a 077");
+  await emTx(async (c, nativo) => {
+    const ed = carregar<typeof import("./services/edicao-administrativa.service.ts")>("lib/fechamentos/services/edicao-administrativa.service.ts");
+    const adm = carregar<typeof import("../contratos/services/administrativo.service.ts")>("lib/contratos/services/administrativo.service.ts");
+    const contratos = carregar<typeof import("../contratos/services/contrato.service.ts")>("lib/contratos/services/contrato.service.ts");
+    const rs = carregar<typeof import("./services/revisao-operacional.service.ts")>("lib/fechamentos/services/revisao-operacional.service.ts");
+    const repo = carregar<typeof import("./repositories/revisao.repository.ts")>("lib/fechamentos/repositories/revisao.repository.ts");
+    const operar = adm.operarContrato as unknown as Operar;
+    await regra(c, 7, 3);
+    // Regra do dia (como a tela grava): 10% todos os dias, desde 2020.
+    const regraDia = async (percentual: number, inicio: string) => {
+      for (let d = 1; d <= 7; d++) await a.query(`INSERT INTO regras_desconto_pacote (pacote_id, dia_semana, configuracao_agenda_id, percentual, base_calculo, codigo, titulo, prioridade, vigencia_inicio, ativo)
+          VALUES ($1::uuid, $2, NULL, $3, 'PACOTE', 'DIA_SEMANA_BUFFET', $4, 100, $5::date, true)`, [c.pacote, d, percentual, `${percentual}% de desconto todos os dias`, inicio]);
+    };
+    await regraDia(10, "2020-01-01");
+    const gravarDesconto = async (fechamento: string, data: string, comRegra: boolean) => {
+      const r = comRegra ? (await a.query<{ id: string }>(`SELECT id FROM regras_desconto_pacote WHERE pacote_id = $1::uuid AND dia_semana = EXTRACT(ISODOW FROM $2::date) AND ativo`, [c.pacote, data])).rows[0]!.id : null;
+      await a.query(`UPDATE fechamentos SET regra_desconto_pacote_id = $2::uuid, desconto_percentual = $3::numeric, valor_desconto_pacote = $4::numeric, valor_pacote_aplicado = 100 - $4::numeric, valor_tabela = 100 - $4::numeric WHERE id = $1::uuid`,
+        [fechamento, r, comRegra ? 10 : 0, comRegra ? 10 : 0]);
+      return r;
+    };
+    const descontoDe = async (fechamento: string) => (await a.query<{ pct: string; regra: string | null; base: string; desc: string; aplicado: string }>(
+      `SELECT desconto_percentual::text pct, regra_desconto_pacote_id::text regra, valor_pacote_base::text base, valor_desconto_pacote::text desc, valor_pacote_aplicado::text aplicado FROM fechamentos WHERE id = $1::uuid`, [fechamento])).rows[0]!;
+    const conferir = (d: { pct: string; base: string; desc: string; aplicado: string }, pct: number, rotulo: string) => {
+      assert.equal(Number(d.pct), pct, rotulo);
+      assert.equal(Number(d.desc), Math.round(Number(d.base) * pct) / 100, `${rotulo}: valor do desconto sobre a base`);
+      assert.equal(Number(d.aplicado), Math.round((Number(d.base) - Number(d.desc)) * 100) / 100, `${rotulo}: pacote aplicado`);
+    };
+
+    const D1 = dia(180), D2 = dia(181), D3 = dia(182), D3b = dia(189);
+    const comDesconto = await festa(c, nativo, D1, 7);
+    const regraGravada = await gravarDesconto(comDesconto.fechamento, D1, true);
+    const semDesconto = await festa(c, nativo, D2, 7);
+    await gravarDesconto(semDesconto.fechamento, D2, false);
+    const trocaData = await festa(c, nativo, D3, 7);
+    await gravarDesconto(trocaData.fechamento, D3, true);
+    // O buffet muda a regra depois que as festas fecharam: 10% sai, 25% entra.
+    await a.query(`UPDATE regras_desconto_pacote SET ativo = false WHERE pacote_id = $1::uuid`, [c.pacote]);
+    await regraDia(25, "2020-01-02");
+
+    const editar = (fechamento: string, data: string) =>
+      ed.editarFechamentoAdministrativo(fechamento, edicao(c, nativo, data, AVISTA_4000) as never, c.usuario, randomUUID(), executor(a));
+    await editar(comDesconto.fechamento, D1);
+    const mantida = await descontoDe(comDesconto.fechamento);
+    conferir(mantida, 10, "edição administrativa, mesma festa: 10% gravado");
+    assert.equal(mantida.regra, regraGravada, "mesma regra gravada");
+    await editar(semDesconto.fechamento, D2);
+    const semMudanca = await descontoDe(semDesconto.fechamento);
+    conferir(semMudanca, 0, "festa fechada sem desconto continua sem (a regra nova não entra)");
+    assert.equal(semMudanca.regra, null);
+    await editar(trocaData.fechamento, D3b);
+    conferir(await descontoDe(trocaData.fechamento), 25, "trocou a data: regra vigente");
+
+    // Revisão operacional (contrato assinado → nova versão), mesma festa: 10% gravado fica na revisão.
+    await a.query(`UPDATE regras_desconto_pacote SET ativo = false WHERE pacote_id = $1::uuid`, [c.pacote]);
+    await regraDia(10, "2020-01-03");
+    const D4 = dia(183);
+    const assinada = await festa(c, nativo, D4, 7);
+    const regraAssinada = await gravarDesconto(assinada.fechamento, D4, true);
+    const gerado = await contratos.gerarContrato({ fechamentoId: assinada.fechamento } as never, { usuarioId: c.usuario, origem: "SISTEMA", executor: executor(a) } as never) as { contrato: { id: string }; versao: { id: string } };
+    await congelarEAssinarKidmais(a, operar, gerado.versao.id, c.empresa, c.token, nativo.tokenRepresentante);
+    await assinarComoCliente(gerado.contrato.id, assinada.cpf);
+    await validarAgora(a);
+    await a.query(`UPDATE regras_desconto_pacote SET ativo = false WHERE pacote_id = $1::uuid`, [c.pacote]);
+    await regraDia(25, "2020-01-04");
+    const vigente = (await a.query<{ v: string }>(`SELECT versao_vigente_id::text v FROM contrato_fluxos WHERE contrato_id = $1`, [gerado.contrato.id])).rows[0].v;
+    await operar(vigente, { acao: "nova_versao", tipo: "NOVA_VERSAO", motivo: "Revisão comercial", chaveCriacao: randomUUID() }, c.token, ctxOp(), c.empresa);
+    const v2 = (await a.query<{ id: string }>(`SELECT versao_em_preparacao_id::text id FROM contrato_fluxos WHERE contrato_id = $1`, [gerado.contrato.id])).rows[0].id;
+    const fonte = (await rs.fontesPreparacao(v2, executor(a)))!;
+    const revisao = (await a.query<{ revisao: number }>(`SELECT revisao FROM contrato_edicoes WHERE contrato_versao_id = $1`, [v2])).rows[0].revisao;
+    await operar(v2, { ...edicao(c, nativo, D4, AVISTA_4000), convidados: 31, revisao, fonteHash: fonte.fonteHash, adicionais: fonte.adicionais }, c.token, ctxOp(), c.empresa);
+    const op = (await repo.buscarRevisaoDaVersao(v2, executor(a)))!.operacao;
+    assert.deepEqual([op.descontoPercentual, op.regraDescontoPacoteId], [10, regraAssinada], "revisão operacional, mesma festa: 10% gravado");
+    assert.equal(op.valorDescontoPacote, Math.round(op.valorPacoteBase * 10) / 100);
+    assert.equal(op.valorPacoteAplicado, Math.round((op.valorPacoteBase - op.valorDescontoPacote) * 100) / 100);
+  });
+});

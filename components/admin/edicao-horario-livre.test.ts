@@ -5,7 +5,7 @@ import { z } from 'zod';
 import ts from 'typescript';
 import { achar, carregarComponente, cssFalso, elementos, tique } from './teste-componente.ts';
 import * as errosPreco from '../../lib/comercial/services/errors.ts';
-import { preservarPrecoHistorico } from '../../lib/fechamentos/revisao-preco.ts';
+import { manterDescontoDoDia, preservarPrecoHistorico } from '../../lib/fechamentos/revisao-preco.ts';
 import { duracaoAceita, duracaoDoIntervalo } from '../../lib/disponibilidade/services/horario.utils.ts';
 import { gerarCandidatosLivres } from '../../lib/disponibilidade/services/availability.service.ts';
 
@@ -41,6 +41,7 @@ function rota(f: typeof fonte = fonte) {
     '@/lib/contratos/services/administrativo.service': { versaoDoTenant: async () => ({ versao: { id }, empresaId: id }) },
     '@/lib/contratos/services/revisao-inicial': {},
     '@/lib/fechamentos/services/revisao-operacional.service': { fontesPreparacao: async () => f },
+    '@/lib/fechamentos/revisao-preco': { manterDescontoDoDia, preservarPrecoHistorico },
     '@/lib/disponibilidade/services': {
       duracaoAceita, duracaoDoIntervalo,
       consultarDisponibilidadeData: async (...args: unknown[]) => { opcoes.push(args[4]); return disponibilidade(args[4] as { duracaoMinutos?: number }); },
@@ -94,7 +95,7 @@ test('tela de edição: envia a duração atual, oferece 15h–18h livre e grava
     '@/lib/comercial/condicao-pagamento': { calcularCondicaoComercial: () => ({ valorFinalContrato: 5000 }) },
     '@/lib/comercial/regras-pagamento': { percentualDaForma: () => 0 },
     '@/lib/contratos/documento/formatters': { formatarMoeda: String },
-    '@/lib/fechamentos/revisao-preco': { preservarPrecoHistorico }, './admin.module.css': cssFalso,
+    '@/lib/fechamentos/revisao-preco': { manterDescontoDoDia, preservarPrecoHistorico }, './admin.module.css': cssFalso,
   });
   const props = { versaoId: id, revisao: 1, serverError: '', onClose: () => {}, onSave: async (b: Record<string, unknown>) => { salvos.push(b); return true; } };
   const render = () => tela.render('default', props);
@@ -128,6 +129,7 @@ function servicoEdicao() {
       consultarDisponibilidadeData: async (...args: unknown[]) => { consultas.push(args[4]); return disponibilidade(args[4] as { duracaoMinutos?: number }); },
     },
     '../../disponibilidade/repositories': { adquirirLockConfirmacaoAgenda: async () => {} },
+    '../revisao-preco': { manterDescontoDoDia, preservarPrecoHistorico },
     '../repositories': { empresaDoFechamentoComTrava: async () => id },
     './edicao-administrativa-schema': { edicaoFestaSchema: { parse: (x: unknown) => x } },
     '../../comercial/composicao': { listarCodigosInclusos: async () => [] },
@@ -164,7 +166,7 @@ test('edição: festa em horário antigo fora da lista — período atual visív
     '@/lib/comercial/condicao-pagamento': { calcularCondicaoComercial: () => ({ valorFinalContrato: 5000 }) },
     '@/lib/comercial/regras-pagamento': { percentualDaForma: () => 0 },
     '@/lib/contratos/documento/formatters': { formatarMoeda: String },
-    '@/lib/fechamentos/revisao-preco': { preservarPrecoHistorico }, './admin.module.css': cssFalso,
+    '@/lib/fechamentos/revisao-preco': { manterDescontoDoDia, preservarPrecoHistorico }, './admin.module.css': cssFalso,
   });
   const props = { versaoId: id, revisao: 1, serverError: '', onClose: () => {}, onSave: async (b: Record<string, unknown>) => { salvos.push(b); return true; } };
   const render = () => tela.render('default', props);

@@ -84,7 +84,10 @@ test('tela pública: Kidmais com o texto e os rótulos de hoje; outra empresa co
     const wizard = ler('components/fechamento/FechamentoWizard.tsx');
     assert.match(wizard, /calcularTotalPagamento\(valorInformado, "pix_avista", pagamento\)/);
     assert.match(wizard, /subtitle=\{pagamento\.cartaoRotulo\}/);
-    assert.match(wizard, /\{pagamento\.descontoDiaUtil && pacoteTemDescontoDiaUtil\(form\.pacote\) && \(/);
+    // D4 (18/11/2026): o aviso sai de avisoDescontoDoPacote; sem regras da empresa (Kidmais), a mesma condição de antes.
+    assert.match(wizard, /avisoDescontoDoPacote\(configDisponibilidade, form\.pacote, pagamento\.descontoDiaUtil, hojeIsoLocal\(\)\)/);
+    assert.match(wizard, /\{avisoEconomizeTela && \(/);
+    assert.match(ler('lib/comercial/descontos.ts'), /return automatico && pacoteTemDescontoDiaUtil\(pacote\)\n\s+\? \{ titulo: "Economize 15% escolhendo de segunda a quinta\.", selo: "-15%" \}/);
     assert.doesNotMatch(wizard, /subtitle="(10|3)% de desconto"|subtitle="Cielo"/);
 });
 

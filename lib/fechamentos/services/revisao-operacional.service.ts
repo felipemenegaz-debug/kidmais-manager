@@ -1,4 +1,4 @@
-import { preservarPrecoHistorico } from '../revisao-preco';
+import { manterDescontoDoDia, preservarPrecoHistorico } from '../revisao-preco';
 import { escolherSalaoDestinoRevisao, salaoDoDestinoRevisao } from '../../agenda/salao-festa.ts';
 import { randomUUID } from 'node:crypto';
 import type { DbExecutor } from '../../db/contracts';
@@ -219,7 +219,7 @@ export async function editarPreparacao(tx: DbExecutor, r: RevisaoOperacional, in
     if (empresaEsperada === undefined)
         recusar('Fechamento não encontrado.');
     const preservarHistorico = preservarPrecoHistorico(f, input, fonte.adicionais, input.adicionais, !!input.comercial);
-    const resumo = preservarHistorico ? null : await calcularResumoComercial({ data: input.dataEvento, configuracaoAgendaId: input.configuracaoAgendaId, pacoteId: input.pacoteId, convidados: input.convidados, adicionais: input.adicionais, empresaEsperada }, tx);
+    const resumo = preservarHistorico ? null : manterDescontoDoDia(await calcularResumoComercial({ data: input.dataEvento, configuracaoAgendaId: input.configuracaoAgendaId, pacoteId: input.pacoteId, convidados: input.convidados, adicionais: input.adicionais, empresaEsperada }, tx), f, input);
     if (resumo && input.convidados < (resumo.pacote.pacote.convidadosMinimos ?? 1))
         recusar('Quantidade abaixo do mínimo do pacote.');
     const inclusos = resumo ? await listarCodigosInclusos(tx, resumo.pacote.pacote.id, empresaEsperada) : [];

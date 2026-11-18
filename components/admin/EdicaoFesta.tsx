@@ -66,7 +66,7 @@ export default function EdicaoFesta({ versaoId, revisao, onSave, onClose, server
     }, [url, revisao]);
     // Horário livre: as opções de horário preservam a duração atual do formulário (parecer do Astra, P2).
     const duracao = form ? duracaoDoIntervalo(form.horarioInicio, form.horarioFim) : null;
-    const consulta = form ? new URLSearchParams({ data: form.dataEvento, periodo: form.configuracaoAgendaId, pacote: form.pacoteId, convidados: String(form.convidados), adicionais: JSON.stringify(form.adicionais), ...(duracao ? { duracao: String(duracao) } : {}) }).toString() : '';
+    const consulta = form ? new URLSearchParams({ data: form.dataEvento, periodo: form.configuracaoAgendaId, pacote: form.pacoteId, convidados: String(form.convidados), adicionais: JSON.stringify(form.adicionais), inicio: form.horarioInicio, fim: form.horarioFim, ...(duracao ? { duracao: String(duracao) } : {}) }).toString() : '';
     useEffect(() => { if (!consulta)
         return; let alive = true; const timer = setTimeout(() => { setCalculando(true); adminFetch(url + '?' + consulta).then(r => r.json()).then(b => { if (!b.ok)
         throw Error(b.erro); if (alive) {

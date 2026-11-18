@@ -1,4 +1,4 @@
-import { preservarPrecoHistorico } from '../revisao-preco.ts';
+import { manterDescontoDoDia, preservarPrecoHistorico } from '../revisao-preco.ts';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
@@ -14,7 +14,7 @@ test('corrigir cadastro de importado conserva preço e itens e cria aniversarian
   const cliente = { id: 'cliente' }, itens = [{ adicionalId: 'historico', valorTotal: 100 }];
   let salvo: typeof f | null = null; let aniversario = false, cadastro = false;
   const mocks: Record<string, unknown> = {
-    "../revisao-preco": { preservarPrecoHistorico },
+    "../revisao-preco": { manterDescontoDoDia, preservarPrecoHistorico },
     '../repositories': { empresaDoFechamentoSemTrava: async () => 'empresa', empresaDoFechamentoComTrava: async () => 'empresa', buscarFechamentoPorIdParaAtualizacao: async () => f },
     '../repositories/revisao.repository': { buscarRevisaoDaVersao: async () => r, listarItensRevisao: async () => itens,
       salvarOperacaoPreparada: async (_tx: unknown, _r: unknown, novo: typeof f, recebidos: unknown) => { salvo = novo; assert.deepEqual(recebidos, itens); return { ...r, operacao: novo }; } },

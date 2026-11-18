@@ -3,6 +3,7 @@ import type { FechamentoRecord } from '../repositories';
 import { calcularResumoComercial } from '../../comercial/services';
 import { calcularCondicaoComercial, centavosComerciais, validarPretensaoPix } from '../../comercial/condicao-pagamento';
 import { regraNaRevisao } from '../../comercial/regras-pagamento';
+import { manterDescontoDoDia } from '../revisao-preco';
 
 import { consultarDisponibilidadeData, duracaoDoIntervalo, intervaloSemConflito } from '../../disponibilidade/services';
 import { adquirirLockConfirmacaoAgenda } from '../../disponibilidade/repositories';
@@ -50,7 +51,7 @@ export async function calcularEdicaoFechamento(f: FechamentoRecord, raw: EdicaoF
     // Pós-autorização: os chamadores já compararam o tenant e travaram o fechamento.
     const empresaEsperada = await empresaDoFechamentoComTrava(f.id, tx);
     if (empresaEsperada === undefined) recusar('Fechamento não encontrado.');
-    const resumo = await calcularResumoComercial({ data: input.dataEvento, configuracaoAgendaId: input.configuracaoAgendaId, pacoteId: input.pacoteId, convidados: input.convidados, adicionais: input.adicionais, empresaEsperada }, tx);
+    const resumo = manterDescontoDoDia(await calcularResumoComercial({ data: input.dataEvento, configuracaoAgendaId: input.configuracaoAgendaId, pacoteId: input.pacoteId, convidados: input.convidados, adicionais: input.adicionais, empresaEsperada }, tx), f, input);
     if (input.convidados < (resumo.pacote.pacote.convidadosMinimos ?? 1))
         recusar('Quantidade abaixo do mínimo do pacote.');
     const inclusos = await listarCodigosInclusos(tx, resumo.pacote.pacote.id, empresaEsperada);

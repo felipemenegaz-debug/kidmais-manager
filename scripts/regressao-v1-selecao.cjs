@@ -412,6 +412,8 @@ const ESTADO_POSTGRES = {
   // 16/11/2026: D1 Descontos e formas de pagamento: com a 077 (122) e sem ela (075).
   "lib/comercial/regras-pagamento-admin.postgres.test.ts": { descartavel: "122", tambem: ["075"] },
   "lib/fechamentos/desconto-revisao.postgres.test.ts": { descartavel: "122" },
+  // 18/11/2026: D3/D4 desconto por dia da semana (regras_desconto_pacote existe desde a 006; 122 = estado de staging).
+  "lib/comercial/descontos-dia-admin.postgres.test.ts": { descartavel: "122" },
   // Canal MCP (105): persistência OAuth, atomicidade (código, pedido, refresh), revogação entre conexões, trava FOR SHARE.
   "lib/integracoes/oauth/oauth.postgres.test.ts": { descartavel: "105", tambem: ["104"] },
   // Aplicador da 105 em staging (27/10/2026): staging de hoje (103, sem 104/105/106) e com a 104 da S-E.
