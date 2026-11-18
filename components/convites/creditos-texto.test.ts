@@ -33,7 +33,9 @@ test('sem aviso enquanto ainda há geração disponível, mesmo em manutenção'
 test('limite do convite com crédito disponível: a gestão ajusta, sem ordem a quem não pode', () => {
   const texto = aviso(0, motor(7)) ?? '';
   assert.match(texto, /limite de gerações/);
-  assert.match(texto, /a gestão da conta pode aumentar/);
+  assert.match(texto, /A gestão da conta pode aumentar/);
+  assert.match(texto, /Edição pelo cliente/);
+  assert.match(aviso(0, motor(7), { avulso: true }) ?? '', /Limite deste convite/);
   assert.doesNotMatch(texto, /aumente/);
 });
 

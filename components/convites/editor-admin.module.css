@@ -211,3 +211,6 @@
 .tamanhosLogo { display: flex; flex-wrap: wrap; gap: 4px 14px; justify-content: center; margin: 10px 0; }
 .editor .tamanhosLogo label { display: flex; align-items: center; gap: 6px; min-height: 44px; margin: 0; }
 .editor .tamanhosLogo input { width: 18px; height: 18px; }
+
+.editor .conviteConvidados h2 { margin-top: 0; }
+.editor .conviteConvidados > div button { margin: 0; }

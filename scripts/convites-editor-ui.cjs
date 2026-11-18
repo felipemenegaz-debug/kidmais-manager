@@ -13,12 +13,14 @@ const out = path.resolve('.local-convites-qa'); fs.mkdirSync(out, { recursive: t
   try {
     for (const admin of [true, false]) {
       const contexto = { empresas: [{ id: id(2), nome: 'Buffet Demonstração', papel: 'REPRESENTANTE_AUTORIZADO' }], empresaAtual: { id: id(2), nome: 'Buffet Demonstração' }, gestaoNaEmpresa: true, plataforma: false, desenvolvedor: false, selecaoNecessaria: false };
-      const dados = { conteudo: { tema: 'jardim', nome: 'Alice Sofia', idade: '5 anos', mensagem: 'Venha comemorar com a gente!', data: '2099-12-20', horario: '16:00', local: 'Jardim das Festas', endereco: 'Rua das Flores, 120', arteId: id(10), confirmarPresenca: true }, revisao: 1, publicado: true, desatualizado: false, linkPublico: `/convite/${'p'.repeat(43)}`, clienteHabilitado: true, disponiveis: 3, iaDisponivel: false, cotas: { festa: 3, festaUsado: 0, cliente: 3, clienteUsado: 0, empresa: 60, empresaUsado: 0 }, artes: [arte(10), arte(11)], respostas: [], historico: [] };
+      const dados = { conteudo: { tema: 'jardim', nome: 'Alice Sofia', idade: '5 anos', mensagem: 'Venha comemorar com a gente!', data: '2099-12-20', horario: '16:00', local: 'Jardim das Festas', endereco: 'Rua das Flores, 120', arteId: id(10), confirmarPresenca: true }, revisao: 1, publicado: true, desatualizado: false, linkPublico: `/convite/${'p'.repeat(43)}`, clienteHabilitado: true, disponiveis: 3, iaDisponivel: true, completoDisponivel: false, cotas: { festa: 3, festaUsado: 0, cliente: 3, clienteUsado: 0, empresa: 60, empresaUsado: 0 }, artes: [arte(10), arte(11)], respostas: [], historico: [] };
       let publicada = id(11); const comandos = [], erros = [];
       const context = await browser.newContext({ viewport: { width: 1440, height: 1000 } });
       await context.route('**/api/**', async route => {
         const r = route.request(), url = new URL(r.url()); let data;
-        if (url.pathname === '/api/admin/autenticacao') data = { usuarioId: id(3), sessaoId: id(4), csrf: 'csrf-sintetico', nome: 'Equipe de teste', contexto, comercial: null };
+        if (url.pathname === '/api/endereco-atual') return route.fulfill({ json: { modoEfetivo: 'DESLIGADO' } });
+        if (url.pathname === '/api/admin/configuracoes/agenda') data = { instalada: true, pendentes: [] };
+        else if (url.pathname === '/api/admin/autenticacao') data = { usuarioId: id(3), sessaoId: id(4), csrf: 'csrf-sintetico', nome: 'Equipe de teste', contexto, comercial: null };
         else if (url.pathname === '/api/admin/configuracoes/perfil-empresa/logo') data = { logoDataUrl: null };
         else if (url.pathname === (admin ? '/api/admin/convites' : '/api/convites/cliente')) {
           if (!admin) assert.equal(r.headers().authorization, `Bearer ${'a'.repeat(43)}`);
@@ -52,6 +54,7 @@ const out = path.resolve('.local-convites-qa'); fs.mkdirSync(out, { recursive: t
       await page.setViewportSize({ width: 390, height: 844 });
       await page.screenshot({ path: path.join(out, `editor-${admin ? 'buffet' : 'cliente'}-galeria-mobile.png`), fullPage: true });
       await page.setViewportSize({ width: 1440, height: 1000 });
+      await page.getByText('Imagens da festa', { exact: true }).click();
       await page.getByLabel('Nome do aniversariante', { exact: true }).fill('Texto ainda não salvo');
       await page.getByRole('button', { name: 'Excluir imagem 1', exact: true }).click();
       const modal = page.getByRole('dialog', { name: 'Excluir imagem da galeria?' });
@@ -78,15 +81,17 @@ const out = path.resolve('.local-convites-qa'); fs.mkdirSync(out, { recursive: t
       await modal.getByRole('button', { name: 'Confirmar exclusão' }).click();
       await modal.waitFor({ state: 'hidden' });
       assert.equal(dados.artes.length, 0);
-      await page.locator('input[type="file"]').setInputFiles({ name: 'arte-teste.png', mimeType: 'image/png', buffer: png });
+      await page.getByRole('button', { name: 'Usar imagem minha' }).click();
+      await page.getByLabel('Usar uma arte própria').setInputFiles({ name: 'arte-teste.png', mimeType: 'image/png', buffer: png });
       await page.getByRole('button', { name: 'Selecionar imagem 1' }).waitFor();
-      await page.getByRole('img', { name: 'Arte escolhida para o convite' }).waitFor();
-      await page.getByText('Crie uma arte com IA', { exact: false }).click();
+      await page.getByRole('article', { name: 'Prévia do convite' }).locator('svg image').waitFor();
+      await page.getByRole('button', { name: 'Criar com IA' }).click();
       await page.getByRole('button', { name: 'Usar arte como referência' }).click();
       await page.getByRole('button', { name: 'Excluir imagem 1', exact: true }).click();
       await modal.getByRole('button', { name: 'Confirmar exclusão' }).click();
       await modal.waitFor({ state: 'hidden' });
       assert.equal(await page.getByRole('button', { name: 'Usar arte como referência' }).count(), 0);
+      assert.equal(await page.getByRole('img', { name: 'Imagem de referência da festa' }).count(), 0);
       await page.reload(); await page.getByLabel('Nome do aniversariante', { exact: true }).waitFor();
       assert.equal(await page.getByRole('button', { name: /^Excluir imagem/ }).count(), 0, 'Exclusão permanece ao recarregar');
       assert.deepEqual(erros, []);

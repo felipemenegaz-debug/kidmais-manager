@@ -17,6 +17,7 @@ export default function VincularFesta({ conviteId, revisao, bloqueado, onVincula
     finally { setBusy(false); }
   }
   return <details className={css.vinculo}><summary>Convite avulso · Vincular a uma festa</summary>
+    <p>Com a festa vinculada, o cliente também pode editar.</p>
     <p>As imagens, o histórico, o link público e os créditos usados continuam neste convite. Ele volta a rascunho para você conferir e publicar novamente.</p>
     <p>A autorização de IA será renovada para o responsável da festa antes da próxima geração.</p>
     {bloqueado && <p>Salve suas alterações e aguarde qualquer geração em andamento antes de vincular.</p>}

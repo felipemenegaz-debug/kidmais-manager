@@ -21,7 +21,9 @@ import { modelosAcervo, sugestaoAcervo } from '@/lib/convites/acervo';
 import { aplicarModoArteLocal, selecionarArte, semArte } from './arte-local';
 import SeletorComposicao from './SeletorComposicao';
 import { opcoesComposicao } from './composicao';
-import { conferirPrompt, alinharPrompt } from '@/lib/convites/conferencia-prompt';
+import { conferirPrompt, alinharPrompt, conflitoDeEstilo, estilosDoEditor, type EstiloEditor } from '@/lib/convites/conferencia-prompt';
+import { acharPersonagemProtegido, type MencaoProtegida } from '@/lib/convites/personagens-protegidos';
+import { exemplosPedido } from './exemplos-pedido';
 import VincularFesta from './VincularFesta';
 import { useLogoNoConvite, type LogoNoConvite } from './LogoNoConvite';
 import { confirmadosDasFilas } from '@/lib/convites/fila-logo';
@@ -29,6 +31,8 @@ import { AVISO_FALHA_LEITURA_LOGO, controleDeCarga, FALHA_CARGA_CONVITE, Leitura
 type Arte = { id: string; url: string; origem: string; completo?: boolean };
 // Situação simples de um pedido de geração; pendências técnicas ficam com o operador da plataforma.
 type SituacaoGeracao = { chave: string; estado: 'EM_ANDAMENTO' | 'CONCLUIDA' | 'VERIFICANDO' | 'NAO_INICIADA' | 'ENCERRADA' | 'DEVOLVIDA'; arteId?: string | null; completo?: boolean; acompanhando?: boolean };
+type Confirmacao = { titulo: string; texto?: string; acao: string; confirmar: () => void | Promise<void> };
+const CHAVE_TUTORIAL = 'convites:tutorial-fechado';
 const MENSAGEM_VERIFICANDO = 'Estamos verificando sua geração. Você não precisa tentar novamente.';
 const ROTULOS_HISTORICO: Record<string, string> = { IA_RESERVADA: 'geração de arte solicitada', IA_CONCLUIDA: 'arte gerada', IA_EM_VERIFICACAO: 'geração em verificação',
   IA_NAO_INICIADA: 'geração não iniciada; crédito devolvido', IA_VERIFICACAO_CONCLUIDA: 'verificação da geração concluída',
@@ -37,7 +41,7 @@ const rotuloHistorico = (h: { acao: string; ator: string }) => `${h.ator === 'CL
 const MENSAGEM_GERANDO = 'Gerando sua arte. Você pode aguardar nesta tela; não é preciso clicar de novo.';
 // Resumo curto da assinatura do pedido (pode conter a foto) para lembrar a chave nesta aba sem guardar o conteúdo.
 function resumoPedido(texto: string) { let h = 0x811c9dc5; for (let i = 0; i < texto.length; i++) { h ^= texto.charCodeAt(i); h = Math.imul(h, 0x01000193); } return (h >>> 0).toString(16) + ':' + texto.length; }
-type Dados = { festaId?: string | null; laboratorioLocal?: boolean; conteudo: Conteudo; avisoLocal?: string | null; revisao: number; publicado: boolean; desatualizado: boolean; linkPublico: string; clienteHabilitado: boolean; convidadosContratados?: number | null; familias?: Familia[];
+type Dados = { festaId?: string | null; laboratorioLocal?: boolean; conteudo: Conteudo; avisoLocal?: string | null; revisao: number; publicado: boolean; desatualizado: boolean; linkPublico: string; clienteHabilitado: boolean; editor_expira_em?: string | null; convidadosContratados?: number | null; familias?: Familia[];
   disponiveis: number; iaDisponivel: boolean; completoDisponivel?: boolean; autorizacaoIA?: AutorizacaoIATela | null; geracaoIncerta?: boolean; geracaoEmAndamento?: string | null; id?: string; cotas: { festa: number; festaUsado: number; cliente: number; clienteUsado: number; empresa?: number; empresaUsado?: number };
   creditos?: { motor: 'LEGADO' } | { motor: 'CREDITOS'; disponivel: number; reservado: number; consumoAtivo: boolean } | null;
   geradoresLocais?: { id: string; nome: string; disponivel: boolean; pago: boolean }[];
@@ -67,10 +71,17 @@ export default function ConviteEditor({ festaId, conviteId }: { festaId?: string
   const [geradorLocal, setGeradorLocal] = useState('openai');
   const [conviteCompleto, setConviteCompleto] = useState(true);
   const [qualidade, setQualidade] = useState('xhigh');
-  const [estilo, setEstilo] = useState('cartoon3d');
+  const [estilo, setEstilo] = useState<EstiloEditor>('cartoon3d');
   const [avatarPronto, setAvatarPronto] = useState(false);
   const [foto, setFoto] = useState(''), [autorizacaoFoto, setAutorizacaoFoto] = useState(false);
   const [conflitoPrompt, setConflitoPrompt] = useState(false);
+  const [avisoProtegido, setAvisoProtegido] = useState<{ mencao: MencaoProtegida; avatarOnly: boolean } | null>(null);
+  const pedidoLiberado = useRef<string | null>(null);
+  const [estiloNoPedido, setEstiloNoPedido] = useState('');
+  const [manterEstilo, setManterEstilo] = useState(false);
+  const [modoArte, setModoArte] = useState<'ia' | 'propria' | null>(null);
+  const [tutorialAberto, setTutorialAberto] = useState<boolean | null>(null);
+  const [confirmacao, setConfirmacao] = useState<Confirmacao | null>(null);
   const fotoArquivo = useRef<HTMLInputElement>(null), fotoCamera = useRef<HTMLInputElement>(null);
   async function lerFoto(arquivo?: File) {
     if (!arquivo) return;
@@ -96,19 +107,35 @@ export default function ConviteEditor({ festaId, conviteId }: { festaId?: string
   useEffect(() => () => { acompanhamento.current = ''; }, []);
   const [arteExcluir, setArteExcluir] = useState<Arte | null>(null);
   const dialogo = useRef<HTMLDialogElement>(null);
-  const painelIA = useRef<HTMLElement>(null);
-  const galeriaRef = useRef<HTMLDetailsElement>(null);
-  // Alternativa sem IA: abre o envio de arte própria (nada vai a provedores de IA).
+  const painelIA = useRef<HTMLDivElement>(null);
+  const escolhaArte = useRef<HTMLDivElement>(null);
+  const dialogoConfirmacao = useRef<HTMLDialogElement>(null);
+
   function semIA() {
-    if (!galeriaRef.current) return;
-    galeriaRef.current.open = true;
-    galeriaRef.current.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    setModoArte('propria');
+    escolhaArte.current?.querySelector<HTMLButtonElement>('[data-arte-propria]')?.focus();
   }
-  function abrirIA() {
-    if (!painelIA.current) return;
-    painelIA.current.scrollIntoView({ behavior: 'smooth', block: 'center' });
-    painelIA.current.querySelector('textarea')?.focus({ preventScroll: true });
+
+  function tutorial(aberto: boolean) {
+    setTutorialAberto(aberto);
+    try {
+      if (aberto) localStorage.removeItem(CHAVE_TUTORIAL);
+      else localStorage.setItem(CHAVE_TUTORIAL, '1');
+    } catch { /* O estado da tela continua disponível. */ }
   }
+
+  useEffect(() => {
+    if (!admin) {
+      let aberto = true;
+      try { aberto = localStorage.getItem(CHAVE_TUTORIAL) !== '1'; } catch { /* Exibe a ajuda por padrão. */ }
+      queueMicrotask(() => setTutorialAberto(aberto));
+    }
+  }, [admin]);
+  useEffect(() => {
+    const modal = dialogoConfirmacao.current;
+    if (confirmacao && modal && !modal.open) modal.showModal();
+    else if (!confirmacao && modal?.open) modal.close();
+  }, [confirmacao]);
   useEffect(() => { if (arteExcluir) dialogo.current?.showModal(); else dialogo.current?.close(); }, [arteExcluir]);
   const token = useRef(''), pedido = useRef<{ assinatura: string; chave: string; seed?: number } | null>(null);
   const endpoint = admin ? `/api/admin/convites?${conviteId ? `conviteId=${conviteId}` : `festaId=${festaId}`}` : '/api/convites/cliente';
@@ -175,11 +202,16 @@ export default function ConviteEditor({ festaId, conviteId }: { festaId?: string
   // 088: sem autorização vigente do responsável, o botão fica desabilitado (o servidor também recusa).
   const autorizacaoIA = dados?.laboratorioLocal ? null : dados?.autorizacaoIA ?? null;
   // P2-3: a fotografia e as imagens da galeria são confirmadas a cada geração, só depois de escolhidas (autorizacaoFoto).
-  const imagensSelecionadas = !!foto || (!completoAtivo && referencias.length > 0);
+  const imagensSelecionadas = completoAtivo ? !!foto : referencias.length > 0;
   const fotoLiberada = autorizacaoFoto;
-  const faltaAutorizacao = !!autorizacaoIA && !autorizacaoIA.vigente;
-  const avisoGeracao = dados ? avisoSemGeracao({ disponiveis: dados.disponiveis, creditos: dados.creditos, laboratorio: !!dados.laboratorioLocal, geracaoEmCurso: geracaoDoConviteEmCurso({ busy, acompanhando, geracaoIncerta: dados.geracaoIncerta, geracaoEmAndamento: dados.geracaoEmAndamento }) }) : null;
+  const faltaAutorizacao = !!autorizacaoIA && (!autorizacaoIA.vigente || autorizacaoIA.precisaRenovar || !!autorizacaoIA.indisponivel);
+  const avisoGeracao = dados ? avisoSemGeracao({ disponiveis: dados.disponiveis, creditos: dados.creditos, laboratorio: !!dados.laboratorioLocal, avulso: dados.festaId === null, geracaoEmCurso: geracaoDoConviteEmCurso({ busy, acompanhando, geracaoIncerta: dados.geracaoIncerta, geracaoEmAndamento: dados.geracaoEmAndamento }) }) : null;
   const imagensSemAutorizacao = !dados?.laboratorioLocal && imagensSelecionadas && !autorizacaoFoto;
+  const geracaoBloqueada = !dados || busy || !!acompanhando || !dados.iaDisponivel || !!dados.geracaoIncerta
+    || faltaAutorizacao || imagensSemAutorizacao
+    || (dados.laboratorioLocal && !!dados.geradoresLocais && !dados.geradoresLocais.find(g => g.id === geradorLocal)?.disponivel)
+    || (!dados.laboratorioLocal && dados.disponiveis < 1) || prompt.trim().length < 5;
+  const avatarBloqueado = busy || !foto || avatarPronto || !autorizacaoFoto || !['cartoon3d', 'cartoon2d'].includes(estilo);
   const confirmacaoImagens = !dados?.laboratorioLocal && autorizacaoIA && imagensSelecionadas && autorizacaoFoto
     ? { autorizacaoImagens: { versao: autorizacaoIA.versao, textoHash: autorizacaoIA.hashes.imagens } } : {};
   useEffect(() => { const sair = (e: BeforeUnloadEvent) => { if (alterado) e.preventDefault(); }; window.addEventListener('beforeunload', sair); return () => window.removeEventListener('beforeunload', sair); }, [alterado]);
@@ -235,8 +267,55 @@ export default function ConviteEditor({ festaId, conviteId }: { festaId?: string
     }
     return r;
   }
-  async function gerar(avatarOnly = false) {
+  function mudarPrompt(texto: string) {
+    setPrompt(texto);
+    setConflitoPrompt(false);
+    if (texto !== prompt) pedidoLiberado.current = null;
+    setAvisoProtegido(null);
+    setEstiloNoPedido('');
+    setManterEstilo(false);
+  }
+
+  function mudarEstilo(valor: EstiloEditor) {
+    setEstilo(valor);
+    setEstiloNoPedido('');
+    setManterEstilo(false);
+  }
+
+  function usarExemplo(texto: string) {
+    if (texto === prompt) return;
+    if (prompt.trim()) {
+      setConfirmacao({ titulo: 'Substituir seu pedido pelo exemplo?', acao: 'Usar exemplo', confirmar: () => mudarPrompt(texto) });
+    } else {
+      mudarPrompt(texto);
+      painelIA.current?.querySelector('textarea')?.focus();
+    }
+  }
+
+  function removerFoto() {
+    setFoto('');
+    setAvatarPronto(false);
+    setAutorizacaoFoto(false);
+  }
+
+  function removerReferencia(id: string) {
+    setReferencias(refs => refs.filter(r => r !== id));
+    setAutorizacaoFoto(false);
+  }
+
+  async function gerar(avatarOnly = false, liberarMencao = false) {
+    if (avatarOnly ? avatarBloqueado : geracaoBloqueada) return;
+    if (liberarMencao) {
+      pedidoLiberado.current = prompt;
+      setAvisoProtegido(null);
+    } else if (pedidoLiberado.current !== prompt) {
+      const mencao = acharPersonagemProtegido(prompt);
+      if (mencao) { setAvisoProtegido({ mencao, avatarOnly }); return; }
+    }
+
     const completo = completoAtivo;
+    const conflitoEstilo = completo && !manterEstilo ? conflitoDeEstilo(prompt, estilo) : undefined;
+    if (conflitoEstilo) { setEstiloNoPedido(conflitoEstilo); return; }
     if (completo && conteudo) {
       if (conferirPrompt(prompt, conteudo).conflito) { setConflitoPrompt(true); return; }
       if (foto && !fotoLiberada) { setErro(dados?.laboratorioLocal ? 'Confirme a autorização para usar a foto.' : 'Confirme o envio da fotografia e das imagens da galeria selecionadas para esta geração.'); return; }
@@ -375,6 +454,30 @@ export default function ConviteEditor({ festaId, conviteId }: { festaId?: string
     // eslint-disable-next-line react-hooks/exhaustive-deps -- Só na primeira carga de cada convite; acompanhar lê o estado atual.
   }, [carregando, dados?.id]);
   async function copiar(link: string) { try { await navigator.clipboard.writeText(new URL(link, window.location.origin).href); setAviso('Link copiado.'); } catch { setErro('Não foi possível copiar. Selecione o link para copiar manualmente.'); } }
+  async function whatsAppConvidados(link: string) {
+    const janela = window.open('', '_blank');
+    if (!janela) { setErro('Permita abrir uma nova aba ou copie o link para compartilhar.'); return; }
+    janela.opener = null;
+    setErro('');
+    try {
+      const url = new URL(link, window.location.origin);
+      const resposta = await fetch(`/api/convites/publico/${url.pathname.split('/').at(-1)}`, { cache: 'no-store' });
+      if (!resposta.ok) throw new Error();
+      const { data: { conteudo: publicado } } = await resposta.json() as { data: { conteudo: Conteudo } };
+      const nome = publicado.nome.trim(), data = publicado.data.trim(), hora = publicado.horario.trim();
+      const mensagem = `Você está convidado para a festa${nome ? ` de ${nome}` : ''}${data ? `, dia ${dataBonita(data)}` : ''}${hora ? ` às ${hora}` : ''}. Abra o convite e confirme presença: ${url.href}`;
+      janela.location.replace(`https://wa.me/?text=${encodeURIComponent(mensagem)}`);
+    } catch {
+      janela.close();
+      setErro('Não foi possível abrir o WhatsApp. Confira o convite publicado e tente de novo.');
+    }
+  }
+
+  async function criarLinkCliente() {
+    const r = await executar({ acao: 'acesso', habilitado: true }, 'Link de edição criado.', true);
+    if (r?.linkCliente) setLinkCliente(new URL(r.linkCliente, window.location.origin).href);
+  }
+
   async function excluirArte() {
     if (!arteExcluir || !dados) return;
     const id = arteExcluir.id;
@@ -382,7 +485,7 @@ export default function ConviteEditor({ festaId, conviteId }: { festaId?: string
     if (r) {
       logo.esquecerArte(id);
       setConteudo(c => c?.arteId === id ? semArte(c) : c);
-      setReferencias(refs => refs.filter(ref => ref !== id));
+      if (referencias.includes(id)) removerReferencia(id);
       setArteExcluir(null);
     }
   }
@@ -398,33 +501,78 @@ export default function ConviteEditor({ festaId, conviteId }: { festaId?: string
   const paginaAtual = Math.min(paginaModelo, totalPaginas);
   const modelosDaPagina = modelosFiltrados.slice((paginaAtual - 1) * 9, paginaAtual * 9);
   const conferencia = conteudo ? conferirPrompt(prompt, conteudo) : null;
+  const rotuloEstilo = estilosDoEditor.find(([id]) => id === estilo)?.[1] ?? estilo;
   const tamanhoPaginaArte = colunasGaleria * 3;
   const paginasArte = Math.max(1, Math.ceil((dados?.artes.length ?? 0) / tamanhoPaginaArte));
   const paginaArteAtual = Math.min(paginaArte, paginasArte);
   const inicioArte = (paginaArteAtual - 1) * tamanhoPaginaArte;
   const artesVisiveis = dados?.artes.slice(inicioArte, inicioArte + tamanhoPaginaArte);
-  const galeriaArtes = dados && conteudo && dados.artes.length > 0 && <><p>Imagens da festa</p><div className={ui.galeria}>{artesVisiveis?.map((a, indice) => { const n = indice + inicioArte; return <div key={a.id} className={ui.arteItem}><button className={ui.arteSelecionar} type="button" aria-label={`Selecionar imagem ${n + 1}`} aria-pressed={conteudo.arteId === a.id} onClick={() => setConteudo(c => c ? selecionarArte(c, a.id, !!a.completo) : c)}><img src={a.url} alt={`Imagem ${n + 1} da festa`} /><span>{conteudo.arteId === a.id ? 'Selecionada' : 'Usar imagem'}</span></button><button type="button" disabled={busy} className={ui.excluir} aria-label={`Excluir imagem ${n + 1}`} onClick={() => { setErro(''); setArteExcluir(a); }}>Excluir imagem</button></div>; })}</div>{paginasArte > 1 && <nav className={ui.paginacaoArtes} aria-label="Páginas das imagens anteriores"><button type="button" disabled={busy || paginaArteAtual === 1} onClick={() => setPaginaArte(paginaArteAtual - 1)}>← Anterior</button><span aria-live="polite">Página {paginaArteAtual} de {paginasArte}</span><button type="button" disabled={busy || paginaArteAtual === paginasArte} onClick={() => setPaginaArte(paginaArteAtual + 1)}>Próxima →</button></nav>}{conteudo.arteId && <button type="button" className={ui.linkBotao} onClick={() => { setConteudo(c => c ? semArte(c) : c); setAviso('Imagem removida da composição. Salve o rascunho ou publique para aplicar.'); }}>Remover imagem do convite</button>}<small>{dados.laboratorioLocal ? 'Remover do convite mantém a imagem na galeria. Excluir retira da galeria local e preserva o arquivo original.' : 'Remover do convite mantém o arquivo na galeria. Excluir imagem apaga o arquivo desta festa.'}</small></>;
-  const conteudoGeracao = dados && conteudo ? (<><h3>Como você imagina a arte?</h3><p id="orientacao-arte">Diga o tema, as cores e o que gostaria de ver na cena.</p><p><small>Tema · Cores · Estilo · Elementos da cena</small></p><PromptComCorretor habilitado corrigir={texto => { setPrompt(texto); setConflitoPrompt(false); }} lang="pt-BR" spellCheck autoCorrect="on" autoCapitalize="sentences" title="Clique com o botão direito sobre uma palavra para ver sugestões de escrita." aria-label="Descreva a arte do convite" aria-describedby="orientacao-arte" rows={4} maxLength={3000} value={prompt} onChange={e => { setPrompt(e.target.value); setConflitoPrompt(false); }} placeholder="Uma aventura espacial em cartoon 3D, com uma pequena astronauta, planetas e estrelas. Cores azul, lilás e dourado. Cena alegre e delicada." disabled={busy} />
+  const galeriaArtes = dados && conteudo && dados.artes.length > 0 && <><div className={ui.galeria}>{artesVisiveis?.map((a, indice) => { const n = indice + inicioArte; return <div key={a.id} className={ui.arteItem}><button className={ui.arteSelecionar} type="button" aria-label={`Selecionar imagem ${n + 1}`} aria-pressed={conteudo.arteId === a.id} onClick={() => setConteudo(c => c ? selecionarArte(c, a.id, !!a.completo) : c)}><img src={a.url} alt={`Imagem ${n + 1} da festa`} /><span>{conteudo.arteId === a.id ? 'Selecionada' : 'Usar imagem'}</span></button><button type="button" disabled={busy} className={ui.excluir} aria-label={`Excluir imagem ${n + 1}`} onClick={() => { setErro(''); setArteExcluir(a); }}>Excluir imagem</button></div>; })}</div>{paginasArte > 1 && <nav className={ui.paginacaoArtes} aria-label="Páginas das imagens da festa"><button type="button" disabled={busy || paginaArteAtual === 1} onClick={() => setPaginaArte(paginaArteAtual - 1)}>← Anterior</button><span aria-live="polite">Página {paginaArteAtual} de {paginasArte}</span><button type="button" disabled={busy || paginaArteAtual === paginasArte} onClick={() => setPaginaArte(paginaArteAtual + 1)}>Próxima →</button></nav>}{conteudo.arteId && <button type="button" className={ui.linkBotao} onClick={() => { setConteudo(c => c ? semArte(c) : c); setAviso('Imagem removida da composição. Salve o rascunho ou publique para aplicar.'); }}>Remover imagem do convite</button>}<small>{dados.laboratorioLocal ? 'Remover do convite mantém a imagem na galeria. Excluir retira da galeria local e preserva o arquivo original.' : 'Remover do convite mantém o arquivo na galeria. Excluir imagem apaga o arquivo desta festa.'}</small></>;
+  const conteudoGeracao = dados && conteudo ? (<>
+          <h3>Como você imagina a arte?</h3>
+          <p id="orientacao-arte">Diga o tema, as cores e o que aparece na cena.<br />Não escreva nome, idade nem data: eles vêm dos dados da festa.</p>
+          <p id="titulo-exemplos"><strong>Comece por um exemplo</strong></p>
+          <div role="group" aria-labelledby="titulo-exemplos" className={styles.exemplosPedido}>
+            {exemplosPedido.map(([titulo, texto]) => <button key={titulo} type="button" disabled={busy} onClick={() => usarExemplo(texto)}>{titulo}</button>)}
+          </div>
+          <PromptComCorretor habilitado corrigir={mudarPrompt} lang="pt-BR" spellCheck autoCorrect="on" autoCapitalize="sentences"
+            title="Clique com o botão direito sobre uma palavra para ver sugestões de escrita." aria-label="Descreva a arte do convite"
+            aria-describedby="orientacao-arte" rows={4} maxLength={3000} value={prompt} onChange={e => mudarPrompt(e.target.value)} disabled={busy} />
+          <small>O exemplo é só um começo. Troque as cores e os elementos como quiser.</small>
+          {avisoProtegido && <section className={`${ui.conferenciaPrompt} ${styles.avisoProtegido}`} role="alert">
+            {avisoProtegido.mencao.tipo === 'marca'
+              ? <p>{avisoProtegido.mencao.termo} é uma marca protegida. Não podemos reproduzir seus personagens nem o logotipo. Podemos criar uma arte original com o mesmo clima.</p>
+              : <p>{avisoProtegido.mencao.termo} é um personagem protegido. Não podemos reproduzi-lo. Podemos criar uma arte original com o mesmo clima, sem o personagem.</p>}
+            <div className={ui.acoes}>
+              <button type="button" onClick={() => painelIA.current?.querySelector('textarea')?.focus()}>Editar meu pedido</button>
+              <button type="button" onClick={semIA}>Enviar uma imagem minha</button>
+            </div>
+            <button type="button" className={styles.continuarPedido} disabled={avisoProtegido.avatarOnly ? avatarBloqueado : geracaoBloqueada}
+              onClick={() => void gerar(avisoProtegido.avatarOnly, true)}>Meu pedido não é sobre {avisoProtegido.mencao.termo}</button>
+          </section>}
+          {estiloNoPedido && <section className={ui.conferenciaPrompt} role="alert">
+            <p>Seu pedido fala em {estiloNoPedido}, mas o estilo escolhido é {rotuloEstilo}.</p>
+            <div className={ui.acoes}>
+              <button type="button" onClick={() => mudarEstilo('pedido')}>Usar o estilo do meu pedido</button>
+              <button type="button" onClick={() => { setEstiloNoPedido(''); setManterEstilo(true); }}>Manter {rotuloEstilo}</button>
+            </div>
+          </section>}
           {completoAtivo && <>
             <details className={ui.fotoReferencia}><summary>Foto do aniversariante · opcional</summary>
               <p>Use uma foto com o rosto visível. Quando o estilo escolhido tem referência aprovada, ela é incluída automaticamente na mesma geração. A semelhança pode variar.</p>
               <input hidden ref={fotoArquivo} type="file" accept="image/png,image/jpeg,image/webp" onChange={e => { setAvatarPronto(false); void lerFoto(e.target.files?.[0]); e.target.value = ''; }} />
               <input hidden ref={fotoCamera} type="file" accept="image/*" capture="user" onChange={e => { setAvatarPronto(false); void lerFoto(e.target.files?.[0]); e.target.value = ''; }} />
               <div className={ui.acoes}><button type="button" disabled={busy} onClick={() => fotoArquivo.current?.click()}>Escolher foto</button><button type="button" disabled={busy} onClick={() => fotoCamera.current?.click()}>Tirar foto</button></div>
-              {foto && <><img className={ui.miniaturaFoto} src={foto} alt="Foto de referência do aniversariante" /><button type="button" disabled={busy} onClick={() => { setFoto(''); setAvatarPronto(false); setAutorizacaoFoto(false); }}>Remover foto</button>{dados.laboratorioLocal ? <label className={ui.check}><input type="checkbox" checked={autorizacaoFoto} disabled={busy} onChange={e => setAutorizacaoFoto(e.target.checked)} />Tenho autorização para enviar esta foto à OpenAI; sou responsável ou tenho autorização do responsável.</label> : null}</>}
-              {dados.laboratorioLocal && foto && !avatarPronto && <button type="button" disabled={busy || !autorizacaoFoto || !['cartoon3d', 'cartoon2d'].includes(estilo)} onClick={() => void gerar(true)}>1. Criar avatar cartoon · 1 chamada paga</button>}
+              {dados.laboratorioLocal && foto && <><img className={ui.miniaturaFoto} src={foto} alt="Foto de referência do aniversariante" /><button type="button" disabled={busy} onClick={removerFoto}>Remover foto</button>{dados.laboratorioLocal ? <label className={ui.check}><input type="checkbox" checked={autorizacaoFoto} disabled={busy} onChange={e => setAutorizacaoFoto(e.target.checked)} />Tenho autorização para enviar esta foto à OpenAI; sou responsável ou tenho autorização do responsável.</label> : null}</>}
+              {dados.laboratorioLocal && foto && !avatarPronto && <button type="button" disabled={avatarBloqueado} onClick={() => void gerar(true)}>1. Criar avatar cartoon · 1 chamada paga</button>}
               {avatarPronto && <p role="status">Avatar selecionado como referência. Confira antes de gerar o convite.</p>}
               {dados.laboratorioLocal && <small>Gere o convite diretamente para usar uma chamada. Criar avatar antes é um teste opcional e custa uma chamada adicional.</small>}
               <small>PNG, JPEG ou WebP, até 5 MB. A foto não fica salva no convite; ela é enviada {dados.laboratorioLocal ? 'à OpenAI' : autorizacaoIA ? `ao provedor indicado (${autorizacaoIA.provedorNome})` : 'ao provedor de IA'} somente ao gerar e com a autorização da fotografia.</small>
             </details>
-            {conflitoPrompt && conferencia && <section className={ui.conferenciaPrompt} role="alert"><strong>Confira o nome e a idade antes de gerar</strong><p>Na festa: {conteudo.nome || 'sem nome'} · {conteudo.idade || 'sem idade'}. No pedido: {conferencia.nomes.join(', ') || 'nome não informado'} · {conferencia.idades.join(', ') || 'idade não informada'}.</p><div className={ui.acoes}><button type="button" onClick={() => { setPrompt(alinharPrompt(prompt, conteudo)); setConflitoPrompt(false); }}>Usar dados da festa</button><button type="button" disabled={conferencia.ambiguo} onClick={() => { setConteudo({ ...conteudo, ...(conferencia.nomes[0] ? { nome: conferencia.nomes[0] } : {}), ...(conferencia.idades[0] ? { idade: `${conferencia.idades[0]} anos` } : {}) }); setConflitoPrompt(false); }}>Usar dados do pedido</button></div><small>Depois da escolha, confira os campos e clique em gerar. Nenhum teste foi consumido.</small></section>}
+            {conflitoPrompt && conferencia && <section className={ui.conferenciaPrompt} role="alert"><strong>Confira o nome e a idade antes de gerar</strong><p>Na festa: {conteudo.nome || 'sem nome'} · {conteudo.idade || 'sem idade'}. No pedido: {conferencia.nomes.join(', ') || 'nome não informado'} · {conferencia.idades.join(', ') || 'idade não informada'}.</p><div className={ui.acoes}><button type="button" onClick={() => { mudarPrompt(alinharPrompt(prompt, conteudo)); }}>Usar dados da festa</button><button type="button" disabled={conferencia.ambiguo} onClick={() => { setConteudo({ ...conteudo, ...(conferencia.nomes[0] ? { nome: conferencia.nomes[0] } : {}), ...(conferencia.idades[0] ? { idade: `${conferencia.idades[0]} anos` } : {}) }); setConflitoPrompt(false); }}>Usar dados do pedido</button></div><small>Depois da escolha, confira os campos e clique em gerar. Nenhum teste foi consumido.</small></section>}
           </>}
           {autorizacaoIA && <ConviteAutorizacaoIA ia={autorizacaoIA} busy={busy || !!acompanhando} ui={ui} semIA={semIA} executar={(body, mensagem) => executar(body, mensagem, true)} />}
-          {autorizacaoIA && !autorizacaoIA.indisponivel && imagensSelecionadas && <ConfirmacaoImagensIA ia={autorizacaoIA} marcado={autorizacaoFoto} mudar={setAutorizacaoFoto} busy={busy || !!acompanhando} ui={ui} />}
           <div className={ui.controlesIA}>
-            {completoAtivo && <div className={ui.qualidade}><span>Estilo</span><SeletorArte nome="Estilo da arte" valor={estilo} desativado={busy} mudar={setEstilo} opcoes={[["pedido", "Conforme pedido"], ["cartoon3d", "Cartoon 3D"], ["cartoon2d", "Desenho 2D"], ["realista", "Realista"]]} ui={ui} /><small>Sem estilo no pedido, usamos cartoon 3D.</small></div>}
+            {completoAtivo && <div className={ui.qualidade}><span>Estilo</span><SeletorArte nome="Estilo da arte" valor={estilo} desativado={busy} mudar={mudarEstilo} opcoes={estilosDoEditor} ui={ui} /><small>Sem estilo no pedido, usamos cartoon 3D.</small></div>}
             {completoAtivo && <div className={ui.qualidade}><span>Qualidade</span><SeletorArte nome="Qualidade da imagem" valor={qualidade} desativado={busy || !!acompanhando} mudar={setQualidade} opcoes={[["high", "Alta"], ["xhigh", "Muito alta"], ["max", "Máxima"]]} ui={ui} /><small>Maior qualidade pode aumentar o custo e o tempo.</small></div>}
-            <button type="button" className={ui.primario} disabled={busy || !!acompanhando || !dados.iaDisponivel || !!dados.geracaoIncerta || faltaAutorizacao || imagensSemAutorizacao || (dados.laboratorioLocal && !!dados.geradoresLocais && !dados.geradoresLocais.find(g => g.id === geradorLocal)?.disponivel) || (!dados.laboratorioLocal && dados.disponiveis < 1) || prompt.trim().length < 5} onClick={() => void gerar()}>{busy ? 'Processando…' : dados.laboratorioLocal ? (conviteCompleto && geradorLocal === 'openai' ? 'Gerar convite completo' : 'Gerar imagem') : completoAtivo ? 'Gerar convite completo · 1 crédito' : 'Gerar arte · 1 crédito'}</button>
+          </div>
+          {!dados.laboratorioLocal && !completoAtivo && !!dados.artes.length && <><p>Referências: escolha até duas artes anexadas.</p><div className={ui.artes}>{dados.artes.map(a => <button key={a.id} disabled={busy || (!referencias.includes(a.id) && referencias.length >= 2)} type="button" aria-label="Usar arte como referência" aria-pressed={referencias.includes(a.id)} onClick={() => { setAutorizacaoFoto(false); setReferencias(refs => refs.includes(a.id) ? refs.filter(id => id !== a.id) : [...refs, a.id]); }}><img src={a.url} alt="Referência" /></button>)}</div></>}
+          {!dados.laboratorioLocal && imagensSelecionadas && <section className={ui.confirmacaoImagens} aria-label="Imagens para esta geração">
+            <h3>Vai ser enviado a {autorizacaoIA?.provedorNome ?? 'um provedor de IA'} nesta geração</h3>
+            <div className={styles.imagensDaGeracao}>
+              {foto && completoAtivo && <div>
+                <img className={ui.miniaturaFoto} src={foto} alt="Foto de referência do aniversariante" />
+                <button type="button" disabled={busy} onClick={removerFoto}>Remover</button>
+              </div>}
+              {!completoAtivo && dados.artes.filter(a => referencias.includes(a.id)).map(a => <div key={a.id}>
+                <img className={ui.miniaturaFoto} src={a.url} alt="Imagem de referência da festa" />
+                <button type="button" disabled={busy} onClick={() => removerReferencia(a.id)}>Remover</button>
+              </div>)}
+            </div>
+            {autorizacaoIA && !autorizacaoIA.indisponivel && <ConfirmacaoImagensIA ia={autorizacaoIA} marcado={autorizacaoFoto} mudar={setAutorizacaoFoto} busy={busy || !!acompanhando} ui={ui} />}
+          </section>}
+          <div className={styles.gerarArte}>
+            <button type="button" className={ui.primario} disabled={geracaoBloqueada} onClick={() => void gerar()}>{busy ? 'Processando…' : dados.laboratorioLocal ? (conviteCompleto && geradorLocal === 'openai' ? 'Gerar convite completo' : 'Gerar imagem') : completoAtivo ? 'Gerar convite completo · 1 crédito' : 'Gerar arte · 1 crédito'}</button>
           </div>
           {dados.laboratorioLocal && <>
             <small>Confira os dados antes de gerar. {geradorLocal === 'comfy' ? 'Geração na sua GPU.' : 'Uma chamada paga.'} Sem repetição automática.</small>
@@ -435,22 +583,70 @@ export default function ConviteEditor({ festaId, conviteId }: { festaId?: string
             {etapaLocal && <p role="status">{etapaLocal}</p>}
             {jobLocal && <><button type="button" onClick={() => { void api({ acao: 'cancelar', jobId: jobLocal }).then(() => setEtapaLocal('Cancelamento solicitado.')).catch(e => setErro(e.message)); }}>Descartar resultado</button><small>A solicitação já enviada pode ser cobrada mesmo ao descartar.</small></>}
           </>}
-          {!dados.laboratorioLocal && !completoAtivo && !!dados.artes.length && <><p>Referências: escolha até duas artes anexadas.</p><div className={ui.artes}>{dados.artes.map(a => <button key={a.id} disabled={busy || (!referencias.includes(a.id) && referencias.length >= 2)} type="button" aria-label="Usar arte como referência" aria-pressed={referencias.includes(a.id)} onClick={() => { setAutorizacaoFoto(false); setReferencias(refs => refs.includes(a.id) ? refs.filter(id => id !== a.id) : [...refs, a.id]); }}><img src={a.url} alt="Referência" /></button>)}</div></>}
           {faltaAutorizacao && !autorizacaoIA?.indisponivel && <p role="status"><small>Registre a autorização do responsável legal para gerar com IA, ou use uma arte própria.</small></p>}
           {avisoGeracao && <p role="status"><small>{avisoGeracao}</small></p>}
           {!faltaAutorizacao && imagensSemAutorizacao && <p role="status"><small>Confirme o envio da fotografia e das imagens da galeria selecionadas, ou remova-as, para gerar.</small></p>}
-          <small>{dados.laboratorioLocal ? conteudo.visual?.modo === 'completa' ? 'Textos incorporados na imagem: editar os campos não altera a arte pronta.' : 'A moldura e os dados da festa são montados pelo editor.' : dados.geracaoIncerta ? MENSAGEM_VERIFICANDO : acompanhando ? MENSAGEM_GERANDO : !dados.iaDisponivel ? 'O buffet ainda não habilitou a IA. Você pode enviar sua própria arte.' : completoAtivo ? 'Uma chamada por convite: arte e textos da festa juntos. Cada geração usa 1 crédito, sem repetição automática. Confira a escrita antes de publicar.' : 'Cada nova geração ou edição por IA usa 1 crédito. Downloads não usam créditos.'}</small>
+          <small>{dados.laboratorioLocal ? conteudo.visual?.modo === 'completa' ? 'Textos incorporados na imagem: editar os campos não altera a arte pronta.' : 'A moldura e os dados da festa são montados pelo editor.' : !dados.iaDisponivel ? 'O buffet ainda não habilitou a IA. Você pode enviar sua própria arte.' : completoAtivo ? 'Uma chamada por convite: arte e textos da festa juntos. Cada geração usa 1 crédito, sem repetição automática. Confira a escrita antes de publicar.' : 'Cada nova geração ou edição por IA usa 1 crédito. Downloads não usam créditos.'}</small>
         </>) : null;
-  const painelGeracao = <section ref={painelIA} className={ui.painel} aria-labelledby="titulo-criar-arte"><h2 id="titulo-criar-arte">Crie uma arte com IA</h2>{conteudoGeracao}</section>;
+  const painelArte = <section className={ui.painel} aria-labelledby="titulo-arte">
+    <h2 id="titulo-arte">Arte do convite</h2>
+    <div ref={escolhaArte} className={styles.escolhaArte}>
+      <button type="button" className={ui.primario} aria-expanded={modoArte === 'ia'} aria-controls="painel-arte-ia" onClick={() => setModoArte(modoArte === 'ia' ? null : 'ia')}>Criar com IA</button>
+      {!dados?.laboratorioLocal && <button type="button" data-arte-propria aria-expanded={modoArte === 'propria'} aria-controls="painel-arte-propria" onClick={() => setModoArte(modoArte === 'propria' ? null : 'propria')}>Usar imagem minha</button>}
+    </div>
+    <div ref={painelIA} id="painel-arte-ia" hidden={modoArte !== 'ia'}>{modoArte === 'ia' && conteudoGeracao}</div>
+    {!dados?.laboratorioLocal && <div id="painel-arte-propria" hidden={modoArte !== 'propria'}>
+      {modoArte === 'propria' && conteudo && <label className={ui.upload}>{modeloComFoto(conteudo.tema) ? 'Adicionar sua foto' : 'Usar uma arte própria'}
+        <input type="file" accept="image/png,image/jpeg,image/webp" disabled={busy} onChange={e => { void upload(e.target.files?.[0]); e.target.value = ''; }} />
+        <small>PNG, JPEG ou WebP · até 5 MB · sem créditos de IA</small>
+      </label>}
+    </div>}
+  </section>;
+  const painelConvidados = dados && !dados.laboratorioLocal && (dados.publicado || dados.desatualizado) && <section className={`${ui.painel} ${styles.conviteConvidados}${admin ? ` ${adminStyles.conviteConvidados}` : ''}`} aria-labelledby="titulo-convite-convidados">
+        <h2 id="titulo-convite-convidados">Convite para os convidados</h2>
+        {dados.desatualizado ? <p>O link dos convidados está suspenso. Confira data, horário e local e publique de novo.</p>
+          : <>
+            <p>Quem receber abre o convite e confirma presença.</p>
+            <div className={styles.acoesConvite}>
+              <button type="button" className={ui.primario} onClick={() => void whatsAppConvidados(dados.linkPublico)}>Enviar pelo WhatsApp</button>
+              <button type="button" onClick={() => void copiar(dados.linkPublico)}>Copiar link</button>
+              <a href={dados.linkPublico} target="_blank" rel="noreferrer">Abrir convite</a>
+            </div>
+          </>}
+      </section>;
+  const controlesLimites = dados && <div className={styles.controlesLimites}>
+    {dados.creditos?.motor === 'CREDITOS'
+      ? <p data-creditos-empresa>Créditos da empresa: {dados.creditos.disponivel} {comUnidade(dados.creditos.disponivel, 'disponível', 'disponíveis')}{textoReserva(dados.creditos.reservado)}{dados.creditos.consumoAtivo ? '' : ' · geração com créditos em manutenção'}. <Link href="/admin/configuracoes/creditos">Ver créditos</Link>. A festa já usou {dados.cotas.festaUsado}, sendo {dados.cotas.clienteUsado} pelo cliente.</p>
+      : <p>Franquia mensal: {dados.cotas.empresaUsado ?? 0} de {dados.cotas.empresa ?? 0} usados. A festa já usou {dados.cotas.festaUsado}, sendo {dados.cotas.clienteUsado} pelo cliente.</p>}
+    <div className={ui.campos}><label>{dados.festaId === null ? "Limite deste convite" : "Limite total da festa"}<input type="number" min={dados.cotas.festaUsado} max={100} value={cotaFesta} onChange={e => setCotaFesta(Number(e.target.value))} /></label><label>Limite do cliente<input type="number" min={dados.cotas.clienteUsado} max={cotaFesta} value={cotaCliente} onChange={e => setCotaCliente(Number(e.target.value))} /></label></div><button disabled={busy} onClick={() => void executar({ acao: 'cotas', festa: cotaFesta, cliente: cotaCliente }, 'Limites atualizados.', true)}>Aplicar limites</button><small>Os limites da festa são compartilhados. Somente a gestão pode aumentá-los. O saldo mensal da empresa continua sendo o teto.</small>
+  </div>;
   return <main className={ui.editor} data-editor={admin ? 'buffet' : 'cliente'}>
-    <header className={ui.cabecalho}><div><p className={ui.sobretitulo}>{admin ? 'FESTAS · CONVITE VIRTUAL' : 'CONVITES'}</p><h1>{admin ? (dados?.festaId === null ? 'Convite avulso' : 'Convite da festa') : <>Uma festa começa<br />com um convite.</>}</h1><p>{admin ? 'Personalize o convite, compartilhe com o cliente e acompanhe as confirmações.' : 'Escolha um tema, dê seu toque e compartilhe esse momento.'}</p></div>{admin && <div className={ui.acoesCabecalho}>{!dados?.laboratorioLocal && <button type="button" className={ui.primario} disabled={busy || !dados} onClick={abrirIA}>Crie uma arte com IA</button>}<Link className={ui.voltar} href={festaId ? `/admin/festas/${festaId}` : "/admin/convites"}>{festaId ? "← Voltar à festa" : "← Meus convites"}</Link></div>}</header>
+    <header className={ui.cabecalho}><div><p className={ui.sobretitulo}>{admin ? 'FESTAS · CONVITE VIRTUAL' : 'CONVITES'}</p><h1>{admin ? (dados?.festaId === null ? 'Convite avulso' : 'Convite da festa') : <>Uma festa começa<br />com um convite.</>}</h1><p>{admin ? 'Personalize o convite, compartilhe com o cliente e acompanhe as confirmações.' : 'Escolha um tema, dê seu toque e compartilhe esse momento.'}</p></div>{admin && <div className={ui.acoesCabecalho}><Link className={ui.voltar} href={festaId ? `/admin/festas/${festaId}` : "/admin/convites"}>{festaId ? "← Voltar à festa" : "← Meus convites"}</Link></div>}</header>
     {admin && conviteId && dados?.festaId === null && <VincularFesta conviteId={conviteId} revisao={dados.revisao} bloqueado={busy || alterado || !!dados.geracaoEmAndamento || !!dados.geracaoIncerta} onVinculado={async () => { await carregar(); setAviso("Festa vinculada. Confira os dados e publique o convite."); }} />}
-    {erro && <p className={ui.erro} role="alert">{erro}</p>}{aviso && <p className={ui.aviso} role="status">{aviso}</p>}
+    {erro && <p className={ui.erro} role="alert">{erro}</p>}{(aviso || dados?.geracaoIncerta) && <p className={ui.aviso} role="status">{aviso || MENSAGEM_VERIFICANDO}</p>}
     {carregando ? <p>Preparando seu convite…</p> : falhaCarga && !dados ? <section className={ui.painel} data-falha-carga><p className={ui.erro} role="alert">{falhaCarga}</p><button type="button" className={ui.primario} onClick={() => { setFalhaCarga(''); setCarregando(true); void primeiraCarga(() => true); }}>Tentar de novo</button></section> : !dados || !conteudo ? <section className={ui.painel}><h2>Seu convite começa aqui</h2><p>Modelos prontos e arte própria não consomem créditos de IA.</p>{admin && <button disabled={busy} className={ui.primario} onClick={() => { setBusy(true); void carregar(true).then(() => setErro('')).catch(e => setErro(e.message)).finally(() => setBusy(false)); }}>Criar convite da festa</button>}</section> : <>
       <div className={ui.barra}><span>{dados.publicado ? '● Publicado' : '○ Rascunho'}{alterado ? ' · Alterações não salvas' : ''}</span><span>{dados.laboratorioLocal ? 'Teste local' : dados.creditos?.motor === 'CREDITOS'
         ? <><strong>{dados.disponiveis}</strong> {comUnidade(dados.disponiveis, 'geração restante', 'gerações restantes')} neste convite · <strong>{dados.creditos.disponivel}</strong> {creditosDisponiveisDaEmpresa(dados.creditos.disponivel)}</>
         : <><strong>{dados.disponiveis}</strong> {comUnidade(dados.disponiveis, 'crédito de imagem disponível', 'créditos de imagem disponíveis')}</>}</span></div>
-      {dados.desatualizado && <p className={ui.erro}>A contratação foi atualizada e o link público está suspenso. Confira data, horário e local e publique novamente.</p>}
+      {painelConvidados}
+      {!admin && tutorialAberto !== null && (tutorialAberto ? <section className={`${ui.painel} ${styles.tutorial}`} aria-labelledby="titulo-tutorial">
+        <div className={styles.cabecalhoTutorial}>
+          <h2 id="titulo-tutorial" tabIndex={-1}>Como fazer, em 3 passos</h2>
+          <button type="button" onClick={() => {
+            tutorial(false);
+            requestAnimationFrame(() => document.getElementById('reabrir-tutorial')?.focus());
+          }}>Fechar</button>
+        </div>
+        <ol>
+          <li>Confira os dados da festa. Eles já vêm do contrato.</li>
+          <li>Crie a arte: descreva o que imagina ou envie uma imagem sua.</li>
+          <li>Publique e envie o link aos convidados.</li>
+        </ol>
+        <p>Você pode salvar e voltar depois por este mesmo link.</p>
+      </section> : <p className={styles.reabrirTutorial}><button type="button" id="reabrir-tutorial" className={ui.linkBotao} onClick={() => {
+        tutorial(true);
+        requestAnimationFrame(() => document.getElementById('titulo-tutorial')?.focus());
+      }}>Como fazer?</button></p>)}
       <div className={`${ui.colunas} ${ui.colunaUnica}`}><div className={ui.configuracao}>
         {MOLDURAS_NO_EDITOR && <fieldset disabled={busy} className={ui.painel}><legend>{dados.laboratorioLocal ? 'Biblioteca de molduras e imagens' : '01 · Escolha o visual'}</legend><details open={!dados.laboratorioLocal || undefined}><summary>Escolher moldura ou imagem</summary>
           {!(dados.laboratorioLocal && conteudo.visual?.modo === 'completa') && <><div className={styles.filtrosModelos} role="group" aria-label="Filtrar modelos">{([['todos', 'Todos'], ['neutros', 'Bases neutras'], ['fotos', 'Com foto'], ['temas', 'Temas']] as const).map(([id, nome]) => <button key={id} type="button" aria-pressed={categoriaModelo === id} onClick={() => { setCategoriaModelo(id); setPaginaModelo(1); }}>{nome}</button>)}</div>
@@ -496,24 +692,79 @@ export default function ConviteEditor({ festaId, conviteId }: { festaId?: string
         {opcoesPosicao.length > 0 && <div className={ui.posicaoImagem}><SeletorComposicao conteudo={conteudo} opcoes={opcoesPosicao} busy={busy} className={ui.seletorCriacao} mudar={v => campo('visual', v)} />
           {conviteProprioPronto && <p role="status" data-conferencia-convite><small>Confira se a sua imagem tem os mesmos dados da festa{dadosConferencia ? `: ${dadosConferencia}` : ''}.</small></p>}</div>}
         <div className={ui.acoes}><button disabled={busy} onClick={() => void baixarConvite(conteudo, arte, logo.baixar.logo, logo.baixar.sobre).catch(() => setErro('Não foi possível baixar. Tente novamente.'))}>Baixar imagem</button></div>
-        {painelGeracao}<div className={ui.acoes}><button disabled={busy} onClick={() => void executar({ acao: 'salvar', revisao: dados.revisao, conteudo }, 'Rascunho salvo.')}>Salvar rascunho</button>{!dados.laboratorioLocal && <button disabled={busy} className={ui.primario} onClick={() => void executar({ acao: 'publicar', revisao: dados.revisao, conteudo }, 'Convite publicado. Agora você pode compartilhar!')}>Publicar convite</button>}</div>
-        {dados.publicado && <div className={ui.painel}><a href={dados.linkPublico} target="_blank" rel="noreferrer">Abrir convite publicado ↗</a><div className={ui.acoes}><button onClick={() => void copiar(dados.linkPublico)}>Copiar link público</button><button onClick={() => { const url = new URL(dados.linkPublico, window.location.origin).href; window.open(`https://wa.me/?text=${encodeURIComponent(`Você está convidado! ${url}`)}`, '_blank', 'noopener,noreferrer'); }}>Compartilhar no WhatsApp</button><button disabled={busy} onClick={() => void executar({ acao: 'despublicar', revisao: dados.revisao }, 'Convite despublicado.', true)}>Despublicar</button></div></div>}
+        {painelArte}
+        <div className={ui.acoes} role="group" aria-label="Publicação do convite">
+          <button disabled={busy} onClick={() => void executar({ acao: 'salvar', revisao: dados.revisao, conteudo }, 'Rascunho salvo.')}>Salvar rascunho</button>
+          {!dados.laboratorioLocal && <button disabled={busy} className={ui.primario} onClick={() => void executar({ acao: 'publicar', revisao: dados.revisao, conteudo }, 'Convite publicado. Agora você pode compartilhar.')}>Publicar convite</button>}
+          {!dados.laboratorioLocal && !dados.publicado && !dados.desatualizado && <p className={styles.avisoPublicar}>Publique o convite para liberar o link dos convidados.</p>}
+        </div>
+        {dados.publicado && !dados.laboratorioLocal && <button type="button" className={ui.linkBotao} disabled={busy} onClick={() => setConfirmacao({
+          titulo: 'Despublicar convite?', texto: 'O link dos convidados ficará indisponível até você publicar de novo.',
+          acao: 'Despublicar', confirmar: async () => { await executar({ acao: 'despublicar', revisao: dados.revisao }, 'Convite despublicado.', true); },
+        })}>Despublicar</button>}
       </aside></div>
-      {(dados.artes.length > 0 || !dados.laboratorioLocal) && <details ref={galeriaRef} className={`${ui.painel} ${ui.galeriaLocal}`}><summary>Imagens anteriores</summary><fieldset disabled={busy} className={ui.formulario}>{galeriaArtes}{!dados.laboratorioLocal && <label className={ui.upload}>{modeloComFoto(conteudo.tema) ? 'Adicionar sua foto' : 'Usar uma arte própria'}<input type="file" accept="image/png,image/jpeg,image/webp" onChange={e => { void upload(e.target.files?.[0]); e.target.value = ''; }} /><small>PNG, JPEG ou WebP · até 5 MB · sem créditos de IA</small></label>}</fieldset></details>}
+      {(dados.artes.length > 0 || !dados.laboratorioLocal) && <details className={`${ui.painel} ${ui.galeriaLocal}`}>
+        <summary>Imagens da festa</summary>
+        <fieldset disabled={busy} className={ui.formulario}>{galeriaArtes || <p>As imagens enviadas e geradas aparecem aqui.</p>}</fieldset>
+      </details>}
       {!dados.laboratorioLocal && <div className={ui.colunaInferior}>
-        {admin && <details className={ui.painel}><summary>Acesso do cliente e limites</summary><p>{dados.festaId === null ? 'Vincule uma festa para liberar o editor à família. O link público para os convidados continua disponível ao publicar.' : dados.clienteHabilitado ? 'O cliente já pode criar o convite.' : 'Libere um link exclusivo para o cliente criar o convite.'}</p><button disabled={busy || dados.festaId === null} onClick={async () => { const r = await executar({ acao: 'acesso', habilitado: true }, 'Novo acesso criado. O link anterior foi revogado.', true); if (r?.linkCliente) setLinkCliente(new URL(r.linkCliente, window.location.origin).href); }}>Gerar novo link do cliente</button>{dados.clienteHabilitado && <button disabled={busy} onClick={async () => { const r = await executar({ acao: 'acesso', habilitado: false }, 'Acesso revogado.', true); if (r) setLinkCliente(''); }}>Revogar acesso</button>}
-          {linkCliente && <label>Link exclusivo de edição<input readOnly value={linkCliente} onFocus={e => e.target.select()} /><button onClick={() => void copiar(linkCliente)}>Copiar link do cliente</button></label>}
-          {dados.creditos?.motor === 'CREDITOS'
-            ? <p data-creditos-empresa>Créditos da empresa: {dados.creditos.disponivel} {comUnidade(dados.creditos.disponivel, 'disponível', 'disponíveis')}{textoReserva(dados.creditos.reservado)}{dados.creditos.consumoAtivo ? '' : ' · geração com créditos em manutenção'}. <Link href="/admin/configuracoes/creditos">Ver créditos</Link>. A festa já usou {dados.cotas.festaUsado}, sendo {dados.cotas.clienteUsado} pelo cliente.</p>
-            : <p>Franquia mensal: {dados.cotas.empresaUsado ?? 0} de {dados.cotas.empresa ?? 0} usados. A festa já usou {dados.cotas.festaUsado}, sendo {dados.cotas.clienteUsado} pelo cliente.</p>}
-          <div className={ui.campos}><label>{dados.festaId === null ? "Limite deste convite" : "Limite total da festa"}<input type="number" min={dados.cotas.festaUsado} max={100} value={cotaFesta} onChange={e => setCotaFesta(Number(e.target.value))} /></label><label>Limite do cliente<input type="number" min={dados.cotas.clienteUsado} max={cotaFesta} value={cotaCliente} onChange={e => setCotaCliente(Number(e.target.value))} /></label></div><button disabled={busy} onClick={() => void executar({ acao: 'cotas', festa: cotaFesta, cliente: cotaCliente }, 'Limites atualizados.', true)}>Aplicar limites</button><small>Os limites da festa são compartilhados. Somente a gestão pode aumentá-los. O saldo mensal da empresa continua sendo o teto.</small>
-        </details>}
+        {admin && (dados.festaId === null ? <details className={ui.painel}>
+          <summary>Limite deste convite</summary>
+          {controlesLimites}
+        </details> : <details className={ui.painel}>
+          <summary>Edição pelo cliente</summary>
+          {dados.clienteHabilitado ? <>
+            <p>{dados.editor_expira_em ? `Ativo até ${new Date(dados.editor_expira_em).toLocaleDateString('pt-BR', { timeZone: 'America/Sao_Paulo' })}.` : 'Acesso ativo.'} Só para quem contratou a festa.</p>
+            <div className={styles.acoesConvite}>
+              <span>Perdeu o link?</span>
+              <button type="button" disabled={busy} onClick={() => setConfirmacao({
+                titulo: 'Criar outro link de edição?',
+                texto: 'O link atual para de funcionar. Se o cliente estiver editando agora, perde o que ainda não salvou.',
+                acao: 'Criar outro link',
+                confirmar: criarLinkCliente,
+              })}>Criar outro link</button>
+            </div>
+          </> : <><p>O cliente quer montar o convite?</p><button type="button" disabled={busy} onClick={() => void criarLinkCliente()}>Liberar edição</button></>}
+          {linkCliente && dados.clienteHabilitado && <div className={styles.linkEdicao}>
+            <label>Link de edição · só para quem contratou a festa<input readOnly value={linkCliente} onFocus={e => e.target.select()} /></label>
+            <div className={styles.acoesConvite}>
+              <button type="button" className={ui.primario} onClick={() => window.open(
+                `https://wa.me/?text=${encodeURIComponent(`Este é o link para você montar o convite da festa${dados.conteudo.nome.trim() ? ` de ${dados.conteudo.nome.trim()}` : ''}. Ele é só seu: não envie aos convidados. ${linkCliente}`)}`,
+                '_blank', 'noopener,noreferrer',
+              )}>Enviar ao cliente pelo WhatsApp</button>
+              <button type="button" onClick={() => void copiar(linkCliente)}>Copiar</button>
+            </div>
+            <p>Este endereço aparece só agora. Se sair desta tela, crie outro.</p>
+          </div>}
+          <details className={styles.gerenciarAcesso}>
+            <summary>Gerenciar acesso</summary>
+            {dados.clienteHabilitado && <button type="button" disabled={busy} onClick={() => setConfirmacao({
+              titulo: 'Revogar acesso do cliente?',
+              texto: 'O link de edição para de funcionar.',
+              acao: 'Revogar acesso',
+              confirmar: async () => { if (await executar({ acao: 'acesso', habilitado: false }, 'Acesso revogado.', true)) setLinkCliente(''); },
+            })}>Revogar acesso</button>}
+            {controlesLimites}
+          </details>
+        </details>)}
         <ConviteFamilias familias={dados.familias ?? []} publicado={dados.publicado && !dados.desatualizado} busy={busy} erro={erro} ui={ui} executar={executarFamilia} />
         <ConvitePresencas respostas={dados.respostas} contratados={dados.convidadosContratados ?? null} ui={ui} busy={busy} atualizar={() => void atualizarPresencas()} />
         <details className={ui.painel}><summary>Histórico do convite</summary><ul>{dados.historico.map((h, n) => <li key={n}>{new Date(h.criado_em).toLocaleString('pt-BR')} · {rotuloHistorico(h)}</li>)}</ul></details>
       </div>}
       {dados.laboratorioLocal && <details className={ui.painel}><summary>Histórico do convite</summary><ul>{dados.historico.map((h, n) => <li key={n}>{new Date(h.criado_em).toLocaleString('pt-BR')} · {rotuloHistorico(h)}</li>)}</ul></details>}
     </>}
+    <dialog ref={dialogoConfirmacao} className={ui.dialogo} aria-labelledby="titulo-confirmacao" onClose={() => setConfirmacao(null)}>
+      <h2 id="titulo-confirmacao">{confirmacao?.titulo}</h2>
+      {confirmacao?.texto && <p>{confirmacao.texto}</p>}
+      <div className={ui.acoes}>
+        <button type="button" autoFocus onClick={() => setConfirmacao(null)}>Cancelar</button>
+        <button type="button" className={ui.primario} disabled={busy} onClick={() => {
+          const acao = confirmacao?.confirmar;
+          setConfirmacao(null);
+          void acao?.();
+        }}>{confirmacao?.acao}</button>
+      </div>
+    </dialog>
     <dialog ref={dialogo} className={ui.dialogo} aria-labelledby="titulo-excluir-imagem" onCancel={e => { if (busy) e.preventDefault(); else setArteExcluir(null); }} onClose={() => setArteExcluir(null)}>
       <h2 id="titulo-excluir-imagem">Excluir imagem da galeria?</h2>
       <p>{dados?.laboratorioLocal ? 'A imagem será retirada da galeria local. O arquivo original permanece no laboratório para recuperação.' : 'O arquivo será excluído desta festa. Essa ação não pode ser desfeita e não devolve créditos de IA.'}</p>
@@ -524,7 +775,7 @@ export default function ConviteEditor({ festaId, conviteId }: { festaId?: string
   </main>;
 }
 
-function SeletorArte({ nome, valor, desativado, mudar, opcoes, ui }: { nome: string; valor: string; desativado: boolean; mudar: (valor: string) => void; opcoes: string[][]; ui: Record<string, string> }) {
+function SeletorArte<T extends string>({ nome, valor, desativado, mudar, opcoes, ui }: { nome: string; valor: T; desativado: boolean; mudar: (valor: T) => void; opcoes: readonly (readonly [T, string])[]; ui: Record<string, string> }) {
   const [aberto, setAberto] = useState(false);
   const raiz = useRef<HTMLDivElement>(null);
   const gatilho = useRef<HTMLButtonElement>(null);

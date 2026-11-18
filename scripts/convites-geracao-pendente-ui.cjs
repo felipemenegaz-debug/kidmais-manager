@@ -19,7 +19,7 @@ const contexto = { empresas: [{ id: id(2), nome: 'Buffet Teste', papel: 'REPRESE
   const resumo = [];
   // Servidor simulado por cenário: a situação da geração avança a cada consulta leve (?geracao=).
   async function abrir({ admin, modo, incerta = false, viewport = { width: 1440, height: 1100 } }) {
-    const dados = { id: id(1), conteudo: { tema: 'celebrar', nome: 'Lucas', idade: '5 anos', mensagem: 'Venha comemorar comigo!', data: '2027-04-20', horario: '15:00', local: 'Buffet KidMais', endereco: 'Asa Norte · Brasília', arteId: null, confirmarPresenca: true },
+    const dados = { id: id(1), logoBuffet: admin ? { mostrar: false, logoDataUrl: null } : null, conteudo: { tema: 'celebrar', nome: 'Lucas', idade: '5 anos', mensagem: 'Venha comemorar comigo!', data: '2027-04-20', horario: '15:00', local: 'Buffet KidMais', endereco: 'Asa Norte · Brasília', arteId: null, confirmarPresenca: true },
       revisao: 1, publicado: false, desatualizado: false, linkPublico: `/convite/${'p'.repeat(43)}`, clienteHabilitado: false, convidadosContratados: 40, familias: [],
       disponiveis: 3, iaDisponivel: true, completoDisponivel: true, geracaoIncerta: incerta, geracaoEmAndamento: null,
       cotas: admin ? { festa: 3, festaUsado: 0, cliente: 2, clienteUsado: 0, empresa: 60, empresaUsado: 0 } : { festa: 3, festaUsado: 0, cliente: 2, clienteUsado: 0 },
@@ -31,6 +31,8 @@ const contexto = { empresas: [{ id: id(2), nome: 'Buffet Teste', papel: 'REPRESE
       if (url.origin !== new URL(base).origin && !['data:', 'blob:'].includes(url.protocol)) return route.abort();
       if (!url.pathname.startsWith('/api/')) return route.continue();
       const json = (data, status = 200, ok = true) => route.fulfill({ status, contentType: 'application/json', body: JSON.stringify(ok ? { ok, data } : { ok, erro: data }) });
+      if (url.pathname === '/api/endereco-atual') return route.fulfill({ json: { modoEfetivo: 'DESLIGADO' } });
+      if (url.pathname === '/api/admin/configuracoes/agenda') return json({ instalada: true, pendentes: [] });
       if (url.pathname === '/api/admin/autenticacao') return json({ usuarioId: id(3), sessaoId: id(4), csrf: 'csrf-teste', nome: 'Teste', contexto, comercial: null });
       if (url.pathname === '/api/admin/configuracoes/perfil-empresa/logo') return json({ logoDataUrl: null });
       if (!['/api/admin/convites', '/api/convites/cliente'].includes(url.pathname)) { estado.erros.push(`API inesperada: ${url.pathname}`); return route.abort(); }
@@ -63,6 +65,7 @@ const contexto = { empresas: [{ id: id(2), nome: 'Buffet Teste', papel: 'REPRESE
     const page = await context.newPage(); page.on('pageerror', e => estado.erros.push(e.message));
     await page.goto(admin ? `${base}/admin/festas/${id(1)}/convite` : `${base}/convites/criar#${'a'.repeat(43)}`);
     await page.getByLabel('Nome do aniversariante', { exact: true }).waitFor();
+    await page.getByRole('button', { name: 'Criar com IA' }).click();
     return { page, context, estado, dados };
   }
   const gerarBotao = page => page.getByRole('button', { name: /^(Gerar convite completo · 1 crédito|Processando…)$/ });
@@ -107,8 +110,9 @@ const contexto = { empresas: [{ id: id(2), nome: 'Buffet Teste', papel: 'REPRESE
     for (const [admin, viewport, arquivo] of [[true, { width: 1440, height: 1100 }, '04-buffet-verificando.png'], [false, { width: 390, height: 844 }, '05-cliente-verificando-celular.png']]) {
       const { page, context, estado } = await abrir({ admin, modo: 'normal', incerta: true, viewport });
       await page.getByText(VERIFICANDO).first().waitFor();
-      for (const proibido of ['Revisar geração sem resultado', 'Cobrança confirmada', 'Sem cobrança', 'Fonte e evidência', 'provedor'])
+      for (const proibido of ['Revisar geração sem resultado', 'Cobrança confirmada', 'Sem cobrança', 'Fonte e evidência'])
         assert.equal(await page.getByText(proibido).count(), 0, proibido);
+      assert.equal(await page.getByRole('status').filter({ hasText: /provedor/i }).count(), 0, 'a situação não expõe o provedor');
       assert.equal(await page.getByRole('button', { name: 'Gerar convite completo · 1 crédito' }).isDisabled(), true);
       await page.getByText(VERIFICANDO).first().scrollIntoViewIfNeeded();
       await page.screenshot({ path: path.join(out, arquivo), fullPage: false });

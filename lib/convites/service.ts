@@ -187,6 +187,7 @@ export async function consultar(a: Acesso, criar = false) {
     // Etapa 3: o buffet recebe logoPosicoes, logoSemNome e o id da arte publicada (aviso ao desligar); nunca logoOrdem nem logoGeracoes.
     return { id: c.id, festaId: c.festa_id, conteudo: a.tipo === 'admin' ? paraBuffet(comBlocoLocal(c.rascunho, bloco)) : semLogoBuffet(comBlocoLocal(c.rascunho, bloco)), logoBuffet,
       ...(a.tipo === 'admin' ? { publicadoArteId: c.publicado?.arteId ?? null } : {}),
+      ...(a.tipo === 'admin' && !criar ? { editor_expira_em: c.editor_expira_em } : {}),
       avisoLocal: bloco?.origem === 'UNIDADE' ? AVISO_CONVITE_SEM_SALAO : null, revisao: c.revisao, publicado: !!c.publicado, desatualizado: c.versao_contrato_id !== versao, convidadosContratados,
       linkPublico: `/convite/${c.publico_token}`, clienteHabilitado: !!c.editor_hash && !!c.editor_expira_em && c.editor_expira_em > new Date(),
       cotas: a.tipo === 'admin' ? limite : { festa: limite.festa, festaUsado: limite.festaUsado, cliente: limite.cliente, clienteUsado: limite.clienteUsado },

@@ -24,7 +24,13 @@ const dataUrl = (b, tipo) => `data:${tipo};base64,${b.toString('base64')}`;
         revisao: 1, publicado: false, desatualizado: false, linkPublico: `/convite/${'p'.repeat(43)}`, clienteHabilitado: false, convidadosContratados: 40, familias: [],
         disponiveis: 3, iaDisponivel: true, completoDisponivel: true, geracaoIncerta: false, podeRecuperarGeracao: admin, geracoesPendentes: [], decisoesRecuperacao: [],
         cotas: admin ? { festa: 3, festaUsado: 0, cliente: 2, clienteUsado: 0, empresa: 60, empresaUsado: 0 } : { festa: 3, festaUsado: 0, cliente: 2, clienteUsado: 0 },
-        artes, respostas: [], historico: [] };
+        artes, respostas: [], historico: [], autorizacaoIA: {
+          versao: 'sintetica', provedor: 'openai', provedorNome: 'OpenAI', operador: admin ? 'BUFFET' : 'CLIENTE',
+          hashes: { autorizacao: 'a'.repeat(64), imagens: 'b'.repeat(64) }, aviso: 'Aviso sintético.', consentimento: 'Declaração sintética.',
+          foto: 'Confirmação sintética para estas imagens.', imagens: 'Confirmação para uma só geração.', alternativa: 'Use uma imagem própria.',
+          vigente: { id: id(60), operador: 'CLIENTE', vinculo: 'MAE', meio: 'PROPRIO_RESPONSAVEL', registradaEm: '2026-11-18T12:00:00Z' },
+          precisaRenovar: false,
+        } };
       const comandos = [], erros = [];
       const context = await browser.newContext({ viewport: { width: 1440, height: 1100 }, acceptDownloads: true });
       await context.route('**/*', async route => {
@@ -32,7 +38,9 @@ const dataUrl = (b, tipo) => `data:${tipo};base64,${b.toString('base64')}`;
         if (url.origin !== new URL(base).origin && !['data:', 'blob:'].includes(url.protocol)) return route.abort();
         if (!url.pathname.startsWith('/api/')) return route.continue();
         let data;
-        if (url.pathname === '/api/admin/autenticacao') data = { usuarioId: id(3), sessaoId: id(4), csrf: 'csrf-teste', nome: 'Teste', contexto, comercial: null };
+        if (url.pathname === '/api/endereco-atual') return route.fulfill({ json: { modoEfetivo: 'DESLIGADO' } });
+        if (url.pathname === '/api/admin/configuracoes/agenda') data = { instalada: true, pendentes: [] };
+        else if (url.pathname === '/api/admin/autenticacao') data = { usuarioId: id(3), sessaoId: id(4), csrf: 'csrf-teste', nome: 'Teste', contexto, comercial: null };
         else if (url.pathname === '/api/admin/configuracoes/perfil-empresa/logo') data = { logoDataUrl: null };
         else if (['/api/admin/convites', '/api/convites/cliente'].includes(url.pathname)) {
           if (request.method() === 'POST') {
@@ -41,7 +49,7 @@ const dataUrl = (b, tipo) => `data:${tipo};base64,${b.toString('base64')}`;
             if (b.acao === 'gerar') {
               // Simula o servidor: uma arte completa WebP 1024×1536 por chave; nenhuma chamada externa.
               dados.artes = [{ id: id(50), origem: 'IA', completo: true, url: dataUrl(completa, 'image/webp') }, ...dados.artes];
-              dados.disponiveis--; data = { arteId: id(50), estado: 'CONCLUIDA', completo: true };
+              dados.disponiveis--; data = { chave: b.chave, arteId: id(50), estado: 'CONCLUIDA', completo: true };
             } else { dados.conteudo = b.conteudo; dados.revisao++; if (b.acao === 'publicar') dados.publicado = true; data = { salvo: true }; }
           } else data = dados;
         } else { erros.push(`API inesperada: ${url.pathname}`); return route.abort(); }
@@ -57,30 +65,32 @@ const dataUrl = (b, tipo) => `data:${tipo};base64,${b.toString('base64')}`;
       await page.getByRole('button', { name: 'Salvar rascunho', exact: true }).click();
       await page.getByRole('status').filter({ hasText: 'Rascunho salvo' }).waitFor();
       assert.deepEqual(dados.conteudo.visual, { modo: 'completa', ajuste: 'preencher', x: 30, y: 70 });
-      await page.getByText('Imagens anteriores', { exact: true }).click();
+      await page.getByText('Imagens da festa', { exact: true }).click();
       await page.getByRole('button', { name: 'Remover imagem do convite' }).click();
-      await page.getByText('Imagens anteriores', { exact: true }).click();
+      await page.getByText('Imagens da festa', { exact: true }).click();
 
-      // 1. Coluna central: dados → arte → IA; painel de IA aberto sem clique; molduras e controles do laboratório ausentes.
+      // 1. Coluna central: dados → arte → IA; painel de IA fechado até a escolha; molduras e controles do laboratório ausentes.
       const topo = async loc => (await loc.boundingBox()).y;
       const yDados = await topo(page.getByRole('heading', { name: 'Dados da festa' }));
       const yArte = await topo(page.getByRole('article', { name: 'Prévia do convite' }));
-      const yIA = await topo(page.getByRole('heading', { name: 'Crie uma arte com IA' }));
+      const yIA = await topo(page.getByRole('heading', { name: 'Arte do convite' }));
       assert(yDados < yArte && yArte < yIA, `ordem ${yDados} ${yArte} ${yIA}`);
       const pedido = page.getByRole('textbox', { name: 'Descreva a arte do convite' });
-      assert(await pedido.isVisible(), 'Painel de IA aberto');
-      for (const nome of ['Bases neutras', 'Mais modelos', 'Qualidade da imagem', 'Opções avançadas']) assert.equal(await page.getByRole('button', { name: nome }).count(), 0, nome);
+      assert(!(await pedido.isVisible()), 'IA fechada ao carregar');
+      for (const nome of ['Bases neutras', 'Mais modelos', 'Opções avançadas']) assert.equal(await page.getByRole('button', { name: nome }).count(), 0, nome);
       assert.equal(await page.getByText('Criar avatar').count(), 0);
-      assert.equal(await page.getByText('Acesso do cliente e limites').count(), admin ? 1 : 0);
+      assert.equal(await page.getByText('Edição pelo cliente').count(), admin ? 1 : 0);
 
       // 2. Galeria: três linhas (9 no computador).
-      await page.getByText('Imagens anteriores', { exact: true }).click();
+      await page.getByText('Imagens da festa', { exact: true }).click();
       const selecionar = page.getByRole('button', { name: /^Selecionar imagem/ });
       assert.equal(await selecionar.count(), 9);
       await page.getByRole('button', { name: 'Próxima →' }).click();
       assert.equal(await selecionar.count(), 3);
       await page.getByRole('button', { name: '← Anterior' }).click();
-      assert(await page.getByText('Usar uma arte própria').first().isVisible(), 'Envio de arte própria preservado');
+      await page.getByRole('button', { name: 'Usar imagem minha' }).click();
+      assert(await page.getByLabel('Usar uma arte própria').isVisible(), 'Arquivo disponível fora da galeria');
+      await page.getByRole('button', { name: 'Criar com IA' }).click();
 
       // 3. Seletor de estilo pelo teclado.
       const estilo = page.getByRole('button', { name: 'Estilo da arte' });
@@ -118,18 +128,17 @@ const dataUrl = (b, tipo) => `data:${tipo};base64,${b.toString('base64')}`;
       await page.locator('details', { hasText: 'Foto do aniversariante' }).locator('input[type="file"]').first().setInputFiles({ name: 'foto.png', mimeType: 'image/png', buffer: foto });
       await page.getByRole('img', { name: 'Foto de referência do aniversariante' }).waitFor();
       await page.getByLabel('Mensagem').fill('Venha para a fazenda!');
-      await gerar.click();
-      await page.getByRole('alert').filter({ hasText: 'Confirme a autorização' }).waitFor();
+      assert(await gerar.isDisabled());
       assert.equal(comandos.filter(c => c.acao === 'gerar').length, 0);
-      await page.getByLabel(/Tenho autorização para enviar esta foto/).check();
+      await page.getByLabel(dados.autorizacaoIA.foto).check();
       await gerar.dblclick();
-      await page.getByRole('status').filter({ hasText: 'Convite pronto' }).waitFor();
+      await page.getByRole('status').filter({ hasText: 'Convite pronto. Confira' }).waitFor();
       const geracoes = comandos.filter(c => c.acao === 'gerar');
       assert.equal(geracoes.length, 1, 'Duplo clique não gera duas vezes');
       const [g] = geracoes;
-      assert.equal(g.completo, true); assert.equal(g.estilo, 'cartoon2d'); assert.equal(g.autorizacaoFoto, true);
+      assert.equal(g.completo, true); assert.equal(g.estilo, 'cartoon2d'); assert.deepEqual(g.autorizacaoImagens, { versao: dados.autorizacaoIA.versao, textoHash: dados.autorizacaoIA.hashes.imagens });
       assert.match(g.foto, /^data:image\/png;base64,/); assert.deepEqual(g.referencias, []);
-      for (const campo of ['qualidade', 'modelo', 'campos', 'provedor']) assert.equal(g[campo], undefined, campo);
+      for (const campo of ['modelo', 'campos', 'provedor']) assert.equal(g[campo], undefined, campo);
       const ordem = comandos.map(c => c.acao); assert.deepEqual(ordem.slice(-2), ['salvar', 'gerar'], 'Salva os dados antes da geração');
       assert.equal(dados.conteudo.mensagem, 'Venha para a fazenda!');
 
@@ -151,7 +160,7 @@ const dataUrl = (b, tipo) => `data:${tipo};base64,${b.toString('base64')}`;
       for (const [largura, porPagina] of [[1440, 9], [390, 6]]) {
         await page.setViewportSize({ width: largura, height: 1000 });
         await page.reload(); await page.getByLabel('Nome do aniversariante', { exact: true }).waitFor();
-        await page.getByText('Imagens anteriores', { exact: true }).click();
+        await page.getByText('Imagens da festa', { exact: true }).click();
         assert.equal(await page.getByRole('button', { name: /^Selecionar imagem/ }).count(), porPagina, `${largura}px`);
         assert(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), `sem rolagem horizontal em ${largura}px`);
         await page.screenshot({ path: path.join(out, `${quem}-${largura}.png`), fullPage: true });
