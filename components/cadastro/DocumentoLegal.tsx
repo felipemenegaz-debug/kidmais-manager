@@ -34,7 +34,7 @@ export default function DocumentoLegal({ documento }: { documento: TextoLegal })
                     </table>
                 </div>}
             </section>)}
-            <p style={{ marginTop: 24 }}>{outros.map((d) => <span key={d.documento}><Link href={d.rota}>{d.titulo.replace(/ do iA\.Fest$/, '')}</Link> · </span>)}<Link href="/planos">Planos</Link> · <Link href="/cadastro">Criar conta</Link> · <Link href="/admin/login">Entrar</Link></p>
+            <p style={{ marginTop: 24 }}>{outros.map((d) => <span key={d.documento}><Link href={d.rota}>{d.titulo.replace(/ do Kidmais Manager$/, '')}</Link> · </span>)}<Link href="/planos">Planos</Link> · <Link href="/cadastro">Criar conta</Link> · <Link href="/admin/login">Entrar</Link></p>
         </main>
     </div>;
 }

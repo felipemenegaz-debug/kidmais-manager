@@ -4,7 +4,7 @@ import { DOCUMENTOS } from '@/lib/cadastro/documentos-legais';
 
 export const metadata: Metadata = {
     title: 'Aviso de privacidade — iA.Fest',
-    description: 'Aviso de privacidade do iA.Fest: tratamento de dados, WhatsApp, contato e pedidos de exclusão.',
+    description: 'Minuta do aviso de privacidade do iA.Fest: tratamento de dados, WhatsApp, contato e pedidos de exclusão.',
 };
 
 export default function Page() {

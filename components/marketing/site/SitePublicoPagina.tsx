@@ -191,7 +191,7 @@ export default function SitePublicoPagina({ conteudo, urlImagem, base, acaoFormu
             </div>}
           </div>
           <div className={styles.orcamentoFormulario}>
-            <FormularioOrcamento acao={acaoFormulario} captura={captura} buffet={c.identidade.nome} previa={previa} />
+            <FormularioOrcamento acao={acaoFormulario} captura={captura} previa={previa} />
           </div>
         </div>
       </section>}

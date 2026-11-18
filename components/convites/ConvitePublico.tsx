@@ -4,14 +4,13 @@ import { useEffect, useRef, useState, type CSSProperties } from 'react';
 import { enderecoDoConvite, localDoConvite, type Conteudo } from '@/lib/convites/domain';
 import type { FamiliaPublica } from '@/lib/convites/familias-domain';
 import { contraste, luminancia, temaVisual, tintaLegivel } from '@/lib/convites/visual';
-import AvisoPresenca from './AvisoPresenca';
 import ConviteArte from './ConviteArte';
 import styles from './publico.module.css';
 export default function ConvitePublico({ token }: { token: string }) {
   const [conteudo, setConteudo] = useState<Conteudo | null>(null), [erro, setErro] = useState(''), [aviso, setAviso] = useState('');
   const [busy, setBusy] = useState(false), [nome, setNome] = useState(''), [presenca, setPresenca] = useState(true), [adultos, setAdultos] = useState(1), [criancas, setCriancas] = useState(0);
   const [efeitosPausados, setEfeitosPausados] = useState(false), [marcaKidmais, setMarcaKidmais] = useState(false), [logoBuffet, setLogoBuffet] = useState(false);
-  const [familia, setFamilia] = useState<FamiliaPublica | null>(null), [buffet, setBuffet] = useState('');
+  const [familia, setFamilia] = useState<FamiliaPublica | null>(null);
   const chave = useRef(''), acessoFamilia = useRef<string | null>(null);
   const endpoint = `/api/convites/publico/${encodeURIComponent(token)}`;
   useEffect(() => {
@@ -25,7 +24,7 @@ export default function ConvitePublico({ token }: { token: string }) {
       try { const k = `convite-rsvp:${token}`; chave.current = acesso != null ? crypto.randomUUID() : localStorage.getItem(k) || crypto.randomUUID(); if (acesso == null) localStorage.setItem(k, chave.current); }
       catch { chave.current = crypto.randomUUID(); }
       void fetch(endpoint, { cache: 'no-store', signal: atual.signal, headers: acesso != null ? { Authorization: `Bearer ${acesso}` } : {} }).then(async r => {
-        const j = await r.json(); if (atual.signal.aborted) return; if (!r.ok) throw new Error(j.erro); setConteudo(j.data.conteudo); setMarcaKidmais(j.data.marcaKidmais === true); setLogoBuffet(j.data.logoBuffet === true); setBuffet(j.data.buffet ?? '');
+        const j = await r.json(); if (atual.signal.aborted) return; if (!r.ok) throw new Error(j.erro); setConteudo(j.data.conteudo); setMarcaKidmais(j.data.marcaKidmais === true); setLogoBuffet(j.data.logoBuffet === true);
         const f = j.data.familia as FamiliaPublica | null; setFamilia(f ?? null);
         if (f) { setNome(f.nome); setPresenca(f.presenca ?? true); setAdultos(f.adultos); setCriancas(f.criancas); }
       }).catch(e => { if (!atual.signal.aborted) setErro(e.message); });
@@ -55,9 +54,9 @@ export default function ConvitePublico({ token }: { token: string }) {
           const r = await fetch(endpoint, { method: 'POST', headers: { 'Content-Type': 'application/json', ...(acessoFamilia.current != null ? { Authorization: `Bearer ${acessoFamilia.current}` } : {}) }, body: JSON.stringify({ chave: chave.current, nome, presenca, adultos, criancas, site }) });
           const j = await r.json(); if (!r.ok) throw new Error(j.erro); setAviso(familia ? 'Resposta salva! Use este mesmo link para atualizar, inclusive em outro dispositivo.' : 'Resposta salva! Você pode atualizar sua resposta neste dispositivo.');
         } catch (err) { setErro((err as Error).message); } finally { setBusy(false); }
-      }}><span className={styles.selo} aria-hidden="true">{tema?.simbolo}</span><p className={styles.sobretitulo}>VAMOS NOS ENCONTRAR?</p><h2 id="titulo-presenca">Confirme sua presença</h2><p>{familia ? `Convite para ${familia.nome}. Este link mantém uma única resposta da sua família, mesmo em outro dispositivo.` : 'Uma resposta por família. Informe o total de pessoas que irão à festa.'}</p><AvisoPresenca buffet={buffet} /><fieldset disabled={busy} className={styles.formulario}><label>Seu nome<input required maxLength={100} minLength={2} readOnly={!!familia} value={nome} onChange={e => setNome(e.target.value)} autoComplete="name" /></label><label>Sua resposta<select value={presenca ? 'sim' : 'nao'} onChange={e => setPresenca(e.target.value === 'sim')}><option value="sim">Sim, vamos comemorar!</option><option value="nao">Não poderemos ir</option></select></label>
+      }}><span className={styles.selo} aria-hidden="true">{tema?.simbolo}</span><p className={styles.sobretitulo}>VAMOS NOS ENCONTRAR?</p><h2 id="titulo-presenca">Confirme sua presença</h2><p>{familia ? `Convite para ${familia.nome}. Este link mantém uma única resposta da sua família, mesmo em outro dispositivo.` : 'Uma resposta por família. Informe o total de pessoas que irão à festa.'}</p><fieldset disabled={busy} className={styles.formulario}><label>Seu nome<input required maxLength={100} minLength={2} readOnly={!!familia} value={nome} onChange={e => setNome(e.target.value)} autoComplete="name" /></label><label>Sua resposta<select value={presenca ? 'sim' : 'nao'} onChange={e => setPresenca(e.target.value === 'sim')}><option value="sim">Sim, vamos comemorar!</option><option value="nao">Não poderemos ir</option></select></label>
         {presenca && <div className={styles.campos}><label>Adultos<input required type="number" min={0} max={20} value={adultos} onChange={e => setAdultos(Number(e.target.value))} /></label><label>Crianças<input required type="number" min={0} max={20} value={criancas} onChange={e => setCriancas(Number(e.target.value))} /></label></div>}
-        <div className={styles.isca} aria-hidden="true"><label>Site<input name="site" tabIndex={-1} autoComplete="off" /></label></div><button className={styles.primario} type="submit">{busy ? 'Enviando…' : 'Enviar resposta'}</button></fieldset>{erro && <p role="alert" className={styles.erro}>{erro}</p>}{aviso && <p role="status" className={styles.aviso}>{aviso}</p>}</form>}
+        <div className={styles.isca} aria-hidden="true"><label>Site<input name="site" tabIndex={-1} autoComplete="off" /></label></div><button className={styles.primario} type="submit">{busy ? 'Enviando…' : 'Enviar resposta'}</button></fieldset><small>Sua resposta será vista pelo organizador e pelo buffet.</small>{erro && <p role="alert" className={styles.erro}>{erro}</p>}{aviso && <p role="status" className={styles.aviso}>{aviso}</p>}</form>}
       </div>
       <footer className={styles.rodape}>{logoBuffet && <img className={styles.logoBuffet} src={`${endpoint}?logo=1`} alt="Logo do buffet" onError={() => setLogoBuffet(false)} />}{marcaKidmais ? 'Um momento especial, organizado com KidMais.' : 'Um momento especial.'}</footer>
     </>}

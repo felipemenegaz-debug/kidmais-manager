@@ -12,11 +12,8 @@ function novaChave() {
  * Formulário de orçamento do site público. A chave de idempotência nasce ao abrir e só muda depois de um envio aceito:
  * reenviar por falha de rede não duplica o pedido. O campo "website" é armadilha para robôs (invisível para pessoas).
  * Em prévia, nada é enviado.
- *
- * R-5 (P6): antes dos campos, o aviso identifica o buffet responsável, a finalidade e leva ao Aviso de privacidade,
- * como o Aviso promete para os formulários públicos dos sites das empresas.
  */
-export default function FormularioOrcamento({ acao, captura, buffet, previa = false }: { acao: string; captura: CapturaFormulario; buffet: string; previa?: boolean }) {
+export default function FormularioOrcamento({ acao, captura, previa = false }: { acao: string; captura: CapturaFormulario; previa?: boolean }) {
   const id = useId();
   // Gerada uma vez ao montar (não aparece na página: sem diferença de hidratação); troca só depois de envio aceito.
   const [chave, setChave] = useState(novaChave);
@@ -54,7 +51,6 @@ export default function FormularioOrcamento({ acao, captura, buffet, previa = fa
   const erroEm = (campo: string) => (campoErro === campo ? { 'aria-invalid': true as const, 'aria-describedby': `${id}-erro` } : {});
   return <form className={styles.formulario} onSubmit={enviar} noValidate={false} aria-describedby={previa ? `${id}-previa` : undefined}>
     {previa && <p id={`${id}-previa`} className={styles.avisoPrevia}>Prévia: o formulário não envia pedidos.</p>}
-    <p className={styles.legal} data-aviso-orcamento="">O buffet {buffet} é o responsável pelos dados deste pedido. Usamos nome, contato, data, número de convidados e mensagem só para responder ao seu pedido de orçamento.{' '}<a href="/privacidade#tratamento-de-dados" target="_blank" rel="noopener">Aviso de privacidade</a></p>
     <div className={styles.campos}>
       <label>Seu nome <span className={styles.obrigatorio}>(obrigatório)</span><input name="nome" required minLength={2} maxLength={120} autoComplete="name" {...erroEm('nome')} /></label>
       <label>Telefone / WhatsApp<input name="telefone" inputMode="tel" maxLength={20} autoComplete="tel" placeholder="(11) 99999-9999" {...erroEm('telefone')} /></label>
@@ -65,7 +61,7 @@ export default function FormularioOrcamento({ acao, captura, buffet, previa = fa
       <label className={`${styles.campoLargo} ${styles.consentimento}`}><input type="checkbox" name="autorizaWhatsapp" value="sim" /> Aceito receber mensagens do buffet pelo WhatsApp sobre festas. Posso cancelar a qualquer momento respondendo PARAR.</label>
       <div className={styles.armadilha} aria-hidden="true"><label>Site<input name="website" tabIndex={-1} autoComplete="off" /></label></div>
     </div>
-    <p className={styles.legal}>Informe telefone ou e-mail para receber a resposta.</p>
+    <p className={styles.legal}>Informe telefone ou e-mail para receber a resposta. Seus dados são usados só para este atendimento.</p>
     {mensagem && <p id={`${id}-erro`} className={styles.erro} role="alert">{mensagem}</p>}
     <button type="submit" className={styles.botaoPrimario} disabled={previa || estado === 'enviando'} aria-busy={estado === 'enviando'}>{estado === 'enviando' ? 'Enviando…' : 'Pedir orçamento'}</button>
   </form>;

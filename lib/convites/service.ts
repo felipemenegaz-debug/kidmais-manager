@@ -711,9 +711,7 @@ export async function logoPublica(tokenPublico: string) {
 }
 export async function consultarPublico(tokenPublico: string, tokenFamilia: string | null) {
   const { c, conteudo, marcaKidmais } = await publico(tokenPublico);
-  // Identifica o buffet controlador no aviso exibido antes da confirmação de presença (R-5).
-  const buffet = (await db().query<{ nome: string }>('SELECT nome FROM empresas WHERE id=$1', [c.empresa_id])).rows[0]?.nome ?? '';
-  return { conteudo: semLogoBuffet(conteudo), marcaKidmais, logoBuffet: !!(await logoDoConvitePublico(c, conteudo)), buffet, familia: tokenFamilia == null ? null : await dadosFamiliaPublica(db(), c, tokenFamilia) };
+  return { conteudo: semLogoBuffet(conteudo), marcaKidmais, logoBuffet: !!(await logoDoConvitePublico(c, conteudo)), familia: tokenFamilia == null ? null : await dadosFamiliaPublica(db(), c, tokenFamilia) };
 }
 export async function confirmar(tokenPublico: string, raw: unknown, tokenFamilia: string | null = null) {
   const i = respostaSchema.parse(raw);
