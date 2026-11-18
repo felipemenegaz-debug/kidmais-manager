@@ -1,6 +1,6 @@
 # Backups e cópias de banco: inventário, 90 dias, eliminação e restauração
 
-**Estado (03/11/2026): procedimento LOCAL, documental, não publicado.** Versão de 21/10/2026 atualizada para a fornecedora **Demerzel Labs Ltda.** ("Demerzel Labs") e para os textos legais `2026-11-15-termos`, `2026-11-15-privacidade` e `2026-11-15-dpa`. Nesta atualização nada foi apagado, aberto, restaurado ou consultado em banco ou painel.
+**Estado (03/11/2026): procedimento LOCAL, documental, não publicado.** Versão de 21/10/2026 atualizada para a fornecedora **Demerzel Labs Ltda.** ("Demerzel Labs") e para os textos legais `2026-11-17-termos`, `2026-11-17-privacidade` e `2026-11-17-dpa`. Nesta atualização nada foi apagado, aberto, restaurado ou consultado em banco ou painel.
 
 Fonte de verdade: `lib/cadastro/documentos-legais.ts`. Se este procedimento divergir dos textos, valem os textos.
 
@@ -189,6 +189,7 @@ Restaurar (PITR ou dump) volta o banco a um instante **T**. Tudo o que foi exclu
 | Autorização de IA de convite revogada | `convite_ia_autorizacoes.revogada_em` (088) | Editor do convite: revogar de novo (`lib/convites/service.ts`) |
 | Cliente enviado à lixeira (inativado) | `auditoria` (ação de lixeira; `lib/clientes/services/lixeira.ts`) | Lixeira: mover de novo |
 | Pedido de titular atendido com eliminação ou anonimização | `Registro de pedidos de titulares LGPD` (medida e ids técnicos) | Repetir a medida registrada |
+| Anonimização de clientes dos buffets (lotes mensais) | Arquivo do lote fora do banco restaurável, com ids técnicos, categoria e medida ([CALENDARIO-DE-ELIMINACOES.md](CALENDARIO-DE-ELIMINACOES.md), seção 2, item 8) | Repetir cada lote com data posterior a T, pelos ids do arquivo, antes de devolver o banco ao uso |
 | Exclusão de empresa após o prazo de encerramento | `Registro de copias e eliminacoes LGPD` ([CALENDARIO-DE-ELIMINACOES.md](CALENDARIO-DE-ELIMINACOES.md)) | Repetir a exclusão registrada |
 | Observações de saúde apagadas pela empresa | `auditoria` da edição da festa | Avisar a empresa controladora para conferir e apagar de novo |
 

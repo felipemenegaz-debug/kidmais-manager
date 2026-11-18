@@ -51,10 +51,10 @@ test('documentos legais: versão no formato do banco, hash SHA-256 estável do t
     assert.equal(textoCanonico({ documento: 'TERMOS_USO', titulo: 'T', versao: '2026-01-01', minuta: true, rota: '/termos', secoes: [{ titulo: 'A', paragrafos: ['b', 'c'] }] }), 'T\nVersão 2026-01-01\nA\nb\nc');
 });
 
-test('documentos legais 15/11 (R-5 sobre o staging com contratante PF/PJ): versões novas, responsável Demerzel Labs, DPA incorporado aos Termos e controles descritos', () => {
-    assert.equal(DOCUMENTOS.TERMOS_USO.versao, '2026-11-15-termos');
-    assert.equal(DOCUMENTOS.PRIVACIDADE.versao, '2026-11-15-privacidade');
-    assert.equal(DOCUMENTOS.DPA.versao, '2026-11-15-dpa');
+test('documentos legais 17/11 (R-5 sobre o staging com contratante PF/PJ e guarda dos clientes do buffet): versões novas, responsável Demerzel Labs, DPA incorporado aos Termos e controles descritos', () => {
+    assert.equal(DOCUMENTOS.TERMOS_USO.versao, '2026-11-17-termos');
+    assert.equal(DOCUMENTOS.PRIVACIDADE.versao, '2026-11-17-privacidade');
+    assert.equal(DOCUMENTOS.DPA.versao, '2026-11-17-dpa');
     for (const d of Object.values(DOCUMENTOS)) {
         const texto = textoCanonico(d);
         assert.match(texto, /contato@demerzellabs\.com\.br/, `${d.documento}: canal oficial`);
@@ -277,6 +277,64 @@ test('E2: cadastro público recusa (503) enquanto houver bloqueio de agenda anti
     assert.match(fonte, /await exigirAgendaSemBloqueioGlobal\(tx\);\s+if \(!await consumirLimite\(tx, 'IDENTIFICADOR', sessao\.usuario_id, REGRA_EMPRESA\)\)/, 'dentro do cadastro da empresa, antes de criá-la');
 });
 
+test('guarda dos clientes do buffet (17/11): prazos, campanhas, criança e anonimização no DPA e no Aviso, sem prometer automatismo inexistente', () => {
+    const dpa = textoCanonico(DOCUMENTOS.DPA), aviso = textoCanonico(DOCUMENTOS.PRIVACIDADE), termos = textoCanonico(DOCUMENTOS.TERMOS_USO);
+    for (const titulo of ['Guarda dos dados dos clientes do Contratante', 'Campanhas, fidelidade e dados de crianças', 'Fim dos prazos: anonimização'])
+        assert.ok(DOCUMENTOS.DPA.secoes.some((s) => s.titulo === titulo), `DPA: seção ${titulo}`);
+    assert.ok(DOCUMENTOS.PRIVACIDADE.secoes.some((s) => s.titulo === 'Guarda dos dados dos clientes do buffet e campanhas'));
+    for (const trecho of ['5 anos contados da data da festa ou do último pagamento', 'até 5 anos sem festa nem contato', '2 anos sem contato', 'Só com autorização do responsável', 'não renovam os prazos'])
+        assert.ok(dpa.includes(trecho), `DPA: ${trecho}`);
+    for (const trecho of ['autorização de mensagens confirmada', 'como deixar de receber', 'não seguem para quem pediu para sair'])
+        assert.ok(dpa.includes(trecho) && aviso.includes(trecho), `DPA e Aviso: ${trecho}`);
+    // Sem automatismo inexistente: a anonimização é por procedimento enquanto não houver rotina; o lembrete de aniversário não existe.
+    assert.ok(dpa.includes('Enquanto a anonimização automática não estiver em operação, a Demerzel Labs aplica estes prazos por procedimento operacional'));
+    assert.ok(dpa.includes('ele não oferece lembrete de aniversário') && aviso.includes('Hoje o iA.Fest não oferece esse lembrete'));
+    assert.ok(dpa.includes('ciclo máximo de 90 dias; se houver restauração, a eliminação é reaplicada'));
+    // Astra r1: saída sem garantia por telefone/e-mail antes de existir; prazo por finalidade; exceção restrita; nunca depois do vencimento.
+    assert.ok(dpa.includes('O envio de campanhas pelo sistema só será ligado quando o pedido de saída for conferido também pelo telefone e pelo e-mail'));
+    assert.ok(!dpa.includes('para que um novo cadastro ou uma importação não volte a chamar a pessoa'));
+    assert.ok(dpa.includes('Cada prazo vale para a sua finalidade') && aviso.includes('Cada prazo vale para a sua finalidade'));
+    assert.ok(dpa.includes('preserva só os registros necessários à cobrança ou à disputa'));
+    assert.ok(dpa.includes('até 30 dias antes do vencimento, nunca depois, salvo na primeira aplicação'));
+    assert.ok(dpa.includes('um único aviso alcança os dados já vencidos e os que vencem no mês do aviso e no seguinte; cada um é eliminado no primeiro dia do mês do seu vencimento ou 30 dias depois do aviso, o que for mais tarde'), 'Astra r2/r3: regra da primeira aplicação explícita no DPA');
+    // Astra r1 P2: o Aviso dá ao titular os três critérios.
+    for (const trecho of ['ou do cancelamento, se a festa foi cancelada', 'Só renova esses prazos o contato que parte da pessoa', 'enquanto o buffet for assinante do iA.Fest'])
+        assert.ok(aviso.includes(trecho), `Aviso: ${trecho}`);
+    assert.ok(termos.includes('“Guarda dos dados dos clientes do Contratante” e “Fim dos prazos: anonimização”'), 'Termos remetem às seções do DPA');
+    for (const titulo of ['Guarda dos dados dos clientes do Contratante', 'Fim dos prazos: anonimização'])
+        assert.ok(DOCUMENTOS.DPA.secoes.some((s) => s.titulo === titulo), `remissão dos Termos aponta para seção existente: ${titulo}`);
+});
+
+test('guarda dos clientes (Astra r3): primeira aplicação e ciclo normal — aviso mínimo de 30 dias e antecipação máxima de 30 dias', () => {
+    const DIA = 86_400_000;
+    const utc = (a: number, m: number, d: number) => Date.UTC(a, m - 1, d);
+    const primeiroDoMes = (t: number) => { const x = new Date(t); return Date.UTC(x.getUTCFullYear(), x.getUTCMonth(), 1); };
+    const somaMeses = (t: number, n: number) => { const x = new Date(t); return Date.UTC(x.getUTCFullYear(), x.getUTCMonth() + n, 1); };
+    // Regra do DPA (“Fim dos prazos: anonimização”) e do calendário (seção 2, itens 8.3 e 8.6).
+    const execucaoTransicao = (d: number, venc: number) => Math.max(primeiroDoMes(venc), d + 30 * DIA);
+    const iso = (t: number) => new Date(t).toISOString().slice(0, 10);
+    // Casos do parecer.
+    assert.equal(iso(execucaoTransicao(utc(2027, 4, 1), utc(2027, 4, 15))), '2027-05-01');
+    assert.equal(iso(execucaoTransicao(utc(2027, 4, 1), utc(2027, 5, 15))), '2027-05-01');
+    assert.equal(iso(execucaoTransicao(utc(2027, 7, 1), utc(2027, 8, 31))), '2027-08-01');
+    assert.equal(iso(execucaoTransicao(utc(2027, 2, 1), utc(2027, 3, 1))), '2027-03-03');
+    // Varredura: todo D (dia 1º de 2027–2028) e todo vencimento até o fim do mês D+1.
+    for (let m = 0; m < 24; m++) {
+        const d = Date.UTC(2027, m, 1);
+        for (let venc = d - 400 * DIA; venc < somaMeses(d, 2); venc += DIA) {
+            const exec = execucaoTransicao(d, venc);
+            assert.ok(exec - d >= 30 * DIA, `aviso mínimo: D=${iso(d)} venc=${iso(venc)}`);
+            assert.ok(venc - exec <= 30 * DIA, `antecipação máxima: D=${iso(d)} venc=${iso(venc)}`);
+            if (exec > venc) assert.ok(venc < d + 30 * DIA && exec === d + 30 * DIA, `atraso só na exceção do DPA: D=${iso(d)} venc=${iso(venc)}`);
+        }
+        // Ciclo normal: aviso em D para o mês D+2, execução no 1º de D+2.
+        for (let venc = somaMeses(d, 2); venc < somaMeses(d, 3); venc += DIA) {
+            const exec = somaMeses(d, 2);
+            assert.ok(exec - d >= 30 * DIA && venc - exec <= 30 * DIA && exec <= venc, `ciclo normal: D=${iso(d)} venc=${iso(venc)}`);
+        }
+    }
+});
+
 test('manifesto versão → hash (R-5): conteúdo novo exige versão nova, DPA novo exige Termos novos e o histórico publicado fica guardado', () => {
     const pasta = 'lib/cadastro/textos-legais';
     const manifesto = (JSON.parse(readFileSync(`${pasta}/manifesto.json`, 'utf8')) as { versoes: EntradaManifesto[] }).versoes;
@@ -284,6 +342,8 @@ test('manifesto versão → hash (R-5): conteúdo novo exige versão nova, DPA n
     assert.deepEqual(conferirManifesto(DOCUMENTOS, manifesto, ler), []);
     for (const [documento, versao] of [['TERMOS_USO', '2026-10-20-minuta'], ['PRIVACIDADE', '2026-10-21-minuta5a']])
         assert.ok(manifesto.some((e) => e.documento === documento && e.versao === versao), `versão publicada em production guardada: ${documento}@${versao}`);
+    for (const [documento, versao] of [['TERMOS_USO', '2026-11-15-termos'], ['PRIVACIDADE', '2026-11-15-privacidade'], ['DPA', '2026-11-15-dpa']])
+        assert.ok(manifesto.some((e) => e.documento === documento && e.versao === versao), `versão publicada em staging guardada: ${documento}@${versao}`);
     // Controle negativo 1: obrigação do DPA alterada mantendo a versão (a mutação da revisão do Astra de 03/11).
     const trocar = (d: TextoLegal, de: string, para: string) => ({ ...d, secoes: d.secoes.map((s) => ({ ...s, paragrafos: s.paragrafos.map((p) => p.replace(de, para)) })) });
     const dpaMutado = trocar(DOCUMENTOS.DPA, 'avisará o Contratante', 'avisará prontamente o Contratante');

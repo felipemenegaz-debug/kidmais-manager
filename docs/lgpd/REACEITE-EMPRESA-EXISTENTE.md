@@ -10,9 +10,9 @@ Fonte de verdade: `lib/cadastro/documentos-legais.ts`. Os Termos dizem: "Enquant
 
 | Documento | Versão | Endereço |
 |---|---|---|
-| Termos de uso do iA.Fest | `2026-11-15-termos` | `/termos` |
-| Aviso de privacidade do iA.Fest | `2026-11-15-privacidade` | `/privacidade` |
-| Acordo de Tratamento de Dados do iA.Fest (DPA) | `2026-11-15-dpa` | `/acordo-de-tratamento` |
+| Termos de uso do iA.Fest | `2026-11-17-termos` | `/termos` |
+| Aviso de privacidade do iA.Fest | `2026-11-17-privacidade` | `/privacidade` |
+| Acordo de Tratamento de Dados do iA.Fest (DPA) | `2026-11-17-dpa` | `/acordo-de-tratamento` |
 
 As impressões digitais (SHA-256 do texto canônico) estão em `lib/cadastro/textos-legais/manifesto.json`. **Não copiar os hashes para este documento**: eles ainda podem mudar até a publicação. No dia do reaceite, ler os valores do manifesto **no commit que estiver em produção** (seção 4).
 
@@ -31,7 +31,7 @@ As impressões digitais (SHA-256 do texto canônico) estão em `lib/cadastro/tex
 
 | Parte | Quem | Prova de poderes |
 |---|---|---|
-| **Empresa cliente** (cada empresa com aceite anterior às versões 2026-11-15; em 21/10 era só o buffet **Kidmais Festas**) | Representante legal da pessoa jurídica cadastrada. Para o buffet Kidmais Festas, a razão social usada até aqui era Mary Marra Menegaz – EPP, CNPJ 20.119.900/0001-60. **Conferir na ficha da empresa** no painel do desenvolvedor qual CNPJ está cadastrado | Titular da EPP (requerimento de empresário) ou administrador no contrato social; se for outra pessoa, procuração com poderes para contratar |
+| **Empresa cliente** (cada empresa com aceite anterior às versões 2026-11-17; em 21/10 era só o buffet **Kidmais Festas**) | Representante legal da pessoa jurídica cadastrada. Para o buffet Kidmais Festas, a razão social usada até aqui era Mary Marra Menegaz – EPP, CNPJ 20.119.900/0001-60. **Conferir na ficha da empresa** no painel do desenvolvedor qual CNPJ está cadastrado | Titular da EPP (requerimento de empresário) ou administrador no contrato social; se for outra pessoa, procuração com poderes para contratar |
 | **Fornecedora e operadora** | Representante legal da **Demerzel Labs Ltda.**, CNPJ 69.938.612/0001-26, SCRN 704/705, Bloco D, Loja 12, Asa Norte, Brasília/DF, CEP 70730-640 | Ato constitutivo da Demerzel Labs |
 
 Pessoas ligadas à Demerzel Labs atuam no buffet Kidmais Festas (DPA, "Uso próprio e confidencialidade"). Se a mesma pessoa ou a mesma família representar os dois lados, registrar isso no documento (cláusula 6 do modelo). O reaceite continua necessário: fornecedora e buffet são pessoas jurídicas distintas.
@@ -54,7 +54,7 @@ git checkout --detach <commit-no-ar-em-producao>
 node --experimental-strip-types --no-warnings -e "import('./lib/cadastro/documentos-legais.ts').then(m=>{for(const d of Object.keys(m.DOCUMENTOS))console.log(JSON.stringify(m.versaoVigente(d)))})"
 ```
 
-Saída: uma linha por documento (`TERMOS_USO`, `PRIVACIDADE`, `DPA`) com `versao` e `hash` de 64 caracteres. Os valores devem ser iguais aos do `manifesto.json` (entradas com as versões 2026-11-15). Se divergirem, parar. O hash é o mesmo que o cadastro grava em `aceites_documentos_legais.hash_conteudo` (`lib/cadastro/publico.ts`).
+Saída: uma linha por documento (`TERMOS_USO`, `PRIVACIDADE`, `DPA`) com `versao` e `hash` de 64 caracteres. Os valores devem ser iguais aos do `manifesto.json` (entradas com as versões 2026-11-17). Se divergirem, parar. O hash é o mesmo que o cadastro grava em `aceites_documentos_legais.hash_conteudo` (`lib/cadastro/publico.ts`).
 
 ## 5. Passo a passo (Felipe)
 
@@ -93,9 +93,9 @@ Nota do vault com o resumo do reaceite (uma linha por empresa), sem dados pessoa
 |---|---|
 | Identificador | `REACEITE-AAAAMMDD-NN` |
 | Empresa | id da empresa em produção |
-| Termos | `2026-11-15-termos` · SHA-256 do manifesto |
-| DPA | `2026-11-15-dpa` · SHA-256 do manifesto |
-| Aviso (ciência) | `2026-11-15-privacidade` · SHA-256 do manifesto |
+| Termos | `2026-11-17-termos` · SHA-256 do manifesto |
+| DPA | `2026-11-17-dpa` · SHA-256 do manifesto |
+| Aviso (ciência) | `2026-11-17-privacidade` · SHA-256 do manifesto |
 | Commit em produção | sha · deploy |
 | PDF assinado | SHA-256 · local da guarda |
 | Assinaturas | empresa: cargo, data, método · Demerzel Labs: cargo, data, método |
@@ -121,14 +121,14 @@ Fora desta entrega:
 >
 > | Documento | Versão | SHA-256 | Endereço |
 > |---|---|---|---|
-> | Termos de uso | 2026-11-15-termos | [64 caracteres, do manifesto] | [URL]/termos |
-> | Acordo de Tratamento de Dados (integra os Termos) | 2026-11-15-dpa | [64 caracteres, do manifesto] | [URL]/acordo-de-tratamento |
+> | Termos de uso | 2026-11-17-termos | [64 caracteres, do manifesto] | [URL]/termos |
+> | Acordo de Tratamento de Dados (integra os Termos) | 2026-11-17-dpa | [64 caracteres, do manifesto] | [URL]/acordo-de-tratamento |
 >
 > **2. Substituição.** Estes documentos substituem, para o futuro, os aceitos anteriormente. O aceite anterior permanece registrado como foi feito e não é alterado. As novas condições não se aplicam retroativamente a período já pago nem a tratamentos já concluídos.
 >
 > **3. Papéis.** Para os dados pessoais que a Empresa insere ou recebe no iA.Fest, a Empresa é controladora e a Demerzel Labs é operadora, nos termos do Acordo de Tratamento de Dados. Para dados de conta, assinatura, cobrança, suporte e segurança da plataforma, a Demerzel Labs é controladora.
 >
-> **4. Ciência do Aviso de privacidade.** O representante declara ter recebido e lido o Aviso de privacidade versão 2026-11-15-privacidade, SHA-256 [64 caracteres, do manifesto], em [URL]/privacidade. A ciência não constitui consentimento para tratamentos específicos. Consentimentos específicos, como a autorização do responsável para convites com inteligência artificial e fotografia, são obtidos separadamente.
+> **4. Ciência do Aviso de privacidade.** O representante declara ter recebido e lido o Aviso de privacidade versão 2026-11-17-privacidade, SHA-256 [64 caracteres, do manifesto], em [URL]/privacidade. A ciência não constitui consentimento para tratamentos específicos. Consentimentos específicos, como a autorização do responsável para convites com inteligência artificial e fotografia, são obtidos separadamente.
 >
 > **5. Exportação e acesso.** Este aceite não condiciona o acesso aos dados nem a exportação, que permanecem disponíveis nos termos dos documentos.
 >
@@ -150,15 +150,15 @@ Fora desta entrega:
 >
 > A partir de [data], o iA.Fest passa a ser prestado pela Demerzel Labs Ltda., CNPJ 69.938.612/0001-26, e os documentos abaixo foram atualizados:
 >
-> - **Termos de uso**, versão 2026-11-15-termos — [link]
-> - **Acordo de Tratamento de Dados**, versão 2026-11-15-dpa — [link]
-> - **Aviso de privacidade**, versão 2026-11-15-privacidade — [link]
+> - **Termos de uso**, versão 2026-11-17-termos — [link]
+> - **Acordo de Tratamento de Dados**, versão 2026-11-17-dpa — [link]
+> - **Aviso de privacidade**, versão 2026-11-17-privacidade — [link]
 >
 > **O que muda, em resumo:** [3 a 5 pontos, ex.: nova responsável; devolução no arrependimento e no encerramento antecipado do anual; guarda por até 12 meses após a suspensão, com aviso 30 dias antes da exclusão; relação de prestadores e transferências; aviso de incidente à empresa em até 24 horas].
 >
 > **O que você precisa fazer:**
 > - **Representante legal:** assinar o termo de aceite anexo.
-> - **Demais usuários:** responder a este e-mail com "Li e estou ciente do Aviso de privacidade versão 2026-11-15-privacidade".
+> - **Demais usuários:** responder a este e-mail com "Li e estou ciente do Aviso de privacidade versão 2026-11-17-privacidade".
 >
 > Seu acesso, seus dados e a exportação continuam disponíveis normalmente, com ou sem resposta.
 >

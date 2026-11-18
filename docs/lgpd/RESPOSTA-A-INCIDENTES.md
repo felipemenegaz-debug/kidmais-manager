@@ -1,6 +1,6 @@
 # Resposta a incidentes de segurança com dados pessoais
 
-**Estado (03/11/2026): procedimento LOCAL, documental, não publicado.** Versão de 21/10/2026 atualizada para a fornecedora **Demerzel Labs Ltda.** ("Demerzel Labs"), produto **iA.Fest**, e para os textos `2026-11-15-dpa` e `2026-11-15-privacidade`. É o "procedimento documentado de resposta a incidentes e registro das ocorrências" que o DPA promete, disponível à empresa cliente a pedido. Nenhum painel, log ou banco foi consultado para escrever este documento.
+**Estado (03/11/2026): procedimento LOCAL, documental, não publicado.** Versão de 21/10/2026 atualizada para a fornecedora **Demerzel Labs Ltda.** ("Demerzel Labs"), produto **iA.Fest**, e para os textos `2026-11-17-dpa` e `2026-11-17-privacidade`. É o "procedimento documentado de resposta a incidentes e registro das ocorrências" que o DPA promete, disponível à empresa cliente a pedido. Nenhum painel, log ou banco foi consultado para escrever este documento.
 
 Fonte de verdade: `lib/cadastro/documentos-legais.ts` (DPA, "Incidentes de segurança"). Se este procedimento divergir dos textos, valem os textos. As referências à Resolução CD/ANPD nº 15/2024 são indicações técnicas; a decisão de comunicar ou não é registrada por Felipe, sem depender de parecer jurídico.
 
@@ -155,7 +155,7 @@ Se a empresa cliente pedir, a Demerzel Labs ajuda a montar a comunicação dela 
 
 ### 4.2 Prestadores
 
-Situação conforme a relação do Aviso `2026-11-15-privacidade`.
+Situação conforme a relação do Aviso `2026-11-17-privacidade`.
 
 | Prestador | O que guarda de pessoal | Onde olhar e conter |
 |---|---|---|
