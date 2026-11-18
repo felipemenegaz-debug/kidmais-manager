@@ -37,7 +37,7 @@ const linhaEstado = (id, criados, removidos = false) => Object.fromEntries([...g
  * Opções: situacao inicial ('ausente' | 'presente' | linha explícita), falharEm (trecho → `erro`), falharCommit ({erro} ou
  * {rollback: true}), aprovado (valor da coluna `aprovado` que o check devolve), naoCompleta (o COMMIT não deixa os objetos).
  */
-const PRIV_OK = Object.freeze({schema_create: true, sem_posse: [], sem_references: [], sem_posse_funcoes: []});
+const PRIV_OK = Object.freeze({schema_create: true, sem_posse: [], sem_references: [], sem_posse_funcoes: [], sem_execute: []});
 function clienteFalso(id, {situacao = 'ausente', identidade = ID_PROD, falharEm, erro, falharCommit, aprovado, naoCompleta, privilegios = PRIV_OK} = {}) {
   const corpos = g.carregar(raiz, id);
   const log = []; let ro = false, emTransacao = false, pendente = false, commits = 0;
@@ -79,8 +79,8 @@ const conferir = id => ['--conferir', id];
 const aplicar = id => ['--aplicar-autorizado', id, '--backup', BACKUP];
 const marcador = (dir, id) => JSON.parse(fs.readFileSync(path.join(dir, g.marcadorDe(id)), 'utf8'));
 
-test('lista fechada: só 120, 121, 110, 111, 115, 123 e 124, na ordem do inventário; hash LF fixado dos 3 SQL de cada uma; nenhum down', async () => {
-  assert.deepEqual([...g.IDS], ['120', '121', '110', '111', '115', '123', '124']);
+test('lista fechada: só 120, 121, 110, 111, 115, 123, 124 e 125, na ordem do inventário; hash LF fixado dos 3 SQL de cada uma; nenhum down', async () => {
+  assert.deepEqual([...g.IDS], ['120', '121', '110', '111', '115', '123', '124', '125']);
   assert.deepEqual(Object.keys(g.MIGRATIONS).sort(), [...g.IDS].sort());
   for (const id of g.IDS) {
     const d = g.MIGRATIONS[id];
@@ -97,9 +97,12 @@ test('lista fechada: só 120, 121, 110, 111, 115, 123 e 124, na ordem do invent�
   const doInventario = approvedFiles.map(f => f.split('_')[1]).filter(id => g.IDS.includes(id));
   assert.deepEqual(doInventario, [...g.IDS]);
   for (const id of g.IDS) assert.ok(approvedFiles.includes(path.basename(arquivo(id, 'migration'))), id);
-  // Nenhuma delas tem aplicador próprio de production (se ganhar um, sai do genérico). A 123 tem só o adaptador de STAGING,
-  // que reaproveita este núcleo (scripts/migration-123-staging.cjs); qualquer outro arquivo migration-<id>* continua recusado.
-  const permitidos = {'123': ['migration-123-staging.cjs', 'migration-123-staging.test.cjs']};
+  // Nenhuma delas tem aplicador próprio de production (se ganhar um, sai do genérico). A 123, a 124 e a 125 têm só o adaptador
+  // de STAGING, que reaproveita este núcleo (scripts/migration-12x-staging.cjs); qualquer outro arquivo migration-<id>* continua
+  // recusado. (lib/area-familia/migration-125.postgres.test.ts fica fora de scripts/.)
+  const permitidos = {'123': ['migration-123-staging.cjs', 'migration-123-staging.test.cjs'],
+    '124': ['migration-124-staging.cjs', 'migration-124-staging.test.cjs'],
+    '125': ['migration-125-staging.cjs', 'migration-125-staging.test.cjs']};
   for (const id of g.IDS) assert.deepEqual(fs.readdirSync(__dirname).filter(n => n.startsWith(`migration-${id}`) && !(permitidos[id] ?? []).includes(n)), [], id);
   for (const fora of ['118', '112', '098', '099', '105', '116', '0', '', 'constructor', '__proto__', '120 ', undefined, 120])
     assert.throws(() => g.planoEtapas(fora, {situacao: 'ausente'}), /MIGRATION_FORA_DA_LISTA/, String(fora));
@@ -118,7 +121,7 @@ test('sentinelas do estado: cada nome vem do precheck da própria migration; est
     assert.deepEqual(g.planoEtapas(id, g.lerEstado(id, linhaEstado(id, false))), ['precheck', 'migration', 'postcheck']);
     assert.deepEqual(g.planoEtapas(id, g.lerEstado(id, linhaEstado(id, true))), ['postcheck']);
   }
-  for (const id of ['120', '121', '110', '111', '123', '124']) {
+  for (const id of ['120', '121', '110', '111', '123', '124', '125']) {
     const s = g.lerEstado(id, linhaEstado(id, i => i === 0));
     assert.equal(s.situacao, 'parcial'); assert.equal(s.divergencias.length, g.MIGRATIONS[id].criados.length - 1);
     assert.throws(() => g.planoEtapas(id, s), new RegExp(`APLICACAO_PARCIAL_${id} falta `));
@@ -126,7 +129,7 @@ test('sentinelas do estado: cada nome vem do precheck da própria migration; est
   // 115: índice novo ausente = ausente (com ou sem o da 054); novo presente e o da 054 ainda presente = intermediário
   // aplicável (a subida é idempotente e o precheck decide); novo presente sem o da 054 = presente.
   assert.equal(g.MIGRATIONS['115'].idempotente, true);
-  for (const id of ['120', '121', '110', '111', '123', '124']) assert.notEqual(g.MIGRATIONS[id].idempotente, true);
+  for (const id of ['120', '121', '110', '111', '123', '124', '125']) assert.notEqual(g.MIGRATIONS[id].idempotente, true);
   assert.equal(g.lerEstado('115', {c0: false, r0: true}).situacao, 'ausente'); assert.equal(g.lerEstado('115', {c0: false, r0: false}).situacao, 'ausente');
   const meio = g.lerEstado('115', {c0: true, r0: true});
   assert.equal(meio.situacao, 'parcial'); assert.deepEqual(meio.divergencias, ['sobra fechamentos_054_empresa_idx']);
@@ -152,7 +155,7 @@ test('molduras: migration sem o BEGIN e sem o COMMIT do arquivo; checks sem a pr
   }
   // Postchecks sem moldura (110, 111 e 115) vão inteiros; os com moldura (120, 121 e 123) terminam na linha `aprovado`.
   for (const id of ['110', '111', '115']) assert.equal(g.corpoCheck(lf(arquivo(id, 'postcheck')), 'p'), lf(arquivo(id, 'postcheck')));
-  for (const id of ['120', '121', '123', '124']) for (const etapa of ['precheck', 'postcheck']) assert.match(g.corpoCheck(lf(arquivo(id, etapa)), 'p'), /true AS aprovado;\n$/);
+  for (const id of ['120', '121', '123', '124', '125']) for (const etapa of ['precheck', 'postcheck']) assert.match(g.corpoCheck(lf(arquivo(id, etapa)), 'p'), /true AS aprovado;\n$/);
   const m = lf(arquivo('120', 'migration'));
   for (const ruim of [m + 'COMMIT;\n', m.replace('BEGIN;\n', ''), m.replace('BEGIN;\n', 'BEGIN;\nBEGIN;\n'), m + '-- x\n', 'SELECT 1;\n' + m, m.replace('COMMIT;\n', 'ROLLBACK;\nCOMMIT;\n'), m.replace('BEGIN;\n', 'BEGIN;\nSAVEPOINT a;\n')])
     assert.throws(() => g.corpoMigration(ruim, 'x'), /TRANSACAO_INESPERADA/);
@@ -195,7 +198,7 @@ test('alvo e identidade de produção iguais aos do molde, com a rigidez dos ada
 });
 
 for (const id of g.IDS) {
-  const comAprovado = ['120', '121', '123', '124'].includes(id) ? true : undefined;
+  const comAprovado = ['120', '121', '123', '124', '125'].includes(id) ? true : undefined;
 
   test(`${id}: conferência só leitura, nada no disco: ausente = precheck e PRONTA_PARA_APLICAR; presente = postcheck e JA_APLICADA; identidade errada = FALHA`, async () => {
     const gravacoes = [], orig = {w: fs.writeFileSync, m: fs.mkdirSync};
@@ -378,7 +381,70 @@ test('antes de conectar: backup obrigatório, disco exigido, SQL divergente e id
 
 // ---- Privilégios (P3): lista declarada por id, conferida contra o SQL; CONFERIR recusa (3); APLICAR recusa antes do marcador ----
 const nomes = (sql, re) => [...sql.matchAll(re)].map(m => m[1].toLowerCase());
-test('privilégios declarados por id batem com o SQL da migration (tabelas alteradas, funções substituídas, referenciadas e CREATE no schema)', () => {
+// Funções que já existem e que gatilhos novos chamam (exigem EXECUTE), menos as que a própria migration cria.
+// Regra falha-fechada, sem parser de SQL (P3 do Astra em 3e619d69 e de689910): toda palavra EXECUTE do SQL bruto, inclusive
+// dentro de literais, blocos DO e format(), tem de estar numa destas formas, as únicas usadas pelas migrations:
+//   EXECUTE FUNCTION|PROCEDURE [public.]<nome>(        → dependência <nome>() (argumentos vão em TG_ARGV)
+//   EXECUTE format(   ou   EXECUTE '                    → SQL dinâmico; um EXECUTE FUNCTION dentro dele é lido à parte
+// Entre as palavras, só espaço, tab ou \n. Qualquer outra forma (comentário, \r, aspas no nome, outro schema, sem "(",
+// GRANT EXECUTE…) reprova o teste: uma dependência pode sobrar, nunca sumir em silêncio.
+const EXECUTE_FUNCAO = /^EXECUTE[ \t\n]+(?:FUNCTION|PROCEDURE)[ \t\n]+(?:public\.)?([a-z0-9_]+)[ \t\n]*\(/i;
+const EXECUTE_DINAMICO = /^EXECUTE[ \t\n]+(?:format\(|')/i;
+function executadasDoSql(sql, criadas, id) {
+  const chamadas = [];
+  for (const m of sql.matchAll(/\bEXECUTE\b/gi)) {
+    const resto = sql.slice(m.index), f = EXECUTE_FUNCAO.exec(resto);
+    if (f) chamadas.push(f[1].toLowerCase());
+    else assert.match(resto, EXECUTE_DINAMICO, id + ': EXECUTE em formato não reconhecido: ' + JSON.stringify(resto.slice(0, 50)));
+  }
+  return new Set(chamadas.filter(f => !criadas.has(f)).map(f => f + '()'));
+}
+test('executadasDoSql: formas conhecidas entram (argumentos, espaços, \\n, PROCEDURE, public., bloco DO, SQL dinâmico)', () => {
+  const sql = "CREATE TRIGGER a BEFORE UPDATE ON t FOR EACH ROW EXECUTE FUNCTION kidmais_set_atualizado_em('x', 2);\n"
+    + 'CREATE TRIGGER b AFTER INSERT ON t FOR EACH ROW EXECUTE  PROCEDURE public.Outra_Existente ();\n'
+    + 'CREATE TRIGGER c BEFORE DELETE ON t FOR EACH ROW EXECUTE FUNCTION criada_aqui();\n'
+    + 'DO $estrutura$ BEGIN CREATE TRIGGER d BEFORE UPDATE ON t FOR EACH ROW EXECUTE\n  FUNCTION no_bloco_do(); END $estrutura$;\n'
+    + "DO $$ BEGIN EXECUTE format('ALTER TABLE %I ENABLE TRIGGER x', 't'); EXECUTE 'ALTER TABLE t DISABLE TRIGGER x'; END $$;";
+  assert.deepEqual([...executadasDoSql(sql, new Set(['criada_aqui']), 's')].sort(), ['kidmais_set_atualizado_em()', 'no_bloco_do()', 'outra_existente()']);
+});
+test('executadasDoSql: qualquer outra forma de EXECUTE reprova (comentário, \\r, E-string, cifrão, bloco DO, aspas, outro schema, sem "(")', () => {
+  const gatilho = 'CREATE TRIGGER g BEFORE UPDATE ON t FOR EACH ROW ';
+  for (const sql of [
+    'EXECUTE/**/FUNCTION public.existente()',
+    "SELECT E'it\\'s';\n" + gatilho + 'EXECUTE/**/FUNCTION f()',
+    'SELECT 1 AS a$b$;\n' + gatilho + 'EXECUTE/**/FUNCTION f()',
+    'DO $tag$ BEGIN ' + gatilho + 'EXECUTE/**/FUNCTION f(); END $tag$;',
+    gatilho + 'EXECUTE -- nota\rFUNCTION f()',
+    gatilho + 'EXECUTE -- nota\nFUNCTION f()',
+    gatilho + 'EXECUTE /* a /* b */ c */ FUNCTION f()',
+    gatilho + 'EXECUTE\rFUNCTION f()',
+    gatilho + 'EXECUTE FUNCTION f/**/()',
+    gatilho + 'EXECUTE FUNCTION "Citada"()',
+    gatilho + 'EXECUTE FUNCTION outro.f()',
+    gatilho + 'EXECUTE FUNCTION\n;',
+    'GRANT EXECUTE ON FUNCTION f() TO x',
+  ]) assert.throws(() => executadasDoSql(sql, new Set(), 's'), /EXECUTE em formato não reconhecido/, sql);
+});
+// Dependências de EXECUTE de uma migration (P3 do Astra em c93ee9dc), ambas do lado conservador:
+// - a busca de EXECUTE vê o SQL bruto: o filtro de linhas `--` apagaria `-- nota\rCREATE TRIGGER … EXECUTE FUNCTION f()`,
+//   que o PostgreSQL executa (o comentário acaba no \r);
+// - só dispensa `f()` quando a migration cria exatamente `[public.]f()` sem argumentos, fora de linha `--`;
+//   criar `f(integer)` não cobre o gatilho que chama a `f()` já existente.
+function dependenciasExecute(sqlBruto, id) {
+  const semLinhasComentadas = sqlBruto.split('\n').filter(l => !l.trim().startsWith('--')).join('\n');
+  const criadasSemArgumentos = new Set(nomes(semLinhasComentadas, /^\s*CREATE (?:OR REPLACE )?FUNCTION (?:public\.)?([a-z0-9_]+)\(\s*\)/gim));
+  return executadasDoSql(sqlBruto, criadasSemArgumentos, id);
+}
+test('dependenciasExecute: SQL bruto (linha -- com \\r), criação só de f() sem argumentos, criação comentada não conta', () => {
+  const g1 = 'CREATE TRIGGER g BEFORE UPDATE ON t FOR EACH ROW EXECUTE FUNCTION f();';
+  assert.deepEqual([...dependenciasExecute('-- nota\r' + g1, 's')], ['f()']);
+  assert.deepEqual([...dependenciasExecute('CREATE FUNCTION public.f(integer) RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RETURN NEW; END $$;\n' + g1, 's')], ['f()']);
+  assert.deepEqual([...dependenciasExecute('-- CREATE FUNCTION f() RETURNS trigger\n' + g1, 's')], ['f()']);
+  // Linha física com -- não conta como criação, nem depois de \r: erra para o lado conservador (dependência a mais).
+  assert.deepEqual([...dependenciasExecute('-- nota\rCREATE FUNCTION f() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RETURN NEW; END $$;\n' + g1, 's')], ['f()']);
+  assert.deepEqual([...dependenciasExecute('CREATE OR REPLACE FUNCTION public.f( ) RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RETURN NEW; END $$;\n' + g1, 's')], []);
+});
+test('privilégios declarados por id batem com o SQL da migration (tabelas alteradas, funções substituídas, referenciadas, EXECUTE e CREATE no schema)', () => {
   for (const id of g.IDS) {
     const p = g.MIGRATIONS[id].privilegios, sql = lf(arquivo(id, 'migration')).split('\n').filter(l => !l.trim().startsWith('--')).join('\n');
     const novas = new Set(nomes(sql, /^\s*CREATE (?:UNLOGGED )?TABLE (?:IF NOT EXISTS )?(?:public\.)?([a-z0-9_]+)/gim));
@@ -394,8 +460,12 @@ test('privilégios declarados por id batem com o SQL da migration (tabelas alter
     const funcoesSubstituidas = [...sql.matchAll(/^\s*CREATE OR REPLACE FUNCTION (?:public\.)?([a-z0-9_]+)\(([^)]*)\)/gim)]
       .map(m => m[1].toLowerCase() + '(' + m[2].split(',').map(a => a.trim().split(/\s+/).pop()).filter(Boolean).join(',') + ')');
     assert.deepEqual([...p.funcoes].sort(), funcoesSubstituidas.sort(), id + ': funções substituídas');
+    // Gatilho novo em função que a migration NÃO cria (nem substitui) exige EXECUTE nela: declarada em `executadas`.
+    const executadas = dependenciasExecute(lf(arquivo(id, 'migration')), id);
+    assert.deepEqual([...p.executadas].sort(), [...executadas].sort(), id + ': funções existentes chamadas por gatilhos novos (EXECUTE)');
+    assert.equal(/has_function_privilege\(current_user, to_regprocedure\('public\.' \|\| f\), 'EXECUTE'\)/.test(g.sqlPrivilegios(id)), true, id);
     assert.equal(p.criaNoSchema, novas.size > 0 || /^\s*CREATE FUNCTION /im.test(sql), id + ': CREATE no schema');
-    assert.ok(Object.isFrozen(p) && Object.isFrozen(p.alteradas) && Object.isFrozen(p.referenciadas) && Object.isFrozen(p.funcoes), id);
+    assert.ok(Object.isFrozen(p) && Object.isFrozen(p.alteradas) && Object.isFrozen(p.referenciadas) && Object.isFrozen(p.funcoes) && Object.isFrozen(p.executadas), id);
     const q = g.sqlPrivilegios(id);
     assert.doesNotMatch(q, /\b(INSERT|UPDATE|DELETE|ALTER|DROP|TRUNCATE|GRANT)\b/); assert.match(q, new RegExp('^/\\* privilegios-' + id + ' \\*/ SELECT '));
     assert.match(q, /has_table_privilege/); assert.match(q, /pg_has_role\(current_user, c\.relowner, 'USAGE'\)/);
@@ -405,9 +475,9 @@ test('privilégios declarados por id batem com o SQL da migration (tabelas alter
 
 test('privilégios: lerPrivilegios aceita só o formato esperado e nomeia o que falta', () => {
   assert.deepEqual(g.lerPrivilegios('120', PRIV_OK), {ok: true, faltas: []});
-  assert.deepEqual(g.lerPrivilegios('120', {...PRIV_OK, schema_create: false, sem_posse: ['financeiro_saidas'], sem_references: ['empresas'], sem_posse_funcoes: ['f()']}).faltas,
-    ['CREATE no schema public', 'posse da tabela financeiro_saidas', 'REFERENCES em empresas', 'posse da função f()']);
-  for (const ruim of [undefined, {}, {...PRIV_OK, schema_create: 'sim'}, {...PRIV_OK, sem_posse: null}, {...PRIV_OK, sem_references: [1]}])
+  assert.deepEqual(g.lerPrivilegios('120', {...PRIV_OK, schema_create: false, sem_posse: ['financeiro_saidas'], sem_references: ['empresas'], sem_posse_funcoes: ['f()'], sem_execute: ['g()']}).faltas,
+    ['CREATE no schema public', 'posse da tabela financeiro_saidas', 'REFERENCES em empresas', 'posse da função f()', 'EXECUTE na função g()']);
+  for (const ruim of [undefined, {}, {...PRIV_OK, schema_create: 'sim'}, {...PRIV_OK, sem_posse: null}, {...PRIV_OK, sem_references: [1]}, {...PRIV_OK, sem_execute: undefined}, {...PRIV_OK, sem_execute: [2]}])
     assert.throws(() => g.lerPrivilegios('120', ruim), /PRIVILEGIOS_ILEGIVEL/);
 });
 
@@ -433,7 +503,8 @@ test('sem privilégio (falta CREATE no schema; falta posse de tabela alterada; f
     ['120', {...PRIV_OK, sem_posse: ['financeiro_saidas']}, /PRIVILEGIO_INSUFICIENTE posse da tabela financeiro_saidas$/],
     ['110', {...PRIV_OK, sem_posse: ['marketing_automacao_execucoes'], sem_posse_funcoes: ['kidmais086_execucao_tenant()']}, /posse da tabela marketing_automacao_execucoes; posse da função kidmais086_execucao_tenant\(\)$/],
     ['111', {...PRIV_OK, sem_references: ['usuarios_administrativos']}, /PRIVILEGIO_INSUFICIENTE REFERENCES em usuarios_administrativos$/],
-    ['115', {...PRIV_OK, sem_posse: ['fechamentos']}, /PRIVILEGIO_INSUFICIENTE posse da tabela fechamentos$/]];
+    ['115', {...PRIV_OK, sem_posse: ['fechamentos']}, /PRIVILEGIO_INSUFICIENTE posse da tabela fechamentos$/],
+    ['125', {...PRIV_OK, sem_execute: ['kidmais_set_atualizado_em()']}, /PRIVILEGIO_INSUFICIENTE EXECUTE na função kidmais_set_atualizado_em\(\)$/]];
   for (const [id, privilegios, motivo] of casos) {
     const P = clienteFalso(id, {aprovado: true, privilegios});
     const c = await g.principal(conferir(id), ENV_PROD, {Client: P});

@@ -1,6 +1,6 @@
 /* eslint-disable @typescript-eslint/no-require-imports */
 // Aplicador GENÉRICO de PRODUÇÃO para as migrations da promoção de 12/11/2026 que não têm aplicador próprio: 120, 121, 110,
-// 111, 115, 123 e 124 (nessa ordem, a do inventário; scripts/promocao-production-ordem.cjs). SOMENTE no PostgreSQL do web de produção,
+// 111, 115, 123, 124 e 125 (nessa ordem, a do inventário; scripts/promocao-production-ordem.cjs). SOMENTE no PostgreSQL do web de produção,
 // no Web Shell do srv-dak77m2d0e5s73b8rkkg, DEPOIS do deploy de uma árvore que traga este arquivo e os SQL.
 //   - LISTA FECHADA neste arquivo: para cada id, o sha256 (LF) fixado do precheck, da migration e do postcheck, e as
 //     SENTINELAS do estado — os mesmos objetos que o precheck da própria migration usa para dizer "já presente" (o teste
@@ -14,7 +14,7 @@
 //   - APLICAR: exige o registro de backup; marcador exclusivo no disco persistente (migration-<id>.json); UMA transação:
 //     precheck → corpo da migration (sem o BEGIN e sem o COMMIT do arquivo) → postcheck → COMMIT só com tudo PASS → estado
 //     relido (presente) → postcheck de novo em READ ONLY;
-//   - falha de check = erro do servidor (todo precheck/postcheck destas migrations sinaliza por RAISE EXCEPTION; 120, 121, 123 e 124
+//   - falha de check = erro do servidor (todo precheck/postcheck destas migrations sinaliza por RAISE EXCEPTION; 120, 121, 123, 124 e 125
 //     terminam com uma linha `aprovado`: se vier diferente de true, também é falha), como no precedente por manifesto
 //     (scripts/migrations-lancamento-production.cjs), que roda os checks e deixa a exceção abortar a transação;
 //   - situação do COMMIT como nos aplicadores recentes (regra da 109–118, a função é a do núcleo da 118): falha antes do
@@ -51,7 +51,7 @@ const restricao = c => [c, `EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 
 const coluna = (t, c) => [`${t}.${c}`, `EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'public' AND table_name = '${t}' AND column_name = '${c}')`];
 const congelar = o => Object.freeze({...o, arquivos: Object.freeze(o.arquivos.map(a => Object.freeze(a))), criados: Object.freeze(o.criados), removidos: Object.freeze(o.removidos ?? []),
   privilegios: Object.freeze({criaNoSchema: o.privilegios.criaNoSchema, alteradas: Object.freeze(o.privilegios.alteradas), funcoes: Object.freeze(o.privilegios.funcoes),
-    referenciadas: Object.freeze(o.privilegios.referenciadas)})});
+    referenciadas: Object.freeze(o.privilegios.referenciadas), executadas: Object.freeze(o.privilegios.executadas ?? [])})});
 /** LISTA FECHADA: [etapa, arquivo, sha256 do conteúdo com CRLF normalizado para LF]. */
 const MIGRATIONS = Object.freeze({
   '120': congelar({escopo: 'financeiro P2: liquidações de entradas e reversões de saídas (aditiva; exige a 052)',
@@ -98,7 +98,8 @@ const MIGRATIONS = Object.freeze({
     criados: [tabela('festa_pessoas'), tabela('festa_links_area'), tabela('area_familia_sessoes'), tabela('limites_contadores'), tabela('area_familia_eventos'),
       coluna('validacoes_identidade_cliente', 'festa_pessoa_id'), coluna('validacoes_identidade_cliente', 'consumido_por_area_sessao_id')],
     // Gatilhos em clientes e contratos e ALTER/índices/gatilho em validacoes_identidade_cliente exigem a posse dessas tabelas.
-    privilegios: {criaNoSchema: true, alteradas: ['clientes', 'contratos', 'validacoes_identidade_cliente'], funcoes: [],
+    // CREATE TRIGGER … EXECUTE FUNCTION kidmais_set_atualizado_em() (função que já existe) exige EXECUTE nela.
+    privilegios: {criaNoSchema: true, alteradas: ['clientes', 'contratos', 'validacoes_identidade_cliente'], funcoes: [], executadas: ['kidmais_set_atualizado_em()'],
       referenciadas: ['clientes', 'empresas', 'festas', 'usuarios_administrativos', 'validacoes_identidade_cliente']}}),
   '124': congelar({escopo: 'assinatura do cliente em papel: contrato_assinaturas_papel, método PAPEL_CLIENTE e formalização/validação da 061 ampliadas (aditiva; exige 061, 122 e 123)',
     arquivos: [['precheck', 'database/checks/20261115_124_precheck.sql', '43cb4b3cc846b9e58dace6ca9da281a7437359adaba847a9b2cf32a4bc1cd237'],
@@ -108,9 +109,18 @@ const MIGRATIONS = Object.freeze({
     // Troca do CHECK de método em contrato_versoes exige a posse dela; CREATE OR REPLACE das duas funções da 061 exige a posse delas.
     privilegios: {criaNoSchema: true, alteradas: ['contrato_versoes'], funcoes: ['kidmais019_formalizacao(uuid,uuid)', 'kidmais_validar_fluxo_contrato()'],
       referenciadas: ['contrato_versoes', 'contratos', 'empresas', 'memberships', 'usuarios_administrativos']}}),
+  '125': congelar({escopo: 'área da família F3: avisos de pagamento, pendências da família, aviso fixo do buffet, tipos novos de evento e autoria pela família (aditiva; exige 123)',
+    arquivos: [['precheck', 'database/checks/20261115_125_precheck.sql', '270c66124d01eed656ede7f9249b97d419b3bc0dc514cff306a51dae595a5c65'],
+      ['migration', 'database/migrations/20261115_125_area_familia_acoes.sql', 'dff9af31c012f73074f8294eb830a1009ce9e1fc7a19b5cacb4daa93cf015e37'],
+      ['postcheck', 'database/checks/20261115_125_postcheck.sql', 'f0f6ab83c0e9b71c851b35257803c627f0e4fee82cc39fb10ec461af5ec4431c']],
+    criados: [tabela('area_familia_avisos_pagamento'), tabela('festa_pendencias_familia'), tabela('area_familia_aviso_empresa')],
+    // CHECK de tipo e gatilho em area_familia_eventos e gatilhos de autoria em festa_pessoas e festa_links_area exigem a posse dessas tabelas.
+    // Gatilhos de atualizado_em em kidmais_set_atualizado_em() (função que já existe) exigem EXECUTE nela (achado P3 do Astra em c71bae8a).
+    privilegios: {criaNoSchema: true, alteradas: ['area_familia_eventos', 'festa_links_area', 'festa_pessoas'], funcoes: [], executadas: ['kidmais_set_atualizado_em()'],
+      referenciadas: ['empresas', 'festa_pendencias', 'festa_pessoas', 'pagamento_parcelas', 'usuarios_administrativos']}}),
 });
-/** Ordem do inventário (scripts/production/check-migrations.mjs, approvedFiles): 120, 121, 110, 111, 115, 123, 124. */
-const IDS = Object.freeze(['120', '121', '110', '111', '115', '123', '124']);
+/** Ordem do inventário (scripts/production/check-migrations.mjs, approvedFiles): 120, 121, 110, 111, 115, 123, 124, 125. */
+const IDS = Object.freeze(['120', '121', '110', '111', '115', '123', '124', '125']);
 const definicao = id => { assert.ok(typeof id === 'string' && Object.hasOwn(MIGRATIONS, id), 'MIGRATION_FORA_DA_LISTA'); return MIGRATIONS[id]; };
 const marcadorDe = id => `migration-${id}.json`;
 const curta = e => String(e?.message ?? e).replace(/postgres(?:ql)?:\/\/\S+/gi, '<url>').slice(0, 300);
@@ -141,7 +151,8 @@ function planoEtapas(id, s) {
 /**
  * Privilégios (só catálogo, READ ONLY): schema_create; sem_posse = tabelas alteradas ausentes ou de que o papel não é dono (nem membro do
  * dono); sem_references = tabelas referenciadas que existem e em que o papel não tem REFERENCES (ausentes ficam para o precheck da
- * migration, que confere as dependências); sem_posse_funcoes = funções substituídas ausentes ou de outro dono.
+ * migration, que confere as dependências); sem_posse_funcoes = funções substituídas ausentes ou de outro dono; sem_execute = funções que
+ * já existem e que gatilhos novos chamam (CREATE TRIGGER exige EXECUTE nelas), ausentes ou sem EXECUTE para o papel.
  */
 const listaSql = l => (l.length ? `ARRAY[${l.map(x => `'${x}'`).join(', ')}]::text[]` : 'ARRAY[]::text[]');
 function sqlPrivilegios(id) {
@@ -152,14 +163,17 @@ function sqlPrivilegios(id) {
   coalesce((SELECT array_agg(t ORDER BY t) FROM unnest(${listaSql(p.referenciadas)}) t WHERE to_regclass('public.' || t) IS NOT NULL
     AND NOT has_table_privilege(current_user, to_regclass('public.' || t), 'REFERENCES')), ARRAY[]::text[]) AS sem_references,
   coalesce((SELECT array_agg(f ORDER BY f) FROM unnest(${listaSql(p.funcoes)}) f WHERE to_regprocedure('public.' || f) IS NULL
-    OR NOT EXISTS (SELECT 1 FROM pg_proc q WHERE q.oid = to_regprocedure('public.' || f) AND pg_has_role(current_user, q.proowner, 'USAGE'))), ARRAY[]::text[]) AS sem_posse_funcoes`;
+    OR NOT EXISTS (SELECT 1 FROM pg_proc q WHERE q.oid = to_regprocedure('public.' || f) AND pg_has_role(current_user, q.proowner, 'USAGE'))), ARRAY[]::text[]) AS sem_posse_funcoes,
+  coalesce((SELECT array_agg(f ORDER BY f) FROM unnest(${listaSql(p.executadas)}) f WHERE to_regprocedure('public.' || f) IS NULL
+    OR NOT has_function_privilege(current_user, to_regprocedure('public.' || f), 'EXECUTE')), ARRAY[]::text[]) AS sem_execute`;
 }
 /** Linha da consulta → {ok, faltas}; formato inesperado = ILEGIVEL (nunca "tudo certo"). */
 function lerPrivilegios(id, linha) {
   assert.equal(typeof linha?.schema_create, 'boolean', 'PRIVILEGIOS_ILEGIVEL ' + id);
-  for (const c of ['sem_posse', 'sem_references', 'sem_posse_funcoes']) assert.ok(Array.isArray(linha[c]) && linha[c].every(x => typeof x === 'string'), `PRIVILEGIOS_ILEGIVEL ${id} ${c}`);
+  for (const c of ['sem_posse', 'sem_references', 'sem_posse_funcoes', 'sem_execute']) assert.ok(Array.isArray(linha[c]) && linha[c].every(x => typeof x === 'string'), `PRIVILEGIOS_ILEGIVEL ${id} ${c}`);
   const faltas = [...(linha.schema_create ? [] : ['CREATE no schema public']), ...linha.sem_posse.map(t => 'posse da tabela ' + t),
-    ...linha.sem_references.map(t => 'REFERENCES em ' + t), ...linha.sem_posse_funcoes.map(f => 'posse da função ' + f)];
+    ...linha.sem_references.map(t => 'REFERENCES em ' + t), ...linha.sem_posse_funcoes.map(f => 'posse da função ' + f),
+    ...linha.sem_execute.map(f => 'EXECUTE na função ' + f)];
   return {ok: faltas.length === 0, faltas};
 }
 const privilegiosAtuais = async (db, id) => lerPrivilegios(id, (await somenteLeitura(db, sqlPrivilegios(id))).rows[0]);

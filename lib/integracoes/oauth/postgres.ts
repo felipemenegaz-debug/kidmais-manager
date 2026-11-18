@@ -6,6 +6,7 @@ import {
   type AcessoVerificado, type AtualizacaoGuardada, type ClienteOAuth, type CodigoGuardado, type ConcessaoResumo, type EventoSeguranca, type NovaConcessao,
   type PedidoAutorizacao, type RepositorioOAuth, type ResultadoExpurgo,
 } from "./repositorio.ts";
+import type { FalhaRegistrada, MotivoRevogacao } from "./situacao-conexao.ts";
 
 /**
  * RepositorioOAuth sobre PostgreSQL (migration 105). Única implementação operacional.
@@ -182,15 +183,54 @@ export function criarRepositorioOAuthPostgres(executor: () => DbExecutor, transa
       return { ...principal, recurso: l.recurso, expiraEm: new Date(l.expira_em) };
     },
     async listarConcessoes(usuarioId): Promise<readonly ConcessaoResumo[]> {
-      const r = await q<{ id: string; client_id: string; cliente_nome: string; empresa_id: string; empresa_nome: string; escopos: string[]; criada_em: string; ultimo_uso_em: string | null; ultima_ferramenta_em: string | null; revogada_em: string | null }>(
+      // Evidências só de leitura (sem migration), sem hash, token ou conteúdo. Não toca em mcp_auditoria: ver lerUltimasFalhas.
+      const r = await q<{
+        id: string; client_id: string; cliente_nome: string; empresa_id: string; empresa_nome: string; escopos: string[]; criada_em: string; ultimo_uso_em: string | null;
+        ultima_ferramenta_em: string | null; revogada_em: string | null; motivo_revogacao: MotivoRevogacao | null; credencial_invalida: boolean; codigo_usado: boolean;
+        codigo_pendente: boolean; token_vigente: boolean;
+      }>(
         `SELECT c.id::text, c.client_id, c.cliente_nome, c.empresa_id::text, e.nome AS empresa_nome, c.escopos, c.criada_em::text, c.ultimo_uso_em::text,
-                c.ultima_ferramenta_em::text, c.revogada_em::text
-           FROM mcp_oauth_concessoes c JOIN empresas e ON e.id = c.empresa_id
-          WHERE c.usuario_id = $1 ORDER BY (c.revogada_em IS NULL) DESC, c.criada_em DESC LIMIT 50`, [usuarioId]);
+                c.ultima_ferramenta_em::text, c.revogada_em::text, c.motivo_revogacao,
+                NOT COALESCE(u.ativo AND u.senha_alterada_em <= c.criada_em, false) AS credencial_invalida,
+                EXISTS (SELECT 1 FROM mcp_oauth_codigos k WHERE k.concessao_id = c.id AND k.usado_em IS NOT NULL) AS codigo_usado,
+                EXISTS (SELECT 1 FROM mcp_oauth_codigos k WHERE k.concessao_id = c.id AND k.usado_em IS NULL AND k.expira_em > clock_timestamp()) AS codigo_pendente,
+                EXISTS (SELECT 1 FROM mcp_oauth_tokens t WHERE t.concessao_id = c.id AND t.revogado_em IS NULL AND t.expira_em > clock_timestamp()) AS token_vigente
+           FROM mcp_oauth_concessoes c
+           JOIN empresas e ON e.id = c.empresa_id
+           JOIN usuarios_administrativos u ON u.id = c.usuario_id
+          WHERE c.usuario_id = $1
+          ORDER BY (c.revogada_em IS NULL) DESC, c.criada_em DESC LIMIT 50`, [usuarioId]);
       return r.rows.map((l) => ({
         id: l.id, clientId: l.client_id, clienteNome: l.cliente_nome, empresaId: l.empresa_id, empresaNome: l.empresa_nome, escopos: escopos(l.escopos), criadaEm: l.criada_em,
         ultimoUsoEm: l.ultimo_uso_em, ultimaFerramentaEm: l.ultima_ferramenta_em, revogadaEm: l.revogada_em,
+        evidencias: {
+          motivoRevogacao: l.motivo_revogacao, credencialInvalida: l.credencial_invalida, codigoUsado: l.codigo_usado, codigoPendente: l.codigo_pendente, tokenVigente: l.token_vigente,
+        },
       }));
+    },
+    async lerUltimasFalhas(usuarioId): Promise<ReadonlyMap<string, FalhaRegistrada>> {
+      // Enriquecimento opcional. mcp_auditoria_empresa_idx cobre empresa e horário, não concessão: o custo depende do volume da
+      // empresa e pode vencer o prazo. Quem chama trata a falha como "indisponível" (conexoes.ts). Medido em cluster descartável (docs/MCP_ASSINATURAS_TESTES.md): com 5 milhões de eventos o plano observado foi varredura sequencial, inclusive para empresa pequena.
+      // Só falhas depois da última consulta bem-sucedida e nos últimos 30 dias (política de diagnóstico, não garantia de custo).
+      const r = await q<{ concessao_id: string; codigo: string; capacidade: string | null; ocorrido_em: string }>(
+        `WITH alvo AS MATERIALIZED (
+           SELECT c.id, c.empresa_id, c.criada_em, c.ultima_ferramenta_em, c.revogada_em
+             FROM mcp_oauth_concessoes c
+            WHERE c.usuario_id = $1
+            ORDER BY (c.revogada_em IS NULL) DESC, c.criada_em DESC LIMIT 50
+         ), piso AS (
+           SELECT id, empresa_id, GREATEST(COALESCE(ultima_ferramenta_em, criada_em), clock_timestamp() - interval '30 days') AS desde
+             FROM alvo WHERE revogada_em IS NULL
+         ), faixa AS (
+           SELECT empresa_id, MIN(desde) AS desde FROM piso GROUP BY empresa_id
+         )
+         SELECT DISTINCT ON (a.concessao_id) a.concessao_id::text, a.codigo, a.capacidade, a.ocorrido_em::text
+           FROM faixa x
+           JOIN mcp_auditoria a ON a.empresa_id = x.empresa_id AND a.ocorrido_em > x.desde
+           JOIN piso p ON p.id = a.concessao_id AND p.empresa_id = a.empresa_id AND a.ocorrido_em > p.desde
+          WHERE a.evento = 'FERRAMENTA' AND a.resultado NOT IN ('OK', 'SEM_DADOS')
+          ORDER BY a.concessao_id, a.ocorrido_em DESC, a.id DESC`, [usuarioId]);
+      return new Map(r.rows.map((l) => [l.concessao_id, { codigo: l.codigo, capacidade: l.capacidade, em: l.ocorrido_em }]));
     },
     async marcarUso(concessaoId, ferramenta) {
       await q(`UPDATE mcp_oauth_concessoes SET ultimo_uso_em = clock_timestamp(),

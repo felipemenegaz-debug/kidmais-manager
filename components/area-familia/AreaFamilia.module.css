@@ -315,3 +315,25 @@
   font-weight: 800;
   text-decoration: none;
 }
+
+/* F3 (125): aviso fixo do buffet e confirmação de ação. */
+.avisoFixo {
+  margin: 0 0 16px;
+  padding: 12px 14px;
+  border-left: 4px solid #7c5cff;
+  border-radius: 10px;
+  background: #f3f0ff;
+  color: #33295c;
+  font-size: 14px;
+  white-space: pre-line;
+}
+
+.ok {
+  margin: 0 0 14px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: #e9f8f1;
+  color: #17634a;
+  font-size: 14px;
+  overflow-wrap: anywhere;
+}

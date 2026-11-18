@@ -1,7 +1,9 @@
 "use client";
 
 import { useEffect, useRef, useState, type FormEvent } from "react";
-import { contagem, dataCurta, dataPorExtenso, reais, ROTULO_ESTADO } from "@/lib/area-familia/formato";
+import { useRouter } from "next/navigation";
+import { comLink, comMarca, marcasIniciais, marcasVigentes } from "@/lib/area-familia/visita";
+import { abasVisiveis, contagem, dataCurta, dataPorExtenso, reais, ROTULO_ESTADO, type Aba } from "@/lib/area-familia/formato";
 import type { MinhaFesta, ParcelaFamilia } from "@/lib/area-familia/leitura";
 import { MarcaPublicaCabecalho, useMarcaPublica } from "@/components/fechamento/MarcaPublica";
 import styles from "./AreaFamilia.module.css";
@@ -34,22 +36,45 @@ export default function AreaFamilia({ empresa, sessao, dados = null }: { empresa
   );
 }
 
-const ABAS = [
-  { id: "inicio", rotulo: "Início" },
-  { id: "festa", rotulo: "Festa" },
-  { id: "pagamentos", rotulo: "Pagamentos" },
-  { id: "documentos", rotulo: "Documentos" },
-] as const;
-type Aba = (typeof ABAS)[number]["id"];
+/** Ação da família (F3). Devolve o JSON da rota; `ok` só quando a ação foi gravada. */
+async function agir(base: string, corpo: Record<string, unknown>) {
+  const r = await fetch(`${base}/api/acao`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(corpo), credentials: "same-origin" }).catch(() => null);
+  const json = r ? (await r.json().catch(() => null)) as { ok?: boolean; erro?: string; caminho?: string; expiraEm?: string; linkId?: string } | null : null;
+  return { ok: Boolean(r?.ok && json?.ok === true), erro: json?.erro ?? "Não foi possível concluir agora. Tente novamente.", json };
+}
 
 const CLASSE_ESTADO: Record<ParcelaFamilia["estado"], string> = {
   PAGA: styles.estadoPaga, EM_ABERTO: styles.estadoAberto, VENCIDA: styles.estadoVencida, FUTURA: styles.estadoFutura, CANCELADA: styles.estadoCancelada,
+};
+
+type AcoesDaVisita = {
+  feitas: string[];
+  avisadas: string[];
+  link: string | null;
+  marcarFeita: (pendenciaId: string) => void;
+  marcarAvisada: (parcelaId: string) => void;
+  /** Convite ou link novo (com o link e o id dele) ou remoção (null). */
+  mudouSegundo: (link: { url: string; linkId: string } | null) => void;
 };
 
 function Logado({ base, sessao, dados }: { base: string; sessao: NonNullable<Sessao>; dados: Dados }) {
   const marca = useMarcaPublica();
   const [aba, setAba] = useState<Aba>("inicio");
   const [ocupado, setOcupado] = useState(false);
+  const router = useRouter();
+  // Resultado das ações desta visita, guardado aqui (acima das abas): trocar de aba não volta ao estado anterior. Depois
+  // de cada ação gravada, router.refresh() relê os dados no servidor. As marcações valem só sobre os dados em que foram
+  // feitas: dados novos do servidor substituem (ex.: pendência devolvida, aviso descartado). O link gerado segue enquanto
+  // for o link ativo do servidor (mesmo id), porque o servidor nunca devolve o token de novo (ver lib/area-familia/visita.ts).
+  const [marcas, setMarcas] = useState(() => marcasIniciais(dados));
+  const { feitas, avisadas, link } = marcasVigentes(marcas, dados);
+  const recarregar = () => router.refresh();
+  const acoesDaVisita: AcoesDaVisita = {
+    feitas, avisadas, link,
+    marcarFeita: (id) => { setMarcas((m) => comMarca(m, dados, "feitas", id)); recarregar(); },
+    marcarAvisada: (id) => { setMarcas((m) => comMarca(m, dados, "avisadas", id)); recarregar(); },
+    mudouSegundo: (novo) => { setMarcas((m) => comLink(m, dados, novo)); recarregar(); },
+  };
   async function sair(todos: boolean) {
     setOcupado(true);
     await postar(`${base}/api/sair`, { todos });
@@ -65,16 +90,18 @@ function Logado({ base, sessao, dados }: { base: string; sessao: NonNullable<Ses
       ) : (
         <>
           <nav className={styles.abas} aria-label="Seções da festa">
-            {ABAS.map((a) => (
+            {abasVisiveis(dados).map((a) => (
               <button key={a.id} type="button" className={aba === a.id ? `${styles.aba} ${styles.abaAtiva}` : styles.aba} aria-pressed={aba === a.id} onClick={() => setAba(a.id)}>
                 {a.rotulo}
               </button>
             ))}
           </nav>
-          {aba === "inicio" ? <Inicio dados={dados} irPara={setAba} /> : null}
+          {aba === "inicio" ? <Inicio dados={dados} feitas={feitas} irPara={setAba} /> : null}
           {aba === "festa" ? <Festa dados={dados} /> : null}
-          {aba === "pagamentos" ? <Pagamentos base={base} dados={dados} /> : null}
+          {aba === "pagamentos" ? <Pagamentos base={base} dados={dados} visita={acoesDaVisita} /> : null}
           {aba === "documentos" ? <Documentos base={base} dados={dados} /> : null}
+          {aba === "pendencias" && dados.acoes.disponivel ? <Pendencias base={base} dados={dados} visita={acoesDaVisita} /> : null}
+          {aba === "pessoas" && dados.acoes.disponivel && dados.papel === "CONTRATANTE" ? <Pessoas base={base} dados={dados} visita={acoesDaVisita} /> : null}
         </>
       )}
       {whatsapp ? (
@@ -86,11 +113,19 @@ function Logado({ base, sessao, dados }: { base: string; sessao: NonNullable<Ses
   );
 }
 
-function Inicio({ dados, irPara }: { dados: MinhaFesta; irPara: (aba: Aba) => void }) {
-  const { festa, pagamentos } = dados;
+function Inicio({ dados, feitas, irPara }: { dados: MinhaFesta; feitas: string[]; irPara: (aba: Aba) => void }) {
+  const { festa, pagamentos, acoes } = dados;
   const proxima = pagamentos.proxima;
+  const abertas = acoes.pendencias.filter((p) => !p.feita && !feitas.includes(p.id)).length;
   return (
     <div className={styles.secao}>
+      {acoes.avisoFixo ? <p className={styles.avisoFixo}>{acoes.avisoFixo}</p> : null}
+      {abertas ? (
+        <button type="button" className={styles.linhaBotao} onClick={() => irPara("pendencias")}>
+          <span>{abertas === 1 ? "1 pendência para você" : `${abertas} pendências para você`}</span>
+          <strong>Ver</strong>
+        </button>
+      ) : null}
       <div className={styles.destaque}>
         <strong>{contagem(festa.diasAteFesta)}</strong>
         <span>{dataPorExtenso(festa.data)}{festa.horarioInicio ? `, das ${festa.horarioInicio}${festa.horarioFim ? ` às ${festa.horarioFim}` : ""}` : ""}</span>
@@ -149,7 +184,7 @@ function Festa({ dados }: { dados: MinhaFesta }) {
 type Pix = { copiaECola: string; qrSvg: string; valorCentavos: number; parcela: { numero: number }; recebedor: { nome: string; chaveMascarada: string } };
 type PixDaParcela = Pix & { parcelaId: string };
 
-function Pagamentos({ base, dados }: { base: string; dados: MinhaFesta }) {
+function Pagamentos({ base, dados, visita }: { base: string; dados: MinhaFesta; visita: AcoesDaVisita }) {
   const { pagamentos } = dados;
   const [aberto, setAberto] = useState<string | null>(null);
   const [pix, setPix] = useState<PixDaParcela | null>(null);
@@ -190,6 +225,7 @@ function Pagamentos({ base, dados }: { base: string; dados: MinhaFesta }) {
               <strong>{reais(p.estado === "PAGA" ? p.valorCentavos : p.saldoCentavos)}</strong>
               {p.pix ? <button type="button" className={styles.pequeno} onClick={() => verPix(p.id, p.numero)}>Pagar com Pix</button> : null}
             </div>
+            {dados.acoes.disponivel && p.pix ? <JaPaguei base={base} parcela={p} avisada={dados.acoes.parcelasAvisadas.includes(p.id) || visita.avisadas.includes(p.id)} aoAvisar={visita.marcarAvisada} /> : null}
             {aberto === p.id ? (
               <div className={styles.pix}>
                 {erro ? <p className={styles.erro} role="alert">{erro}</p> : null}
@@ -212,12 +248,134 @@ function Pagamentos({ base, dados }: { base: string; dados: MinhaFesta }) {
   );
 }
 
+/** "Já paguei: avisar o buffet". Só avisa: a baixa continua com a equipe. Um aviso pendente por parcela. */
+function JaPaguei({ base, parcela, avisada, aoAvisar }: { base: string; parcela: ParcelaFamilia; avisada: boolean; aoAvisar: (parcelaId: string) => void }) {
+  const [aberto, setAberto] = useState(false);
+  const [observacao, setObservacao] = useState("");
+  const [erro, setErro] = useState<string | null>(null);
+  const [ocupado, setOcupado] = useState(false);
+  async function enviar(e: FormEvent) {
+    e.preventDefault();
+    setOcupado(true);
+    const r = await agir(base, { acao: "AVISAR_PAGAMENTO", parcela: parcela.id, observacao: observacao.trim() || null });
+    setOcupado(false);
+    if (!r.ok) { setErro(r.erro); return; }
+    setErro(null); setAberto(false); setObservacao("");
+    aoAvisar(parcela.id);
+  }
+  // Sem sucesso guardado aqui: se a equipe descartar o aviso, os dados novos trazem avisada=false e o botão volta.
+  if (avisada) return <p className={styles.ok}>Você avisou o buffet. A equipe vai conferir.</p>;
+  if (!aberto) return <button type="button" className={styles.secundario} onClick={() => setAberto(true)}>Já paguei: avisar o buffet</button>;
+  return (
+    <form onSubmit={enviar}>
+      {erro ? <p className={styles.erro} role="alert">{erro}</p> : null}
+      <label className={styles.campo}>
+        Observação (opcional)
+        <input value={observacao} maxLength={280} onChange={(e) => setObservacao(e.target.value)} placeholder="Ex.: paguei por Pix em 10/11" />
+      </label>
+      <button type="submit" className={styles.botao} disabled={ocupado}>Avisar o buffet</button>
+      <button type="button" className={styles.secundario} disabled={ocupado} onClick={() => setAberto(false)}>Cancelar</button>
+    </form>
+  );
+}
+
+function Pendencias({ base, dados, visita }: { base: string; dados: MinhaFesta; visita: AcoesDaVisita }) {
+  const [erro, setErro] = useState<string | null>(null);
+  const [ocupado, setOcupado] = useState<string | null>(null);
+  async function marcar(id: string) {
+    setOcupado(id); setErro(null);
+    const r = await agir(base, { acao: "PENDENCIA_FEITA", pendencia: id });
+    setOcupado(null);
+    if (r.ok) visita.marcarFeita(id); else setErro(r.erro);
+  }
+  const lista = dados.acoes.pendencias;
+  return (
+    <div className={styles.secao}>
+      {erro ? <p className={styles.erro} role="alert">{erro}</p> : null}
+      {lista.length === 0 ? <p className={styles.texto}>Nada pendente com você agora.</p> : null}
+      <ul className={styles.parcelas}>
+        {lista.map((p) => {
+          const feita = p.feita || visita.feitas.includes(p.id);
+          return (
+            <li key={p.id} className={styles.parcela}>
+              <p className={`${styles.texto} ${styles.textoLivre}`}>{p.texto}</p>
+              {p.prazo ? <p className={styles.ajuda}>Até {dataCurta(p.prazo)}</p> : null}
+              {p.devolvida && !feita ? <p className={styles.erro}>O buffet pediu para você conferir este item de novo.</p> : null}
+              {feita
+                ? <p className={styles.ok}>Feito. O buffet vai conferir.</p>
+                : <button type="button" className={styles.pequeno} disabled={ocupado === p.id} onClick={() => marcar(p.id)}>Marcar como feito</button>}
+            </li>
+          );
+        })}
+      </ul>
+    </div>
+  );
+}
+
+/** Só para quem contratou: convidar, gerar link novo ou remover o segundo responsável. O link é repassado pela pessoa. */
+function Pessoas({ base, dados, visita }: { base: string; dados: MinhaFesta; visita: AcoesDaVisita }) {
+  const segundo = dados.acoes.segundo ?? null;
+  const [form, setForm] = useState({ nome: "", whatsapp: "", documento: "" });
+  const { link } = visita;
+  const [erro, setErro] = useState<string | null>(null);
+  const [ocupado, setOcupado] = useState(false);
+  const [copiado, setCopiado] = useState(false);
+  async function executar(corpo: Record<string, unknown>) {
+    setOcupado(true); setErro(null); setCopiado(false);
+    const r = await agir(base, corpo);
+    setOcupado(false);
+    if (!r.ok) { setErro(r.erro); return; }
+    // Remoção apaga o link mostrado; convite e link novo mostram o link (uma vez) e os dados do segundo vêm do servidor.
+    visita.mudouSegundo(r.json?.caminho && r.json.linkId ? { url: `${window.location.origin}${r.json.caminho}`, linkId: r.json.linkId } : null);
+  }
+  async function copiar() {
+    if (!link) return;
+    try { await navigator.clipboard.writeText(link); setCopiado(true); } catch { setCopiado(false); }
+  }
+  return (
+    <div className={styles.secao}>
+      {erro ? <p className={styles.erro} role="alert">{erro}</p> : null}
+      {link ? (
+        <>
+          <p className={styles.ok}>{link}</p>
+          <p className={styles.ajuda}>Envie este link para a pessoa. Ele aparece só agora; se perder, gere outro.</p>
+          <button type="button" className={styles.botao} onClick={copiar}>{copiado ? "Copiado!" : "Copiar link"}</button>
+        </>
+      ) : null}
+      {segundo ? (
+        <>
+          <dl className={styles.lista}>
+            <div><dt>Segundo responsável</dt><dd>{segundo.nome}</dd></div>
+            {segundo.whatsappMascarado ? <div><dt>WhatsApp</dt><dd>{segundo.whatsappMascarado}</dd></div> : null}
+            <div><dt>Link</dt><dd>{segundo.linkAtivoAte ? `vale até ${dataCurta(segundo.linkAtivoAte)}` : "sem link ativo"}</dd></div>
+          </dl>
+          <button type="button" className={styles.secundario} disabled={ocupado} onClick={() => executar({ acao: "LINK_SEGUNDO" })}>Gerar link novo</button>
+          <button type="button" className={styles.secundario} disabled={ocupado} onClick={() => { if (window.confirm(`Remover ${segundo.nome} da área da festa?`)) void executar({ acao: "REMOVER_SEGUNDO" }); }}>Remover</button>
+        </>
+      ) : link ? null : (
+        <form onSubmit={(e) => { e.preventDefault(); void executar({ acao: "CONVIDAR_SEGUNDO", nome: form.nome, whatsapp: form.whatsapp, documento: form.documento || null }); }}>
+          <p className={styles.texto}>Convide outra pessoa para acompanhar a festa com você. Ela vê tudo, mas não convida nem remove ninguém.</p>
+          <label className={styles.campo}>Nome<input value={form.nome} maxLength={120} onChange={(e) => setForm({ ...form, nome: e.target.value })} /></label>
+          <label className={styles.campo}>WhatsApp<input inputMode="tel" value={form.whatsapp} maxLength={20} onChange={(e) => setForm({ ...form, whatsapp: e.target.value })} /></label>
+          <label className={styles.campo}>
+            CPF (opcional)
+            <input inputMode="numeric" autoComplete="off" value={form.documento} maxLength={14} onChange={(e) => setForm({ ...form, documento: e.target.value })} />
+            <span className={styles.ajuda}>Com o CPF, a pessoa precisa informá-lo para entrar.</span>
+          </label>
+          <button type="submit" className={styles.botao} disabled={ocupado || !form.nome.trim() || !form.whatsapp.trim()}>Convidar</button>
+        </form>
+      )}
+    </div>
+  );
+}
+
 function Documentos({ base, dados }: { base: string; dados: MinhaFesta }) {
   const url = (d: MinhaFesta["documentos"][number]) =>
     d.tipo === "comprovante" ? `${base}/api/documento?tipo=comprovante&id=${encodeURIComponent(d.id)}` : `${base}/api/documento?tipo=${d.tipo}`;
   return (
     <div className={styles.secao}>
       {dados.assinadoEmPapel ? <p className={styles.texto}>Seu contrato foi assinado em papel. O original fica com você e com o buffet.</p> : null}
+      {dados.assinadoPeloClienteEmPapel ? <p className={styles.texto} data-testid="papel-cliente">{dados.assinadoPeloClienteEmPapel}</p> : null}
       <ul className={styles.parcelas}>
         {dados.documentos.map((d) => (
           <li key={d.tipo === "comprovante" ? d.id : d.tipo}>

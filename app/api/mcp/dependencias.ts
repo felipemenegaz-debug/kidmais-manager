@@ -1,11 +1,15 @@
 import { decidirPaywall } from "@/lib/assinatura/paywall";
 import { lerEstadoComercial } from "@/lib/assinatura/estado";
 import { carregarCorpusAprovado } from "@/lib/conhecimento/carregar";
+import { contratosAguardandoAssinatura } from "@/lib/contratos/services/leitura-tenant";
+import { escopoDaEmpresa } from "@/lib/disponibilidade/escopo";
+import { consultarDisponibilidadePeriodo } from "@/lib/disponibilidade/services/availability.service";
+import { AvailabilityServiceError } from "@/lib/disponibilidade/services/errors";
 import type { DbExecutor } from "@/lib/db/contracts";
 import { conexaoDescartavelDoPool } from "@/lib/db/postgres";
 import { transacaoComPrazo, type AbrirConexao } from "@/lib/db/transacao-com-prazo";
 import { CanalOcupado, Vagas } from "@/lib/integracoes/mcp/admissao";
-import { agendaDoTenant } from "@/lib/festas/leitura-tenant";
+import { agendaDoTenant, festasDoTenant } from "@/lib/festas/leitura-tenant";
 import { contarRecebiveis, listarRecebiveis } from "@/lib/financeiro/servico";
 import type { DependenciasFerramentasMcp } from "@/lib/integracoes/mcp/ferramentas";
 import { LimitadorMcp } from "@/lib/integracoes/mcp/limites";
@@ -34,6 +38,13 @@ type GlobalMcp = typeof globalThis & { __kidmaisMcpLimitador?: LimitadorMcp; __k
 const VAGAS_BANCO_CANAL = new Vagas(12);
 /** Reserva própria para a pessoa VER e DESCONECTAR as conexões: a revogação não disputa vaga com o tráfego externo. */
 const VAGAS_BANCO_PESSOA = new Vagas(2);
+/** As falhas da tela são opcionais e podem ser caras: vaga própria, para nunca tirar a de ver e desconectar. */
+const VAGAS_BANCO_FALHAS = new Vagas(1);
+/**
+ * A identidade (quem está autorizando) também é opcional na tela: vaga própria e prazo curto (9º parecer, P2). Leituras de
+ * identidade presas nunca ocupam as vagas de VER e DESCONECTAR; sem vaga, a tela sai com identidade nula.
+ */
+const VAGAS_BANCO_IDENTIDADE = new Vagas(1);
 
 /**
  * Transação do canal: vaga + prazo do lado da aplicação (conexão descartada ao vencer) + statement_timeout/lock_timeout no
@@ -70,12 +81,33 @@ function repositorio(): RepositorioOAuth {
   return criarRepositorioOAuthPostgres(() => executorOAuth, transacaoOAuth);
 }
 
-function transacaoDaPessoa<T>(work: (tx: DbExecutor) => Promise<T>): Promise<T> {
+/**
+ * A ajuda e documentação aprovada carrega agora? Mesmo leitor da execução (`corpus` abaixo): a tela não oferece a pergunta
+ * pronta quando a busca responderia INDISPONIVEL (12º parecer, P2). Só informativo; a execução confere de novo.
+ */
+export function ajudaDisponivel(): boolean {
+  return carregarCorpusAprovado() !== null;
+}
+
+export function transacaoDaPessoa<T>(work: (tx: DbExecutor) => Promise<T>): Promise<T> {
   return transacaoDoCanal(PRAZO_OAUTH_MS, 2500, 1000, work, VAGAS_BANCO_PESSOA);
+}
+/** Só para identidadeOuNulo na tela de conexões: vaga própria (VAGAS_BANCO_IDENTIDADE) e prazo curto. */
+export function transacaoDaIdentidade<T>(work: (tx: DbExecutor) => Promise<T>): Promise<T> {
+  return transacaoDoCanal(1500, 1200, 500, work, VAGAS_BANCO_IDENTIDADE);
 }
 const executorDaPessoa: DbExecutor = {
   query: ((sql: string, valores?: readonly unknown[]) => transacaoDaPessoa((tx) => tx.query(sql, valores))) as DbExecutor["query"],
 };
+
+const executorDeFalhas: DbExecutor = {
+  query: ((sql: string, valores?: readonly unknown[]) => transacaoDoCanal(1500, 1200, 500, (tx) => tx.query(sql, valores), VAGAS_BANCO_FALHAS)) as DbExecutor["query"],
+};
+
+/** Só para lerUltimasFalhas: prazo curto e vaga própria. Vencido o prazo, a tela sai sem as falhas e avisa. */
+export function leitorDeFalhasDaPessoa(): Pick<RepositorioOAuth, "lerUltimasFalhas"> {
+  return criarRepositorioOAuthPostgres(() => executorDeFalhas, transacaoDaPessoa);
+}
 
 /** Repositório da tela da própria pessoa (listar e desconectar), com reserva de vagas separada do tráfego externo. */
 export function repositorioDaPessoa(): RepositorioOAuth {
@@ -117,6 +149,23 @@ function dependenciasFerramentas(repo: RepositorioOAuth): DependenciasFerramenta
     agenda: (tx, empresaId, dia, limite) => agendaDoTenant(tx, empresaId, dia, dia, limite),
     contarRecebiveis: (tx, empresaId, teto) => contarRecebiveis(tx, empresaId, teto),
     recebiveis: (tx, empresaId, hoje) => listarRecebiveis(tx, empresaId, hoje),
+    // r1 P2-3: canceladas saem no banco, antes do LIMIT (fonte das relações de festas, ASC e desempate por festa).
+    agendaPeriodo: (tx, empresaId, inicio, fim, limite) => festasDoTenant(tx, empresaId, { ordem: "ASC", inicio, fim, limite, incluirCanceladas: false }),
+    // Etapa 0a: mesma leitura do painel (app/api/admin/disponibilidade): escopo da empresa COMPROVADA (nunca undefined),
+    // sem pacote escolhido (duração = a padrão da fonte, como no painel sem `?pacote=`) e salões combinados.
+    // Agenda sem horários ⇒ { configurada: false } (INDISPONIVEL).
+    async disponibilidade(tx, empresaId, inicio, fim, convidados) {
+      const escopo = await escopoDaEmpresa(tx, empresaId);
+      try {
+        const dias = await consultarDisponibilidadePeriodo(inicio, fim, tx, undefined, escopo, { duracaoMinutos: null, convidados, incluirCombinados: true });
+        // r1 P2-2: com uma única unidade elegível o escopo é dela; a saída declara isso em vez de dizer "empresa inteira".
+        return { configurada: true as const, alcance: escopo.estabelecimentoId ? "UNIDADE_UNICA" as const : "EMPRESA" as const, dias };
+      } catch (error) {
+        if (error instanceof AvailabilityServiceError && error.code === "AGENDA_NAO_CONFIGURADA") return { configurada: false as const };
+        throw error;
+      }
+    },
+    contratosPendentes: (tx, empresaId, limite, hoje) => contratosAguardandoAssinatura(tx, empresaId, limite, { proximasDe: hoje }),
     corpus: () => carregarCorpusAprovado(),
     registrar(evento) {
       repo.auditar({ evento: "FERRAMENTA", ...evento })

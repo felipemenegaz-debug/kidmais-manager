@@ -3,11 +3,13 @@ import { z } from "zod";
 import { apiErrorResponse, jsonNoStore } from "@/lib/http/api-response";
 import { exigirApiAdminCrmDisponivel } from "@/lib/http/admin-crm-api";
 import { conexoesDaPessoa } from "@/lib/integracoes/oauth/conexoes";
+import { identidadeOuNulo } from "@/lib/integracoes/oauth/identidade-sessao";
+import { empresaNoPilotoMcp } from "@/lib/integracoes/mcp/config";
 import { lerJsonLimitado } from "@/lib/integracoes/mcp/corpo";
 import { CanalOcupado } from "@/lib/integracoes/mcp/admissao";
 import { PrazoDaTransacaoVencido } from "@/lib/db/transacao-com-prazo";
 import { SchemaMcpAusente } from "@/lib/integracoes/oauth/postgres";
-import { repositorioDaPessoa } from "../../../mcp/dependencias";
+import { ajudaDisponivel, leitorDeFalhasDaPessoa, repositorioDaPessoa, transacaoDaIdentidade } from "../../../mcp/dependencias";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -27,7 +29,11 @@ function falha(error: unknown) {
 export async function GET(request: NextRequest) {
   try {
     const sessao = await exigirApiAdminCrmDisponivel(request);
-    return jsonNoStore({ ok: true, data: await conexoesDaPessoa(process.env, repositorioDaPessoa(), sessao.usuario_id) });
+    const estado = await conexoesDaPessoa(process.env, repositorioDaPessoa(), sessao.usuario_id, leitorDeFalhasDaPessoa());
+    // Falha ou demora ao ler a identidade não esconde a lista (informação de segurança, revisão P2-7): a tela só deixa de orientar a conexão nova.
+    // Vaga própria (9º parecer, P2): identidades presas não tiram as vagas de listar e desconectar.
+    const identidade = await identidadeOuNulo(transacaoDaIdentidade, sessao);
+    return jsonNoStore({ ok: true, data: { ...estado, ajudaDisponivel: ajudaDisponivel(), identidade: identidade && { ...identidade, empresaNoPiloto: identidade.empresaAtual ? empresaNoPilotoMcp(process.env, identidade.empresaAtual.id) : false } } });
   } catch (error) {
     return falha(error);
   }

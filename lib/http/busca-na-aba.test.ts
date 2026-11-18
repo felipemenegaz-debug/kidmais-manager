@@ -180,10 +180,14 @@ test('pontos de fim de sessão chamam encerrarBuscasDaAba antes de navegar ao lo
     const fetch = readFileSync('lib/http/admin-fetch.ts', 'utf8');
     assert.equal(fetch.split('window.location.assign(loginDestaPagina())').length - 1, 3, 'três idas ao login em admin-fetch');
     // Rodada 12: a trava sai das idas ao login e passa para antes de qualquer ramo, inclusive o do estado final do endereço.
-    // Duas idas vêm de uma confirmação de fim vigente (prévia da lista e da troca): a trava é a do ponto comum.
-    assert.match(fetch, /async function confirmarSessao\(\): Promise<Confirmacao> \{\s*const confirmacao = await lerSessao\(\);\s*if \(fimConfirmado\(confirmacao\)\) encerrarBuscasDaAba\(\);\s*return confirmacao;\s*\}/, 'fim vigente trava ao chegar');
-    assert.equal(fetch.split('await lerSessao()').length - 1, 1, 'nenhuma confirmação contorna o ponto comum');
-    // A terceira é o 401 do POST da troca: trava antes do estado final.
+    // Duas idas vêm de uma confirmação de fim vigente (prévia da lista e da troca): a trava é a do ponto de consumo.
+    // Revisão do merge a6c070f1, P2: a trava é decidida pelo chamador, no mesmo instante em que ele decide entre fim e
+    // troca cruzada (a marca é conferida ali); a leitura em si não trava nada.
+    assert.match(fetch, /function travarNoFim\(confirmacao: Confirmacao\): Confirmacao \{\s*if \(fimConfirmado\(confirmacao\)\) encerrarBuscasDaAba\(\);\s*return confirmacao;\s*\}/, 'fim vigente trava ao consumir');
+    assert.equal(fetch.split('encerrarBuscasDaAba()').length - 1, 2, 'só travarNoFim e o 401 do POST da troca travam');
+    const leituras = fetch.split('await confirmarSessao(').length - 1;
+    assert.equal(leituras, 6, 'seis pontos de consumo');
+    assert.equal(fetch.split('travarNoFim(await confirmarSessao(').length - 1, leituras, 'nenhuma confirmação contorna a trava no consumo');    // A terceira é o 401 do POST da troca: trava antes do estado final.
     assert.match(fetch, /if \(resposta\.status === 401\) encerrarBuscasDaAba\(\);\s*pararSeEnderecoFinal\('escrita', situacao\);/, '401 da troca trava antes do estado final');
 });
 

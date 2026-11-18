@@ -27,6 +27,8 @@ export const LIMITES = {
   RESERVA_EMAIL_ORIGEM: { nome: "identidade:reserva-email:origem", limite: 6, janelaSegundos: 3600 },
   /** Leituras pesadas da área (PDF e Pix): por SESSÃO, não por origem (o sujeito é o id da sessão). */
   AREA_LEITURA_SESSAO: { nome: "area:leitura:sessao", limite: 120, janelaSegundos: 3600 },
+  /** Ações da família (F3: já paguei, feito, convite, link, remoção): por SESSÃO. */
+  AREA_ACAO_SESSAO: { nome: "area:acao:sessao", limite: 30, janelaSegundos: 3600 },
 } as const satisfies Record<string, RegraLimite>;
 
 const memoria = criarLimitador();

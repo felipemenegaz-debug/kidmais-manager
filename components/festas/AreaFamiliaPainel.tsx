@@ -1,5 +1,6 @@
 'use client';
 import { useCallback, useEffect, useState } from 'react';
+import type { ResumoAcoesPainel } from '@/lib/area-familia/admin';
 import { adminFetch } from '@/lib/http/admin-fetch';
 import styles from './festa.module.css';
 
@@ -9,6 +10,7 @@ type Resumo = {
   fechaEm: string;
   pessoas: Array<{ id: string; papel: Papel; nome: string; whatsappMascarado: string | null; linkAtivoAte: string | null }>;
   aparelhos: Array<{ id: string; papel: Papel; aparelho: string | null; entrouEm: string; ultimoUsoEm: string; lembrar: boolean }>;
+  acoes?: ResumoAcoesPainel;
 };
 type LinkGerado = { papel: Papel; url: string; expiraEm: string };
 
@@ -88,7 +90,7 @@ export default function AreaFamiliaPainel({ festaId, gestao }: { festaId: string
         {dados.aberta && <p>Disponível até {dia(dados.fechaEm)}.</p>}
         {dados.pessoas.map((p) => (
           <article className={styles.row} key={p.papel + p.id}>
-            <h3>{rotulo(p.papel)}: {p.nome || 'Sem nome'}</h3>
+            <h3>{rotulo(p.papel)}: {p.nome || 'Sem nome'}{p.papel === 'SEGUNDO_RESPONSAVEL' && dados.acoes?.segundoPelaFamilia ? ' (convidado pela família)' : ''}</h3>
             <p>WhatsApp: {p.whatsappMascarado ?? 'não cadastrado'}</p>
             <p>{p.linkAtivoAte ? `Link enviado, vale até ${dia(p.linkAtivoAte)}.` : 'Nenhum link válido.'}</p>
             {gestao && dados.aberta && <div className={styles.actions}>
@@ -116,6 +118,7 @@ export default function AreaFamiliaPainel({ festaId, gestao }: { festaId: string
               <div className={styles.actions}><button type="submit" disabled={busy}>Cadastrar</button><button type="button" onClick={() => setNovo(false)}>Cancelar</button></div>
             </form>
           : <div className={styles.actions}><button type="button" onClick={() => setNovo(true)}>Cadastrar segundo responsável</button></div>)}
+        {dados.acoes?.disponivel && <AcoesDaFamiliaPainel acoes={dados.acoes} gestao={gestao} busy={busy} acao={acao} />}
         <h3>Aparelhos conectados</h3>
         {!dados.aparelhos.length ? <p>Nenhum aparelho conectado.</p> : dados.aparelhos.map((a) => (
           <p key={a.id}>{rotulo(a.papel)} • {a.aparelho ?? 'Aparelho'} • entrou em {momento(a.entrouEm)} • último uso {momento(a.ultimoUsoEm)}{a.lembrar ? ' • lembrado' : ''}</p>
@@ -125,5 +128,70 @@ export default function AreaFamiliaPainel({ festaId, gestao }: { festaId: string
         </div>}
       </>}
     </section>
+  );
+}
+
+const reais = (centavos: number) => (centavos / 100).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+const quem = (p: Papel | null) => (p ? rotulo(p).toLowerCase() : 'família');
+
+/**
+ * F3 (125) no painel: avisos "Já paguei" (conferir ou descartar; o pagamento continua sendo baixado no financeiro),
+ * pendências do cliente que a família vê (visível + texto para a família; devolver um "feito"), aviso fixo da empresa.
+ */
+function AcoesDaFamiliaPainel({ acoes, gestao, busy, acao }: {
+  acoes: ResumoAcoesPainel; gestao: boolean; busy: boolean;
+  acao: (corpo: Record<string, unknown>) => Promise<Record<string, unknown> | null>;
+}) {
+  const [aviso, setAviso] = useState(acoes.avisoFixo ?? '');
+  return <>
+    <h3>Avisos de pagamento da família</h3>
+    {acoes.avisos.length === 0 && <p>Nenhum aviso para conferir.</p>}
+    {acoes.avisos.map((a) => (
+      <article className={styles.row} key={a.id}>
+        <p>Parcela {a.parcela} ({reais(a.saldoCentavos)}): {quem(a.papel)} avisou em {momento(a.criadoEm)}.</p>
+        {a.observacao && <p>Observação: {a.observacao}</p>}
+        {gestao && <div className={styles.actions}>
+          <button type="button" disabled={busy} onClick={() => void acao({ acao: 'TRATAR_AVISO_PAGAMENTO', avisoId: a.id, decisao: 'CONFERIDO' })}>Conferido</button>
+          <button type="button" disabled={busy} onClick={() => void acao({ acao: 'TRATAR_AVISO_PAGAMENTO', avisoId: a.id, decisao: 'DESCARTADO' })}>Descartar</button>
+        </div>}
+      </article>
+    ))}
+    <h3>Pendências que a família vê</h3>
+    {acoes.pendencias.length === 0 && <p>Nenhuma pendência do cliente nesta festa.</p>}
+    {acoes.pendencias.map((p) => <PendenciaPainel key={p.id} p={p} gestao={gestao} busy={busy} acao={acao} />)}
+    <h3>Aviso fixo para as famílias</h3>
+    <p>Aparece no início da área de todas as festas da empresa.</p>
+    {gestao
+      ? <div className={styles.row}>
+          <textarea value={aviso} maxLength={500} rows={3} onChange={(e) => setAviso(e.target.value)} aria-label="Aviso fixo para as famílias" />
+          <div className={styles.actions}>
+            <button type="button" disabled={busy} onClick={() => void acao({ acao: 'AVISO_FIXO', texto: aviso.trim() || null })}>Salvar aviso</button>
+          </div>
+        </div>
+      : <p>{acoes.avisoFixo || 'Sem aviso.'}</p>}
+  </>;
+}
+
+function PendenciaPainel({ p, gestao, busy, acao }: {
+  p: ResumoAcoesPainel['pendencias'][number]; gestao: boolean; busy: boolean;
+  acao: (corpo: Record<string, unknown>) => Promise<Record<string, unknown> | null>;
+}) {
+  const [visivel, setVisivel] = useState(p.familia?.visivel ?? false);
+  const [texto, setTexto] = useState(p.familia?.texto ?? '');
+  const f = p.familia;
+  return (
+    <article className={styles.row}>
+      <p>{p.descricao}{p.prazo ? ` (até ${dia(p.prazo)})` : ''}</p>
+      {f?.feitaEm && <p>Marcada como feita pela {quem(f.feitaPor)} em {momento(f.feitaEm)}.</p>}
+      {f?.devolvidaEm && !f.feitaEm && <p>Devolvida para a família em {momento(f.devolvidaEm)}.</p>}
+      {gestao && <>
+        <label><input type="checkbox" checked={visivel} onChange={(e) => setVisivel(e.target.checked)} /> Mostrar para a família</label>
+        <input value={texto} maxLength={280} onChange={(e) => setTexto(e.target.value)} placeholder="Texto que a família vê" aria-label="Texto que a família vê" />
+        <div className={styles.actions}>
+          <button type="button" disabled={busy || !texto.trim()} onClick={() => void acao({ acao: 'PENDENCIA_FAMILIA', pendenciaId: p.id, visivel, texto: texto.trim() })}>Salvar</button>
+          {f?.feitaEm && <button type="button" disabled={busy} onClick={() => void acao({ acao: 'DEVOLVER_PENDENCIA', pendenciaId: p.id })}>Devolver para a família</button>}
+        </div>
+      </>}
+    </article>
   );
 }

@@ -1,5 +1,6 @@
 import type { DbExecutor } from "../db/contracts.ts";
-import { versaoConferenciaImportada } from "../contratos/assinatura-papel.ts";
+import { textoClienteAssinouEmPapel, versaoConferenciaImportada } from "../contratos/assinatura-papel.ts";
+import { assinaturaPapelClientePublica } from "../contratos/services/contrato-publico.service.ts";
 import { rotuloSalao, salaoDoSnapshot, type ContratoSnapshot, type ContratoVersaoRecord } from "../contratos/repositories/models.ts";
 import { buscarVersaoPorId } from "../contratos/repositories/contrato.repository.ts";
 import { listarRecebiveisDoContrato, type Recebivel } from "../financeiro/servico.ts";
@@ -11,6 +12,7 @@ import { ContratoServiceError } from "../contratos/services/errors.ts";
 import { adquirirDocumentoParaLeitura, materializarDocumento, type DocumentoAdquirido } from "../contratos/services/fluxo-publico.ts";
 import { lerDocumento } from "../contratos/storage/postgres.ts";
 import type { SessaoArea } from "./acesso.ts";
+import { lerAcoesDaFamilia, type AcoesDaFamilia } from "./acoes.ts";
 
 /**
  * F2 da área da família (sem migration): leitura do que a família vê, sempre a partir da SESSÃO (lerSessao), nunca de
@@ -53,6 +55,12 @@ export type MinhaFesta = {
   };
   documentos: DocumentoFamilia[];
   assinadoEmPapel: boolean;
+  /**
+   * 124 (PAPEL_CLIENTE): o buffet assinou eletronicamente e o cliente assinou o papel. Mesmo texto e mesma fonte do link
+   * público (só a data civil declarada; nunca a cópia, o sha, a observação nem quem registrou). Null nos demais casos e
+   * sempre que a 124 não estiver aplicada.
+   */
+  assinadoPeloClienteEmPapel: string | null;
   pagamentos: {
     totalCentavos: number;
     pagoCentavos: number;
@@ -60,6 +68,9 @@ export type MinhaFesta = {
     parcelas: ParcelaFamilia[];
     proxima: ParcelaFamilia | null;
   };
+  /** F3 (125): papel de quem lê, aviso fixo, pendências da família, avisos de pagamento e o segundo responsável. */
+  papel: SessaoArea["papel"];
+  acoes: AcoesDaFamilia;
 };
 
 /** Festa, contrato e versão vigente da sessão, presos à empresa da sessão. Null = a sessão não alcança mais a festa. */
@@ -149,6 +160,8 @@ export async function lerMinhaFesta(tx: DbExecutor, sessao: SessaoArea, hoje: st
       documentos.push({ tipo: "comprovante", id: c.id, titulo: c.parte === "CLIENTE" ? "Comprovante da sua assinatura" : "Comprovante da assinatura do buffet" });
     }
   }
+  // Documento e comprovante do buffet continuam (como no link público); só acrescenta a data em que o cliente assinou.
+  const papelCliente = papel ? null : await assinaturaPapelClientePublica(versao, tx);
   const recebiveis = await listarRecebiveisDoContrato(tx, sessao.empresaId, contratoId, hoje);
   return {
     festa: {
@@ -166,7 +179,10 @@ export async function lerMinhaFesta(tx: DbExecutor, sessao: SessaoArea, hoje: st
     },
     documentos,
     assinadoEmPapel: papel,
+    assinadoPeloClienteEmPapel: papelCliente ? textoClienteAssinouEmPapel(papelCliente.data) : null,
     pagamentos: resumoDosPagamentos(recebiveis, hoje),
+    papel: sessao.papel,
+    acoes: await lerAcoesDaFamilia(tx, sessao),
   };
 }
 
