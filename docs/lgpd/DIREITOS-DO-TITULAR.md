@@ -1,6 +1,6 @@
 # Direitos do titular: canal, prazos, execução, registro e modelos
 
-**Estado (03/11/2026): procedimento LOCAL, documental, não publicado. Executável manualmente por Felipe.** Versão de 21/10/2026 atualizada para a fornecedora **Demerzel Labs Ltda.**, CNPJ 69.938.612/0001-26 ("Demerzel Labs"), produto **iA.Fest**, e para os textos `2026-11-15-privacidade`, `2026-11-15-termos` e `2026-11-15-dpa`.
+**Estado (03/11/2026): procedimento LOCAL, documental, não publicado. Executável manualmente por Felipe.** Versão de 21/10/2026 atualizada para a fornecedora **Demerzel Labs Ltda.**, CNPJ 69.938.612/0001-26 ("Demerzel Labs"), produto **iA.Fest**, e para os textos `2026-11-17-privacidade`, `2026-11-17-termos` e `2026-11-17-dpa`.
 
 Fonte de verdade: `lib/cadastro/documentos-legais.ts` (Aviso, "Direitos e pedidos de exclusão"; DPA, "Direitos dos titulares e assistência"). Se este procedimento divergir dos textos, valem os textos. O procedimento usa as telas e rotas que já existem; as referências de código foram lidas na base staging `2139966` (21/10) e conferidas por existência neste clone.
 

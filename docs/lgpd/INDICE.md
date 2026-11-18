@@ -5,7 +5,7 @@
 - o produto **iA.Fest**;
 - o canal oficial **contato@demerzellabs.com.br**;
 - o encarregado **Felipe Menegaz**;
-- os textos `2026-11-15-termos`, `2026-11-15-privacidade` e `2026-11-15-dpa`.
+- os textos `2026-11-17-termos`, `2026-11-17-privacidade` e `2026-11-17-dpa`.
 
 O buffet **Kidmais Festas** é uma empresa cliente da plataforma. Pessoas ligadas à Demerzel Labs atuam nele.
 
@@ -15,7 +15,7 @@ O buffet **Kidmais Festas** é uma empresa cliente da plataforma. Pessoas ligada
 |---|---|---|
 | [BACKUPS-E-COPIAS.md](BACKUPS-E-COPIAS.md) | Inventário de PITR, exportações e dumps; regra de 90 dias com cópias locais; eliminação; reaplicar exclusões depois de restaurar | **Sim**, manual + script de inventário (no clone de procedimentos) |
 | [DIREITOS-DO-TITULAR.md](DIREITOS-DO-TITULAR.md) | Canal, papéis (Demerzel Labs × empresa cliente), prazos, identificação, execução de cada direito, registro e modelos | **Sim**, manual |
-| [REACEITE-EMPRESA-EXISTENTE.md](REACEITE-EMPRESA-EXISTENTE.md) | Novo aceite dos Termos e do DPA 2026-11-15 pela empresa existente, com ciência do Aviso | **Não ainda**: depende dos textos 2026-11-15 no ar em produção |
+| [REACEITE-EMPRESA-EXISTENTE.md](REACEITE-EMPRESA-EXISTENTE.md) | Novo aceite dos Termos e do DPA 2026-11-17 pela empresa existente, com ciência do Aviso | **Não ainda**: depende dos textos 2026-11-17 no ar em produção |
 | [RESPOSTA-A-INCIDENTES.md](RESPOSTA-A-INCIDENTES.md) | Detecção, contenção, avaliação, aviso à empresa cliente com meta de 24 h, comunicação à ANPD pela controladora, registro e modelos | **Sim**, manual |
 | [ENSAIO-EXPORTACAO-E-DEVOLUCAO.md](ENSAIO-EXPORTACAO-E-DEVOLUCAO.md) | Roteiro de ensaio: exportação completa em até 15 dias, isolada por empresa; devolução proporcional do anual no sandbox do Asaas | **Não executado**: depende de autorização para o ambiente |
 | [CALENDARIO-DE-ELIMINACOES.md](CALENDARIO-DE-ELIMINACOES.md) | Rotina do dia 1º e eventos (fim de teste ou assinatura, aviso 30 dias antes, exclusão, restauração), derivados da tabela de retenção | **Sim**, manual; exclusões em produção a definir com autorização |
@@ -30,7 +30,7 @@ Felipe Menegaz (encarregado) é responsável por todos os procedimentos.
 | Toda segunda-feira | Pedidos de titulares abertos e prazos ([DIREITOS](DIREITOS-DO-TITULAR.md)) |
 | 1º de janeiro | Contratos (10 anos) e documentos fiscais vencidos ([CALENDARIO](CALENDARIO-DE-ELIMINACOES.md)) |
 | Até 14/11/2026 | Decidir sobre o INC-20261015-01 antes do fim dos 30 dias de logs de abuso da OpenAI ([INCIDENTES](RESPOSTA-A-INCIDENTES.md)) |
-| Textos 2026-11-15 no ar em produção | Reaceite ([REACEITE](REACEITE-EMPRESA-EXISTENTE.md)) |
+| Textos 2026-11-17 no ar em produção | Reaceite ([REACEITE](REACEITE-EMPRESA-EXISTENTE.md)) |
 | Antes do primeiro pedido real | Ensaio de exportação e devolução ([ENSAIO](ENSAIO-EXPORTACAO-E-DEVOLUCAO.md)) |
 | A cada 6 meses | Exercício de incidente |
 

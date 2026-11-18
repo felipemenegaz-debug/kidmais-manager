@@ -39,7 +39,7 @@ export const IDENTIFICACAO_KIDMAIS = 'Demerzel Labs Ltda., CNPJ 69.938.612/0001-
 const RESPONSAVEL = IDENTIFICACAO_KIDMAIS;
 
 const DPA: TextoLegal = {
-    documento: 'DPA', titulo: 'Acordo de Tratamento de Dados do iA.Fest', versao: '2026-11-15-dpa', minuta: false, rota: '/acordo-de-tratamento',
+    documento: 'DPA', titulo: 'Acordo de Tratamento de Dados do iA.Fest', versao: '2026-11-17-dpa', minuta: false, rota: '/acordo-de-tratamento',
     secoes: [
         { titulo: 'Partes e objeto', id: 'partes', paragrafos: [
             'Este Acordo de Tratamento de Dados integra os Termos de uso do iA.Fest e é aceito junto com eles, pelo contratante identificado no cadastro (“Contratante”): a pessoa física que contrata em nome próprio, com seu nome civil e CPF, ou a pessoa jurídica, por quem a represente.',
@@ -62,6 +62,28 @@ const DPA: TextoLegal = {
             ['Pessoas com alergias ou restrições de saúde', 'Observações de saúde registradas em campos livres', 'Dado sensível: registrar só quando necessário à festa.'],
             ['Equipe do Contratante', 'Nome, e-mail, papel e registros de uso', 'Usuários do sistema.'],
         ] } },
+        { titulo: 'Guarda dos dados dos clientes do Contratante', id: 'guarda-clientes', paragrafos: [
+            'Enquanto houver assinatura ou teste, a Demerzel Labs conserva os dados dos clientes do Contratante pelos prazos máximos da relação abaixo, que o Contratante adota como instrução ao aceitar este Acordo. Os prazos são os mesmos para todos os Contratantes; o Contratante pode pedir pelo canal oficial a eliminação antecipada de dados de seus clientes. As conversas do WhatsApp seguem o prazo próprio descrito no Aviso de privacidade. Ao fim da assinatura, valem também os prazos da seção “Término: devolução, exclusão e cópias de segurança”, e prevalece o que terminar primeiro.',
+            'Conta como contato a iniciativa do cliente ou interessado: mensagem enviada por ele, pedido de orçamento ou resposta a uma mensagem do Contratante. Mensagens de campanha enviadas pelo Contratante e não respondidas não renovam os prazos.',
+        ], tabela: { colunas: ['Dados', 'Prazo máximo'], linhas: [
+            ['Contratos, pagamentos e cobranças de festas contratadas, com os dados do cliente que constam deles', '5 anos contados da data da festa ou do último pagamento, o que for mais tarde; em festa cancelada, contados do cancelamento. Vale mesmo que o cliente peça para não receber campanhas.'],
+            ['Contato do cliente que já contratou festa (nome, telefone e e-mail), para campanhas e fidelidade', 'Até o cliente pedir para não receber mais mensagens de campanha ou até 5 anos sem festa nem contato, o que vier primeiro. O fim deste prazo encerra só o uso para campanhas: os dados que constam de contrato ainda no prazo dele ficam apenas para o contrato.'],
+            ['Contato de quem nunca contratou festa (interessados e orçamentos não fechados)', '2 anos sem contato.'],
+            ['Nome e data de nascimento da criança usados para lembrar o responsável do próximo aniversário', 'Só com autorização do responsável; até a revogação dela ou até o fim do prazo do contato do responsável para campanhas, o que vier primeiro.'],
+            ['Registro de quem pediu para não receber mensagens de campanha (telefone ou e-mail e data do pedido)', 'Enquanto durar a assinatura do Contratante, sem o restante do cadastro, inclusive depois da anonimização do cliente.'],
+        ] } },
+        { titulo: 'Campanhas, fidelidade e dados de crianças', id: 'campanhas', paragrafos: [
+            'Campanhas e ações de fidelidade são decididas pelo Contratante, como controlador: ele escolhe se as faz, para quem e com que conteúdo, e responde pela autorização dos destinatários. A Demerzel Labs apenas executa as funções do sistema. As mensagens de campanha enviadas pelo sistema só seguem para contatos com autorização de mensagens confirmada, trazem em todas elas como deixar de receber (por exemplo, responder “PARAR”) e não seguem para quem pediu para sair. O pedido de saída encerra o uso do contato para campanhas daquele Contratante, sem impedir as mensagens necessárias a uma festa já contratada.',
+            'Hoje o sistema aplica o pedido de saída ao cadastro do cliente em que ele foi registrado e, no WhatsApp, ao número que respondeu “PARAR”. O envio de campanhas pelo sistema só será ligado quando o pedido de saída for conferido também pelo telefone e pelo e-mail, inclusive em novos cadastros e importações.',
+            'Mensagens enviadas pelo Contratante fora do sistema são de sua responsabilidade. Pedidos de saída recebidos fora do sistema devem ser registrados nele pelo Contratante, para que valham também para as mensagens enviadas pelo sistema.',
+            'O nome e a data de nascimento da criança só podem ser usados para lembrar o responsável do próximo aniversário se o responsável tiver dado autorização própria e opcional para isso, separada do contrato da festa e revogável a qualquer momento. Sem essa autorização, esses dados servem apenas à festa contratada e seguem o prazo do contrato. As mensagens são dirigidas ao responsável, nunca à criança. Enquanto o sistema não registrar essa autorização, ele não oferece lembrete de aniversário, e o Contratante não deve usar esses dados para esse fim.',
+        ] },
+        { titulo: 'Fim dos prazos: anonimização', id: 'anonimizacao', paragrafos: [
+            'Cada prazo vale para a sua finalidade. Quando um prazo vence, saem os dados que serviam só a ele; os que ainda servem a outra finalidade com prazo em curso ficam apenas para ela. Por exemplo, quem pede para sair das campanhas logo depois da festa deixa de receber campanhas na hora, e o contrato, com os dados que constam dele, fica até o fim dos seus 5 anos.',
+            'Quando vencem todos os prazos que se aplicam ao cliente, os dados que o identificam são eliminados: nome, telefone, e-mail, documento, endereço, arquivos e contratos em PDF, mensagens e o nome e a data de nascimento da criança. Ficam valores, datas e quantidades, sem ligação com a pessoa, para os relatórios do Contratante, e o registro de quem pediu para sair, conforme a relação acima. Valor em aberto ou disputa informada pelo Contratante preserva só os registros necessários à cobrança ou à disputa (o contrato, os pagamentos e os dados de identificação e contato que constam deles), até o fim da cobrança ou da disputa; os demais dados seguem os seus prazos.',
+            'A aplicação é mensal e alcança os prazos que vencem no mês, de modo que a eliminação pode ocorrer até 30 dias antes do vencimento, nunca depois, salvo na primeira aplicação descrita abaixo. O Contratante é avisado com pelo menos 30 dias de antecedência da eliminação e pode, nesse prazo e sob sua responsabilidade, exportar o que precisar guardar por obrigação própria. Os dados eliminados saem das cópias de segurança no ciclo máximo de 90 dias; se houver restauração, a eliminação é reaplicada.',
+            'Enquanto a anonimização automática não estiver em operação, a Demerzel Labs aplica estes prazos por procedimento operacional, com registro de cada aplicação. Para dados cadastrados antes desta versão, inclusive os importados de outros sistemas, os prazos contam normalmente. Na primeira aplicação para cada Contratante, um único aviso alcança os dados já vencidos e os que vencem no mês do aviso e no seguinte; cada um é eliminado no primeiro dia do mês do seu vencimento ou 30 dias depois do aviso, o que for mais tarde. Assim, só os dados já vencidos e os que vencerem antes de completar 30 dias de aviso são eliminados depois do vencimento, 30 dias depois do aviso.',
+        ] },
         { titulo: 'Uso próprio e confidencialidade', id: 'confidencialidade', paragrafos: [
             'A Demerzel Labs não usará os dados do Contratante para finalidades próprias incompatíveis, publicidade própria, treinamento de modelos de inteligência artificial por iniciativa própria, prospecção comercial ou comparação comercial que identifique o Contratante ou seus clientes.',
             'Pessoas ligadas à Demerzel Labs também atuam no mercado de buffets infantis, no buffet Kidmais Festas, que é empresa cliente da plataforma. Os dados do Contratante não serão disponibilizados a esse buffet nem acessados por seu pessoal, salvo quando a mesma pessoa prestar suporte técnico solicitado e apenas na medida necessária para isso.',
@@ -111,7 +133,7 @@ const DPA: TextoLegal = {
 };
 
 const TERMOS: TextoLegal = {
-    documento: 'TERMOS_USO', titulo: 'Termos de uso do iA.Fest', versao: '2026-11-15-termos', minuta: false, rota: '/termos',
+    documento: 'TERMOS_USO', titulo: 'Termos de uso do iA.Fest', versao: '2026-11-17-termos', minuta: false, rota: '/termos',
     secoes: [
         { titulo: 'Quem presta o serviço', id: 'responsavel', paragrafos: [
             `O iA.Fest é prestado por ${RESPONSAVEL} (“Demerzel Labs”).`,
@@ -156,6 +178,7 @@ const TERMOS: TextoLegal = {
         { titulo: 'Seus dados e a exportação', id: 'exportacao', paragrafos: [
             'Os dados e conteúdos inseridos pela empresa continuam sendo dela. A Demerzel Labs recebe apenas a licença necessária para hospedar, processar e exibir esse conteúdo na prestação do serviço, inclusive por meio dos prestadores indicados no Acordo de Tratamento de Dados.',
             'A exportação fica disponível para a Gestão da empresa, inclusive durante a somente leitura e depois da suspensão comercial. Hoje ela gera arquivos CSV de clientes e de contas a receber; os contratos podem ser baixados em PDF enquanto houver acesso de consulta. A exportação completa dos demais dados (festas, aniversariantes, financeiro e conversas) pode ser pedida pelo canal oficial e é entregue em até 15 dias.',
+            'Os prazos de guarda dos dados dos clientes da empresa, inclusive para campanhas e fidelidade, e a anonimização ao fim deles estão no Acordo de Tratamento de Dados, seções “Guarda dos dados dos clientes do Contratante” e “Fim dos prazos: anonimização”.',
         ] },
         { titulo: 'Proteção de dados e Acordo de Tratamento de Dados', id: 'acordo-de-tratamento', paragrafos: [
             `O Acordo de Tratamento de Dados, versão ${DPA.versao}, impressão digital ${hashDocumento(DPA)}, publicado em ${DPA.rota}, integra estes Termos e é aceito junto com eles, pelo contratante. Qualquer mudança no Acordo gera nova versão destes Termos.`,
@@ -184,7 +207,7 @@ const TERMOS: TextoLegal = {
 };
 
 const PRIVACIDADE: TextoLegal = {
-    documento: 'PRIVACIDADE', titulo: 'Aviso de privacidade do iA.Fest', versao: '2026-11-15-privacidade', minuta: false, rota: '/privacidade',
+    documento: 'PRIVACIDADE', titulo: 'Aviso de privacidade do iA.Fest', versao: '2026-11-17-privacidade', minuta: false, rota: '/privacidade',
     secoes: [
         { titulo: 'Sobre este aviso', paragrafos: [
             'Este aviso descreve o tratamento de dados pessoais no iA.Fest, sistema de gestão para buffets infantis: cadastro e assinatura, gestão de festas, atendimento pelo WhatsApp, convites e recursos de inteligência artificial.',
@@ -219,6 +242,12 @@ const PRIVACIDADE: TextoLegal = {
             'Os formulários públicos dos sites das empresas devem identificar o buffet responsável, explicar a finalidade e oferecer link a este aviso antes da coleta.',
             'As instruções, responsabilidades, prestadores, incidentes e a devolução ou exclusão desses dados estão no Acordo de Tratamento de Dados.',
         ] },
+        { titulo: 'Guarda dos dados dos clientes do buffet e campanhas', id: 'guarda-clientes', paragrafos: [
+            'Os dados dos clientes de cada buffet são guardados pelos prazos máximos do Acordo de Tratamento de Dados: contratos, pagamentos e cobranças por 5 anos contados da festa ou do último pagamento, o que for mais tarde, ou do cancelamento, se a festa foi cancelada; o contato de quem já contratou festa, para campanhas e fidelidade, até a pessoa pedir para sair ou até 5 anos sem festa nem contato; e o contato de quem nunca contratou festa por 2 anos sem contato. Só renova esses prazos o contato que parte da pessoa: mensagem enviada por ela, pedido de orçamento ou resposta a uma mensagem do buffet; campanha recebida e não respondida não renova.',
+            'Cada prazo vale para a sua finalidade: sair das campanhas encerra o uso do contato para campanhas, mas o contrato e os dados que constam dele ficam até o fim dos seus 5 anos. Quando vencem todos os prazos que se aplicam à pessoa, os dados que a identificam são eliminados e ficam apenas valores, datas e quantidades. Valor em aberto ou disputa preserva só o necessário à cobrança ou à disputa, até o fim delas.',
+            'Cada buffet decide suas campanhas e responde por elas. As mensagens de campanha enviadas pelo iA.Fest só seguem para quem tem autorização de mensagens confirmada, trazem em todas elas como deixar de receber e não seguem para quem pediu para sair. Para não voltar a chamar quem saiu, guardamos o telefone ou o e-mail e a data do pedido, sem o restante do cadastro, enquanto o buffet for assinante do iA.Fest. A saída pode ser pedida ao próprio buffet, respondendo “PARAR”, ou pelo canal deste aviso.',
+            'O nome e a data de nascimento da criança só podem ser usados para lembrar o responsável do próximo aniversário com autorização própria, opcional e revogável do responsável. Hoje o iA.Fest não oferece esse lembrete.',
+        ] },
         { titulo: 'Atendimento pelo WhatsApp', paragrafos: [
             'Quando o canal está habilitado, são tratados o número de telefone, o nome de perfil disponibilizado pelo WhatsApp, mensagens, referências a mídias, identificadores e horários das mensagens e estados de envio ou entrega. Esses dados permitem organizar o histórico, responder solicitações, enviar informações sobre eventos e transferir o atendimento à equipe.',
             'A integração utiliza os serviços do WhatsApp/Meta, que também tratam dados de acordo com suas próprias políticas. O atendimento pode usar respostas automáticas por regras e, quando a empresa cliente liga o assistente, respostas preparadas com inteligência artificial, conforme a seção seguinte. A pessoa pode pedir atendimento humano a qualquer momento e pedir para não ser mais contatada, por exemplo respondendo “PARAR”.',
@@ -244,7 +273,8 @@ const PRIVACIDADE: TextoLegal = {
             ['Cadastro de criança', 'Buffet controlador: consentimento específico como opção recomendada; outra base apenas com avaliação concreta do melhor interesse', 'Idade e nome são dados pessoais; não são sensíveis apenas por pertencerem a criança.'],
             ['Alergias e saúde', 'Buffet controlador: consentimento específico e destacado do responsável, quando necessário ao serviço', 'Legítimo interesse não fundamenta dados sensíveis. Proteção da vida serve a situações próprias, não como justificativa genérica de cadastro.'],
             ['Convite com IA e fotografia', 'Buffet controlador; Demerzel Labs operadora: consentimento específico para essa finalidade opcional', 'Separar geração por IA, uso da fotografia e eventual divulgação pública.'],
-            ['Resposta a contato e marketing', 'Resposta solicitada: procedimentos preliminares ou outra base pertinente. Promoções: consentimento como padrão recomendado', 'Autorização promocional separada, desmarcada e revogável. “PARAR” deve interromper envios.'],
+            ['Resposta a contato e marketing', 'Resposta solicitada: procedimentos preliminares ou outra base pertinente. Promoções: consentimento como padrão recomendado', 'Autorização promocional separada, desmarcada e revogável. “PARAR” deve interromper envios, e o registro de quem saiu é guardado para não voltar a chamar a pessoa.'],
+            ['Lembrete de aniversário da criança', 'Buffet controlador; Demerzel Labs operadora: autorização própria e opcional do responsável', 'Separada do contrato da festa e revogável; mensagem só para o responsável. Ainda não oferecido pelo sistema.'],
         ] } },
         { titulo: 'Compartilhamento e prestadores', id: 'prestadores', paragrafos: [
             'Utilizamos Render para hospedagem e banco; Asaas para cobrança e pagamentos; Resend para e-mails transacionais; Meta/WhatsApp para mensageria e verificação de identidade; OpenAI para a geração de convites com IA e para o assistente do atendimento pelo WhatsApp; e ViaCEP para consulta de endereço a partir do CEP. Cada serviço recebe somente os dados necessários à sua função. O Asaas também coleta diretamente dados fornecidos pelo pagador em sua página. Google Gemini e DeepSeek são integrações disponíveis no sistema e não habilitadas, que não serão ativadas sem avaliação prévia e atualização das informações pertinentes.',
@@ -279,6 +309,7 @@ const PRIVACIDADE: TextoLegal = {
             ['Documentos fiscais da assinatura', 'Pelo prazo tributário aplicável, em regra cinco anos contados do primeiro dia do exercício seguinte ao da emissão (CTN, art. 173), com extensão enquanto houver procedimento ou crédito ainda não prescrito.'],
             ['Registros de acesso à aplicação', 'Seis meses; preservações adicionais individualizadas quando legalmente cabíveis. Isso não significa guardar conteúdo de mensagens por seis meses.'],
             ['Auditoria operacional e segurança adicional', '12 meses, salvo necessidade específica documentada.'],
+            ['Dados dos clientes dos buffets (contratos, pagamentos, contatos e campanhas)', 'Conforme a seção “Guarda dos dados dos clientes do buffet e campanhas”; depois, anonimização.'],
             ['Conversas e mídias do WhatsApp', 'Conforme a seção “Conversas do WhatsApp”.'],
             ['Alergias e observações de saúde', 'Preferencialmente eliminar 30 dias após a festa, por ação da empresa cliente, salvo necessidade concreta de conservação, como incidente ou disputa.'],
             ['Cópias de segurança e exportações do banco', 'Ciclo máximo de 90 dias, incluindo cópias locais; prazo menor onde disponível.'],

@@ -15,9 +15,12 @@ WITH conhecidos(documento, versao, hash) AS (VALUES
   ('TERMOS_USO', '2026-10-13-minuta', 'b79f469969a540bd7a644565745756bf3ccc62e0c470be1a3b6a398805d3b37d'),
   ('TERMOS_USO', '2026-10-20-minuta', '8568c1afe40d681e7b32de5b093c6e015cea791b482df188d7433fe9487dfb6b'),
   ('TERMOS_USO', '2026-10-23-minuta4', '63e8f8f4ada7b764c3960b311668f6e24f32d39c49b5a37d838c8ca1b36ff0e3'),
-  ('TERMOS_USO', '2026-11-15-termos', '738588abe9f6177d8db5faa708697b31a69faeefb2ba5a6fcd956383c8b8fb21'),
+  ('DPA', '2026-11-15-dpa', '6e656df23759f462e083977094b6e5aa77730a6998d8be0467906f0e8e22aca4'),
   ('PRIVACIDADE', '2026-11-15-privacidade', '73912002038a4e1e5573203c7392ee84c747fc2ea35c33ee2cd145bcf96ee9a3'),
-  ('DPA', '2026-11-15-dpa', '6e656df23759f462e083977094b6e5aa77730a6998d8be0467906f0e8e22aca4')
+  ('TERMOS_USO', '2026-11-15-termos', '738588abe9f6177d8db5faa708697b31a69faeefb2ba5a6fcd956383c8b8fb21'),
+  ('TERMOS_USO', '2026-11-17-termos', '5d9e561433abfc3ff63620221c9e51d848c9136999df24058c6d2db5bf4df918'),
+  ('PRIVACIDADE', '2026-11-17-privacidade', 'a2b4994f3272e88f20ee695c949cae5532dc243ee1d69d4e9da2afae3da20e43'),
+  ('DPA', '2026-11-17-dpa', '3b78ffa320658f58ec8277f9385a42908cfeb8618632a00a50a4da9e4e6f5fde')
 ), usados AS (
   SELECT 'ACEITE'::text AS origem, documento, versao, hash_conteudo::text AS hash FROM aceites_documentos_legais
   UNION ALL SELECT 'PEDIDO_TERMOS', 'TERMOS_USO', termos_versao, termos_hash::text FROM cadastros_publicos
