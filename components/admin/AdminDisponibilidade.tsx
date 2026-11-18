@@ -7,13 +7,14 @@ import { PACOTES } from "@/components/fechamento/data";
 import { HorarioBase, PacoteId } from "@/components/fechamento/types";
 import { horarioLegadoDoCodigo, rotuloPeriodo } from "@/components/fechamento/periodos";
 import {
-  CONFIG_VAZIA,
+  CONFIG_SEM_RESPOSTA,
   DisponibilidadeConfig,
   type RegraPacoteEmpresa,
   statusDataPacote,
   statusLabel,
 } from "@/lib/agenda/disponibilidade";
 import {
+  avisoDescontoDoPacote,
   descontoEfetivo,
   descontoPersonalizadoDaData,
   pacoteTemDescontoDiaUtil,
@@ -24,6 +25,7 @@ import type {
   DisponibilidadeDataPublica,
   PeriodoDisponibilidadePublica,
 } from "@/lib/disponibilidade/services/models";
+import { textoPercentual } from "@/lib/comercial/descontos-dia";
 import styles from "./AdminDisponibilidade.module.css";
 
 const MESES = [
@@ -82,7 +84,7 @@ export default function AdminDisponibilidade() {
   const [configuracaoId, setConfiguracaoId] = useState("");
   const [mes, setMes] = useState(hoje.getMonth());
   const [ano, setAno] = useState(hoje.getFullYear());
-  const [config, setConfig] = useState<DisponibilidadeConfig>(CONFIG_VAZIA);
+  const [config, setConfig] = useState<DisponibilidadeConfig>(CONFIG_SEM_RESPOSTA);
   const [bloqueios, setBloqueios] = useState<BloqueioAgendaRecord[]>([]);
   const [operacionalPorData, setOperacionalPorData] = useState<
     Record<string, DisponibilidadeDataPublica>
@@ -198,6 +200,8 @@ export default function AdminDisponibilidade() {
         agenda: [],
         pacoteOverrides: admin.pacoteOverrides ?? [],
         descontos: admin.descontos ?? [],
+        // Regras de desconto por dia da empresa (as que a cotação cobra). Presente = sem 15% fixo nem desconto por data.
+        ...(admin.descontosEmpresa ? { descontosEmpresa: admin.descontosEmpresa } : {}),
       } satisfies DisponibilidadeConfig,
       bloqueios: admin.bloqueios ?? [],
       operacionalPorData: Object.fromEntries(
@@ -257,7 +261,7 @@ export default function AdminDisponibilidade() {
         horario,
       );
     } catch {
-      setConfig(CONFIG_VAZIA);
+      setConfig(CONFIG_SEM_RESPOSTA);
       setBloqueios([]);
       setOperacionalPorData({});
       setMensagem("Não foi possível carregar a disponibilidade agora.");
@@ -286,7 +290,7 @@ export default function AdminDisponibilidade() {
         if (dados.agendaPorEscopo) void carregarGestaoUnidades().catch(() => setGestaoUnidades([]));
       } catch {
         if (cancelado) return;
-        setConfig(CONFIG_VAZIA);
+        setConfig(CONFIG_SEM_RESPOSTA);
         setBloqueios([]);
         setOperacionalPorData({});
         setMensagem("Não foi possível carregar a disponibilidade agora.");
@@ -444,8 +448,11 @@ export default function AdminDisponibilidade() {
     : [];
 
   const descontoSelecionado = selecionada && !semPacotes
-    ? descontoEfetivo(config, pacote, selecionada, horario)
+    ? descontoEfetivo(config, pacote, selecionada, horario, true, idHorario)
     : null;
+
+  // Selo da legenda: com regras da empresa, o percentual delas (null = este pacote não tem desconto por dia).
+  const avisoDia = config.descontosEmpresa ? avisoDescontoDoPacote(config, pacote, true, hojeIso) : null;
 
   const descontoManualSelecionado = selecionada
     ? descontoPersonalizadoDaData(
@@ -591,9 +598,9 @@ export default function AdminDisponibilidade() {
               <span><i className={`${styles.ponto} ${styles.pontoConsulta}`} />Consulta</span>
               <span><i className={`${styles.ponto} ${styles.pontoExcecao}`} />Exceção</span>
               <span><i className={`${styles.ponto} ${styles.pontoIndisponivel}`} />Indisponível</span>
-              {!semPacotes && pacoteTemDescontoDiaUtil(pacote) && (
-                <span className={styles.orange}>-15% Dia útil</span>
-              )}
+              {!semPacotes && (config.descontosEmpresa
+                ? avisoDia && <span className={styles.orange}>{avisoDia.selo.startsWith("-") ? `${avisoDia.selo} por dia da semana` : "Desconto por dia da semana"}</span>
+                : pacoteTemDescontoDiaUtil(pacote) && <span className={styles.orange}>-15% Dia útil</span>)}
             </div>
 
             <div className={styles.week}>
@@ -629,7 +636,7 @@ export default function AdminDisponibilidade() {
 
                 const desconto =
                   !semDados && !semPacotes && info.status !== "indisponivel"
-                    ? descontoEfetivo(config, pacote, data, horario)
+                    ? descontoEfetivo(config, pacote, data, horario, true, idHorario)
                     : {
                         ativo: false,
                         percentual: 0,
@@ -667,7 +674,7 @@ export default function AdminDisponibilidade() {
                     <div className={styles.dayTop}>
                       <span>{i + 1}</span>
                       {desconto.ativo && (
-                        <em>-{Math.round(desconto.percentual * 100)}%</em>
+                        <em>-{textoPercentual(desconto.percentual * 100)}%</em>
                       )}
                     </div>
                     {semDados
@@ -895,14 +902,16 @@ export default function AdminDisponibilidade() {
                 {descontoSelecionado?.ativo && (
                   <div className={styles.discountAdminNotice}>
                     <strong>
-                      {Math.round(descontoSelecionado.percentual * 100)}% de
+                      {textoPercentual(descontoSelecionado.percentual * 100)}% de
                       desconto nesta data
                     </strong>
                     <span>
                       {descontoSelecionado.titulo}
                       {descontoSelecionado.origem === "personalizado"
                         ? " • desconto personalizado"
-                        : " • regra automática de segunda a quinta"}
+                        : descontoSelecionado.origem === "empresa"
+                          ? " • desconto por dia da semana"
+                          : " • regra automática de segunda a quinta"}
                     </span>
                   </div>
                 )}
@@ -922,8 +931,10 @@ export default function AdminDisponibilidade() {
                 {configuracaoComercial ? (<>
                 {!horario ? (
                   <p className={styles.helpText}>
-                    Regras comerciais e descontos manuais por data existem só para o primeiro e o segundo
-                    horário (legado). Para este horário, use os dias e horários configurados no pacote.
+                    {config.descontosEmpresa
+                      ? "Regras comerciais por data existem só para o primeiro e o segundo horário (legado)."
+                      : "Regras comerciais e descontos manuais por data existem só para o primeiro e o segundo horário (legado)."}
+                    {" "}Para este horário, use os dias e horários configurados no pacote.
                   </p>
                 ) : (<>
                 <label className={styles.motivo}>
@@ -958,6 +969,15 @@ export default function AdminDisponibilidade() {
                   })}>Usar regra padrão</button>
                 </div>
 
+                {config.descontosEmpresa ? (
+                <div className={styles.actionGroup}>
+                  <h3>Desconto desta data</h3>
+                  <p className={styles.helpText}>
+                    O desconto por dia da semana é configurado em Configurações › Descontos e formas de pagamento e vale
+                    para o calendário do cliente e para o valor cobrado. Desconto especial por data não é usado.
+                  </p>
+                </div>
+                ) : (
                 <div className={styles.actionGroup}>
                   <h3>Desconto especial desta data</h3>
 
@@ -1030,6 +1050,7 @@ export default function AdminDisponibilidade() {
                     a regra automática volta a valer.
                   </p>
                 </div>
+                )}
                 </>)}
 
                 </>) : (

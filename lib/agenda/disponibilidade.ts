@@ -47,6 +47,12 @@ export const CONFIG_VAZIA: DisponibilidadeConfig = {
   descontos: [],
 };
 
+/**
+ * Antes da resposta do servidor (carregando) ou quando a consulta falha (Astra r1, P2): nenhum desconto. Sem isto o
+ * calendário e o resumo cairiam nos 15% fixos de segunda a quinta, que podem não ser a regra do buffet.
+ */
+export const CONFIG_SEM_RESPOSTA: DisponibilidadeConfig = { ...CONFIG_VAZIA, descontosEmpresa: {} };
+
 export function diaSemanaUTC(dataIso: string) {
   const [ano, mes, dia] = dataIso.split("-").map(Number);
   return new Date(Date.UTC(ano, mes - 1, dia)).getUTCDay();

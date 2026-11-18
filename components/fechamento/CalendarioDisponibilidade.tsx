@@ -10,7 +10,7 @@ import styles from "./FechamentoWizard.module.css";
 import { apiPublica } from "../../lib/fechamentos/rota-publica";
 import { useMarcaPublica } from "./MarcaPublica";
 import {
-  CONFIG_VAZIA,
+  CONFIG_SEM_RESPOSTA,
   DisponibilidadeConfig,
   type RegraPacoteEmpresa,
   statusDataPacote,
@@ -106,7 +106,7 @@ export default function CalendarioDisponibilidade({
   const [mes, setMes] = useState(agora.getMonth());
   const [ano, setAno] = useState(agora.getFullYear());
   const [config, setConfig] =
-    useState<DisponibilidadeConfig>(CONFIG_VAZIA);
+    useState<DisponibilidadeConfig>(CONFIG_SEM_RESPOSTA);
   const [operacionalPorData, setOperacionalPorData] = useState<
     Record<string, DisponibilidadeDataPublica>
   >({});
@@ -143,8 +143,8 @@ export default function CalendarioDisponibilidade({
       setAviso(null);
     } catch (falha) {
       setOperacionalPorData({});
-      setConfig(CONFIG_VAZIA);
-      onConfigChange?.(CONFIG_VAZIA);
+      setConfig(CONFIG_SEM_RESPOSTA);
+      onConfigChange?.(CONFIG_SEM_RESPOSTA);
       setAviso({
         tipo: "erro",
         titulo: "Não foi possível consultar a disponibilidade agora.",

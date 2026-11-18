@@ -32,6 +32,8 @@ import { listarPacotesContrataveisDaEmpresa } from "@/lib/comercial/repositories
 import { paginaPublica } from "@/lib/fechamentos/rota-publica";
 import { escopoCotacaoPublica } from "@/lib/comercial/cotacao-publica";
 import { pacotesDaAgendaDaEmpresa } from "@/lib/comercial/disponibilidade-pacote-publica";
+import { descontosPublicosDaEmpresa } from "@/lib/comercial/descontos-dia-publico";
+import { descontosPorIdV1 } from "@/lib/comercial/descontos-dia";
 import {
   bloqueioLegadoSemDono,
   liberarBloqueioLegadoPelaEmpresa,
@@ -179,6 +181,11 @@ async function montarConfigAdmin(tx: DbExecutor, escopo: EscopoAgenda, empresaCo
     : await pacotesDaAgendaDaEmpresa(tx, empresaComprovada, listarPacotesContrataveisDaEmpresa);
   const regrasPacotes = daEmpresa ? daEmpresa.regras : null;
   const pacotes = daEmpresa ? daEmpresa.pacotes : null;
+  // Astra r1, P2: a agenda do painel mostra o desconto por dia que a cotação do servidor cobra (regras da empresa,
+  // as mesmas de /api/disponibilidade), e não os 15% fixos nem os descontos por data do arquivo. A dona da agenda
+  // pública usa os ids V1 dos pacotes (como no endereço legado); as demais, o código do pacote.
+  const regrasDia = await descontosPublicosDaEmpresa(tx, empresaComprovada);
+  const descontosEmpresa = regrasDia ? (configuracaoComercial ? descontosPorIdV1(regrasDia) : regrasDia) : null;
 
   return {
     agendaPorEscopo: porEscopo,
@@ -190,6 +197,7 @@ async function montarConfigAdmin(tx: DbExecutor, escopo: EscopoAgenda, empresaCo
     agenda: [],
     pacoteOverrides: comercial.pacoteOverrides,
     descontos: comercial.descontos,
+    ...(descontosEmpresa ? { descontosEmpresa } : {}),
     configuracaoComercial,
     regrasPacotes,
     pacotes,

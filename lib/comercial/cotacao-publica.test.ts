@@ -123,7 +123,8 @@ test('rotas públicas: toda leitura/gravação de cotação passa pelo resolvedo
     const agenda = fonte('app/api/disponibilidade/route.ts');
     assert.match(agenda, /codigo === null\s*\?\s*await escopoPublico\(db\)\s*:\s*await escopoCotacaoPublica\(db, codigo\)/);
     // D4 (18/11/2026): no endereço da empresa, nada do arquivo legado; só os descontos por dia gravados da empresa do escopo.
-    assert.match(agenda, /codigo === null\s*\?\s*lerComercialPublico\(\)\s*:\s*\(escopo\.empresaId \? descontosPublicosDaEmpresa\(db\(\), escopo\.empresaId\) : Promise\.resolve\(null\)\)\.then\(\(descontosEmpresa\) => \(\{\s*pacoteOverrides: \[\], descontos: \[\], \.\.\.\(descontosEmpresa \? \{ descontosEmpresa \} : \{\}\),\s*\}\)\)/);
+    // 18/11/2026: o endereço atual (Kidmais) junta o arquivo legado às regras da empresa do escopo (chave no id V1).
+    assert.match(agenda, /codigo === null\s*\?\s*Promise\.all\(\[lerComercialPublico\(\), escopo\.empresaId \? descontosPublicosDaEmpresa\(db\(\), escopo\.empresaId\) : Promise\.resolve\(null\)\]\)\s*\.then\(\(\[legado, descontosEmpresa\]\) => \(\{ \.\.\.legado, \.\.\.\(descontosEmpresa \? \{ descontosEmpresa: descontosPorIdV1\(descontosEmpresa\) \} : \{\}\) \}\)\)\s*:\s*\(escopo\.empresaId \? descontosPublicosDaEmpresa\(db\(\), escopo\.empresaId\) : Promise\.resolve\(null\)\)\.then\(\(descontosEmpresa\) => \(\{\s*pacoteOverrides: \[\], descontos: \[\], \.\.\.\(descontosEmpresa \? \{ descontosEmpresa \} : \{\}\),\s*\}\)\)/);
     const pdf = fonte('app/api/fechamentos/tabela-pacotes/route.ts');
     assert.equal((pdf.match(/if \(deOutraEmpresa\(request\.url\)\)/g) ?? []).length, 2, 'HEAD e GET');
     for (const pagina of ['fechamento', 'disponibilidade'])
