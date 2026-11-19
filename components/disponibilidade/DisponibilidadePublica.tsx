@@ -5,7 +5,9 @@ import { useRouter } from "next/navigation";
 import { MarcaPublicaCabecalho, useMarcaPublica } from "@/components/fechamento/MarcaPublica";
 import PacotesPdf from "@/components/fechamento/PacotesPdf";
 import { apiPublica, paginaPublica } from "@/lib/fechamentos/rota-publica";
-import FestaDecoracao from "@/components/fechamento/FestaDecoracao";
+import FundoFesta from "@/components/site/FundoFesta";
+import { PausaGlobal } from "@/components/site/PausaGlobal";
+import { fonteTexto, fonteTitulo } from "@/components/site/fonte";
 import { horarioLegadoDoCodigo } from "@/components/fechamento/periodos";
 import { ATALHOS_CONVIDADOS, erroConvidadosEmpresa, erroConvidadosFechamento } from "@/lib/fechamentos/convidados";
 import { datasProximas, doMes, estadoDoDia, fimDoMesSeguinte, linkContatoBuffet, textoCapacidade, type EstadoDia } from "./convidados-tela";
@@ -224,13 +226,13 @@ export default function DisponibilidadePublica({ empresa = null }: { empresa?: s
   }
 
   return (
-    <main className={styles.page}>
-      <FestaDecoracao />
+    <main className={`${styles.page} ${fonteTexto.variable} ${fonteTitulo.variable}`} data-site-venda>
+      <FundoFesta />
 
       <div className={styles.shell}>
         <header className={styles.header}>
           <MarcaPublicaCabecalho subtitle="Consulte sua data" />
-          <span className={styles.publicBadge}>Consulta de disponibilidade</span>
+          <PausaGlobal classe={styles.pause} />
         </header>
 
         <section className={styles.hero}>
