@@ -19,6 +19,8 @@ function gravador(cadastro: { whatsapp: string | null; telefone: string | null }
     sqls.push(sql.replace(/\s+/g, ' ').trim());
     if (sql.includes("to_regclass('public.marketing_contato_autorizacoes')")) return { rows: [{ ok: true }], rowCount: 1 };
     if (sql.includes('FROM marketing_contato_preferencias')) return { rows: [], rowCount: 0 };
+    if (sql.includes("to_regclass('public.marketing_saidas_contato')")) return { rows: [{ ok: true }], rowCount: 1 };
+    if (sql.includes('FROM marketing_saidas_contato')) return { rows: [], rowCount: 0 };
     if (sql.includes('FROM clientes')) return { rows: [cadastro], rowCount: 1 };
     if (sql.includes('INSERT INTO marketing_contato_autorizacoes')) return { rows: [{ id: 'a1' }], rowCount: 1 };
     throw new Error(`SQL inesperado: ${sql.slice(0, 80)}`);
@@ -35,6 +37,8 @@ test('F1: o formulário trava a linha do cliente (FOR NO KEY UPDATE) antes de le
     const descadastro = sqls.findIndex((s) => s.includes('FROM marketing_contato_preferencias'));
     const insert = sqls.findIndex((s) => s.includes('INSERT INTO marketing_contato_autorizacoes'));
     assert.ok(trava >= 0, 'leitura do cadastro com trava de linha');
+    const saida = sqls.findIndex((s) => s.includes('FROM marketing_saidas_contato'));
+    assert.ok(trava < saida && saida < insert, 'marca de saída (127) lida depois da trava e antes do INSERT');
     assert.ok(trava < descadastro && descadastro < insert, `ordem trava → descadastro → INSERT (${sqls.map((s) => s.slice(0, 40)).join(' | ')})`);
     assert.equal(sqls.filter((s) => s.includes('FROM clientes')).length, 1, 'uma única leitura do cadastro, a travada');
   }

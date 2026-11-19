@@ -5,6 +5,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { type FormEvent, useEffect, useState } from "react";
 import { atualizarAniversarianteApi, cadastrarAniversarianteApi, obterClienteApi, type AniversarianteApiRecord, type ClienteDetalheApi } from "@/lib/clientes/api-client";
 import ContratosImportadosDoCliente from "./ContratosImportadosDoCliente";
+import GuardaDoCliente from "./GuardaDoCliente";
 import {
   calcularIdade,
   documentoExibicaoCliente,
@@ -253,6 +254,8 @@ export default function ClienteProfile({ clienteId }: { clienteId: string }) {
             </article>
 
             <ContratosImportadosDoCliente clienteId={cliente.id} />
+
+            <GuardaDoCliente clienteId={cliente.id} />
 
             <article className={`${styles.profileCard} ${styles.fullWidth}`}>
               <OrigemPainel alvoTipo="CLIENTE" alvoId={cliente.id} />

@@ -24,12 +24,20 @@ const CONTATO = '33333333-3333-4333-8333-333333333333';
 // R1 — consentimento por destino
 // ---------------------------------------------------------------------------------------------------------------
 type Aut = { id: string; destino: string; estado: 'PENDENTE' | 'CONFIRMADA' | 'REVOGADA' };
-function bancoR1(cadastro: { whatsapp: string | null; telefone: string | null }, opcoes: { descadastrado?: boolean } = {}) {
+function bancoR1(cadastro: { whatsapp: string | null; telefone: string | null }, opcoes: { descadastrado?: boolean; saidas?: string[]; sem127?: boolean } = {}) {
   const autorizacoes: Aut[] = [];
   const tx = { async query(sql: string, p: unknown[] = []) {
     if (sql.includes("to_regclass('public.marketing_contato_autorizacoes')")) return { rows: [{ ok: true }], rowCount: 1 };
     if (sql.includes("to_regclass('public.whatsapp_atendimento_controles_contato')")) return { rows: [{ existe: null }], rowCount: 1 };
     if (sql.includes('FROM marketing_contato_preferencias')) return { rows: opcoes.descadastrado ? [{ descadastrado_em: '2026-10-01', descadastro_origem: 'EQUIPE' }] : [], rowCount: 0 };
+    if (sql.includes("to_regclass('public.marketing_saidas_contato')")) return { rows: [{ ok: !opcoes.sem127 }], rowCount: 1 };
+    if (sql.includes('FROM marketing_saidas_contato')) {
+      // Marca viva (127) alcança o cadastro atual ou o número extra ($3) — mesma regra do SQL, com a normalização de destino.
+      const alvo = [cadastro.whatsapp, cadastro.telefone].map((v) => (v ?? '').replace(/\D/g, '')).map((d) => (/^\d{10,11}$/.test(d) ? '55' + d : d));
+      const rows = (opcoes.saidas ?? []).filter((v) => p[0] === EMPRESA && (alvo.includes(v) || v === p[2]))
+        .map((valor) => ({ tipo: 'TELEFONE', valor, saiu_em: '2026-11-01 10:00:00+00', origem: 'EQUIPE' }));
+      return { rows, rowCount: rows.length };
+    }
     if (sql.includes('SELECT whatsapp, telefone FROM clientes')) return { rows: p[1] === EMPRESA ? [cadastro] : [], rowCount: 1 };
     if (sql.includes('SELECT status, whatsapp, telefone FROM clientes')) return { rows: p[1] === EMPRESA ? [{ status: 'ATIVO', ...cadastro }] : [], rowCount: 1 };
     if (sql.includes('INSERT INTO marketing_contato_autorizacoes')) {
@@ -260,4 +268,36 @@ test('UI: busca de cliente com termo ({ cliente }) e sem termo (direto) aparecem
   assert.deepEqual(clientesDaBusca({ ok: true, data: [{ id: CLIENTE, nomeCompleto: 'Rita' }] }), [{ id: CLIENTE, nome: 'Rita' }]);
   assert.deepEqual(clientesDaBusca({ ok: true, data: { itens: [{ id: CLIENTE, nome_completo: 'Legado' }] } }), [{ id: CLIENTE, nome: 'Legado' }]);
   assert.deepEqual([clientesDaBusca(null), clientesDaBusca({ ok: false }), clientesDaBusca({ data: [{ cliente: {} }] })], [[], [], []], 'sem id não vira botão');
+});
+
+// ---------------------------------------------------------------------------------------------------------------
+// Guarda fase 1a (127, 19/11/2026) — marca de saída por telefone/e-mail
+// ---------------------------------------------------------------------------------------------------------------
+type ModPrefFinalidade = ModPref & { elegivelParaMensagem(tx: unknown, e: string, c: string, f?: 'CAMPANHA' | 'PESQUISA'): Promise<{ ok: boolean; telefone?: string; motivo?: string }> };
+const pref127 = pref as unknown as ModPrefFinalidade;
+
+test('127: cadastro novo com número que já saiu — campanha bloqueada (SAIU_PELO_CONTATO); pesquisa segue as regras próprias (G2)', async () => {
+  const b = bancoR1({ whatsapp: '11988887777', telefone: null });
+  assert.equal(await pref.registrarAutorizacaoDoFormulario(b.tx, EMPRESA, CLIENTE, CONTATO, '11988887777'), 'CONFIRMADA');
+  const marcado = bancoR1({ whatsapp: '11988887777', telefone: null }, { saidas: ['5511988887777'] });
+  marcado.autorizacoes.push({ id: 'a9', destino: '5511988887777', estado: 'CONFIRMADA' });
+  assert.deepEqual(await pref127.elegivelParaMensagem(marcado.tx, EMPRESA, CLIENTE), { ok: false, motivo: 'SAIU_PELO_CONTATO' });
+  assert.deepEqual(await pref127.elegivelParaMensagem(marcado.tx, EMPRESA, CLIENTE, 'PESQUISA'), { ok: true, telefone: '5511988887777', autorizacaoId: 'a9' });
+});
+
+test('127: formulário do site não cria autorização para número marcado (no cadastro ou só no pedido)', async () => {
+  const noCadastro = bancoR1({ whatsapp: '11988887777', telefone: null }, { saidas: ['5511988887777'] });
+  assert.equal(await pref.registrarAutorizacaoDoFormulario(noCadastro.tx, EMPRESA, CLIENTE, CONTATO, '11988887777'), 'IGNORADA_SAIDA_CONTATO');
+  assert.equal(noCadastro.autorizacoes.length, 0);
+  const soNoPedido = bancoR1({ whatsapp: '11955554444', telefone: null }, { saidas: ['5511988887777'] });
+  assert.equal(await pref.registrarAutorizacaoDoFormulario(soNoPedido.tx, EMPRESA, CLIENTE, CONTATO, '(11) 98888-7777'), 'IGNORADA_SAIDA_CONTATO');
+  assert.equal(soNoPedido.autorizacoes.length, 0);
+});
+
+test('127: marca de outro número ou de outra empresa não bloqueia; sem a 127 instalada nada muda', async () => {
+  const outro = bancoR1({ whatsapp: '11988887777', telefone: null }, { saidas: ['5511900001111'] });
+  assert.equal(await pref.registrarAutorizacaoDoFormulario(outro.tx, EMPRESA, CLIENTE, CONTATO, '11988887777'), 'CONFIRMADA');
+  assert.equal((await pref127.elegivelParaMensagem(outro.tx, EMPRESA, CLIENTE)).ok, true);
+  const sem = bancoR1({ whatsapp: '11988887777', telefone: null }, { saidas: ['5511988887777'], sem127: true });
+  assert.equal(await pref.registrarAutorizacaoDoFormulario(sem.tx, EMPRESA, CLIENTE, CONTATO, '11988887777'), 'CONFIRMADA');
 });

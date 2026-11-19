@@ -305,7 +305,8 @@ function CartaoRegra({ regra, catalogo, pode, unidadeId, pesquisa, datasVagas, r
 }
 
 type AutorizacaoUi = { id: string; destino: string; estado: 'PENDENTE' | 'CONFIRMADA' | 'REVOGADA'; origem: string; evidencia: string; confirmadaEm: string | null; revogadaEm: string | null; motivoRevogacao: string | null; criadoEm: string };
-type PreferenciaUi = { cliente: { id: string; nome: string; destinos: string[] }; preferencia: { descadastradoEm: string | null; autorizacoes: AutorizacaoUi[] } };
+type SaidaUi = { tipo: 'TELEFONE' | 'EMAIL'; valor: string; saiuEm: string; origem: string };
+type PreferenciaUi = { cliente: { id: string; nome: string; destinos: string[] }; preferencia: { descadastradoEm: string | null; autorizacoes: AutorizacaoUi[]; saidas?: SaidaUi[] } };
 
 /** Número exibido com só os 4 finais (a tela não precisa do número inteiro para decidir). */
 function finalDoNumero(destino: string) { return `•••• ${destino.slice(-4)}`; }
@@ -335,14 +336,19 @@ function Preferencias({ pode }: { pode: boolean }) {
   const p = selecionado?.preferencia;
   const vivas = p?.autorizacoes.filter((a) => a.estado !== 'REVOGADA') ?? [];
   const autorizados = new Set(vivas.map((a) => a.destino));
+  // Marca de saída por telefone/e-mail (127): bloqueia campanha como o descadastro; voltar só com novo pedido da pessoa.
+  const saidas = p?.saidas ?? [];
+  const bloqueado = Boolean(p?.descadastradoEm) || saidas.length > 0;
   return <section className={styles.cartao} aria-labelledby="t-pref">
     <h2 id="t-pref">Preferências e autorizações de contato</h2>
-    <p className={styles.muted}>A autorização vale para um número específico. Só sai mensagem para um número do cadastro com autorização confirmada; trocar o número no cadastro não leva a autorização junto. Pedido do site com número fora do cadastro fica pendente até a equipe confirmar. Descadastro vale para o cliente inteiro, na hora.</p>
+    <p className={styles.muted}>A autorização vale para um número específico. Só sai mensagem para um número do cadastro com autorização confirmada; trocar o número no cadastro não leva a autorização junto. Pedido do site com número fora do cadastro fica pendente até a equipe confirmar. Descadastro vale para o cliente inteiro, na hora, e fica guardado pelo telefone e e-mail: cadastro novo com o mesmo contato também não recebe.</p>
     <div className={styles.acoes}><input className={styles.link} aria-label="Buscar cliente" placeholder="Buscar cliente" value={busca} onChange={(e) => setBusca(e.target.value)} />
       <button type="button" className={styles.secundario} onClick={() => void buscar()}>Buscar</button>
       {resultados.map((r) => <button key={r.id} type="button" className={styles.fantasma} onClick={() => void abrir(r.id)}>{r.nome}</button>)}</div>
     {selecionado && p && <div style={{ marginTop: 12 }}>
       <p><strong>{selecionado.cliente.nome}</strong>{p.descadastradoEm ? ` — descadastrado em ${dataHoraBr(p.descadastradoEm)}` : ''}</p>
+      {saidas.length > 0 && <ul className={styles.historico}>{saidas.map((s) => <li key={`${s.tipo}-${s.valor}`}><span className={styles.seloAlerta}>
+        {s.tipo === 'EMAIL' ? 'Este e-mail' : `O telefone ${finalDoNumero(s.valor)}`} pediu para sair das campanhas em {dataHoraBr(s.saiuEm)}</span></li>)}</ul>}
       <ul className={styles.historico}>
         {p.autorizacoes.length === 0 && <li>Nenhuma autorização registrada.</li>}
         {p.autorizacoes.map((a) => <li key={a.id} data-vigente={a.estado === 'CONFIRMADA'}>
@@ -350,16 +356,16 @@ function Preferencias({ pode }: { pode: boolean }) {
           {' '}({a.origem === 'FORMULARIO_SITE' ? 'formulário do site' : 'equipe'}, {dataHoraBr(a.criadoEm)})
           {!selecionado.cliente.destinos.includes(a.destino) && a.estado !== 'REVOGADA' && <>{' '}<span className={styles.seloAlerta}>número fora do cadastro atual</span></>}
           {a.motivoRevogacao ? ` · ${a.motivoRevogacao}` : ''}
-          {pode && a.estado === 'PENDENTE' && !p.descadastradoEm && <> <button type="button" className={styles.fantasma} onClick={() => void alterar({ operacao: 'confirmar', autorizacaoId: a.id }, 'Como a equipe confirmou que este número é da pessoa e que ela autorizou?')}>Confirmar</button></>}
+          {pode && a.estado === 'PENDENTE' && !bloqueado && <> <button type="button" className={styles.fantasma} onClick={() => void alterar({ operacao: 'confirmar', autorizacaoId: a.id }, 'Como a equipe confirmou que este número é da pessoa e que ela autorizou?')}>Confirmar</button></>}
           {pode && a.estado !== 'REVOGADA' && <> <button type="button" className={styles.fantasma} onClick={() => void alterar({ operacao: 'revogar', autorizacaoId: a.id }, 'Motivo da revogação:')}>Revogar</button></>}
         </li>)}
       </ul>
-      {pode && !p.descadastradoEm && <div className={styles.acoes} style={{ marginTop: 8 }}>
+      {pode && !bloqueado && <div className={styles.acoes} style={{ marginTop: 8 }}>
         {selecionado.cliente.destinos.filter((d) => !autorizados.has(d)).map((d) => <button key={d} type="button" className={styles.secundario}
           onClick={() => void alterar({ operacao: 'autorizar', destino: d }, `Registre como a pessoa autorizou mensagens no número ${finalDoNumero(d)}:`)}>Autorizar {finalDoNumero(d)}</button>)}
         <button type="button" className={styles.fantasma} onClick={() => void alterar({ operacao: 'descadastrar' }, 'Registre o pedido de descadastro (ex.: pediu por telefone em 14/10):')}>Descadastrar</button>
       </div>}
-      {pode && p.descadastradoEm && <div className={styles.acoes}><button type="button" className={styles.fantasma} onClick={() => void alterar({ operacao: 'reativar' }, 'Registre o novo pedido da própria pessoa:')}>Reativar (novo pedido da pessoa)</button></div>}
+      {pode && bloqueado && <div className={styles.acoes}><button type="button" className={styles.fantasma} onClick={() => void alterar({ operacao: 'reativar' }, 'Registre o novo pedido da própria pessoa:')}>Reativar (novo pedido da pessoa)</button></div>}
     </div>}
     {erro && <p className={styles.erro} role="alert">{erro}</p>}
   </section>;

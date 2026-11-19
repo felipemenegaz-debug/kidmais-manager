@@ -295,6 +295,7 @@ const BASE: readonly Entidade[] = [
     { arquivo: 'marketing/contato_autorizacoes', tabela: 'marketing_contato_autorizacoes', grupo: 'Marketing', descricao: 'Autorizações de contato.', onde: EMP },
     { arquivo: 'marketing/contato_preferencias', tabela: 'marketing_contato_preferencias', grupo: 'Marketing', descricao: 'Preferências de contato.', onde: EMP },
     { arquivo: 'marketing/contato_preferencias_eventos', tabela: 'marketing_contato_preferencias_eventos', grupo: 'Marketing', descricao: 'Histórico das preferências.', onde: EMP },
+    { arquivo: 'marketing/saidas_contato', tabela: 'marketing_saidas_contato', grupo: 'Marketing', descricao: 'Pedidos de saída das campanhas por telefone ou e-mail.', onde: EMP, migracao: '127' },
     { arquivo: 'marketing/atribuicoes', tabela: 'marketing_atribuicoes', grupo: 'Marketing', descricao: 'Atribuição de origem.', onde: EMP },
     { arquivo: 'marketing/eventos', tabela: 'marketing_eventos', grupo: 'Marketing', descricao: 'Eventos de Marketing.', onde: EMP },
     { arquivo: 'marketing/automacao_regras', tabela: 'marketing_automacao_regras', grupo: 'Marketing', descricao: 'Regras de automação.', onde: EMP },
