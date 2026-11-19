@@ -31,7 +31,8 @@ function tela(adicionais: unknown, post: () => Promise<Response>) {
     return Response.json({ ok: true, data: adicionais });
   };
   const t = carregarComponente('components/admin/CatalogoEditor.tsx', {
-    '@/lib/http/admin-fetch': { adminFetch }, './AdminPrimaryButton': { AdminPrimaryButton: Botao }, './catalogo-adicionais': catalogoAdicionais,
+    '@/lib/http/admin-fetch': { adminFetch }, './CompartilharCardapio': { default: () => null },
+    './AdminPrimaryButton': { AdminPrimaryButton: Botao }, './catalogo-adicionais': catalogoAdicionais,
     './workspace.module.css': cssFalso, './catalogo-editor.module.css': cssFalso,
   });
   return { t, chamadas };

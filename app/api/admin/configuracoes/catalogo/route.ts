@@ -1,3 +1,6 @@
+import { CODIGO_CATEGORIA_PUBLICA, caminhoCardapioPublico, linkCardapioPublico } from "@/lib/comercial/caminho-cardapio";
+import { escopoCardapioPublico, lerCardapioPublico } from "@/lib/comercial/cardapio-publico";
+import { nomePublicoDaEmpresa } from "@/lib/perfil/nome-publico";
 import { NextRequest } from "next/server";
 import { z } from "zod";
 import { validarVinculoComposicao } from "@/lib/comercial/composicao";
@@ -77,6 +80,24 @@ export async function GET(request: NextRequest) {
     const sessao = await exigirApiAdminCrmDisponivel(request);
     const data = await withTenantTransaction(sessao, request.nextUrl.searchParams.get("empresaId"), async (tx, tenant) => {
       const empresaId = tenant.empresaComprovada;
+      if (request.nextUrl.searchParams.get("compartilhar") === "1") {
+        const empresa = (await tx.query<{ codigo: string }>(
+          "SELECT codigo FROM public.empresas WHERE id = $1::uuid", [empresaId])).rows[0];
+        if (!empresa) return { motivo: "Confira o cadastro da empresa antes de compartilhar." };
+        const escopo = await escopoCardapioPublico(tx, empresa.codigo);
+        if (escopo.empresaId !== empresaId) return { motivo: escopo.motivo ?? "Confira o endereço público da empresa." };
+        if (!await nomePublicoDaEmpresa(tx, empresaId, { propagarErroDeBanco: true }))
+          return { motivo: "Preencha o nome público no Perfil da empresa antes de compartilhar." };
+        const categorias = await lerCardapioPublico(tx, empresaId);
+        const opcao = (nome: string, categoria?: string) => ({
+          nome, caminho: caminhoCardapioPublico(empresa.codigo, categoria), link: linkCardapioPublico(empresa.codigo, categoria),
+        });
+        return {
+          completo: opcao("Cardápio completo"),
+          emPreparacao: categorias.length === 0,
+          categorias: categorias.filter(c => CODIGO_CATEGORIA_PUBLICA.test(c.codigo)).map(c => opcao(c.nome, c.codigo)),
+        };
+      }
       const porEmpresa = await catalogoBuffetPorEmpresa(tx);
       const categorias = porEmpresa
         ? await tx.query("SELECT id, codigo, nome, ativo FROM buffet_categorias WHERE empresa_id = $1::uuid ORDER BY ordem_exibicao, nome", [empresaId])

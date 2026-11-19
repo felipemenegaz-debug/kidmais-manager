@@ -15,8 +15,8 @@ function montar(opcoes: { prontas?: unknown[]; recursos081?: boolean } = {}) {
   const adminFetch = async (_url: string, init?: { method?: string; body?: string }) => {
     if (!init?.method) return responder({ prontas: opcoes.prontas ?? [IND, TXT], favoritas: [], podeGerenciar: false, recursos081: opcoes.recursos081 ?? false });
     const b = JSON.parse(init.body!);
-    if (b.acao !== 'rascunho') return responder(null);
-    return new Promise(res => pendentes.push({ conversaId: b.conversaId, id: b.id, liberar: d => res(responder(d)) }));
+    if (b.acao !== 'rascunho' && b.acao !== 'cardapio') return responder(null);
+    return new Promise(res => pendentes.push({ conversaId: b.conversaId, id: b.id ?? b.cardapio, liberar: d => res(responder(d)) }));
   };
   const h = carregarComponente('components/admin/atendimento/MensagensProntas.tsx', {
     '@/lib/http/admin-fetch': { adminFetch }, '@/lib/whatsapp/atendimento/prontas': prontas, './atendimento.module.css': cssFalso,
@@ -127,11 +127,55 @@ test('081: prévia de foto com legenda editável e link de conferência; anexar 
   t = m.h.render('MensagensProntas', { ...m.props(A), cicloResposta: 1 });
   assert.equal(aviso(t), undefined, 'depois do envio aceito o aviso some');
 });
+test('cardápio sem pronta cadastrada resolve os atalhos na conversa aberta e só insere após revisão', async () => {
+  globalThis.window = globalThis as never;
+  for (const [botao, opcao] of [['Cardápio completo', 'CARDAPIO'], ['Bolos', 'BOLOS'], ['Salgados', 'SALGADOS']]) {
+    const m = montar({ prontas: [] });
+    let t = await m.render(A);
+    await clicar(achar(t, 'button', 'Mensagens prontas'));
+    t = await m.render(A);
+    await clicar(achar(t, 'button', botao));
+    const pedido = m.pendentes.at(-1);
+    assert.ok(pedido, 'o atalho solicita um rascunho na conversa aberta');
+    assert.equal(pedido.id, opcao);
+    assert.equal(pedido.conversaId, A);
+    pedido.liberar({ titulo: botao, texto: 'Seu link', aviso: null, linkIndividual: null });
+    t = await m.render(A);
+    assert.equal(previa(t)!.props.value, 'Seu link');
+    assert.deepEqual(m.usados, []);
+    await clicar(colocar(t)!);
+    assert.deepEqual(m.usados, [{ texto: 'Seu link', conversaId: A }]);
+  }
+});
+
+test('foto personalizada permite acrescentar o cardápio uma vez, mantendo a legenda e a versão', async () => {
+  globalThis.window = globalThis as never;
+  const m = montar({ prontas: [FOTO], recursos081: true });
+  let t = await m.render(A);
+  await clicar(achar(t, 'button', 'Mensagens prontas'));
+  t = await m.render(A);
+  await clicar(achar(t, 'button', 'Salgados'));
+  const linkCardapio = 'https://festas.exemplo.test/b/buffet-a/cardapio/salgados';
+  m.pendentes.at(-1)!.liberar({ titulo: FOTO.titulo, texto: FOTO.texto, aviso: null, linkIndividual: null, linkCardapio, midia: { tipo: 'IMAGEM', url: FOTO.midia_url, prontaId: FOTO.id, versao: FOTO.versao } });
+  t = await m.render(A);
+  (previa(t)!.props.onChange as (e: { target: { value: string } }) => void)({ target: { value: 'x'.repeat(1024) } });
+  t = await m.render(A);
+  assert.equal(achar(t, 'button', 'Acrescentar link do cardápio').props.disabled, true);
+  (previa(t)!.props.onChange as (e: { target: { value: string } }) => void)({ target: { value: FOTO.texto } });
+  t = await m.render(A);
+  await clicar(achar(t, 'button', 'Acrescentar link do cardápio'));
+  t = await m.render(A);
+  assert.equal(talvez(t, 'button', 'Acrescentar link do cardápio'), undefined);
+  await clicar(achar(t, 'button', 'Anexar à resposta'));
+  assert.deepEqual(m.usados, [{ texto: FOTO.texto + '\n\n' + linkCardapio, conversaId: A }]);
+  assert.deepEqual(m.midias, [{ tipo: 'IMAGEM', url: FOTO.midia_url, prontaId: FOTO.id, versao: FOTO.versao, titulo: FOTO.titulo }]);
+});
+
 test('081: atalhos sem mensagem num aviso por motivo (fora da linha de botões), ligado a cada botão desabilitado', async () => {
   globalThis.window = globalThis as never;
   const casos = [
-    [false, { 'Ainda sem mensagem cadastrada: Tabela de preços.': ['Tabela de preços'], 'Indisponíveis neste ambiente: Salgados, Bolos, Endereço, Localização.': ['Salgados', 'Bolos', 'Endereço', 'Localização'] }],
-    [true, { 'Ainda sem mensagem cadastrada: Tabela de preços, Salgados, Bolos, Endereço, Localização.': ['Tabela de preços', 'Salgados', 'Bolos', 'Endereço', 'Localização'] }],
+    [false, { 'Ainda sem mensagem cadastrada: Tabela de preços.': ['Tabela de preços'], 'Indisponíveis neste ambiente: Endereço, Localização.': ['Endereço', 'Localização'] }],
+    [true, { 'Ainda sem mensagem cadastrada: Tabela de preços, Endereço, Localização.': ['Tabela de preços', 'Endereço', 'Localização'] }],
   ] as const;
   for (const [recursos081, avisos] of casos) {
     const m = montar({ recursos081 });                                         // IND ocupa "Disponibilidade / fechamento"

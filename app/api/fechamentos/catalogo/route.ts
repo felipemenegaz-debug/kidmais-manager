@@ -1,3 +1,4 @@
+import { ITEM_DE_ESCOLHA_SQL } from "@/lib/comercial/itens-de-escolha";
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db/postgres";
 import { codigoEmpresaDoPedido, escopoCotacaoPublica } from "@/lib/comercial/cotacao-publica";
@@ -30,8 +31,7 @@ export async function GET(request: NextRequest) {
       JOIN buffet_categorias c ON c.id=r.categoria_id AND c.ativo
       LEFT JOIN buffet_itens i ON i.categoria_id=c.id AND i.ativo
         ${porEmpresa ? "AND i.empresa_id=$2::uuid" : ""}
-        AND (r.modo_itens='TODOS_ATIVOS' OR EXISTS
-          (SELECT 1 FROM pacote_buffet_itens x WHERE x.pacote_id=r.pacote_id AND x.categoria_id=c.id AND x.item_id=i.id))
+        AND ${ITEM_DE_ESCOLHA_SQL}
       WHERE r.pacote_id=$1::uuid AND r.ativo AND (i.id IS NOT NULL OR r.escolhas_min > 0)
         ${porEmpresa ? "AND c.empresa_id=$2::uuid" : ""}
       ORDER BY c.ordem_exibicao, i.ordem_exibicao, i.nome`, porEmpresa ? [pacote.id, escopo.empresaId] : [pacote.id]);

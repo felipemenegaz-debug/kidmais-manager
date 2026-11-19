@@ -9,6 +9,9 @@ import * as core from "./core.ts";
 import * as configuracaoReal from "./configuracao.ts";
 import * as prontas from "./prontas.ts";
 import * as prontasLink from "./prontas-link.ts";
+import * as caminhoCardapio from "../../comercial/caminho-cardapio.ts";
+import * as cardapioPublico from "../../comercial/cardapio-publico.ts";
+import * as nomePublico from "../../perfil/nome-publico.ts";
 import * as arquivos from "./arquivos.ts";
 import * as reautenticacao from "../../perfil/reautenticacao.ts";
 // Pesquisa de satisfação (110): módulos REAIS; sem a tabela da 110 no modelo, PARAR não suprime nada.
@@ -134,6 +137,9 @@ export function carregarMultiempresa() {
     "../../db/postgres": postgres, "./mappers": mappers, "./normalizers": normalizers, "../../cadastro/cnpj.ts": cnpj,
   }).modulo as typeof import("../../clientes/repositories/cliente.repository.ts");
   const biblioteca = carregarComponente("lib/whatsapp/atendimento/prontas-servico.ts", {
+    "../../comercial/caminho-cardapio.ts": caminhoCardapio,
+    "../../comercial/cardapio-publico.ts": cardapioPublico,
+    "../../perfil/nome-publico.ts": nomePublico,
     "../../clientes/repositories/cliente.repository.ts": clientes, "../../fechamentos/contratacoes.ts": { listarContratacoes },
     "./configuracao.ts": configuracao, "./service.ts": servico, "./prontas.ts": prontas, "./prontas-link.ts": prontasLink, "./arquivos.ts": arquivos, "node:crypto": nodeCrypto,
   }).modulo as typeof import("./prontas-servico.ts");

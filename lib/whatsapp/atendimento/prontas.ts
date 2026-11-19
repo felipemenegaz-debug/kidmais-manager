@@ -150,6 +150,15 @@ export type Pronta = {
   estado?: EstadoPronta; envio_automatico?: boolean; finalidade?: Finalidade | null; pacote_codigo?: string | null; estabelecimento_id?: string | null; arquivo?: ArquivoPronta | null;
 };
 
+export type RascunhoPronta = {
+  titulo: string;
+  texto: string;
+  linkIndividual: 'PREENCHIDO' | 'NAO_PREENCHIDO' | null;
+  aviso: string | null;
+  linkCardapio?: string;
+  midia?: { tipo: TipoAnexo; url: string; prontaId: string; versao: number; nome?: string };
+};
+
 /** Busca da biblioteca (no navegador): título, categoria e texto, sem acento e sem caixa. */
 export function normalizarBusca(valor: string) { return valor.normalize('NFD').replace(/\p{M}/gu, '').toLowerCase().trim(); }
 export function filtrarProntas(prontas: readonly Pronta[], filtro: { busca: string; categoria: string | null; favoritas: ReadonlySet<string> | null }) {
@@ -161,3 +170,16 @@ export function categorias(prontas: readonly Pronta[]) { return [...new Set(pron
 
 /** Rascunho = texto revisável; o link (fixo ou resolvido) vai numa linha própria. Nunca é enviado aqui. */
 export function comporRascunho(texto: string, link: string | null) { return link ? `${texto}\n\n${link}` : texto; }
+
+export const OPCOES_CARDAPIO = ['CARDAPIO', 'SALGADOS', 'BOLOS'] as const;
+export type OpcaoCardapio = (typeof OPCOES_CARDAPIO)[number];
+export const CARDAPIO_DA_CONVERSA = {
+  CARDAPIO: { titulo: 'Cardápio completo', categorias: [], texto: 'Confira o nosso cardápio:' },
+  SALGADOS: { titulo: 'Salgados', categorias: ['salgados'], texto: 'Confira nossas opções de salgados:' },
+  BOLOS: { titulo: 'Bolos', categorias: ['massa_bolo', 'recheio_bolo'], texto: 'Confira nossas opções de bolo:' },
+} as const;
+
+export function opcaoCardapioDaPronta(pronta: Pronta): OpcaoCardapio | null {
+  if (pronta.atalho === 'SALGADOS' || pronta.atalho === 'BOLOS') return pronta.atalho;
+  return pronta.finalidade === 'CARDAPIO' ? 'CARDAPIO' : null;
+}

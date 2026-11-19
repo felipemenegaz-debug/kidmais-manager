@@ -7,6 +7,10 @@ import { ambienteAtendimento } from './configuracao.ts';
 import { acessoAtendimento, exigirEscritaAtendimento, tem082, temMidia } from './service.ts';
 import { ATALHOS_081, comporRascunho, ehAnexo, ehMidia, linkSeguro, midiaSegura, prontaEntradaSchema, usaRecursos082, type ArquivoPronta, type Pronta, type TipoAnexo, type TipoMidia } from './prontas.ts';
 import { EXPLICACAO_SEM_LINK, resolverLinkFechamento } from './prontas-link.ts';
+import { CARDAPIO_DA_CONVERSA, opcaoCardapioDaPronta, type OpcaoCardapio, type RascunhoPronta } from './prontas.ts';
+import { linkCardapioPublico } from '../../comercial/caminho-cardapio.ts';
+import { escopoCardapioPublico, lerCardapioPublico } from '../../comercial/cardapio-publico.ts';
+import { nomePublicoDaEmpresa } from '../../perfil/nome-publico.ts';
 import { ARQUIVO_DISPONIVEL_SQL, caminhoPublicoArquivo, validarArquivo, type TipoArquivo } from './arquivos.ts';
 
 /**
@@ -166,33 +170,68 @@ export async function salvarArquivo(sessao: SessaoParaTenant, entrada: { nome: s
   });
 }
 
+async function cardapioDaEmpresa(tx: DbExecutor, empresa: string, codigo: string, atalho: OpcaoCardapio) {
+  if ((await escopoCardapioPublico(tx, codigo)).empresaId !== empresa) return null;
+  if (!await nomePublicoDaEmpresa(tx, empresa, { propagarErroDeBanco: true })) return null;
+  const categorias = await lerCardapioPublico(tx, empresa);
+  if (!categorias.length) return null;
+  const opcao = CARDAPIO_DA_CONVERSA[atalho];
+  const categoria = opcao.categorias.find(c => categorias.some(publicada => publicada.codigo === c));
+  const link = linkCardapioPublico(codigo, categoria);
+  if (!link) return null;
+  const { titulo, texto } = categoria ? opcao : CARDAPIO_DA_CONVERSA.CARDAPIO;
+  return { link, titulo, texto };
+}
+
+/** Falha na leitura opcional não deve invalidar a pronta do dono nem a transação da conversa. */
+async function complementoDeCardapio(tx: DbExecutor, empresa: string, codigo: string, atalho: OpcaoCardapio) {
+  await tx.query('SAVEPOINT link_cardapio_opcional');
+  try {
+    const cardapio = await cardapioDaEmpresa(tx, empresa, codigo, atalho);
+    return cardapio ? { linkCardapio: cardapio.link } : {};
+  } catch {
+    await tx.query('ROLLBACK TO SAVEPOINT link_cardapio_opcional');
+    return {};
+  } finally {
+    await tx.query('RELEASE SAVEPOINT link_cardapio_opcional');
+  }
+}
+
 /**
  * Rascunho para a conversa aberta: só leitura e só de conteúdo PUBLICADO. O link individual de fechamento só é
  * preenchido com vínculo inequívoco (empresa comprovada → conversa da empresa → um único cliente da empresa com o
  * telefone → um único contrato aguardando a assinatura dele, pelo fluxo de contratações). O telefone não volta para a tela.
  */
-export async function prepararRascunho(sessao: SessaoParaTenant, pedido: { conversaId: string; id: string }) {
+export async function prepararRascunho(sessao: SessaoParaTenant, pedido: { conversaId: string } & ({ id: string } | { cardapio: OpcaoCardapio })): Promise<RascunhoPronta> {
   return comBiblioteca(sessao, async (tx, empresa, _papel, ambiente) => {
-    const conversa = (await tx.query<{ contato: string }>('SELECT contato FROM whatsapp_atendimento_conversas WHERE id=$1 AND empresa_id=$2 AND ambiente=$3', [pedido.conversaId, empresa, ambiente])).rows[0];
+    const conversa = (await tx.query<{ contato: string; codigo: string }>(`SELECT c.contato, e.codigo FROM whatsapp_atendimento_conversas c
+      JOIN empresas e ON e.id=c.empresa_id WHERE c.id=$1 AND c.empresa_id=$2 AND c.ambiente=$3`, [pedido.conversaId, empresa, ambiente])).rows[0];
     if (!conversa) throw new Error('ATENDIMENTO_NAO_ENCONTRADO');
+    if ('cardapio' in pedido) {
+      const cardapio = await cardapioDaEmpresa(tx, empresa, conversa.codigo, pedido.cardapio);
+      if (!cardapio) throw new Error('ATENDIMENTO_CARDAPIO_INDISPONIVEL');
+      return { titulo: cardapio.titulo, texto: comporRascunho(cardapio.texto, cardapio.link), linkIndividual: null, aviso: null };
+    }
     const r082 = await tem082(tx);
     const linha = (await tx.query<LinhaPronta>(`SELECT ${colunas(await temMidia(tx), r082)} FROM ${deProntas(r082)} WHERE p.id=$1 AND p.empresa_id=$2 AND p.ambiente=$3 AND p.ativa${r082 ? " AND p.estado='PUBLICADA'" : ''}`, [pedido.id, empresa, ambiente])).rows[0];
     if (!linha) throw new Error('ATENDIMENTO_PRONTA_NAO_ENCONTRADA');
     const pronta = paraPronta(linha);
+    const opcao = opcaoCardapioDaPronta(pronta);
+    const complemento = opcao ? await complementoDeCardapio(tx, empresa, conversa.codigo, opcao) : {};
     // Foto, vídeo ou PDF: a prévia leva a legenda editável e o anexo para conferência; no envio vão o id e a VERSÃO desta
     // mensagem (o envio é recusado se ela mudar até lá: o anexo enviado é sempre o que foi visto).
     if (ehAnexo(pronta.tipo) && (pronta.midia_url || pronta.arquivo)) {
-      return { titulo: pronta.titulo, texto: pronta.texto, linkIndividual: null, aviso: null,
+      return { ...complemento, titulo: pronta.titulo, texto: pronta.texto, linkIndividual: null, aviso: null,
         midia: { tipo: pronta.tipo, url: pronta.arquivo?.caminho ?? pronta.midia_url!, ...(pronta.arquivo ? { nome: pronta.arquivo.nome } : {}), prontaId: pronta.id, versao: pronta.versao } };
     }
-    if (pronta.tipo !== 'LINK_FECHAMENTO_INDIVIDUAL') return { titulo: pronta.titulo, texto: comporRascunho(pronta.texto, pronta.link), linkIndividual: null, aviso: null };
+    if (pronta.tipo !== 'LINK_FECHAMENTO_INDIVIDUAL') return { ...complemento, titulo: pronta.titulo, texto: comporRascunho(pronta.texto, pronta.link), linkIndividual: null, aviso: null };
     const link = await resolverLinkFechamento(empresa, conversa.contato, {
       clientesPorTelefone: telefone => buscarClientesPorContatoExato(telefone, empresa, tx),
       contratacoesDoCliente: clienteId => listarContratacoes(tx, empresa, clienteId),
       origemPublica: process.env.ADMIN_AUTH_ORIGIN,
     });
     return link.ok
-      ? { titulo: pronta.titulo, texto: comporRascunho(pronta.texto, link.link), linkIndividual: 'PREENCHIDO' as const, aviso: null }
-      : { titulo: pronta.titulo, texto: pronta.texto, linkIndividual: 'NAO_PREENCHIDO' as const, aviso: EXPLICACAO_SEM_LINK[link.motivo] };
+      ? { ...complemento, titulo: pronta.titulo, texto: comporRascunho(pronta.texto, link.link), linkIndividual: 'PREENCHIDO' as const, aviso: null }
+      : { ...complemento, titulo: pronta.titulo, texto: pronta.texto, linkIndividual: 'NAO_PREENCHIDO' as const, aviso: EXPLICACAO_SEM_LINK[link.motivo] };
   });
 }

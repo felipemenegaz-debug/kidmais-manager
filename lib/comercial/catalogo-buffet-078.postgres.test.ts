@@ -1,3 +1,4 @@
+import { escopoCardapioPublico, lerCardapioPublico } from "./cardapio-publico.ts";
 import test from "node:test";
 import assert from "node:assert/strict";
 import { createHash, randomBytes, randomUUID } from "node:crypto";
@@ -114,6 +115,7 @@ test.before(async () => {
 test.after(async () => { if (client) await encerrarDescartavel(client); });
 
 test("antes da 078: 070 aplicada; catálogo global da 022 em uso pela Kidmais e por OUTRA (pacote, item solto, adicional e pedido)", async () => {
+  assert.equal((await escopoCardapioPublico(tx, "kidmais")).empresaId, undefined, "o catálogo global não pode ser publicado");
   await semTransacaoPendente(() => client.query(arquivo(M070)));
   kidmais = (await client.query<{ id: string }>(`SELECT id::text AS id FROM empresas WHERE codigo = 'kidmais'`)).rows[0].id;
   const id = async (sql: string, p: unknown[] = []) => (await client.query<{ id: string }>(sql, p)).rows[0].id;
@@ -287,6 +289,11 @@ test("escrita: Y não edita, exclui nem usa categoria/item de X (serviço = 404/
   await emTransacao(() => definirCategoriasPacoteAdmin(tx, pacoteY, [{ categoriaId: salgadosY, escolhas: 1 }], ctx(Y)));
 });
 
+test("cardápio público na estrutura 078: cada empresa publica apenas as próprias opções", async () => {
+  assert.deepEqual(await lerCardapioPublico(tx, X), [{ codigo: "salgados", nome: "Salgados", itens: ["Coxinha X"] }]);
+  assert.deepEqual(await lerCardapioPublico(tx, Y), [{ codigo: "salgados", nome: "Salgados", itens: ["Empada Y"] }]);
+});
+
 test("pedido: a escolha só aceita item do catálogo da empresa do pacote, mesmo com o mesmo código de categoria", async () => {
   await recusa(resolverEscolhasBuffet(tx, pacoteY, { SALGADOS: [coxinhaX] }, "DEFINIDO"), /indisponível para este pacote/);
   const ok = await resolverEscolhasBuffet(tx, pacoteY, { SALGADOS: [empadaY] }, "DEFINIDO") as { campos: { buffetSalgados: string } };
@@ -323,12 +330,34 @@ test("editar limite mantém vínculo de categoria oculta e SELECIONADOS vazio", 
   assert.deepEqual(depois.find(r => r.categoria_id === oculta), antes.find(r => r.categoria_id === oculta));
   assert.deepEqual(depois.find(r => r.categoria_id === salgadosY), { categoria_id: salgadosY, ativo: true, modo_itens: "SELECIONADOS", escolhas_min: 2, escolhas_max: 3 });
   assert.equal((await client.query("SELECT 1 FROM pacote_buffet_itens WHERE pacote_id=$1", [pacoteY])).rowCount, 0);
+  const { GET } = carregarModulo("app/api/fechamentos/catalogo/route.ts", {
+    "lib/db/postgres": { db: () => tx },
+    "lib/http/limite-publico": { limitarPublico: async () => null },
+    "lib/comercial/cotacao-publica": {
+      codigoEmpresaDoPedido: () => null,
+      escopoCotacaoPublica: async () => ({ empresaId: Y, porCodigo: true }),
+    },
+    "lib/comercial/repositories": { buscarPacoteVigenteDaEmpresaPorCodigo: async () => ({ id: pacoteY }) },
+  }, new Map()) as { GET(request: { nextUrl: URL }): Promise<Response> };
+  const opcoesPublicas = async () => {
+    const resposta = await GET({ nextUrl: new URL("https://buffet.test/api/fechamentos/catalogo?pacote=POCKET") });
+    assert.equal(resposta.status, 200);
+    return (await resposta.json()).categorias;
+  };
+  const categoriaPublica = { codigo: "SALGADOS", nome: "Salgados", min: 2, max: 3 };
+  // A categoria obrigatória continua visível e exigida mesmo quando nenhum item passa pelo ON.
+  assert.deepEqual(await opcoesPublicas(), [{ ...categoriaPublica, itens: [] }]);
+  await recusa(resolverEscolhasBuffet(tx, pacoteY, {}, "DEFINIDO"), /Salgados: Escolha de 2 a 3/);
+  await recusa(resolverEscolhasBuffet(tx, pacoteY, { SALGADOS: [empadaY] }, "DEFINIDO"), /indisponível para este pacote/);
+  assert.equal(await resolverEscolhasBuffet(tx, pacoteY, {}, "PENDENTE"), null);
   const selecionados = async () => (await painelPacoteAdmin(tx, Y, pacoteY))?.categorias.find(c => c.categoriaId === salgadosY)?.selecionadosAtivos;
   assert.equal(await selecionados(), 0);
   await client.query("INSERT INTO pacote_buffet_itens (pacote_id, categoria_id, item_id) VALUES ($1,$2,$3)", [pacoteY, salgadosY, empadaY]);
   assert.equal(await selecionados(), 1);
+  assert.deepEqual(await opcoesPublicas(), [{ ...categoriaPublica, itens: [{ id: empadaY, nome: "Empada Y" }] }]);
   await client.query("UPDATE buffet_itens SET ativo=false WHERE id=$1", [empadaY]);
   assert.equal(await selecionados(), 0);
+  assert.deepEqual(await opcoesPublicas(), [{ ...categoriaPublica, itens: [] }]);
 });
 
 test("alterar o limite de um pacote usado preserva o fechamento anterior", async () => {

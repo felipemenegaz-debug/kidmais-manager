@@ -1,6 +1,7 @@
 'use client';
 import { useCallback, useEffect, useId, useMemo, useRef, useState, type RefObject } from 'react';
 import { adminFetch } from '@/lib/http/admin-fetch';
+import { CARDAPIO_DA_CONVERSA, comporRascunho, LIMITE_RASCUNHO, type OpcaoCardapio, type RascunhoPronta } from '@/lib/whatsapp/atendimento/prontas';
 import { ACEITA_ANEXO, ATALHOS, ATALHOS_081, FINALIDADES, FORMATO_ANEXO, LIMITE_ANEXO_BYTES, LIMITE_LEGENDA, NOME_ANEXO, NOME_ATALHO, NOME_ESTADO_PRONTA, NOME_FINALIDADE, NOME_TIPO, REQUISITO_MIDIA, categorias, ehAnexo, ehMidia, filtrarProntas, tipoDoArquivo, type ArquivoPronta, type Atalho, type EstadoPronta, type Finalidade, type Pronta, type TipoAnexo, type TipoPronta } from '@/lib/whatsapp/atendimento/prontas';
 import styles from './atendimento.module.css';
 
@@ -10,9 +11,8 @@ type Biblioteca = { prontas: Pronta[]; favoritas: string[]; podeGerenciar: boole
  * na prévia (o servidor lê a mídia e recusa se a pronta mudou depois).
  */
 export type MidiaPronta = { tipo: TipoAnexo; url: string; prontaId: string; versao: number; titulo: string; nome?: string };
-type RascunhoServidor = { titulo: string; texto: string; linkIndividual: 'PREENCHIDO' | 'NAO_PREENCHIDO' | null; aviso: string | null; midia?: { tipo: TipoAnexo; url: string; prontaId: string; versao: number; nome?: string } };
 /** O rascunho pertence à conversa de ORIGEM: o link individual e o texto só valem para ela. */
-type Rascunho = RascunhoServidor & { conversaId: string; prontaId: string };
+type Rascunho = RascunhoPronta & { conversaId: string; prontaId: string };
 const ROTA = '/api/admin/atendimento/prontas';
 
 async function chamar<T>(corpo?: unknown, consulta = ''): Promise<T> {
@@ -65,15 +65,16 @@ export function MensagensProntas({ conversaId, podeUsar, motivoBloqueio, textoAt
   useEffect(() => { if (previaAtual && focarPrevia.current) { focarPrevia.current = false; campoPrevia.current?.focus(); } }, [previaAtual]);
   useEffect(() => { if (aberta && focarBusca.current && campoBusca.current) { focarBusca.current = false; campoBusca.current.focus(); } }, [aberta, dados]);
 
-  async function preparar(p: Pronta) {
+  async function preparar(p: Pronta | OpcaoCardapio) {
     if (ocupado) return;
     const pedido = ++pedidoRascunho.current, origem = conversaId;
     setOcupado(true); setErro(''); setAviso('');
     try {
-      const r = await chamar<RascunhoServidor>({ acao: 'rascunho', id: p.id, conversaId: origem });
+      const selecionada = typeof p === 'string' ? { acao: 'cardapio', cardapio: p } : { acao: 'rascunho', id: p.id };
+      const r = await chamar<RascunhoPronta>({ ...selecionada, conversaId: origem });
       if (pedido !== pedidoRascunho.current || origem !== conversaAtual.current) return;
       focarPrevia.current = true;
-      setRascunho({ ...r, conversaId: origem, prontaId: p.id });
+      setRascunho({ ...r, conversaId: origem, prontaId: typeof p === 'string' ? p : p.id });
     } catch (e) { if (pedido === pedidoRascunho.current) setErro(e instanceof Error ? e.message : 'Não foi possível preparar o rascunho.'); }
     finally { if (pedido === pedidoRascunho.current) setOcupado(false); }
   }
@@ -116,8 +117,12 @@ export function MensagensProntas({ conversaId, podeUsar, motivoBloqueio, textoAt
   // Atalho sem mensagem: um aviso por motivo, abaixo dos botões (seis avisos soltos entre os botões poluíam a linha).
   // Cada botão desabilitado aponta (aria-describedby) para o aviso do seu motivo.
   const motivoAtalho = (a: Atalho) => !recursos081 && ATALHOS_081.includes(a) ? 'indisponivel' : 'sem-cadastro';
-  const semAtalho = (motivo: string) => ATALHOS.filter(a => !porAtalho(a) && motivoAtalho(a) === motivo).map(a => NOME_ATALHO[a]);
+  const destinoAtalho = (a: Atalho) => porAtalho(a) ?? (a === 'SALGADOS' || a === 'BOLOS' ? a : null);
+  const semAtalho = (motivo: string) => ATALHOS.filter(a => !destinoAtalho(a) && motivoAtalho(a) === motivo).map(a => NOME_ATALHO[a]);
   const semCadastro = semAtalho('sem-cadastro'), indisponiveis = semAtalho('indisponivel');
+  const textoComCardapio = previaAtual?.linkCardapio && !previaAtual.texto.split(/\s+/).includes(previaAtual.linkCardapio)
+    ? (previaAtual.texto ? comporRascunho(previaAtual.texto, previaAtual.linkCardapio) : previaAtual.linkCardapio) : null;
+  const limitePrevia = previaAtual?.midia ? LIMITE_LEGENDA : LIMITE_RASCUNHO;
 
   return <div className={styles.prontas}>
     <div className={styles.botoesProntas}>
@@ -134,7 +139,8 @@ export function MensagensProntas({ conversaId, podeUsar, motivoBloqueio, textoAt
       {dados && <>
         {/* Durante o pedido os botões ficam aria-disabled (não disabled): desabilitar o botão em foco jogaria o foco para o topo da página. */}
         <div className={styles.atalhos} role="group" aria-label="Atalhos">
-          {ATALHOS.map(a => { const p = porAtalho(a); return <button type="button" key={a} className={styles.atalho} disabled={!p} aria-disabled={ocupado || undefined} aria-describedby={p ? undefined : `${id}-${motivoAtalho(a)}`} onClick={() => p && void preparar(p)}>{NOME_ATALHO[a]}</button>; })}
+          <button type="button" className={styles.atalho} aria-disabled={ocupado || undefined} onClick={() => void preparar('CARDAPIO')}>{CARDAPIO_DA_CONVERSA.CARDAPIO.titulo}</button>
+          {ATALHOS.map(a => { const p = destinoAtalho(a); return <button type="button" key={a} className={styles.atalho} disabled={!p} aria-disabled={ocupado || undefined} aria-describedby={p ? undefined : `${id}-${motivoAtalho(a)}`} onClick={() => p && void preparar(p)}>{NOME_ATALHO[a]}</button>; })}
         </div>
         {semCadastro.length > 0 && <p id={`${id}-sem-cadastro`} className={styles.nota}>Ainda sem mensagem cadastrada: {semCadastro.join(', ')}.</p>}
         {indisponiveis.length > 0 && <p id={`${id}-indisponivel`} className={styles.nota}>{indisponiveis.length === 1 ? 'Indisponível' : 'Indisponíveis'} neste ambiente: {indisponiveis.join(', ')}.</p>}
@@ -156,7 +162,9 @@ export function MensagensProntas({ conversaId, podeUsar, motivoBloqueio, textoAt
       {previaAtual && <div className={styles.previa}>
         {previaAtual.midia && <p className={styles.anexo}><strong>{NOME_TIPO[previaAtual.midia.tipo]}</strong> desta mensagem pronta{previaAtual.midia.nome ? ` (${previaAtual.midia.nome})` : ''}: <a href={previaAtual.midia.url} target="_blank" rel="noopener noreferrer">conferir {previaAtual.midia.tipo === 'IMAGEM' ? 'a foto' : previaAtual.midia.tipo === 'VIDEO' ? 'o vídeo' : 'o PDF'} em nova aba</a>. O arquivo não muda aqui; só a legenda.</p>}
         <label htmlFor={previa}>{previaAtual.midia ? `Legenda de “${previaAtual.titulo}” (opcional, até ${LIMITE_LEGENDA} caracteres)` : `Prévia de “${previaAtual.titulo}” — edite antes de usar`}</label>
-        <textarea ref={campoPrevia} id={previa} maxLength={previaAtual.midia ? LIMITE_LEGENDA : 4000} value={previaAtual.texto} onChange={e => setRascunho({ ...previaAtual, texto: e.target.value })} aria-describedby={previaAtual.aviso ? `${previa}-aviso` : undefined} />
+        <textarea ref={campoPrevia} id={previa} maxLength={limitePrevia} value={previaAtual.texto} onChange={e => setRascunho({ ...previaAtual, texto: e.target.value })} aria-describedby={previaAtual.aviso ? `${previa}-aviso` : undefined} />
+        {textoComCardapio && <button type="button" disabled={textoComCardapio.length > limitePrevia} onClick={() => setRascunho({ ...previaAtual, texto: textoComCardapio })}>Acrescentar link do cardápio</button>}
+        {textoComCardapio && textoComCardapio.length > limitePrevia && <p>Encurte o texto para incluir o link do cardápio.</p>}
         {previaAtual.aviso && <p id={`${previa}-aviso`} role="status" className={styles.fila}>{previaAtual.aviso}</p>}
         {previaAtual.linkIndividual === 'PREENCHIDO' && <p className={styles.nota}>Link individual preenchido pelo fluxo de contratação deste cliente.</p>}
         <div className={styles.acoes}>

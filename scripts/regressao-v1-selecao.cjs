@@ -58,6 +58,7 @@ const ESTADO_POSTGRES = {
   // Catálogo do buffet: 063 + 070 + 078 aplicadas pela própria suíte (em transação).
   "lib/comercial/catalogo-ux.postgres.test.ts": { descartavel: "063" },
   // Catálogo do buffet por empresa (078): leitura, escrita, cotação e preservação entre duas empresas; 063 + 070 + 078.
+  "lib/comercial/cardapio-publico.postgres.test.ts": { descartavel: "063" },
   "lib/comercial/catalogo-buffet-078.postgres.test.ts": { descartavel: "063" },
   // Disponibilidade do pacote por empresa: tela (cotação pública e administração) = servidor; isolamento; legado Kidmais.
   "lib/comercial/paridade-oferta-publica.postgres.test.ts": { descartavel: "094" },
