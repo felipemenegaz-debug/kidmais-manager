@@ -21,6 +21,7 @@ const PERMITIDAS = [/CONTATO_KIDMAIS/, /ATENDIMENTO_KIDMAIS/, /origemInterna \? 
     /regrasDisponibilidadeDaTela\(marca\.kidmais, fatosPacote, (form\.pacote|novoPacote)\)/, /statusLabel\(info\.status, marca\.kidmais\)/,
     // Código do pacote no servidor: id V1 traduzido no endereço atual; na empresa, o próprio código (P_…).
     /codigoServidorDoPacoteDaMarca\(marca\.kidmais, form\.pacote\)/, /\},\[form\.pacote, empresa, marca\.kidmais\]\);/];
+PERMITIDAS.push(/codigoServidorDoPacoteDaMarca\(marca\.kidmais, id\)/, /motivoPacoteNoPeriodo\(.*marca\.kidmais, convidados,/);
 const PROTEGIDAS = ['Falar com a Kidmais no WhatsApp'];
 for (const arquivo of ['components/fechamento/FechamentoWizard.tsx', 'components/fechamento/CalendarioDisponibilidade.tsx', 'components/disponibilidade/DisponibilidadePublica.tsx']) {
     test(`sem Kidmais fixa para outra empresa: ${arquivo}`, () => {

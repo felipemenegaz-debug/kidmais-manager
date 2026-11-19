@@ -405,3 +405,5 @@
   .guestCard { padding: 13px; border-radius: 18px; }
   .guestInputRow .continueButton { flex: 1 1 100%; }
 }
+
+.dayNoPackage { background: var(--surface); color: var(--muted); border: 1px dashed var(--muted); }

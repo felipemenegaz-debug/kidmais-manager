@@ -10,7 +10,8 @@ import { PausaGlobal } from "@/components/site/PausaGlobal";
 import { fonteTexto, fonteTitulo } from "@/components/site/fonte";
 import { horarioLegadoDoCodigo } from "@/components/fechamento/periodos";
 import { ATALHOS_CONVIDADOS, erroConvidadosEmpresa, erroConvidadosFechamento } from "@/lib/fechamentos/convidados";
-import { datasProximas, doMes, estadoDoDia, fimDoMesSeguinte, linkContatoBuffet, textoCapacidade, type EstadoDia } from "./convidados-tela";
+import { CONTATO_KIDMAIS } from "@/components/fechamento/data";
+import { convidadosDaUrl, datasProximas, doMes, estadoDoDia, exemploDeAtendimento, resumoSemanal, fimDoMesSeguinte, linkContatoBuffet, textoCapacidade, whatsappComMensagem, type EstadoDia } from "./convidados-tela";
 import type {
   DisponibilidadeDataPublica,
   HorarioCandidatoPublico,
@@ -98,7 +99,14 @@ export default function DisponibilidadePublica({ empresa = null }: { empresa?: s
   const [convidados, setConvidados] = useState<number | null>(null);
   const [convidadosTexto, setConvidadosTexto] = useState("");
   const [erroConvidados, setErroConvidados] = useState("");
-  const contatoBuffet = marca.kidmais ? null : linkContatoBuffet(marca.contato);
+  const whats = marca.kidmais ? CONTATO_KIDMAIS.whatsappUrl : marca.contato?.whatsapp?.url;
+  const contatoBuffet = whats
+    ? whatsappComMensagem(whats, dataSelecionada && convidados ? `Olá! Gostaria de consultar a data ${formatarData(dataSelecionada)} para ${convidados} convidados.` : undefined)
+    : linkContatoBuffet(marca.contato);
+  useEffect(() => {
+    const n = convidadosDaUrl(new URLSearchParams(window.location.search).get("convidados"));
+    if (n) void Promise.resolve().then(() => { setConvidados(n); setConvidadosTexto(String(n)); });
+  }, []);
 
   const diasMes = useMemo(() => {
     const primeiro = new Date(Date.UTC(ano, mes, 1)).getUTCDay();
@@ -177,13 +185,19 @@ export default function DisponibilidadePublica({ empresa = null }: { empresa?: s
   const periodoSelecionado = dataInfo?.periodos.find((item) => item.codigo === periodoCodigo);
   // S-C: dia sem encaixe — datas próximas já carregadas e o contato do buffet.
   const semEncaixe = Boolean(dataInfo && !dataInfo.periodos.some((p) => p.status === "DISPONIVEL"));
-  const proximas = semEncaixe && dataSelecionada ? datasProximas(porData, dataSelecionada, hojeIso()) : [];
+  const bloqueados = dataInfo?.periodos.filter(p => p.motivoComercial) ?? [];
+  const parcial = !semEncaixe && bloqueados.length > 0;
+  const nomesBloqueados = bloqueados.map(p => p.nome).join(", ");
+  const proximas = dataSelecionada ? datasProximas(porData, dataSelecionada, bloqueados.length ? dataSelecionada : hojeIso(), 3, parcial ? bloqueados.map(p => p.codigo) : undefined) : [];
+  const exemplo = (!parcial && resumoSemanal(Object.values(porData).filter(d => d.data >= hojeIso()), convidados)) || exemploDeAtendimento(porData[proximas[0]], convidados, parcial ? bloqueados.map(p => p.codigo) : undefined);
+  const minimoPublicado = Math.min(...Object.values(porData).map(d => d.minimoFaturavel ?? Infinity));
   const algumSemSalao = doMes(porData, ano, mes).some((d) => estadoDoDia(d) === "SEM_SALAO");
   const classeDoDia: Record<EstadoDia, string> = {
     NEUTRO: styles.dayNeutral,
     DISPONIVEL: styles.dayAvailable,
     PARCIAL: styles.dayPartial,
     INDISPONIVEL: styles.dayUnavailable,
+    SEM_PACOTE: styles.dayNoPackage,
     SEM_SALAO: styles.dayNoRoom,
   };
 
@@ -316,10 +330,12 @@ export default function DisponibilidadePublica({ empresa = null }: { empresa?: s
               </div>
             </div>
 
+            {Number.isFinite(minimoPublicado) && convidados < minimoPublicado && <p role="status">Nossos pacotes começam em {minimoPublicado} convidados. Com {convidados} presentes, vale o mínimo faturado do pacote escolhido.</p>}
             <div className={styles.legend}>
               <span><i className={styles.legendAvailable} /> Disponível</span>
               <span><i className={styles.legendPartial} /> Parcial</span>
               <span><i className={styles.legendUnavailable} /> Sem horários</span>
+              {doMes(porData, ano, mes).some(d => estadoDoDia(d) === "SEM_PACOTE") && <span>◇ Sem pacote para {convidados} convidados</span>}
               {algumSemSalao ? <span><i className={styles.legendNoRoom} /> Sem salão para {convidados}</span> : null}
             </div>
 
@@ -351,8 +367,8 @@ export default function DisponibilidadePublica({ empresa = null }: { empresa?: s
                   >
                     <strong>{dia}</strong>
                     {!passado && info ? (
-                      <small aria-label={estado === "SEM_SALAO" ? `Sem salão para ${convidados}` : undefined}>
-                        {estado === "SEM_SALAO" ? "↔" : estado === "INDISPONIVEL" ? "×" : estado === "PARCIAL" ? "◐" : "✓"}
+                      <small aria-label={estado === "PARCIAL" ? "Disponibilidade parcial" : estado === "SEM_PACOTE" ? `Sem pacote para ${convidados} convidados` : estado === "SEM_SALAO" ? `Sem salão para ${convidados}` : undefined}>
+                        {estado === "SEM_PACOTE" ? "◇" : estado === "SEM_SALAO" ? "↔" : estado === "INDISPONIVEL" ? "×" : estado === "PARCIAL" ? "◐" : "✓"}
                       </small>
                     ) : null}
                   </button>
@@ -399,30 +415,31 @@ export default function DisponibilidadePublica({ empresa = null }: { empresa?: s
                           <strong>{periodo.nome}</strong>
                           {/* 2d: horário livre — o cliente escolhe a hora de início (sem faixa fixa). */}
                           <small>{periodo.codigo === "HORARIO_LIVRE" ? "Você escolhe a hora de início" : `${periodo.horarioInicioPadrao}–${periodo.horarioFimPadrao}`}</small>
-                          <b>{textoCapacidade(periodo.capacidade, convidados) ?? (periodo.status === "DISPONIVEL" ? "Disponível" : "Indisponível")}</b>
+                          {periodo.avisoMinimoFaturavel && <small>{periodo.avisoMinimoFaturavel}</small>}
+                          <b>{(periodo.motivoComercial && exemplo) ?? periodo.motivoComercial ?? textoCapacidade(periodo.capacidade, convidados) ?? (periodo.status === "DISPONIVEL" ? "Disponível" : "Indisponível")}</b>
                         </div>
                       </button>
                     ))}
                   </div>
                 </section>
 
-                {semEncaixe ? (
+                {semEncaixe || parcial ? (
                   <div className={styles.noFit} role="status">
                     <strong>
-                      {dataInfo?.motivoDia?.motivo === "CAPACIDADE"
+                      {parcial ? `Sem pacote para ${convidados} convidados em ${nomesBloqueados}. ${exemplo ?? "Os demais períodos disponíveis podem ser escolhidos acima."}` : (bloqueados.length ? exemplo : null) ?? bloqueados[0]?.motivoComercial ?? (dataInfo?.motivoDia?.motivo === "CAPACIDADE"
                         ? `Nenhum salão livre comporta ${convidados} convidados nesta data.`
-                        : "Esta data não tem horários livres."}
+                        : "Esta data não tem horários livres.")}
                     </strong>
                     {proximas.length ? (
                       <>
-                        <span>Datas próximas com espaço para {convidados}:</span>
+                        <span>Datas próximas com espaço para {convidados}{parcial ? ` em ${nomesBloqueados}` : ""}:</span>
                         <div className={styles.noFitDates}>
                           {proximas.map((data) => (
-                            <button type="button" key={data} onClick={() => selecionarData(data)}>{formatarData(data)}</button>
+                            <button type="button" key={data} onClick={() => { const [a, m] = data.split("-").map(Number); setAno(a); setMes(m - 1); selecionarData(data); }}>{formatarData(data)}</button>
                           ))}
                         </div>
                       </>
-                    ) : <span>Não há datas livres até o fim do mês seguinte. Veja outros meses no calendário.</span>}
+                    ) : <span>Não há outras datas com essa disponibilidade até o fim do mês seguinte. Veja outros meses no calendário.</span>}
                     {contatoBuffet ? <a href={contatoBuffet} target="_blank" rel="noreferrer">Falar com o buffet</a> : null}
                   </div>
                 ) : null}

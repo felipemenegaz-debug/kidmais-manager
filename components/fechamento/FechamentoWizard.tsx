@@ -3,6 +3,7 @@
 import AdicionaisPizzaConsulta from './AdicionaisPizzaConsulta';
 import PacotesPdf from './PacotesPdf';
 import FestaDecoracao from './FestaDecoracao';
+import { motivoPacoteNoPeriodo } from '@/lib/comercial/venda-periodo';
 import EscolhaPacote from './EscolhaPacote';
 import ContatoEmpresa from './ContatoEmpresa';
 import ConvidadosChip from './ConvidadosChip';
@@ -354,24 +355,30 @@ export default function FechamentoWizard({ empresa = null }: { empresa?: string 
   // S-D (revisão do Astra): motivo da última recusa da revalidação (horário ou salão de preferência), para a trava do chip.
   const ultimaRecusa = useRef<string | null>(null);
 
-  const [fatosPacote, setFatosPacote] = useState<FatosPacote | null>(null);
+  const chaveCatalogo = JSON.stringify([empresa, salaoPreferido?.id, preselecaoDisponibilidade ? form.dataFesta : null]);
+  const [catalogoCarregado, setCatalogoCarregado] = useState<{ chave: string; fatos: FatosPacote } | null>(null);
+  const fatosPacote = catalogoCarregado?.chave === chaveCatalogo ? catalogoCarregado.fatos : null;
   // Falha da lista de pacotes: no endereço atual o catálogo continua; em outra empresa a etapa mostra o erro.
   const [falhaPacotes, setFalhaPacotes] = useState(false);
   const [tentativaPacotes, setTentativaPacotes] = useState(0);
   useEffect(() => {
     const controller = new AbortController();
-    const doSalao = salaoPreferido ? `?salao=${encodeURIComponent(salaoPreferido.id)}` : "";
+    const parametros = new URLSearchParams();
+    if (salaoPreferido) parametros.set("salao", salaoPreferido.id);
+    if (preselecaoDisponibilidade && form.dataFesta) parametros.set("data", form.dataFesta);
+    const doSalao = parametros.size ? "?" + parametros.toString() : "";
     void fetch(apiPublica(`/api/fechamentos/pacotes${doSalao}`, empresa), { signal: controller.signal, cache: "no-store" })
       .then((response) => response.ok ? response.json() : null)
       .then((body) => {
+        if (controller.signal.aborted) return;
         if (!Array.isArray(body?.pacotes)) { setFalhaPacotes(true); return; }
         setFalhaPacotes(false);
-        setFatosPacote(Object.fromEntries(body.pacotes.map((item: { codigo: string }) => [item.codigo, item])));
+        setCatalogoCarregado({ chave: chaveCatalogo, fatos: Object.fromEntries(body.pacotes.map((item: { codigo: string }) => [item.codigo, item])) });
         if (body.pagamento) setRegrasDoServidor(body.pagamento as RegrasPagamento);
       })
       .catch(() => { if (!controller.signal.aborted) setFalhaPacotes(true); });
     return () => controller.abort();
-  }, [empresa, tentativaPacotes, salaoPreferido]);
+  }, [empresa, tentativaPacotes, salaoPreferido, form.dataFesta, preselecaoDisponibilidade, chaveCatalogo]);
   const pacotesDaEtapa = pacotesExibidos(marca.kidmais, PACOTES_FECHAMENTO_V1, fatosPacote);
   const codigoPacote = codigoServidorDoPacoteDaMarca(marca.kidmais, form.pacote);
   const fato = codigoPacote ? fatosPacote?.[codigoPacote] : undefined;
@@ -408,6 +415,25 @@ export default function FechamentoWizard({ empresa = null }: { empresa?: string 
     return ()=>controller.abort();
   },[chaveAdicionais,form.pacote,form.dataFesta,form.convidadosPagantes,empresa]);
   const convidados = Number(form.convidadosPagantes || 0);
+
+  function validarConvidadosDoPacote(convidados: number) {
+    if (preselecaoDisponibilidade && pacote && !pacote.sobConsulta) {
+      return erroConvidadosEmpresa(convidados, { ...pacote, minPagantes: 1 });
+    }
+    return marca.kidmais ? erroConvidadosFechamento(convidados, pacote) : erroConvidadosEmpresa(convidados, pacote);
+  }
+
+  const naoComportaNaTela = (id: string) =>
+    motivoForaDoSalao(fatosPacote, codigoServidorDoPacoteDaMarca(marca.kidmais, id) ?? id, salaoPreferido) ?? motivoDaVenda(id);
+  function motivoDaVenda(id: string) {
+    const codigo = codigoServidorDoPacoteDaMarca(marca.kidmais, id) ?? id;
+    const publicado = fatosPacote?.[codigo];
+    if (!preselecaoDisponibilidade || !form.configuracaoId) return motivoNaoComporta(marca.kidmais, PACOTES_FECHAMENTO_V1, fatosPacote, id, convidados);
+    if (!publicado?.disponibilidade) return "Pacote sem oferta publicada para esta data.";
+    const motivo = motivoPacoteNoPeriodo({ ...publicado, codigo, disponibilidade: publicado.disponibilidade }, marca.kidmais, convidados, form.dataFesta, form.configuracaoId);
+    const horario = candidatosHorario.find(h => h.inicio === form.horarioInicio && h.fim === form.horarioFim);
+    return motivo ?? (horario?.pacotesVendaveis && !horario.pacotesVendaveis.includes(codigo) ? "Sem oferta para este horário e quantidade de convidados." : null);
+  }
 
   const dadosCadastraisAlterados = useMemo(() => {
     if (!clienteEncontrado || identificacaoStatus !== "VERIFICADO") return false;
@@ -450,6 +476,7 @@ export default function FechamentoWizard({ empresa = null }: { empresa?: string 
         params.get("codigoPeriodo") || codigoDoHorarioLegado(params.get("periodo")) || "";
       const ajusteParam = params.get("ajuste");
       const convidadosParam = convidadosDaUrl(params.get("convidados"));
+      if (convidadosParam) setForm(anterior => ({ ...anterior, convidadosPagantes: convidadosParam }));
       const inicioParam = params.get("inicio");
       const fimParam = params.get("fim");
       const ajustePreselecionado =
@@ -463,12 +490,12 @@ export default function FechamentoWizard({ empresa = null }: { empresa?: string 
 
       // O fluxo público oficial sempre começa em Disponibilidade.
       if (!interna && !origemDisponibilidade) {
-        router.replace(paginaPublica("/disponibilidade", empresa));
+        router.replace(paginaPublica("/disponibilidade", empresa) + (convidadosParam ? `?convidados=${convidadosParam}` : ""));
         return;
       }
 
       if (origemDisponibilidade && !parametrosDisponibilidadeValidos) {
-        router.replace(paginaPublica("/disponibilidade", empresa));
+        router.replace(paginaPublica("/disponibilidade", empresa) + (convidadosParam ? `?convidados=${convidadosParam}` : ""));
         return;
       }
 
@@ -507,7 +534,7 @@ export default function FechamentoWizard({ empresa = null }: { empresa?: string 
 
           setConfigDisponibilidade({
             agenda: [],
-            pacoteOverrides: json.comercial?.pacoteOverrides ?? [],
+            pacoteOverrides: [],
             descontos: json.comercial?.descontos ?? [],
             ...(json.comercial?.descontosEmpresa ? { descontosEmpresa: json.comercial.descontosEmpresa } : {}),
           });
@@ -1130,6 +1157,12 @@ export default function FechamentoWizard({ empresa = null }: { empresa?: string 
         return false;
       }
 
+      if (preselecaoDisponibilidade && codigoPacote && candidato.pacotesVendaveis && !candidato.pacotesVendaveis.includes(codigoPacote)) {
+        setCandidatosHorario(candidatosDisponiveis(periodo));
+        setErro("Este pacote deixou de estar disponível no horário escolhido.");
+        return false;
+      }
+
       if (salaoPreferido && preferido?.tipo !== "livre") {
         ultimaRecusa.current = `O ${salaoPreferido.nome} não serve para ${convidadosInformados} convidados neste horário. Troque o salão ou a quantidade.`;
         setErro(ultimaRecusa.current);
@@ -1140,7 +1173,7 @@ export default function FechamentoWizard({ empresa = null }: { empresa?: string 
       setPeriodosDoDia(periodos);
       setConfigDisponibilidade({
         agenda: [],
-        pacoteOverrides: json.comercial?.pacoteOverrides ?? [],
+        pacoteOverrides: origemInterna ? json.comercial?.pacoteOverrides ?? [] : [],
         descontos: json.comercial?.descontos ?? [],
         ...(json.comercial?.descontosEmpresa ? { descontosEmpresa: json.comercial.descontosEmpresa } : {}),
       });
@@ -1184,6 +1217,11 @@ export default function FechamentoWizard({ empresa = null }: { empresa?: string 
       if (fora) { setErro(`${fora} Escolha um pacote deste salão ou troque o salão.`); return false; }
     }
 
+    if (etapa === 0 && preselecaoDisponibilidade && convidados > 0 && form.pacote) {
+      const motivo = naoComportaNaTela(form.pacote);
+      if (motivo) { setErro(motivo); return false; }
+    }
+
     if (etapa === 0 && pacote?.sobConsulta) {
       setErro(`O Pizza Party está sob consulta. Fale com a ${marca.equipe} para confirmar disponibilidade e valor antes da formalização.`);
       return false;
@@ -1222,7 +1260,7 @@ export default function FechamentoWizard({ empresa = null }: { empresa?: string 
     }
 
     if (etapa === etapaDosConvidados) {
-      const mensagem = marca.kidmais ? erroConvidadosFechamento(convidados, pacote) : erroConvidadosEmpresa(convidados, pacote);
+      const mensagem = validarConvidadosDoPacote(convidados);
       if (mensagem) { setErro(mensagem); return false; }
       if (cotacaoEstado === 'carregando') { setErro(''); setAvancarAposCotacao(true); return false; }
       if (cotacaoEstado === 'erro') { setErro(cotacaoAtual?.erro ?? mensagemCotacao(undefined, undefined, marca.equipe)); return false; }
@@ -1357,8 +1395,6 @@ export default function FechamentoWizard({ empresa = null }: { empresa?: string 
   // S-C: validação do chip (sem pacote: o teto do pedido online e a forma do número).
   const validarConvidadosDoChip = (quantidade: number) =>
     marca.kidmais ? erroConvidadosFechamento(quantidade) : erroConvidadosEmpresa(quantidade);
-  const naoComportaNaTela = (id: string) =>
-    motivoForaDoSalao(fatosPacote, id, salaoPreferido) ?? motivoNaoComporta(marca.kidmais, PACOTES_FECHAMENTO_V1, fatosPacote, id, convidados);
   // S-D: "trocar" o salão volta à escolha com o mesmo horário e os convidados atuais.
   const linkTrocarSalao = () => {
     const p = new URLSearchParams(window.location.search);
@@ -1376,7 +1412,7 @@ export default function FechamentoWizard({ empresa = null }: { empresa?: string 
     setValidandoDisponibilidade(false);
     setAvancarAposCotacao(false);
     atualizar("convidadosPagantes", quantidade);
-    const motivo = form.pacote ? motivoNaoComporta(marca.kidmais, PACOTES_FECHAMENTO_V1, fatosPacote, form.pacote, quantidade) : null;
+    const motivo = form.pacote ? validarConvidadosDoPacote(quantidade) : null;
     if (motivo) {
       setEtapa(0);
       setErro(`${motivo} Escolha outro pacote para ${quantidade} convidados.`);
@@ -1529,7 +1565,7 @@ export default function FechamentoWizard({ empresa = null }: { empresa?: string 
           <p className={styles.successText}>
             {erro || "O horário selecionado não está mais disponível."}
           </p>
-          <a className={styles.primaryButton} href={paginaPublica("/disponibilidade", empresa)}>
+          <a className={styles.primaryButton} href={paginaPublica("/disponibilidade", empresa) + (convidados ? `?convidados=${convidados}` : "")}>
             Voltar para disponibilidade
           </a>
         </section>
@@ -1657,7 +1693,7 @@ export default function FechamentoWizard({ empresa = null }: { empresa?: string 
                     {form.dataFesta.split("-").reverse().join("/")} · {intervaloSelecionado.inicio}–{intervaloSelecionado.fim}.
                     Esta consulta não reserva a data.
                   </p>
-                  <a className={styles.secondaryButton} href={paginaPublica("/disponibilidade", empresa)}>
+                  <a className={styles.secondaryButton} href={paginaPublica("/disponibilidade", empresa) + (convidados ? `?convidados=${convidados}` : "")}>
                     Alterar data ou horário
                   </a>
                 </div>
@@ -1681,7 +1717,8 @@ export default function FechamentoWizard({ empresa = null }: { empresa?: string 
               ) : null}
 
               <EscolhaPacote
-                itens={pacotesDaEtapa}
+                veioDaDisponibilidade={Boolean(preselecaoDisponibilidade) && !origemInterna}
+                itens={preselecaoDisponibilidade && !fatosPacote ? null : pacotesDaEtapa}
                 falha={falhaPacotes}
                 selecionado={form.pacote}
                 convidados={convidadosDaEntrada && convidados >= 1 ? convidados : null}
@@ -1729,7 +1766,7 @@ export default function FechamentoWizard({ empresa = null }: { empresa?: string 
                     <div className={`${styles.detailWide} ${styles.consultNotice}`}>
                       <strong>Sob consulta</strong>
                       <p>A {marca.equipe} precisa confirmar disponibilidade e valor antes do fechamento e do contrato.</p>
-                      <AdicionaisPizzaConsulta empresa={empresa} />
+                      <AdicionaisPizzaConsulta empresa={empresa} limites={{ minimo: pacote.minPagantes, maximo: pacote.maxPagantes }} />
                       {!empresa && <a href={CONTATO_KIDMAIS.whatsappUrl} target="_blank" rel="noreferrer">Falar com a Kidmais</a>}
                     </div>
                   )}
@@ -1775,7 +1812,7 @@ export default function FechamentoWizard({ empresa = null }: { empresa?: string 
                     {form.dataFesta.split("-").reverse().join("/")} · {horario}.
                     A consulta não reservou a data e o horário será revalidado novamente antes da confirmação.
                   </p>
-                  <a className={styles.secondaryButton} href={paginaPublica("/disponibilidade", empresa)}>
+                  <a className={styles.secondaryButton} href={paginaPublica("/disponibilidade", empresa) + (convidados ? `?convidados=${convidados}` : "")}>
                     Alterar data ou horário
                   </a>
                 </div>
@@ -1980,7 +2017,7 @@ export default function FechamentoWizard({ empresa = null }: { empresa?: string 
                 <span>Quantidade de convidados pagantes</span>
                 <input
                   type="number"
-                  min={pacote?.minPagantes ?? 1}
+                  min={preselecaoDisponibilidade ? 1 : pacote?.minPagantes ?? 1}
                   max={pacote?.maxPagantes ?? 150}
                   inputMode="numeric"
                   placeholder="Ex.: 50"

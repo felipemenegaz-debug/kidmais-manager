@@ -10,9 +10,10 @@ import styles from "./FechamentoWizard.module.css";
  * S-C: com `convidados`, os que comportam vêm primeiro; os demais ficam atrás de "ver mesmo assim", esmaecidos e com o
  * motivo (o servidor recusa acima do máximo, como antes).
  */
-export default function EscolhaPacote({ itens, falha, selecionado, onEscolher, onTentarNovamente, convidados = null, naoComporta, salao = null }: {
+export default function EscolhaPacote({ itens, falha, selecionado, onEscolher, onTentarNovamente, convidados = null, naoComporta, salao = null, veioDaDisponibilidade = false }: {
   itens: PacoteExibido[] | null;
   falha: boolean;
+  veioDaDisponibilidade?: boolean;
   selecionado: string;
   onEscolher: (item: PacoteExibido) => void;
   onTentarNovamente: () => void;
@@ -54,6 +55,7 @@ export default function EscolhaPacote({ itens, falha, selecionado, onEscolher, o
           key={item.id}
           type="button"
           className={`${styles.packageCard} ${selecionado === item.id ? styles.packageSelected : ""} ${motivo ? styles.packageFaded : ""}`}
+          disabled={veioDaDisponibilidade && Boolean(motivo) && item.id !== "pizza_party_scienza"}
           onClick={() => onEscolher(item)}
         >
           {item.destaque && (
@@ -63,7 +65,7 @@ export default function EscolhaPacote({ itens, falha, selecionado, onEscolher, o
             {selecionado === item.id ? "✓" : ""}
           </span>
           <strong>{item.nome}</strong>
-          <b>{item.preco == null ? "Sob consulta" : `A partir de ${numeroParaMoeda(item.preco)}`}</b>
+          <b>{item.id === "pizza_party_scienza" || motivo === "Sob consulta" || item.preco == null ? "Sob consulta" : `A partir de ${numeroParaMoeda(item.preco)}`}</b>
           <p>{item.descricao}</p>
           {item.disponibilidade ? <small>{item.disponibilidade}</small> : null}
           {motivo ? <small className={styles.packageMotivo}>{motivo}</small> : null}
@@ -76,8 +78,8 @@ export default function EscolhaPacote({ itens, falha, selecionado, onEscolher, o
     <>
       {convidados && comportam.length === 0 && naoComportam.length > 0 ? (
         <div className={styles.warningBox} role="status">
-          <strong>Nenhum pacote comporta {convidados} convidados.</strong>
-          <p>Altere a quantidade ou veja os pacotes mesmo assim.</p>
+          <strong>Nenhum pacote disponível para {convidados} convidados nesta seleção.</strong>
+          <p>{veioDaDisponibilidade ? "Altere a data, o horário ou a quantidade de convidados. Em Ver outros pacotes, você pode consultar o motivo de cada indisponibilidade." : "Altere a quantidade ou veja os pacotes mesmo assim."}</p>
         </div>
       ) : null}
       <div className={styles.packageGrid}>
@@ -87,9 +89,9 @@ export default function EscolhaPacote({ itens, falha, selecionado, onEscolher, o
         <div className={styles.packageOthers}>
           <span>{salao
             ? `${naoComportam.length === 1 ? "1 pacote não serve" : `${naoComportam.length} pacotes não servem`} no ${salao} para ${convidados} convidados.`
-            : <>{naoComportam.length === 1 ? "1 pacote não comporta" : `${naoComportam.length} pacotes não comportam`} {convidados} convidados.</>}</span>
+            : <>{naoComportam.length === 1 ? "1 pacote indisponível para" : `${naoComportam.length} pacotes indisponíveis para`} {convidados} convidados.</>}</span>
           {!mostrarDemais ? (
-            <button type="button" className={styles.secondaryButton} onClick={() => setVerTodos(true)}>Ver mesmo assim</button>
+            <button type="button" className={styles.secondaryButton} onClick={() => setVerTodos(true)}>Ver outros pacotes</button>
           ) : null}
         </div>
       ) : null}

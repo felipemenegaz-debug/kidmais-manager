@@ -7,6 +7,7 @@ export type MotivoCapacidade = "OK" | "OCUPADO" | "CAPACIDADE";
 export type CapacidadeConvidadosPublica = { opcoes: number; motivo: MotivoCapacidade };
 
 export type HorarioCandidatoPublico = {
+  pacotesVendaveis?: string[];
   inicio: string;
   fim: string;
   ajusteMinutos: number;
@@ -16,6 +17,8 @@ export type HorarioCandidatoPublico = {
 };
 
 export type PeriodoDisponibilidadePublica = {
+  motivoComercial?: string;
+  avisoMinimoFaturavel?: string;
   configuracaoId: string;
   codigo: string;
   nome: string;
@@ -28,6 +31,7 @@ export type PeriodoDisponibilidadePublica = {
 };
 
 export type DisponibilidadeDataPublica = {
+  minimoFaturavel?: number;
   data: string;
   periodos: PeriodoDisponibilidadePublica[];
   /** S-C: soma dos períodos do dia, para o calendário. */

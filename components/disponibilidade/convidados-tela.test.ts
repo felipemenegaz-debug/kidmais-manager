@@ -3,7 +3,7 @@ import { readFileSync } from 'node:fs';
 import test from 'node:test';
 import { createElement, type ComponentType } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
-import { convidadosDaUrl, datasProximas, estadoDoDia, linkContatoBuffet, textoCapacidade } from './convidados-tela.ts';
+import { convidadosDaUrl, datasProximas, estadoDoDia, linkContatoBuffet, resumoSemanal, whatsappComMensagem, textoCapacidade } from './convidados-tela.ts';
 import { motivoNaoComporta, pacotesExibidos, separarPorConvidados, type FatosPacote } from '../fechamento/pacotes-tela.ts';
 import { PACOTES_FECHAMENTO_V1 } from '../fechamento/data.ts';
 import { convidadosDaConsulta, pacoteComporta } from '../../lib/fechamentos/convidados-consulta.ts';
@@ -107,15 +107,17 @@ test('S-C: lista de pacotes — comportam primeiro, contador e "ver mesmo assim"
     const com = render({ convidados: 80, naoComporta });
     assert.match(com, /Grande sintético/);
     assert.doesNotMatch(com, /Pequeno sintético/, 'o que não comporta fica atrás do botão');
-    assert.match(com, /1 pacote não comporta.*80.*convidados/);
-    assert.match(com, /Ver mesmo assim/);
+    assert.match(com, /1 pacote indisponível para.*80.*convidados/);
+    assert.match(com, /Ver outros pacotes/);
     const escolhido = render({ convidados: 80, naoComporta, selecionado: 'PEQ' });
     assert.ok(escolhido.indexOf('Grande sintético') < escolhido.indexOf('Pequeno sintético'), 'o escolhido aparece, depois dos que comportam');
     assert.match(escolhido, /packageFaded/);
+    assert.doesNotMatch(escolhido, /disabled/);
+    assert.match(render({ convidados: 80, naoComporta, selecionado: "PEQ", veioDaDisponibilidade: true }), /disabled/);
     assert.match(escolhido, /atende até 60/);
     const nenhum = render({ convidados: 130, naoComporta: (id: string) => motivoNaoComporta(false, PACOTES_FECHAMENTO_V1, DOIS, id, 130) });
-    assert.match(nenhum, /Nenhum pacote comporta 130 convidados/);
-    assert.match(nenhum, /2 pacotes não comportam/);
+    assert.match(nenhum, /Nenhum pacote disponível para 130 convidados/);
+    assert.match(nenhum, /2 pacotes indisponíveis para/);
 });
 
 test('P3-R2: a consulta vai até o fim do mês seguinte (no máximo 62 dias) e as sugestões incluem esse mês', async () => {
@@ -148,4 +150,35 @@ test('Pacotes e preços desde a abertura: antes dos convidados e depois, só pel
     const agenda = fonte.search(/\{convidados \? \(\r?\n\s*<section className=\{styles\.card\}>/);
     assert.ok(antes > fimCartao && agenda > antes, 'logo depois do cartão de convidados e antes da agenda');
     assert.match(fonte, /\{!empresa && <PacotesPdf \/>\}/, 'endereço de outra empresa continua sem o PDF');
+});
+
+test('Pizza Party: frase, valor inicial e limites do campo usam a faixa publicada ou a reserva 20–100', () => {
+    const Painel = carregarModulo('components/fechamento/AdicionaisPizzaConsulta.tsx', { './FechamentoWizard.module.css': estilos, 'components/fechamento/FechamentoWizard.module.css': estilos }, new Map()).default as ComponentType<Record<string, unknown>>;
+    for (const [props, min, max] of [[{ limites: { minimo: 1, maximo: 50 } }, 1, 50], [{}, 20, 100]] as const) {
+        const html = renderToStaticMarkup(createElement(Painel, props));
+        assert.ok(html.includes(`mínimo de ${min} e máximo de ${max} convidados`));
+        assert.match(html, new RegExp(`type="number" min="${min}" max="${max}"[^>]*value="${min}"`));
+    }
+});
+
+test("WhatsApp preserva o telefone e substitui o texto anterior", () => {
+  const url = new URL(whatsappComMensagem("https://api.whatsapp.com/send?phone=5511999999999&text=oi", "28/11 para 30 convidados")!);
+  assert.equal(url.searchParams.get("phone"), "5511999999999");
+  assert.deepEqual(url.searchParams.getAll("text"), ["28/11 para 30 convidados"]);
+});
+
+test("WhatsApp inválido não oferece link", () => {
+    for (const valor of ["", "sem endereço", "javascript:void(0)"]) assert.equal(whatsappComMensagem(valor, "Olá"), null);
+});
+
+test("resumo de dias úteis só aparece quando a oferta se repete no intervalo", () => {
+  const dias = Array.from({length:14}, (_, i) => {
+    const data = "2026-11-" + String(i+1).padStart(2,"0");
+    const dia = i%7;
+    const periodo = {configuracaoId:"a",codigo:"TURNO_1",nome:"Almoço",horarioInicioPadrao:"12:00",horarioFimPadrao:"15:00",status:"DISPONIVEL" as const,horarios:[]};
+    return {data,periodos: dia > 0 && dia < 6 ? [periodo] : []};
+  });
+  assert.match(resumoSemanal(dias,30) ?? "",/30 convidados.*segunda a sexta.*Almoço/);
+  dias[1].periodos = [];
+  assert.equal(resumoSemanal(dias,30),null);
 });
