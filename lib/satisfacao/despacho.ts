@@ -204,7 +204,7 @@ async function preparar(tx: DbExecutor, ctx: ContextoPesquisa, entregaId: string
   if (!cliente || cliente.status !== "ATIVO") return encerrar(tx, entrega.id, "SUPRIMIDA", "CLIENTE_INATIVO");
   let telefone: string | null = null;
   if (entrega.canal === "WHATSAPP") {
-    const elegivel = await elegivelParaMensagem(tx, envio.empresa_id, envio.cliente_id);
+    const elegivel = await elegivelParaMensagem(tx, envio.empresa_id, envio.cliente_id, "PESQUISA");
     if (!elegivel.ok) return encerrar(tx, entrega.id, "SUPRIMIDA", elegivel.motivo);
     telefone = elegivel.telefone;
   } else if (!emailValido(cliente.email?.trim())) {
