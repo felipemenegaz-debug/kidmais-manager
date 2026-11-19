@@ -3,7 +3,7 @@ import { useEffect, useRef, useState } from 'react';
 import admin from '@/components/admin/admin.module.css';
 import workspace from '@/components/admin/workspace.module.css';
 import estilos from '@/components/admin/conexoes-assistentes.module.css';
-import { AVISO_AGENDA_AMPLIADA, EXEMPLOS_POR_ESCOPO, GUIAS, GUIA_CONFERIDO_EM, LISTA_ASSISTENTES, ORDEM_ESCOPOS, ORIENTACOES, PERGUNTA_PRIMEIRA_CONSULTA, ROTULO_ESCOPO } from '@/components/admin/conexoes-assistentes-guia';
+import { AVISO_AGENDA_AMPLIADA, AVISO_NOMES_CONCEDIDOS, EXEMPLOS_POR_ESCOPO, GUIAS, GUIA_CONFERIDO_EM, LISTA_ASSISTENTES, ORDEM_ESCOPOS, ORIENTACOES, PERGUNTA_PRIMEIRA_CONSULTA, ROTULO_ESCOPO } from '@/components/admin/conexoes-assistentes-guia';
 import { avisosDaVista, criarControladorDeConexoes, vistaInicial, type ControladorDeConexoes, type VistaConexoes } from '@/components/admin/conexoes-leitura';
 import { adminFetch, lerCorpoOuNulo, mensagemDoEndereco } from '@/lib/http/admin-fetch';
 import { assistenteDoCliente, conexaoDoCartao, explicarFalha, formatarDataHora, SITUACAO_NAO_CONFIRMADA, situacaoDaConexao, type AssistenteId, type ConexaoComEvidencias, type Situacao } from '@/lib/integracoes/oauth/situacao-conexao';
@@ -238,6 +238,7 @@ export function ItemConexao({ conexao, revogar, ocupado, emEspera = [] }: { cone
         <p className={estilos.rotulo}>Permissões concedidas</p>
         <ul className={estilos.lista}>{ORDEM_ESCOPOS.filter((e) => conexao.escopos.includes(e)).map((e) => <li key={e} data-escopo-concedido={e}>{ROTULO_ESCOPO[e]}</li>)}</ul>
         {conexao.escopos.includes('agenda:read') && <p className={workspace.muted} data-agenda-ampliada>{AVISO_AGENDA_AMPLIADA}</p>}
+        {conexao.escopos.includes('clientes:read') && <p className={workspace.muted} data-nomes-concedidos>{AVISO_NOMES_CONCEDIDOS}</p>}
         {falta.length > 0 && <p className={workspace.muted} data-escopo-faltando>Não concedidas: {falta.map((e) => ROTULO_ESCOPO[e]).join('; ')}. Para liberar, reconecte pelo assistente e marque as permissões que deseja manter e as que deseja adicionar: a nova autorização substitui a anterior.</p>}
         {exemplos.length > 0 && <details className={estilos.detalhes}>
             <summary>Exemplos de perguntas</summary>
@@ -334,7 +335,7 @@ export default function ConexoesAssistentes() {
     const avisos = avisosDaVista(vista);
     return <main className={admin.page} data-conexoes-ia>
         <h1>Assistentes conectados</h1>
-        <p className={workspace.muted} style={{ maxWidth: 760 }}>Converse com o ChatGPT ou o Claude da sua própria assinatura sobre a documentação do iA.Fest e, se você permitir, a agenda (festas por período, datas livres e contratos pendentes) e o resumo dos recebíveis. O assistente só consulta: não envia mensagens, não altera cadastros e não vê nomes de clientes nem dados de crianças.</p>
+        <p className={workspace.muted} style={{ maxWidth: 760 }}>Converse com o ChatGPT ou o Claude da sua própria assinatura sobre a documentação do iA.Fest e, se você permitir, a agenda (festas por período, datas livres e contratos pendentes) e o resumo dos recebíveis. Só se você marcar a permissão de nomes, o assistente também consulta uma festa pelo nome do aniversariante ou do cliente e, junto com o financeiro, quanto cada família deve (saldo, atraso e próximo vencimento). Sem essa permissão, não vê nomes de clientes nem de aniversariantes. Em nenhum caso vê CPF, telefone, e-mail, endereço ou data de nascimento. O assistente só consulta: não envia mensagens nem altera cadastros.</p>
         <p role="alert">{avisos}</p>
         <CorpoConexoes vista={vista} revogar={(id) => void controlador.current?.revogar(id)} atualizar={() => controlador.current?.atualizar()} />
     </main>;

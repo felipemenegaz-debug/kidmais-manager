@@ -33,9 +33,17 @@ export const DADOS_QUE_SAEM: Readonly<Record<string, string>> = {
     'agenda:read': 'horários, convidados e situação do contrato (assinado ou pendente) de cada festa, dia a dia, até 62 dias por consulta, de até 1 ano atrás a 2 anos à frente; datas e horários livres; e o total de contratos aguardando assinatura, com até 100 deles detalhados em dias desde a criação e dias até a festa ou desde que ela passou. Sem nomes de clientes nem pacotes',
     'financeiro:read': 'totais de contas a receber em aberto, vencidos por faixa de atraso e a vencer',
     'conhecimento:read': 'trechos da documentação aprovada do iA.Fest',
+    'clientes:read': 'nome do aniversariante (a criança) e do cliente de uma festa procurada pelo nome, com data, horário, convidados, situação do contrato e a contagem de pendências, tarefas e itens de buffet a definir (sem o texto delas); e, junto com o resumo dos recebíveis, o nome de cada família com saldo em aberto, vencido, maior atraso e próximo vencimento. Nome cadastrado com contato, documento ou símbolos sai omitido. Sem CPF, telefone, e-mail, endereço nem data de nascimento',
 };
 
-/** Só a ajuda começa marcada, se foi pedida: agenda e financeiro dependem de marcação da própria pessoa. */
+/** Etapa 0b: o aviso de "sem nomes" só vale enquanto `clientes:read` não está marcado. */
+export function avisoDeNomes(marcados: readonly string[]) {
+    return marcados.includes('clientes:read')
+        ? 'Com esta permissão saem nomes de clientes e de aniversariantes (crianças) nas consultas de festa e de famílias. Junto com o financeiro, o assistente fica sabendo quanto uma família específica deve, há quantos dias está em atraso e quando vence a próxima parcela. Contatos, documentos, endereço e data de nascimento não são enviados.'
+        : 'Nomes, contatos, documentos e dados de crianças não são enviados.';
+}
+
+/** Só a ajuda começa marcada, se foi pedida: agenda, financeiro e nomes (clientes:read) dependem de marcação da própria pessoa. */
 export function escoposIniciais(pedidos: readonly string[]) {
     return ESCOPOS_INICIAIS.filter((e) => pedidos.includes(e));
 }
@@ -72,7 +80,7 @@ export function FormularioConsentimento({ pedido, empresa, enviar, ocupado, troc
         </fieldset>
         <ul className={workspace.muted}>
             <li>Nada é alterado no iA.Fest: sem envio de mensagens, cobranças, contratos ou cadastros.</li>
-            <li>Nomes, contatos, documentos e dados de crianças não são enviados.</li>
+            <li data-aviso-nomes>{avisoDeNomes(marcados)}</li>
             <li>O acesso vale enquanto você não desconectar (renovação automática por até 30 dias sem uso). Desconecte quando quiser em Assistentes conectados.</li>
             <li>O que o assistente já recebeu fica no histórico dele, conforme as regras do fabricante.</li>
         </ul>

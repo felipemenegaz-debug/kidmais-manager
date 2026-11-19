@@ -305,6 +305,8 @@ const ESTADO_POSTGRES = {
   // 15/11/2026 (LOCAL): área "Minha festa" F3 (125): ações da família e do painel, travas do banco, down com dados e ciclo.
   "lib/area-familia/acoes.postgres.test.ts": { descartavel: "125", tambem: ["123"] },
   "lib/area-familia/migration-125.postgres.test.ts": { descartavel: "125" },
+  // 18/11/2026 (LOCAL): MCP etapa 0b (126): ciclo da migration do escopo clientes:read e leitores de festa por nome.
+  "lib/integracoes/oauth/migration-126.postgres.test.ts": { descartavel: "126" },
   // 15/11/2026 (LOCAL): assinatura do cliente em papel (124): registro pela Gestão, travas do banco no COMMIT e down.
   "lib/contratos/assinatura-papel-cliente.postgres.test.ts": { descartavel: "124", tambem: ["123"] },
   // 15/11/2026 (LOCAL): ciclo da 124 — precheck/postcheck, up repetido, down com COMMIT, up/down/up com o mesmo catálogo.

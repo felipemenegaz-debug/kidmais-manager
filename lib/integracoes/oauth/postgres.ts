@@ -38,6 +38,10 @@ async function protegido<T>(trabalho: () => Promise<T>): Promise<T> {
   } catch (error) {
     const code = typeof error === "object" && error !== null && "code" in error ? (error as { code: unknown }).code : null;
     if (code === "42P01" || code === "42703" || code === "42883") throw new SchemaMcpAusente();
+    // Etapa 0b: código com `clientes:read` num banco ainda sem a 126 esbarra no CHECK de escopos da 105. É schema
+    // atrasado (indisponível, 503), nunca 500 nem gravação parcial.
+    const restricao = typeof error === "object" && error !== null && "constraint" in error ? String((error as { constraint: unknown }).constraint) : "";
+    if (code === "23514" && /^mcp_oauth_(pedidos|concessoes|tokens)_escopos_check$/.test(restricao)) throw new SchemaMcpAusente();
     throw error;
   }
 }

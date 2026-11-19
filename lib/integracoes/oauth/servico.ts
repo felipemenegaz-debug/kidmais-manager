@@ -4,7 +4,7 @@ import { agendaDoDia } from "../../inteligencia/leituras/agenda-do-dia.ts";
 import { decidirPolitica } from "../../inteligencia/politica-v1.ts";
 import { manifestoLeitura } from "../../inteligencia/registro-ferramentas.ts";
 import type { SessaoParaTenant, TenantComprovado } from "../../saas/provar-tenant.ts";
-import { ESCOPOS_MCP, PRAZOS_MCP, empresaNoPilotoMcp, escopoValido, hostsCimd, mcpAtivo, urlsMcp, type AmbienteMcp, type EscopoMcp, type UrlsMcp } from "../mcp/config.ts";
+import { ESCOPOS_MCP, ESCOPOS_PADRAO_MCP, PRAZOS_MCP, empresaNoPilotoMcp, escopoValido, hostsCimd, mcpAtivo, urlsMcp, type AmbienteMcp, type EscopoMcp, type UrlsMcp } from "../mcp/config.ts";
 import { CimdRecusado, carregarClienteCimd, type BuscaDocumento } from "./cimd.ts";
 import { RETENCAO_OAUTH, hashSegredo, novoSegredo, type AcessoVerificado, type ClienteOAuth, type RepositorioOAuth } from "./repositorio.ts";
 
@@ -85,9 +85,9 @@ export function metadadosServidor(env: AmbienteMcp) {
 }
 
 /** Desafio do 401 (Claude exige 401; ChatGPT lê `resource_metadata`). */
-export function desafioBearer(env: AmbienteMcp, extra?: { erro?: string; escopo?: EscopoMcp }) {
+export function desafioBearer(env: AmbienteMcp, extra?: { erro?: string; escopo?: EscopoMcp; escopos?: readonly EscopoMcp[] }) {
   const urls = urlsMcp(env);
-  const partes = [urls ? `resource_metadata="${urls.metadadosRecurso}"` : null, extra?.erro ? `error="${extra.erro}"` : null, `scope="${extra?.escopo ?? ESCOPOS_MCP.join(" ")}"`];
+  const partes = [urls ? `resource_metadata="${urls.metadadosRecurso}"` : null, extra?.erro ? `error="${extra.erro}"` : null, `scope="${(extra?.escopos?.length ? extra.escopos : extra?.escopo ? [extra.escopo] : ESCOPOS_MCP).join(" ")}"`];
   return `Bearer ${partes.filter(Boolean).join(", ")}`;
 }
 
@@ -291,7 +291,7 @@ export async function iniciarAutorizacao(query: URLSearchParams, deps: Dependenc
   if (query.get("resource") !== urls.recurso) return falhar("invalid_target", "RESOURCE");
   const pedidos = (query.get("scope") ?? "").split(" ").filter(Boolean);
   if (pedidos.some((e) => !escopoValido(e))) return falhar("invalid_scope", "ESCOPO_DESCONHECIDO");
-  const escopos = pedidos.length ? [...new Set(pedidos)] as EscopoMcp[] : [...ESCOPOS_MCP];
+  const escopos = pedidos.length ? [...new Set(pedidos)] as EscopoMcp[] : [...ESCOPOS_PADRAO_MCP];
   // Teto PERSISTENTE e ATÔMICO (vale entre conexões e instâncias; rodada 2, achado 2): conta e grava sob a mesma trava.
   const chave = novoSegredo("kmp");
   const admitido = await deps.repo.criarPedidoNoTeto(hashSegredo(chave), {

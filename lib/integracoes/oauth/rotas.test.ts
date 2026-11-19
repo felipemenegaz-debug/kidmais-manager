@@ -5,6 +5,8 @@ import type { BuscaDocumento } from "./cimd.ts";
 import { RepositorioOAuthMemoria } from "./memoria-teste.ts";
 import { JanelasFixas } from "../mcp/janelas.ts";
 import { LIMITES_PUBLICOS, LimitadorPublicoOAuth, atenderAutorizacao, atenderToken, lerCorpoLimitado, rotuloCliente, type DependenciasRotasOAuth } from "./rotas.ts";
+import { ESCOPOS_MCP, ESCOPOS_PADRAO_MCP } from "../mcp/config.ts";
+import { desafioBearer } from "./servico.ts";
 
 /** Revisão P1-2 / P2-8: bordas públicas do OAuth — canal antes do corpo, limites, corpo limitado, sem auditoria anônima, teto e expurgo. */
 const CHATGPT = "https://chatgpt.com/oauth/client.json";
@@ -341,4 +343,21 @@ test("rodada 5 (P3): CIMD ocupado/tempo e falha interna no token são indisponib
   assert.equal(t.status, 503);
   assert.deepEqual(await t.json(), { error: "temporarily_unavailable" });
   assert.equal(banco.deps.limites.totalContadas(), 1);
+});
+
+// ---------------------------------------------------------------- etapa 0b (18/11/2026): escopo clientes:read
+
+test("0b: sem scope o pedido nasce só com as três da 0a; clientes:read entra só quando o assistente pede; desafio anuncia os quatro", async () => {
+  const { deps, repo } = montar();
+  assert.equal((await atenderAutorizacao(autorizar(), deps)).status, 302);
+  assert.deepEqual([...repo.pedidos.values()].map((p) => [...p.escopos].sort()), [["agenda:read", "conhecimento:read", "financeiro:read"]]);
+  const outro = montar();
+  assert.equal((await atenderAutorizacao(autorizar({ scope: "clientes:read conhecimento:read agenda:read financeiro:read clientes:read" }), outro.deps)).status, 302);
+  assert.deepEqual([...outro.repo.pedidos.values()].map((p) => [...p.escopos].sort()), [["agenda:read", "clientes:read", "conhecimento:read", "financeiro:read"]]);
+  assert.deepEqual([...ESCOPOS_PADRAO_MCP], ["agenda:read", "financeiro:read", "conhecimento:read"]);
+  assert.ok(ESCOPOS_MCP.includes("clientes:read"));
+  assert.match(desafioBearer(ENV_OK, { erro: "insufficient_scope", escopo: "clientes:read" }), /scope="clientes:read"/);
+  assert.match(desafioBearer(ENV_OK, {}), /clientes:read/);
+  // r2 (P2 #7): com a lista, o desafio anuncia o conjunto inteiro (concedidos + exigidos), na ordem dada.
+  assert.match(desafioBearer(ENV_OK, { erro: "insufficient_scope", escopo: "clientes:read", escopos: ["agenda:read", "financeiro:read", "clientes:read"] }), /scope="agenda:read financeiro:read clientes:read"/);
 });
