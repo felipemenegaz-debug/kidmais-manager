@@ -1,6 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useState, type FormEvent } from 'react';
+import { erroLimitesEscolhas, fraseEscolhas } from '@/lib/comercial/limites-escolhas';
 import { adminFetch } from '@/lib/http/admin-fetch';
 import styles from './workspace.module.css';
 import visual from './visual.module.css';
@@ -41,7 +42,7 @@ type ParDisponibilidade = { dia: number; horarioId: string };
 type Painel = {
   pacote: Pacote;
   disponibilidade: ParDisponibilidade[];
-  categorias: { categoriaId: string; escolhas: number; ativo: boolean }[];
+  categorias: { categoriaId: string; escolhas: number; escolhasMin?: number; selecionadosAtivos?: number | null; ativo: boolean }[];
   itens?: string[];
   saloes?: string[];
   faixas: {
@@ -57,11 +58,31 @@ type Painel = {
   };
 };
 
+type RegraForm = { incluso: boolean; modo: 'ate' | 'faixa' | 'exato'; minimo: string; escolhas: string };
+function regraForm(regra?: Painel['categorias'][number]): RegraForm {
+  const min = regra?.escolhasMin ?? 0;
+  const max = regra?.escolhas ?? 1;
+  return { incluso: Boolean(regra), modo: min === 0 ? 'ate' : min === max ? 'exato' : 'faixa', minimo: String(min || 1), escolhas: String(max) };
+}
+function limitesForm(regra: RegraForm) {
+  return { escolhas: Number(regra.escolhas), escolhasMin: regra.modo === 'ate' ? 0 : regra.modo === 'exato' ? Number(regra.escolhas) : regra.minimo === '' ? NaN : Number(regra.minimo) };
+}
+
 const DIAS = [
   [1, 'Seg'], [2, 'Ter'], [3, 'Qua'], [4, 'Qui'], [5, 'Sex'], [6, 'Sáb'], [7, 'Dom'],
 ] as const;
 
 const vazio = { nome: '', descricao: '', horas: '', minutos: '', minimo: '', maximo: '' };
+
+function camposPacote(pacote: Pacote) {
+  return {
+    nome: pacote.nome,
+    descricao: pacote.descricao ?? '',
+    ...separarDuracao(pacote.duracaoMinutos),
+    minimo: pacote.convidadosMinimos == null ? '' : String(pacote.convidadosMinimos),
+    maximo: pacote.convidadosMaximos == null ? '' : String(pacote.convidadosMaximos),
+  };
+}
 
 function horaCurta(valor: string) {
   return valor.slice(0, 5);
@@ -110,17 +131,12 @@ export default function PacotesAdmin({ vitrine }: { vitrine?: VitrinePacotes }) 
   const [categorias, setCategorias] = useState<Categoria[]>(vitrine?.categorias ?? []);
   const [itensBuffet, setItensBuffet] = useState<ItemBuffet[]>(vitrine?.itens ?? []);
   const edicao = vitrine?.edicao;
+  const [painelOriginal, setPainelOriginal] = useState(edicao);
   const [itensEscolhidos, setItensEscolhidos] = useState<string[]>(edicao?.itens ?? []);
   const [incluirAberto, setIncluirAberto] = useState(false);
   const [abaIncluir, setAbaIncluir] = useState<'categorias' | 'itens'>('categorias');
   const [buscaIncluir, setBuscaIncluir] = useState('');
-  const [form, setForm] = useState(edicao ? {
-    nome: edicao.pacote.nome,
-    descricao: edicao.pacote.descricao ?? '',
-    ...separarDuracao(edicao.pacote.duracaoMinutos),
-    minimo: edicao.pacote.convidadosMinimos == null ? '' : String(edicao.pacote.convidadosMinimos),
-    maximo: edicao.pacote.convidadosMaximos == null ? '' : String(edicao.pacote.convidadosMaximos),
-  } : vazio);
+  const [form, setForm] = useState(edicao ? camposPacote(edicao.pacote) : vazio);
   const [pares, setPares] = useState<ParDisponibilidade[]>(edicao?.disponibilidade ?? []);
   const [faixas, setFaixas] = useState<FaixaForm[]>(edicao?.faixas.faixas.length ? edicao.faixas.faixas.map((faixa) => ({
     convidadosMin: String(faixa.convidadosMin),
@@ -136,11 +152,11 @@ export default function PacotesAdmin({ vitrine }: { vitrine?: VitrinePacotes }) 
   const [aConfirmar, setAConfirmar] = useState<string[]>(vitrine?.precosAConfirmar ?? []);
   const [avisoFaixas, setAvisoFaixas] = useState('');
   const [gradesLeitura, setGradesLeitura] = useState<GradeLeitura[]>([]);
-  const [inclusos, setInclusos] = useState<Record<string, { incluso: boolean; escolhas: string }>>(() => {
-    const proximo: Record<string, { incluso: boolean; escolhas: string }> = {};
+  const [inclusos, setInclusos] = useState<Record<string, RegraForm>>(() => {
+    const proximo: Record<string, RegraForm> = {};
     for (const categoria of vitrine?.categorias ?? []) {
       const regra = edicao?.categorias.find((item) => item.categoriaId === categoria.id && item.ativo);
-      proximo[categoria.id] = { incluso: Boolean(regra), escolhas: String(regra?.escolhas ?? 1) };
+      proximo[categoria.id] = regraForm(regra);
     }
     return proximo;
   });
@@ -167,7 +183,7 @@ export default function PacotesAdmin({ vitrine }: { vitrine?: VitrinePacotes }) 
     setInclusos((atual) => {
       const proximo = { ...atual };
       for (const categoria of json.data.categorias as Categoria[]) {
-        if (!proximo[categoria.id]) proximo[categoria.id] = { incluso: false, escolhas: '1' };
+        if (!proximo[categoria.id]) proximo[categoria.id] = regraForm();
       }
       return proximo;
     });
@@ -189,7 +205,7 @@ export default function PacotesAdmin({ vitrine }: { vitrine?: VitrinePacotes }) 
         setInclusos((atual) => {
           const proximo = { ...atual };
           for (const categoria of json.data.categorias as Categoria[]) {
-            if (!proximo[categoria.id]) proximo[categoria.id] = { incluso: false, escolhas: '1' };
+            if (!proximo[categoria.id]) proximo[categoria.id] = regraForm();
           }
           return proximo;
         });
@@ -201,6 +217,7 @@ export default function PacotesAdmin({ vitrine }: { vitrine?: VitrinePacotes }) 
 
   function limpar() {
     setSelecionado(null);
+    setPainelOriginal(null);
     setForm(vazio);
     setPares([]);
     setFaixas([{ convidadosMin: '', convidadosMax: '', valor: '' }]);
@@ -210,7 +227,7 @@ export default function PacotesAdmin({ vitrine }: { vitrine?: VitrinePacotes }) 
     setConfirmando(false);
     setFaixasEditaveis(true);
     setAvisoFaixas('');
-    setInclusos((atual) => Object.fromEntries(Object.entries(atual).map(([id, valor]) => [id, { ...valor, incluso: false, escolhas: '1' }])));
+    setInclusos((atual) => Object.fromEntries(Object.entries(atual).map(([id]) => [id, regraForm()])));
     setItensEscolhidos([]);
     setErro('');
   }
@@ -224,13 +241,8 @@ export default function PacotesAdmin({ vitrine }: { vitrine?: VitrinePacotes }) 
       const json = await ler(resposta);
       const painel = json.data as Painel;
       setSelecionado(id);
-      setForm({
-        nome: painel.pacote.nome,
-        descricao: painel.pacote.descricao ?? '',
-        ...separarDuracao(painel.pacote.duracaoMinutos),
-        minimo: painel.pacote.convidadosMinimos == null ? '' : String(painel.pacote.convidadosMinimos),
-        maximo: painel.pacote.convidadosMaximos == null ? '' : String(painel.pacote.convidadosMaximos),
-      });
+      setPainelOriginal(painel);
+      setForm(camposPacote(painel.pacote));
       setPares(painel.disponibilidade);
       setSaloesEscolhidos(painel.saloes ?? []);
       setFaixasEditaveis(painel.faixas.editavel);
@@ -250,7 +262,7 @@ export default function PacotesAdmin({ vitrine }: { vitrine?: VitrinePacotes }) 
         const proximo = { ...atual };
         for (const categoria of categorias) {
           const regra = painel.categorias.find((item) => item.categoriaId === categoria.id && item.ativo);
-          proximo[categoria.id] = { incluso: Boolean(regra), escolhas: String(regra?.escolhas ?? 1) };
+          proximo[categoria.id] = regraForm(regra);
         }
         return proximo;
       });
@@ -270,6 +282,9 @@ export default function PacotesAdmin({ vitrine }: { vitrine?: VitrinePacotes }) 
 
   async function salvar(event: FormEvent | null, confirmados?: PontoPreco[]) {
     event?.preventDefault();
+    const categoriasParaEnvio = categorias.filter(c => inclusos[c.id]?.incluso).map(c => ({
+      categoriaId: c.id, ...limitesForm(inclusos[c.id]),
+    }));
     if (pares.some((par) => !par.horarioId)) {
       setErro('Escolha o horário de cada dia marcado.');
       return;
@@ -277,6 +292,25 @@ export default function PacotesAdmin({ vitrine }: { vitrine?: VitrinePacotes }) 
     if (salaoFaltando) {
       setErro(AVISO_SALAO_DO_PACOTE);
       return;
+    }
+    if (painelOriginal && painelOriginal.pacote.id === selecionado && !confirmados) {
+      const categoriasOriginais = categorias.flatMap(c => {
+        const regra = painelOriginal.categorias.find(r => r.categoriaId === c.id && r.ativo);
+        return regra ? [{ categoriaId: c.id, escolhas: regra.escolhas, escolhasMin: regra.escolhasMin ?? 0 }] : [];
+      });
+      const atual = [form, pares, pontos, categoriasParaEnvio, itensEscolhidos, saloesEscolhidos];
+      const original = [camposPacote(painelOriginal.pacote), painelOriginal.disponibilidade,
+        pontosDoPainel(painelOriginal.faixas.pontos), categoriasOriginais, painelOriginal.itens ?? [], painelOriginal.saloes ?? []];
+      if (JSON.stringify(atual) === JSON.stringify(original)) {
+        setErro('');
+        setAviso('O pacote já está atualizado.');
+        return;
+      }
+    }
+    for (const categoria of categorias.filter(c => inclusos[c.id]?.incluso)) {
+      const { escolhasMin, escolhas } = limitesForm(inclusos[categoria.id]);
+      const erroLimite = erroLimitesEscolhas(escolhasMin, escolhas);
+      if (erroLimite) { setErro(categoria.nome + ': ' + erroLimite); return; }
     }
     const erroPontos = !confirmados && faixasEditaveis && !conversao ? erroDosPontos(pontos, Number(form.minimo), Number(form.maximo)) : null;
     if (erroPontos) {
@@ -300,10 +334,7 @@ export default function PacotesAdmin({ vitrine }: { vitrine?: VitrinePacotes }) 
           convidadosMaximos: Number(form.maximo),
           disponibilidade: pares.filter((par) => par.horarioId),
           ...precosParaEnvio(confirmados),
-          categorias: categorias.filter((categoria) => inclusos[categoria.id]?.incluso).map((categoria) => ({
-            categoriaId: categoria.id,
-            escolhas: Number(inclusos[categoria.id]?.escolhas || 1),
-          })),
+          categorias: categoriasParaEnvio,
           itens: itensEscolhidos,
           ...(saloes.length > 0 ? { saloes: saloesEscolhidos } : {}),
         }),
@@ -311,9 +342,10 @@ export default function PacotesAdmin({ vitrine }: { vitrine?: VitrinePacotes }) 
       const json = await ler(resposta);
       setAviso(confirmados ? 'Novos preços confirmados.' : selecionado ? 'Alterações salvas.' : 'Pacote salvo.');
       const id = json.data.pacote?.id ?? selecionado;
+      setPainelOriginal(null);
       setSelecionado(id);
       await carregar();
-      if (id && (confirmados || selecionado)) await editar(id);
+      if (id) await editar(id);
     } catch (error) {
       setErro(error instanceof Error ? error.message : 'Falha ao salvar.');
     } finally {
@@ -492,9 +524,30 @@ export default function PacotesAdmin({ vitrine }: { vitrine?: VitrinePacotes }) 
               <button type="button" onClick={() => { setBuscaIncluir(''); setAbaIncluir('categorias'); setIncluirAberto(true); }}>+ Adicionar</button>
             </div>
             <p className={styles.intro}>Categorias</p>
-            <div className={styles.filters}>
-              {categorias.filter((categoria) => inclusos[categoria.id]?.incluso).map((categoria) => <button key={categoria.id} type="button" onClick={() => setInclusos({ ...inclusos, [categoria.id]: { ...inclusos[categoria.id], incluso: false } })}>{categoria.nome} ×</button>)}
-            </div>
+            {categorias.filter(c => inclusos[c.id]?.incluso).map(categoria => {
+              const regra = inclusos[categoria.id];
+              const { escolhasMin, escolhas } = limitesForm(regra);
+              const ativos = itensBuffet.filter(item => item.categoria_id === categoria.id).length;
+              const selecionados = painelOriginal?.categorias.find(r => r.categoriaId === categoria.id)?.selecionadosAtivos;
+              const oferecidos = selecionados ?? ativos;
+              const alterar = (mudanca: Partial<RegraForm>) => setInclusos(atual => ({
+                ...atual, [categoria.id]: { ...atual[categoria.id], ...mudanca },
+              }));
+              return <fieldset key={categoria.id}>
+                <legend>{categoria.nome}</legend>
+                <div className={styles.filters}>
+                  <label>Regra de escolha<select value={regra.modo} onChange={e => alterar({ modo: e.target.value as RegraForm['modo'] })}>
+                    <option value="exato">Exatamente N</option><option value="faixa">De A a B</option><option value="ate">Até N</option>
+                  </select></label>
+                  {regra.modo === 'faixa' && <label>Mínimo<input type="number" min={0} max={30} required value={regra.minimo} onChange={e => alterar({ minimo: e.target.value })} /></label>}
+                  <label>{regra.modo === 'exato' ? 'Quantidade' : 'Máximo'}<input type="number" min={1} max={30} required value={regra.escolhas} onChange={e => alterar({ escolhas: e.target.value })} /></label>
+                  <button type="button" aria-label={'Remover ' + categoria.nome} onClick={() => alterar({ incluso: false })}>Remover</button>
+                </div>
+                <p aria-live="polite">{erroLimitesEscolhas(escolhasMin, escolhas) ?? fraseEscolhas(escolhasMin, escolhas)} · {ativos} {ativos === 1 ? 'item ativo' : 'itens ativos'}</p>
+                {selecionados != null && <p>{selecionados} {selecionados === 1 ? 'item disponível' : 'itens disponíveis'} neste pacote.</p>}
+                {escolhas > oferecidos && <p role="status">O limite supera a quantidade de opções disponíveis neste pacote.</p>}
+              </fieldset>;
+            })}
             <p className={styles.intro}>Itens específicos</p>
             <div className={styles.filters}>
               {itensBuffet.filter((item) => itensEscolhidos.includes(item.id)).map((item) => <button key={item.id} type="button" onClick={() => setItensEscolhidos(itensEscolhidos.filter((id) => id !== item.id))}>{item.nome} ×</button>)}
@@ -508,7 +561,7 @@ export default function PacotesAdmin({ vitrine }: { vitrine?: VitrinePacotes }) 
               <label>Busca<input type="search" value={buscaIncluir} onChange={(evento) => setBuscaIncluir(evento.target.value)} /></label>
               {abaIncluir === 'categorias' && categorias.filter((categoria) => categoria.nome.toLocaleLowerCase('pt-BR').includes(buscaIncluir.trim().toLocaleLowerCase('pt-BR'))).map((categoria) => {
                 const marcado = Boolean(inclusos[categoria.id]?.incluso);
-                return <label key={categoria.id}><input type="checkbox" checked={marcado} onChange={() => setInclusos({ ...inclusos, [categoria.id]: { incluso: !marcado, escolhas: inclusos[categoria.id]?.escolhas || '1' } })} /> {categoria.nome}</label>;
+                return <label key={categoria.id}><input type="checkbox" checked={marcado} onChange={() => setInclusos({ ...inclusos, [categoria.id]: { ...(inclusos[categoria.id] ?? regraForm()), incluso: !marcado } })} /> {categoria.nome}</label>;
               })}
               {abaIncluir === 'itens' && itensBuffet.filter((item) => item.nome.toLocaleLowerCase('pt-BR').includes(buscaIncluir.trim().toLocaleLowerCase('pt-BR'))).map((item) => <label key={item.id}><input type="checkbox" checked={itensEscolhidos.includes(item.id)} onChange={() => setItensEscolhidos(itensEscolhidos.includes(item.id) ? itensEscolhidos.filter((id) => id !== item.id) : [...itensEscolhidos, item.id])} /> {item.nome}</label>)}
               <button type="button" onClick={() => setIncluirAberto(false)}>Concluir</button>

@@ -207,3 +207,14 @@ test("S-C: cotação e envio revalidam o horário com os convidados; sem salão 
   assert.equal(envioSemSalao.body.codigo, "SEM_SALAO_PARA_CONVIDADOS");
   assert.equal(a.envios.length, enviosAntes, "nada chegou ao serviço que grava");
 });
+
+test("rota pública traduz definir agora e escolher depois e entrega as escolhas ao serviço", async () => {
+  const escolhas = { DOCES: ["12121212-1212-4121-8121-121212121212"] };
+  for (const [buffetDefinicao, status, enviados] of [["agora", "DEFINIDO", escolhas], ["depois", "PENDENTE", {}]] as const) {
+    const a = ambiente();
+    const resposta = await a.envio.POST!(pedido("/api/fechamentos?empresa=buffet-a", { ...FECHAMENTO, pacote: LIVRE, buffetDefinicao, escolhasBuffet: enviados }));
+    assert.equal(resposta.status, 201);
+    assert.equal(a.envios[0].buffetStatus, status);
+    assert.deepEqual(a.envios[0].escolhasBuffet, enviados);
+  }
+});

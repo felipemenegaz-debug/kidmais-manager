@@ -1,3 +1,4 @@
+import { catalogoBuffetPorEmpresa } from './catalogo-buffet-estrutura.ts';
 import type { DbExecutor } from "../db/contracts.ts";
 import { ModeloPrecoError } from "./modelo-preco.ts";
 import { MOTIVOS_PACOTE, motivoOu } from "./motivos-pacote.ts";
@@ -30,7 +31,7 @@ export type SalvarPacoteComercial = {
   disponibilidade: Array<{ dia: number; horarioId: string }>;
   /** Faixas (modelo anterior) ou { pontos } por quantidades cheias (092). null mantém o preço atual. */
   faixas: PrecosInformados | null;
-  categorias: Array<{ categoriaId: string; escolhas: number }>;
+  categorias: Array<{ categoriaId: string; escolhas: number; escolhasMin?: number }>;
   itens?: string[];
   /** 093: salões permitidos (vazio = todos); ausente mantém. */
   saloes?: string[];
@@ -67,12 +68,19 @@ export async function painelPacoteAdmin(tx: DbExecutor, empresaId: string, id: s
       ORDER BY dia_semana, configuracao_agenda_id`,
     [id],
   );
-  const categorias = await tx.query<{ categoria_id: string; escolhas_max: number; ativo: boolean }>(
-    `SELECT categoria_id, escolhas_max, ativo
-       FROM pacote_buffet_categorias
-      WHERE pacote_id = $1::uuid
-      ORDER BY categoria_id`,
-    [id],
+  const porEmpresa = await catalogoBuffetPorEmpresa(tx);
+  const categorias = await tx.query<{ categoria_id: string; escolhas_min: number; escolhas_max: number; ativo: boolean; selecionados_ativos: number | null }>(
+    `SELECT r.categoria_id, r.escolhas_min, r.escolhas_max, r.ativo,
+            CASE WHEN r.modo_itens = 'SELECIONADOS' THEN (
+              SELECT COUNT(*)::int FROM pacote_buffet_itens x
+              JOIN buffet_itens i ON i.id = x.item_id AND i.categoria_id = x.categoria_id AND i.ativo
+             WHERE x.pacote_id = r.pacote_id AND x.categoria_id = r.categoria_id
+               ${porEmpresa ? 'AND i.empresa_id = $2::uuid' : ''}
+            ) END AS selecionados_ativos
+       FROM pacote_buffet_categorias r
+      WHERE r.pacote_id = $1::uuid
+      ORDER BY r.categoria_id`,
+    porEmpresa ? [id, empresaId] : [id],
   );
   const faixas = await lerFaixasPacote(tx, empresaId, id, atual.convidadosMinimos != null && atual.convidadosMaximos != null
     ? { minimo: atual.convidadosMinimos, maximo: atual.convidadosMaximos }
@@ -95,6 +103,8 @@ export async function painelPacoteAdmin(tx: DbExecutor, empresaId: string, id: s
     categorias: categorias.rows.map((linha) => ({
       categoriaId: linha.categoria_id,
       escolhas: Number(linha.escolhas_max),
+      escolhasMin: Number(linha.escolhas_min),
+      selecionadosAtivos: linha.selecionados_ativos,
       ativo: linha.ativo,
     })),
     faixas,

@@ -1,7 +1,7 @@
 import { NextRequest } from "next/server";
 import { z } from "zod";
 import { MOTIVOS_PACOTE, motivoOu } from "@/lib/comercial/motivos-pacote";
-import { PacoteAdminError, alterarComposicaoPacoteAdmin } from "@/lib/comercial/pacotes-admin";
+import { alterarComposicaoPacoteAdmin } from "@/lib/comercial/pacotes-admin";
 import { exigirGestaoNoTenant, withTenantTransaction } from "@/lib/saas/provar-tenant";
 import { exigirApiAdminCrmDisponivel } from "@/lib/http/admin-crm-api";
 import { apiErrorResponse, jsonNoStore } from "@/lib/http/api-response";
@@ -23,8 +23,8 @@ const buffet = z.object({
   empresaId: uuid,
   categoriaId: uuid,
   ativo: z.boolean(),
-  escolhasMin: z.number().int().min(0).max(30),
-  escolhasMax: z.number().int().min(0).max(30),
+  escolhasMin: z.number(),
+  escolhasMax: z.number(),
   motivo,
 }).strict();
 const corpo = z.discriminatedUnion("acao", [vinculo, buffet]);
@@ -40,9 +40,6 @@ export async function POST(request: NextRequest, context: RouteContext) {
     await withTenantTransaction(sessao, pedido.empresaId, async (tx, tenant) => {
       exigirGestaoNoTenant(tenant, "Apenas o proprietário pode editar a composição.");
       const input = corpo.parse({ ...bruto, empresaId: tenant.empresaComprovada });
-      if (input.acao === "buffet" && input.escolhasMin > input.escolhasMax) {
-        throw new PacoteAdminError("LIMITE_BUFFET", "O mínimo de escolhas não pode passar do máximo.", 409);
-      }
       await alterarComposicaoPacoteAdmin(
         tx,
         id.data,
