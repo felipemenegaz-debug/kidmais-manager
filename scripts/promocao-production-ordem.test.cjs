@@ -38,8 +38,8 @@ test('a ordem bate com approvedFiles do inventário: mesma ordem relativa a part
   assert.ok(!executadas.includes('098') && !o.PASSOS.some(p => /098/.test(p.id) || /098/.test(arquivoDe(p))));
   // A cadeia pedida, passo a passo.
   assert.deepEqual(o.PASSOS.map(p => p.id), ['089', '090', '091', '092-093', '094', '095', '096', '097', '100', '102-103', '104-106', '107-108', '109',
-    '114', '112', '116', '117', '118', '120', '121', '110', '111', '115', '123', '122', '124', '125', '126']);
-  assert.deepEqual(o.PASSOS.filter(p => p.aplicador === 'generico').map(p => p.id), ['120', '121', '110', '111', '115', '123', '124', '125', '126']);
+    '114', '112', '116', '117', '118', '120', '121', '110', '111', '115', '123', '122', '124', '125', '126', '127']);
+  assert.deepEqual(o.PASSOS.filter(p => p.aplicador === 'generico').map(p => p.id), ['120', '121', '110', '111', '115', '123', '124', '125', '126', '127']);
   assert.deepEqual(o.PASSOS.filter(p => p.aplicador === 'generico').map(p => p.id), [...require('./migration-generico-production.cjs').IDS]);
   for (const p of o.ORDEM) { assert.ok(Object.isFrozen(p) && Object.isFrozen(p.migrations), p.id); assert.ok(typeof p.escopo === 'string' && p.escopo.length > 10, p.id); }
 });
@@ -55,7 +55,7 @@ test('todo passo aponta para um aplicador que EXISTE, ou está na lista nomeada 
   }
   assert.ok(ausentes.every(a => AUSENCIA_ACEITA_SO_DO_OUTRO_LOTE.includes(a)));
   // Os passos deste lote e os já existentes NÃO podem faltar.
-  for (const id of ['089', '090', '091', '092-093', '094', '095', '096', '097', '100', '114', '112', '116', '117', '118', '120', '121', '110', '111', '115', '123', '122', '124', '125', '126'])
+  for (const id of ['089', '090', '091', '092-093', '094', '095', '096', '097', '100', '114', '112', '116', '117', '118', '120', '121', '110', '111', '115', '123', '122', '124', '125', '126', '127'])
     assert.ok(existe(arquivoDe(o.PASSOS.find(p => p.id === id))), id);
   assert.ok(existe(o.GENERICO));
   // Geradores de bloco citados existem.
@@ -87,7 +87,7 @@ test('proximoPasso: começa no CONFERIR da 089, segue CONFERIR → APLICAR → C
     assert.equal(r.acao, 'EXECUTAR'); assert.deepEqual({id: r.id, fase: r.fase}, SEQUENCIA[n]);
     assert.equal(r.exige !== undefined, r.fase === 'APLICAR', 'autorização e backup lembrados só no APLICAR');
   }
-  assert.deepEqual(o.proximoPasso(ok(SEQUENCIA, SEQUENCIA.length)), {acao: 'CONCLUIDA', passos: 28});
+  assert.deepEqual(o.proximoPasso(ok(SEQUENCIA, SEQUENCIA.length)), {acao: 'CONCLUIDA', passos: 29});
   // O 094 lembra o deploy do código novo antes do CONFERIR dele.
   const i094 = SEQUENCIA.findIndex(x => x.id === '094');
   assert.match(o.proximoPasso(ok(SEQUENCIA, i094)).exigeAntes, /código NOVO já implantado/);

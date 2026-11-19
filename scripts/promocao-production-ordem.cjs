@@ -73,6 +73,8 @@ const ORDEM = Object.freeze([
   generico('125', 'área da família F3: avisos de pagamento, pendências da família e aviso fixo; troca o CHECK de tipo dos eventos da 123 e gatilhos de autoria'),
   // 126 (escopo MCP clientes:read, etapa 0b) DEPOIS da 125: exige só a 105 (já aplicada); vem ANTES do código da etapa 0b.
   generico('126', 'escopo MCP clientes:read: troca o CHECK de escopos das 3 tabelas OAuth da 105; trava por instantes as 3 tabelas'),
+  // 127 (guarda dos clientes, fase 1a) DEPOIS da 126: exige só a 086 e a 060 (já aplicadas); vem ANTES do código que lê marketing_saidas_contato.
+  generico('127', 'guarda dos clientes 1a: marca de saída das campanhas por telefone/e-mail, gatilhos e carga inicial; trava por instantes clientes, marketing_contato_preferencias e whatsapp_atendimento_conversas'),
 ].map(congelar));
 
 /** Só os passos que rodam (sem a 098 excluída nem a 099/105 já aplicadas). */
