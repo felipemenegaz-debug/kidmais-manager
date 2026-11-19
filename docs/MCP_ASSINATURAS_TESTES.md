@@ -436,9 +436,9 @@ Testes determinísticos novos em `admin-fetch-tipo.test.ts`:
 - O servidor devolve, por conexão, `consultaDaAjudaLiberada = consultaLiberadaNoAmbiente(env, "kidmais_buscar_conhecimento", empresaId)`.
 - Essa função aplica as mesmas portas da execução:
   - canal MCP;
-  - INTELIGENCIA_ENABLED e AI_READ_ENABLED;
-  - MCP_TENANT_ALLOWLIST;
-  - AI_TENANT_ALLOWLIST, quando existe.
+  - INTELIGENCIA_ENABLED (chave-mestra);
+  - MCP_TENANT_ALLOWLIST.
+- Desde 19/11/2026 (decisão de Felipe), AI_READ_ENABLED e AI_TENANT_ALLOWLIST são do assistente do painel e não fecham o MCP.
 - `bloqueioDaPrimeiraConsulta` agora checa, nesta ordem: canal, situação, piloto, portas de ambiente e permissão.
 - Cada bloqueio tem uma explicação própria e nenhum pede reconexão.
 
@@ -484,7 +484,7 @@ Não exercidos: banco real, sessão real, ChatGPT e Claude reais. As corridas fo
 2. **Concessão só com agenda e com consulta registrada.** Fazer uma consulta de agenda pelo assistente e abrir o guia. Esperado: "Funcionou" no passo 5, sem a pergunta pronta.
 3. **Fora do piloto e leituras desligadas.**
    - Tirar a empresa sintética de MCP_TENANT_ALLOWLIST. O env de staging só pode ser alterado na janela autorizada. Esperado: o guia explica o motivo e não oferece a pergunta.
-   - Repetir com AI_READ_ENABLED=false.
+   - Repetir com INTELIGENCIA_ENABLED=false. Desde 19/11/2026, AI_READ_ENABLED=false NÃO fecha o canal: o guia deve oferecer a pergunta.
 4. **Revogação sob concorrência.** Desconectar enquanto a lista e a identidade são lidas em outra aba. Esperado: uma revogação só, e a lista atualizada.
 5. **Identidade e diagnóstico.**
    - Latência p50 e p95 das leituras de identidade e de falhas.

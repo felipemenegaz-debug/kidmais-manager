@@ -122,7 +122,7 @@ Exportação verificável: as 6 tabelas foram classificadas em `FORA_DO_ESCOPO` 
 | `MCP_PUBLIC_URL` | ausente = desligado | URL do recurso (HTTPS; http só loopback fora de produção) |
 | `MCP_CIMD_HOSTS` | `chatgpt.com,claude.ai` | Hosts aceitos de documento CIMD |
 | `MCP_REF_SECRET` | ausente = busca indisponível | ≥ 32 caracteres; assina referências de conhecimento |
-| Canônicas da IA | — | chave-mestra, grupo READ e allowlist da IA continuam exigidas. **Não** exige chave de modelo nem a flag de modelo do copiloto |
+| Canônicas da IA | — | só a chave-mestra (`INTELIGENCIA_ENABLED`) continua exigida. Desde 19/11/2026 o canal **não** depende de `AI_READ_ENABLED` nem de `AI_TENANT_ALLOWLIST` (chaves do assistente do painel, fora da contratação no R-5); a allowlist do canal é a `MCP_TENANT_ALLOWLIST`. **Não** exige chave de modelo nem a flag de modelo do copiloto |
 
 Limites (por instância, em processo — documentado): 30 chamadas/min por concessão, 120/min por empresa,
 2 simultâneas por concessão, corpo 64 KiB, prazo 5 s, mapas limitados (10 mil chaves). Com N instâncias o teto é N×.
@@ -376,7 +376,7 @@ Controle negativo: com `cimd.ts`, `servidor.ts`, `admin-fetch.ts` e `Consentimen
 |---|---|
 | Aplicador 105 **de produção** (identidade fixa do alvo, precheck/postcheck/integridade, PITR comprovado, procedimento para resultado indeterminado) | bloqueante para aplicar |
 | Candidata exata validada no **Node 22.23.2** (ou mudança formal do runtime) | bloqueante para o GO técnico |
-| Env própria: `MCP_PUBLIC_URL` de produção, segredo novo, allowlist da empresa piloto real, `AI_TENANT_ALLOWLIST` deliberada, flags READ coerentes; não copiar de staging | bloqueante para ligar |
+| Env própria: `MCP_PUBLIC_URL` de produção, segredo novo, allowlist da empresa piloto real, chave-mestra ligada (desde 19/11/2026 o canal não depende das flags READ do assistente); não copiar de staging | bloqueante para ligar |
 | Monitoramento e desligamento: responsável, alertas 5xx/429, latência/pool, falhas OAuth/refresh, logs sanitizados (incluindo `pedido`/`voltar` na borda), `MCP_ENABLED=false` autorizado | bloqueante para ligar |
 | CAP-1 | bloqueante para abertura ampla; no piloto, aceite explícito com envelope de carga |
 | ADM-1, carregamento, UX-1 | aceitáveis no piloto acompanhado; validar antes o login real, a sessão expirada, a tela e o POST negativo |

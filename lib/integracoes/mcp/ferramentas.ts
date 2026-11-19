@@ -10,7 +10,7 @@ import type { SessaoParaTenant, TenantComprovado } from "../../saas/provar-tenan
 import { buscar, criarReferencia, resolverReferencia, trechoDe, termos } from "../../conhecimento/busca.ts";
 import type { Corpus } from "../../conhecimento/corpus.ts";
 import { comPrazo } from "../../inteligencia/gateway.ts";
-import { grupoAtivo, grupoAtivoParaEmpresa } from "../../inteligencia/flags.ts";
+import { grupoAtivo, grupoAtivoParaEmpresa, inteligenciaAtiva } from "../../inteligencia/flags.ts";
 import { agendaDoDia } from "../../inteligencia/leituras/agenda-do-dia.ts";
 import { analisarRecebiveis } from "../../inteligencia/leituras/analisar-recebiveis.ts";
 import { diasEntre, somarDias } from "../../inteligencia/leituras/comum.ts";
@@ -27,9 +27,9 @@ export { NOME_MAX, nomeComoDado } from "./nome-exibivel.ts";
  * redator, Model Router ou `atenderConversa`.
  *
  * Cada chamada, nesta ordem (a primeira recusa vence, sem retorno parcial):
- *   canal (MCP_ENABLED) → escopo da concessão → flags canônicas da Inteligência (chave-mestra + grupo READ, lib/inteligencia/flags.ts)
+ *   canal (MCP_ENABLED) → escopo da concessão → chave-mestra da Inteligência (ver grupoLiberadoNoCanal)
  *   → Policy V1 com o papel global → transação de tenant (provarTenant: usuário ativo, empresa ATIVA, membership ATIVA,
- *   papel da membership) → empresa comprovada = empresa da concessão → allowlist do piloto MCP → allowlist da IA →
+ *   papel da membership) → empresa comprovada = empresa da concessão → allowlist do piloto MCP →
  *   Policy V1 com o papel da membership → concessão ainda não revogada (FOR SHARE) → situação comercial (paywall de
  *   leitura) → serviço de domínio dentro do prazo → DTO por lista positiva → schema estrito + chaves proibidas.
  *   O provarTenant relê tudo no COMMIT (revalidarTenant).
@@ -928,8 +928,29 @@ export function consultaLiberadaNoAmbiente(env: AmbienteMcp, nome: NomeFerrament
   if ((nome === "kidmais_buscar_conhecimento" || nome === "kidmais_obter_trecho") && !segredoReferencias(env)) return false;
   const m = manifestoLeitura(LEITURA_CANONICA[nome]);
   if (!m) return false;
-  const grupo = m.grupoExigido === "NENHUM" ? "READ" : m.grupoExigido;
-  return grupoAtivo(env, grupo) && empresaNoPilotoMcp(env, empresaId) && grupoAtivoParaEmpresa(env, grupo, empresaId);
+  return grupoLiberadoNoCanal(env, m) && empresaNoPilotoMcp(env, empresaId) && grupoLiberadoNaEmpresa(env, m, empresaId);
+}
+
+/**
+ * Porta de flag do canal MCP (decisão de Felipe, 19/11/2026). O canal é contratado à parte do assistente de IA do painel:
+ * as leituras do MCP (grupo READ ou NENHUM) dependem de MCP_ENABLED, da MCP_TENANT_ALLOWLIST e da chave-mestra
+ * da Inteligência (desligamento de emergência de tudo que usa o registro da Inteligência), e NÃO da chave do grupo READ nem
+ * da allowlist por empresa da IA, que ligam o assistente do painel (fora da contratação no R-5). Papel, escopo, concessão vigente,
+ * assinatura e Tenant Context continuam exigidos em executarFerramentaMcp. Um manifesto de outro grupo (ADMIN_ACTIONS,
+ * CONTRACT_IMPORT) continuaria exigindo a própria flag e a allowlist da IA: falha fechada para o que não for leitura.
+ */
+function leituraDoCanal(m: Manifesto) {
+  return m.grupoExigido === "NENHUM" || m.grupoExigido === "READ";
+}
+
+function grupoLiberadoNoCanal(env: AmbienteMcp, m: Manifesto) {
+  if (!inteligenciaAtiva(env)) return false;
+  return leituraDoCanal(m) ? true : grupoAtivo(env, m.grupoExigido as Exclude<Manifesto["grupoExigido"], "NENHUM">);
+}
+
+function grupoLiberadoNaEmpresa(env: AmbienteMcp, m: Manifesto, empresaId: string) {
+  if (!grupoLiberadoNoCanal(env, m)) return false;
+  return leituraDoCanal(m) ? true : grupoAtivoParaEmpresa(env, m.grupoExigido as Exclude<Manifesto["grupoExigido"], "NENHUM">, empresaId);
 }
 
 const SAIDAS: { [K in NomeFerramentaMcp]: z.ZodType<Saidas[K]> } = {
@@ -983,7 +1004,7 @@ export async function executarFerramentaMcp<K extends NomeFerramentaMcp>(
     // perde as permissões que a pessoa já tinha (a nova autorização substitui a anterior).
     if (faltantes.length) throw recusa.escopo(faltantes, ESCOPOS_MCP.filter((e) => principal.escopos.includes(e) || ESCOPO[nome].includes(e)));
     const manifesto = manifestoCanonico(nome);
-    if (!grupoAtivo(deps.env, manifesto.grupoExigido === "NENHUM" ? "READ" : manifesto.grupoExigido)) throw recusa.canal();
+    if (!grupoLiberadoNoCanal(deps.env, manifesto)) throw recusa.canal();
     exigirPapel(principal.papel, manifesto, null);
     const parsed = ENTRADAS[nome].safeParse(argumentos ?? {});
     if (!parsed.success) throw new ErroCanalMcp("DADOS_INVALIDOS", "Parâmetros inválidos para esta consulta.", "INVALIDO");
@@ -1009,7 +1030,7 @@ export async function executarFerramentaMcp<K extends NomeFerramentaMcp>(
     const dados = await comPrazo(Math.min(manifesto.prazoMs, LIMITES_MCP.prazoFerramentaMs), () => deps.withTenantTransaction(sessao, principal.empresaId, async (tx, tenant) => {
       if (tenant.empresaComprovada !== principal.empresaId || tenant.usuarioId !== principal.usuarioId) throw recusa.acesso();
       if (!empresaNoPilotoMcp(deps.env, tenant.empresaComprovada)) throw recusa.canal();
-      exigirPapel(tenant.papelAtual, manifesto, grupoAtivoParaEmpresa(deps.env, manifesto.grupoExigido === "NENHUM" ? "READ" : manifesto.grupoExigido, tenant.empresaComprovada));
+      exigirPapel(tenant.papelAtual, manifesto, grupoLiberadoNaEmpresa(deps.env, manifesto, tenant.empresaComprovada));
       if (!(await deps.concessaoVigente(tx, principal))) throw recusa.acesso();
       if (!(await deps.leituraComercialPermitida(tx, tenant.empresaComprovada))) throw recusa.assinatura();
       return (async (): Promise<Saidas[NomeFerramentaMcp]> => {

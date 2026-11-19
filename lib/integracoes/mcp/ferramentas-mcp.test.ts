@@ -4,6 +4,7 @@ import { reaisDe } from "../../financeiro/calculos.ts";
 import { SEM_PORTAS, type ContextoFerramenta } from "../../inteligencia/ferramentas.ts";
 import { montarAgenda } from "../../inteligencia/leituras/agenda-do-dia.ts";
 import { montarAnaliseRecebiveis } from "../../inteligencia/leituras/analisar-recebiveis.ts";
+import { capacidadeForaDaContratacaoAtiva } from "../../inteligencia/flags.ts";
 import { chaveProibida } from "../../inteligencia/registro-ferramentas.ts";
 import {
   ErroCanalMcp, ITENS_AUDITORIA_MAX, LIMITE_AGENDA_PERIODO, consultaLiberadaNoAmbiente, dataBrasiliaDoInstante, dtoRecebiveis, executarFerramentaMcp,
@@ -99,10 +100,8 @@ const principalTodos: PrincipalMcp = { ...principalA, escopos: [...principalA.es
 const CASOS: Caso[] = [
   { nome: "MCP_ENABLED desligado", codigo: "CANAL_DESATIVADO", ajustar: () => ({ env: { ...ENV_OK, MCP_ENABLED: "false" } }) },
   { nome: "INTELIGENCIA_ENABLED desligado", codigo: "CANAL_DESATIVADO", ajustar: () => ({ env: { ...ENV_OK, INTELIGENCIA_ENABLED: undefined } }) },
-  { nome: "AI_READ_ENABLED desligado", codigo: "CANAL_DESATIVADO", ajustar: () => ({ env: { ...ENV_OK, AI_READ_ENABLED: "TRUE" } }) },
   { nome: "empresa fora da allowlist MCP", codigo: "CANAL_DESATIVADO", ajustar: () => ({ env: { ...ENV_OK, MCP_TENANT_ALLOWLIST: B } }) },
   { nome: "allowlist MCP ausente", codigo: "CANAL_DESATIVADO", ajustar: () => ({ env: { ...ENV_OK, MCP_TENANT_ALLOWLIST: undefined } }) },
-  { nome: "empresa fora da AI_TENANT_ALLOWLIST", codigo: "CANAL_DESATIVADO", ajustar: () => ({ env: { ...ENV_OK, AI_TENANT_ALLOWLIST: B } }) },
   { nome: "escopo insuficiente", codigo: "ESCOPO_INSUFICIENTE", ajustar: () => ({ principal: { ...principalTodos, escopos: ["conhecimento:read"] } }) },
   { nome: "papel global desconhecido", codigo: "ACESSO_NEGADO", ajustar: () => ({ principal: { ...principalTodos, papel: "CONVIDADO" } }) },
   { nome: "papel da membership removido", codigo: "ACESSO_NEGADO", ajustar: (m) => { m.membros.set(UA, [{ empresa: A, papel: "VISITANTE", ativa: true }]); return {}; } },
@@ -272,11 +271,56 @@ test("busca sem correspondência: falta de evidência, distinta de falta de perm
 test("consultaLiberadaNoAmbiente acompanha as recusas de ambiente da execução", async () => {
   assert.equal(consultaLiberadaNoAmbiente(ENV_OK, "kidmais_buscar_conhecimento", A), true);
   const ambiente = CASOS.filter((c) => c.codigo === "CANAL_DESATIVADO");
-  assert.ok(ambiente.length >= 6);
+  assert.ok(ambiente.length >= 4);
   for (const caso of ambiente) {
     const env = caso.ajustar(mundo()).env;
     assert.ok(env, caso.nome);
     assert.equal(consultaLiberadaNoAmbiente(env as typeof ENV_OK, "kidmais_buscar_conhecimento", A), false, caso.nome);
+  }
+});
+
+// 19/11/2026 (promoção 4): o MCP de production respondeu CANAL_DESATIVADO em tudo porque AI_READ_ENABLED=false (gravado na
+// promoção 3 para o R-5: o assistente do painel está fora da contratação). Decisão de Felipe: o canal MCP deixa de depender da
+// chave e da allowlist do assistente. Antes desta mudança, cada execução abaixo era recusada com CANAL_DESATIVADO.
+const ASSISTENTE_DESLIGADO: { nome: string; env: Record<string, string | undefined> }[] = [
+  { nome: "AI_READ_ENABLED=false (production 19/11)", env: { ...ENV_OK, AI_READ_ENABLED: "false" } },
+  { nome: "AI_READ_ENABLED ausente", env: { ...ENV_OK, AI_READ_ENABLED: undefined } },
+  { nome: "AI_READ_ENABLED=TRUE (não é o texto exato)", env: { ...ENV_OK, AI_READ_ENABLED: "TRUE" } },
+  { nome: "empresa fora da AI_TENANT_ALLOWLIST", env: { ...ENV_OK, AI_TENANT_ALLOWLIST: B } },
+  { nome: "AI_TENANT_ALLOWLIST inválida", env: { ...ENV_OK, AI_TENANT_ALLOWLIST: "nao-e-uuid" } },
+  { nome: "assistente desligado e A fora da allowlist da IA", env: { ...ENV_OK, AI_READ_ENABLED: "false", AI_TENANT_ALLOWLIST: B } },
+];
+
+test("19/11: o MCP lê com o assistente do painel desligado (AI_READ_ENABLED/AI_TENANT_ALLOWLIST não fecham o canal)", { timeout: 40_000 }, async () => {
+  for (const { nome: caso, env } of ASSISTENTE_DESLIGADO) {
+    if (env.AI_READ_ENABLED !== "true") assert.equal(capacidadeForaDaContratacaoAtiva(env), false, `${caso}: o assistente do painel continua desligado (R-5)`);
+    for (const nome of DE_DADOS) {
+      assert.equal(consultaLiberadaNoAmbiente(env, nome, A), true, `${caso}: ${nome}`);
+      const eventos: EventoFerramenta[] = [];
+      await executarFerramentaMcp(nome, ARGS[nome], principalTodos, deps(mundo(), env, eventos));
+      assert.ok(["OK", "SEM_DADOS"].includes(eventos[0]?.resultado ?? ""), `${caso}: ${nome}`);
+    }
+    assert.equal(consultaLiberadaNoAmbiente(env, "kidmais_buscar_conhecimento", A), true, caso);
+    await executarFerramentaMcp("kidmais_buscar_conhecimento", { consulta: "onde vejo contas a receber" }, principalA, deps(mundo(), env));
+  }
+});
+
+test("19/11: sem o assistente, as outras portas do MCP continuam fechando (canal, chave-mestra, piloto, papel, concessão, assinatura)", async () => {
+  const semAssistente = { ...ENV_OK, AI_READ_ENABLED: "false", AI_TENANT_ALLOWLIST: B };
+  const recusas: [string, string, (m: Mundo) => { env: Record<string, string | undefined>; principal?: PrincipalMcp }][] = [
+    ["MCP_ENABLED desligado", "CANAL_DESATIVADO", () => ({ env: { ...semAssistente, MCP_ENABLED: "false" } })],
+    ["INTELIGENCIA_ENABLED desligado", "CANAL_DESATIVADO", () => ({ env: { ...semAssistente, INTELIGENCIA_ENABLED: "false" } })],
+    ["A fora da MCP_TENANT_ALLOWLIST", "CANAL_DESATIVADO", () => ({ env: { ...semAssistente, MCP_TENANT_ALLOWLIST: B } })],
+    ["papel desconhecido", "ACESSO_NEGADO", () => ({ env: semAssistente, principal: { ...principalTodos, papel: "CONVIDADO" } })],
+    ["concessão revogada", "ACESSO_NEGADO", (m) => { m.revogadas.add("c-a"); return { env: semAssistente }; }],
+    ["assinatura bloqueada", "ASSINATURA_NECESSARIA", (m) => { m.bloqueadas.add(A); return { env: semAssistente }; }],
+    ["escopo de nomes ausente", "ESCOPO_INSUFICIENTE", () => ({ env: semAssistente, principal: principalA })],
+  ];
+  for (const [caso, codigo, ajustar] of recusas) {
+    const m = mundo();
+    const { env, principal } = ajustar(m);
+    await assert.rejects(executarFerramentaMcp("kidmais_consultar_festa", ARGS.kidmais_consultar_festa, principal ?? principalTodos, deps(m, env)), (e: unknown) => e instanceof ErroCanalMcp && e.codigo === codigo, caso);
+    assert.deepEqual(m.leituras, [], caso);
   }
 });
 
