@@ -1,19 +1,20 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { LIMITES_PIZZA_PARTY, erroConvidadosPizzaParty } from '../../lib/comercial/pacotes-v1';
+import { limitesPizzaParty, erroConvidadosPizzaParty } from '../../lib/comercial/pacotes-v1';
 import styles from './FechamentoWizard.module.css';
 import { apiPublica } from '../../lib/fechamentos/rota-publica';
 
 type Extra = { id: string; nome: string; preco: number; unidadeCobranca: string };
 
 /** Consulta preços de extras sem atribuir preço base nem liberar contratação da Pizza. */
-export default function AdicionaisPizzaConsulta({ empresa = null }: { empresa?: string | null } = {}) {
+export default function AdicionaisPizzaConsulta({ empresa = null, limites }: { empresa?: string | null; limites?: { minimo: number; maximo: number } } = {}) {
+  const faixa = limitesPizzaParty(limites);
   const [data, setData] = useState('');
-  const [convidados, setConvidados] = useState<number>(LIMITES_PIZZA_PARTY.minimo);
+  const [convidados, setConvidados] = useState<number>(faixa.minimo);
   const [itens, setItens] = useState<Extra[] | null>(null);
   const [erro, setErro] = useState('');
-  const erroQuantidade = erroConvidadosPizzaParty('PIZZA_PARTY', convidados);
+  const erroQuantidade = erroConvidadosPizzaParty('PIZZA_PARTY', convidados, faixa);
   useEffect(() => {
     const controller = new AbortController();
     if (!data || erroQuantidade) return;
@@ -26,9 +27,9 @@ export default function AdicionaisPizzaConsulta({ empresa = null }: { empresa?: 
   return <section className={styles.consultPanel} aria-label="Adicionais da Pizza Party">
     <h3>Adicionais da Pizza Party</h3>
     <p>Consulte os mesmos preços e faixas dos demais pacotes. O preço base da Pizza Party permanece sob consulta; esta consulta não reserva a data.</p>
-    <p>Pizza Party: mínimo de 20 e máximo de 100 convidados.</p>
+    <p>Pizza Party: mínimo de {faixa.minimo} e máximo de {faixa.maximo} convidados.</p>
     <label className={styles.field}>Data pretendida<input type="date" value={data} onChange={e => { setItens(null); setData(e.target.value); }} /></label>
-    <label className={styles.field}>Convidados para consultar a faixa<input type="number" min={LIMITES_PIZZA_PARTY.minimo} max={LIMITES_PIZZA_PARTY.maximo} step={1} value={convidados} onChange={e => { setItens(null); setErro(''); setConvidados(Number(e.target.value)); }} /></label>
+    <label className={styles.field}>Convidados para consultar a faixa<input type="number" min={faixa.minimo} max={faixa.maximo} step={1} value={convidados} onChange={e => { setItens(null); setErro(''); setConvidados(Number(e.target.value)); }} /></label>
     {(erroQuantidade || erro) && <p role="alert">{erroQuantidade || erro}</p>}
     {!data && <p>Informe a data para consultar a tabela vigente.</p>}
     {!erroQuantidade && itens?.length === 0 && <p>Nenhum adicional com preço vigente para essa data e quantidade.</p>}

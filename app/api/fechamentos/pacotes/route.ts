@@ -1,3 +1,5 @@
+import { dataIsoValida } from "@/lib/disponibilidade/services/horario.utils";
+import { ofertasDoIntervalo } from "@/lib/comercial/oferta-intervalo";
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db/postgres";
 import { codigoEmpresaDoPedido, escopoCotacaoPublica } from "@/lib/comercial/cotacao-publica";
@@ -28,6 +30,8 @@ export async function GET(request: NextRequest) {
   if (salao !== null && !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(salao)) {
     return NextResponse.json({ ok: false, erro: "Salão inválido.", codigo: "PARAMETROS_INVALIDOS" }, { status: 400 });
   }
+  const data = request.nextUrl.searchParams.get("data");
+  if (data !== null && !dataIsoValida(data)) return NextResponse.json({ erro: "Data inválida" }, { status: 400 });
   try {
     const escopo = await escopoCotacaoPublica(db, codigoEmpresaDoPedido(request.nextUrl));
     const doSalao = salao ? new Set(await pacotesElegiveisDoSalao(db(), escopo.empresaId, salao.toLowerCase())) : null;
@@ -35,6 +39,7 @@ export async function GET(request: NextRequest) {
     // "A partir de" e catálogo efetivo do endereço (endereço atual: os sete V1; /b/<código>: todos os contratáveis da
     // empresa): os mesmos da faixa do salão combinado (E2b, lib/comercial/oferta-publica).
     const precos = await precosPublicosDeHoje(db(), escopo.empresaId);
+    const ofertas = data ? await ofertasDoIntervalo(db(), escopo.empresaId, !enderecoDaEmpresa, data, data) : null;
     const pacotes = [];
     for (const pacote of await pacotesDaOfertaPublica(db(), escopo.empresaId, enderecoDaEmpresa)) {
       pacotes.push({
@@ -44,9 +49,8 @@ export async function GET(request: NextRequest) {
         precoMinimo: precoMinimo(precos.filter((p) => p.pacoteId === pacote.id)),
         ...(convidados ? { comporta: pacoteComporta(pacote, convidados) } : {}),
         ...(doSalao ? { noSalao: doSalao.has(pacote.id) } : {}),
-        // Endereço da empresa (/b/<código>): dias e períodos configurados por ela para o pacote, para a tela não
-        // aplicar regra fixa da Kidmais pelo código. Endereço atual da Kidmais: resposta inalterada (sem o campo).
-        ...(enderecoDaEmpresa ? { disponibilidade: await lerRegrasDisponibilidadePacote(db(), pacote.id) } : {}),
+        // Com data, ambos os endereços recebem as regras comerciais do intervalo.
+        ...(ofertas ? { disponibilidade: ofertas.find(o => o.codigo === pacote.codigo)?.disponibilidade ?? [] } : enderecoDaEmpresa ? { disponibilidade: await lerRegrasDisponibilidadePacote(db(), pacote.id) } : {}),
       });
     }
     // Regras de pagamento da empresa do endereço (077); null = antes da 077 (a tela usa o legado, como o servidor).

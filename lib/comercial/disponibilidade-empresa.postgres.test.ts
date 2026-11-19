@@ -1,3 +1,4 @@
+import { ofertasDoIntervalo } from "./oferta-intervalo.ts";
 import test from "node:test";
 import assert from "node:assert/strict";
 import { randomBytes } from "node:crypto";
@@ -142,11 +143,18 @@ test("isolamento: a administração de cada empresa lê só os pacotes dela (o m
 test("coerência: tela (cotação pública e administração) = servidor, em toda a grade, nas duas empresas", async () => {
   const deA = await regrasDosPacotesDaEmpresa(tx, A, listarPacotesContrataveisDaEmpresa);
   const deB = await regrasDosPacotesDaEmpresa(tx, B, listarPacotesContrataveisDaEmpresa);
+  const loteA = await ofertasDoIntervalo(tx, A, false, grade[0], grade[grade.length - 1]);
+  const loteB = await ofertasDoIntervalo(tx, B, false, grade[0], grade[grade.length - 1]);
   const divergencias: string[] = [];
   for (const data of grade) for (const h of HORARIOS) {
     for (const [nome, regras, pacoteId] of [["A", deA.POCKET, pocketA], ["A-livre", deA[CODIGO_LIVRE], livreA], ["B", deB.POCKET, pocketB], ["B-mini", deB.MINI_FESTA, miniB]] as const) {
       const tela = regraDaEmpresa(regras, data, h);
       const srv = await servidor(pacoteId, data, h);
+      const lote = nome.startsWith("A") ? loteA : loteB;
+      const codigo = nome === "A-livre" ? CODIGO_LIVRE : nome === "B-mini" ? "MINI_FESTA" : "POCKET";
+      const oferta = lote.find(p => p.codigo === codigo);
+      assert.ok(oferta);
+      assert.equal(regraDaEmpresa(oferta.disponibilidade, data, h, turno[h]), srv, `lote ${nome} ${data} ${h}`);
       if (tela !== srv) divergencias.push(`${nome} ${data} ${h}: tela=${tela} servidor=${srv}`);
     }
   }

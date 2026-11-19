@@ -11,8 +11,7 @@ export const PACOTES_CONTRATAVEIS_V1 = [
 // Regra comercial vigente para novas consultas/edições; não regrava snapshots históricos.
 export const LIMITES_PIZZA_PARTY = Object.freeze({ minimo: 20, maximo: 100 });
 export function limitesPizzaParty(persistido?: { minimo: number | null; maximo: number | null } | null) {
-  if (persistido?.minimo != null && persistido.maximo != null) return { minimo: persistido.minimo, maximo: persistido.maximo };
-  return LIMITES_PIZZA_PARTY;
+  return { minimo: persistido?.minimo ?? LIMITES_PIZZA_PARTY.minimo, maximo: persistido?.maximo ?? LIMITES_PIZZA_PARTY.maximo };
 }
 
 export function erroConvidadosPizzaParty(pacote: string, quantidade: number, persistido?: { minimo: number | null; maximo: number | null } | null) {

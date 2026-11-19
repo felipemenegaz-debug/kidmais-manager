@@ -19,7 +19,7 @@ export function codigoServidorDoPacoteDaMarca(kidmais: boolean, id: string): str
 
 /**
  * O que /api/fechamentos/pacotes devolve por pacote vigente da empresa do endereço.
- * `disponibilidade`: só em /b/<código> — dias e períodos configurados pela empresa para o pacote.
+ * `disponibilidade`: dias e períodos publicados pela empresa. No endereço Kidmais vêm com a consulta por data.
  */
 export type FatoPacote = { nome: string; descricao: string | null; duracaoMinutos: number | null; convidadosMinimos: number | null; convidadosMaximos: number | null; precoMinimo: string | null; disponibilidade?: RegraPacoteEmpresa[]; comporta?: boolean; noSalao?: boolean };
 export type FatosPacote = Record<string, FatoPacote>;
@@ -100,12 +100,12 @@ export function pacoteDaTela(kidmais: boolean, catalogo: readonly Pacote[], fato
 
 /**
  * Regras de disponibilidade do pacote para a tela.
- * - Kidmais (endereço atual): null — vale a regra legada (inalterada).
+ * - Kidmais (endereço atual): regras publicadas para a data. Chamadores legados sem data recebem null.
  * - Outra empresa: as regras dela para o pacote; sem dados ainda (ou pacote que ela não oferece) = [],
  *   isto é, nada disponível pela regra — nunca a regra fixa da Kidmais pelo código do pacote.
  */
 export function regrasDisponibilidadeDaTela(kidmais: boolean, fatos: FatosPacote | null, id: string): RegraPacoteEmpresa[] | null {
-    if (kidmais) return null;
+    if (kidmais) return fatos?.[CODIGO_PACOTE[id]!]?.disponibilidade ?? null;
     return (id && fatos?.[id]?.disponibilidade) || [];
 }
 

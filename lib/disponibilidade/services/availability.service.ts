@@ -25,6 +25,7 @@ import {
 } from "./horario.utils.ts";
 import type {
   CapacidadeConvidadosPublica,
+  HorarioCandidatoPublico,
   DisponibilidadeDataPublica,
   MotivoCapacidade,
   PeriodoDisponibilidadePublica,
@@ -68,6 +69,8 @@ export type OpcoesDisponibilidade = {
    * (E2b: SALOES_PUBLICOS + SALOES_COMBINADOS_PUBLICOS + instalação NOVA). Padrão: sem combinados.
    */
   incluirCombinados?: boolean;
+  /** Índice privado do pedido, nunca serializado na agenda pública. */
+  saloesLivres?: Map<HorarioCandidatoPublico, string[]>;
 };
 export const DURACAO_PADRAO_MINUTOS = 240;
 
@@ -523,10 +526,10 @@ export async function consultarDisponibilidadePeriodo(
 
     const convidados = opcoes?.convidados ?? null;
     const periodos = livre
-      ? [calcularPeriodoPublico(livre, bloqueiosDoDia, ocupacoesDoDia, regra, gerarCandidatosLivres(livre.passoInicioMinutos, duracao), opcoes?.saloesDoPacote ?? null, convidados)]
+      ? [calcularPeriodoPublico(livre, bloqueiosDoDia, ocupacoesDoDia, regra, gerarCandidatosLivres(livre.passoInicioMinutos, duracao), opcoes?.saloesDoPacote ?? null, convidados, opcoes?.saloesLivres)]
       : configuracoes
         .filter((config) => horarioValeNaData(config, data))
-        .map((config) => calcularPeriodoPublico(config, bloqueiosDoDia, ocupacoesDoDia, regra, undefined, opcoes?.saloesDoPacote ?? null, convidados));
+        .map((config) => calcularPeriodoPublico(config, bloqueiosDoDia, ocupacoesDoDia, regra, undefined, opcoes?.saloesDoPacote ?? null, convidados, opcoes?.saloesLivres));
     // S-C: o motivo do dia só existe com convidados e capacidade por salão; sem eles, a resposta é a de antes.
     const motivoDia = convidados ? motivoAgregado(periodos.map((p) => p.capacidade)) : null;
     return motivoDia ? { data, periodos, motivoDia } : { data, periodos };
@@ -541,6 +544,7 @@ function calcularPeriodoPublico(
   candidatos: ReturnType<typeof gerarHorariosCandidatos> = gerarHorariosCandidatos(config),
   saloesDoPacote: string[] | null = null,
   convidados: number | null = null,
+  saloesLivres?: Map<HorarioCandidatoPublico, string[]>,
 ): PeriodoDisponibilidadePublica {
   const horarios = candidatos.map((candidato) => {
     const bloqueado = bloqueios.some((bloqueio) =>
@@ -553,13 +557,18 @@ function calcularPeriodoPublico(
       ? capacidadeDoCandidato(regra, config.id, candidato, ocupacoesConfirmadas, saloesDoPacote, convidados, bloqueado)
       : null;
 
-    return {
+    const horario = {
       inicio: candidato.inicio,
       fim: candidato.fim,
       ajusteMinutos: candidato.ajusteMinutos,
       status: indisponivel ? ("INDISPONIVEL" as const) : ("DISPONIVEL" as const),
       ...(capacidade ? { capacidade } : {}),
     };
+    if (saloesLivres && convidados && regra?.capacidadeTipo === "POR_SALAO") {
+      const situacoes = situacaoPorSalao(regra, config.id, candidato, ocupacoesConfirmadas, saloesDoPacote, convidados, bloqueado);
+      saloesLivres.set(horario, situacoes?.filter(s => s.situacao === "livre").map(s => s.salaoId) ?? []);
+    }
+    return horario;
   });
   const capacidade = convidados ? motivoAgregado(horarios.map((h) => h.capacidade)) : null;
 

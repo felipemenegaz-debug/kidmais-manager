@@ -45,6 +45,7 @@ function banco(tem070 = false) {
       }
       if (sql.includes("FROM pacotes")) {
         assert.match(sql, /empresa_id = \$1::uuid AND codigo = \$2 AND vigente AND ativo AND arquivado_em IS NULL/);
+        if (values[0] === A && values[1] === "PIZZA_PARTY") return r([{ id: "pizza", minimo: 1, maximo: 50 }]);
         return r(values[0] === A && values[1] === "COMPLETA" ? [{ id: "pacote-a" }] : values[0] === B && values[1] === "COMPLETA" ? [{ id: "pacote-b" }] : []);
       }
       if (sql.includes("FROM tabelas_preco")) {
@@ -128,4 +129,11 @@ test("rotas de fechamento devolvem todos os adicionais da empresa: id antigo qua
     assert.match(rota, /idDoAdicionalNaTela\(a\.codigo\)/, arquivo);
     assert.doesNotMatch(rota, /\.filter\(\(?a\)? => idPorCodigo/, arquivo);
   }
+});
+
+test("consulta de adicionais da Pizza aplica a faixa publicada de 1 a 50", async () => {
+  const { tx } = banco();
+  const pedido = { empresaId: A, pacoteCodigo: "PIZZA_PARTY", data: "2026-11-21", consultaPizzaKidmais: true };
+  await adicionaisDoPacoteNoTenant(tx, { ...pedido, convidados: 10 });
+  await assert.rejects(adicionaisDoPacoteNoTenant(tx, { ...pedido, convidados: 75 }), /1 a 50/);
 });

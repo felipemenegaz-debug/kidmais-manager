@@ -60,6 +60,7 @@ const ESTADO_POSTGRES = {
   // Catálogo do buffet por empresa (078): leitura, escrita, cotação e preservação entre duas empresas; 063 + 070 + 078.
   "lib/comercial/catalogo-buffet-078.postgres.test.ts": { descartavel: "063" },
   // Disponibilidade do pacote por empresa: tela (cotação pública e administração) = servidor; isolamento; legado Kidmais.
+  "lib/comercial/paridade-oferta-publica.postgres.test.ts": { descartavel: "094" },
   "lib/comercial/disponibilidade-empresa.postgres.test.ts": { descartavel: "063", tambem: ["094", "b14-P10", "b14-P11", "b14-P12", "b14-P12-sem091"] },
   // F-L: script de fixtures da atualização de staging (scripts/fixture-atualizacao-staging.cjs) no schema de staging (até a 078).
   "lib/comercial/fixture-atualizacao-staging.postgres.test.ts": { descartavel: "078" },

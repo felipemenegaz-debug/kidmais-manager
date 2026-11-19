@@ -1,3 +1,5 @@
+import type { HorarioCandidatoPublico } from "@/lib/disponibilidade/services/models";
+import { aplicarOferta, ofertasDoIntervalo } from "@/lib/comercial/oferta-intervalo";
 import { NextRequest, NextResponse } from "next/server";
 import { promises as fs } from "fs";
 import path from "path";
@@ -86,8 +88,9 @@ export async function GET(request: NextRequest) {
     }
     // 2c-2: duração da festa (minutos) para os inícios do horário livre; sem ela, 4 horas.
     // E2b: o combinado conta como opção só com combinadosPublicos; desligado, as opções de antes (sem o campo).
+    const saloesLivres = new Map<HorarioCandidatoPublico, string[]>();
     const opcoes = {
-      duracaoMinutos: duracaoAceita(searchParams.get("duracao")), ...(convidados ? { convidados } : {}),
+      duracaoMinutos: duracaoAceita(searchParams.get("duracao")), ...(convidados ? { convidados, saloesLivres } : {}),
       ...((await combinadosPublicos(db())) ? { incluirCombinados: true } : {}),
     };
     // Endereço da empresa (/b/<código>): mesma regra da cotação pública; sem código, só a configuração do servidor.
@@ -119,8 +122,16 @@ export async function GET(request: NextRequest) {
           })),
     ]);
 
+    const ofertas = convidados && escopo.empresaId && (data || (inicio && fim))
+      ? await ofertasDoIntervalo(db(), escopo.empresaId, codigo === null, data || inicio!, data || fim!, convidados, saloesLivres.size > 0)
+      : [];
+    const dias = convidados
+      ? Array.isArray(resultado)
+        ? resultado.map(dia => aplicarOferta(dia, ofertas, codigo === null, convidados, saloesLivres))
+        : aplicarOferta(resultado, ofertas, codigo === null, convidados, saloesLivres)
+      : resultado;
     return NextResponse.json(
-      { ok: true, data: resultado, comercial },
+      { ok: true, data: dias, comercial },
       { headers: { "Cache-Control": "no-store" } },
     );
   } catch (error) {

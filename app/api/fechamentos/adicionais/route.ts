@@ -21,6 +21,7 @@ export async function GET(request: NextRequest) {
     if (!pacoteCodigo) return NextResponse.json({ erro: "Informe um pacote válido.", codigo: "DADOS_INVALIDOS" }, { status: 400, headers: { "Cache-Control": "no-store" } });
     const adicionais = await adicionaisDoPacoteNoTenant(db(), {
       empresaId: escopo.empresaId, pacoteCodigo,
+      ...(!escopo.porCodigo && pacoteCodigo === "PIZZA_PARTY" ? { consultaPizzaKidmais: true } : {}),
       data: parametros.get("data") ?? "", convidados: Number(parametros.get("convidados")),
     });
     return NextResponse.json({ adicionais: adicionais.map(a => ({ id: idDoAdicionalNaTela(a.codigo), ...a })) }, { headers: { "Cache-Control": "no-store" } });

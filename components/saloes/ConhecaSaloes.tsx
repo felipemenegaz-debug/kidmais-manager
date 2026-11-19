@@ -149,7 +149,7 @@ export default function ConhecaSaloes({ empresa }: { empresa: string }) {
     router.push(`${paginaPublica("/orcamento", empresa)}?${p}`);
   }
 
-  const voltar = `${paginaPublica("/disponibilidade", empresa)}`;
+  const voltar = paginaPublica("/disponibilidade", empresa) + (convidados > 0 ? `?convidados=${convidados}` : "");
 
   return (
     <main className={styles.page}>

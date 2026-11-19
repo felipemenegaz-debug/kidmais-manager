@@ -58,12 +58,12 @@ test("leitura das regras: só o pacote pedido, só regras ativas e não expirada
   assert.deepEqual(Object.keys(regras[0]).sort(), ["dia", "estado", "horario", "vigenciaFim", "vigenciaInicio"]);
 });
 
-test("tela: Kidmais = null (regra legada); empresa = só as regras do próprio pacote dela, pelo código; pacote não oferecido = []", () => {
+test("tela: Kidmais usa regras publicadas pelo código; empresa = só as regras do próprio pacote dela, pelo código; pacote não oferecido = []", () => {
   const fatos: FatosPacote = {
     POCKET: { nome: "Pocket A", descricao: null, duracaoMinutos: null, convidadosMinimos: 20, convidadosMaximos: 30, precoMinimo: "1500.00",
       disponibilidade: regrasPublicasDoPacote([linha(6, "TURNO_1")]) },
   };
-  assert.equal(regrasDisponibilidadeDaTela(true, fatos, "pocket"), null);
+  assert.deepEqual(regrasDisponibilidadeDaTela(true, fatos, "pocket"), fatos.POCKET.disponibilidade);
   assert.deepEqual(regrasDisponibilidadeDaTela(false, fatos, "POCKET"), fatos.POCKET.disponibilidade);
   assert.deepEqual(regrasDisponibilidadeDaTela(false, fatos, "MINI_FESTA"), [], "pacote que a empresa não oferece");
   assert.deepEqual(regrasDisponibilidadeDaTela(false, fatos, "pocket"), [], "em /b o id da tela é o código; id V1 não é traduzido");
