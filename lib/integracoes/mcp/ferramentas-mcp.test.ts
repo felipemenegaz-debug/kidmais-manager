@@ -5,9 +5,10 @@ import { SEM_PORTAS, type ContextoFerramenta } from "../../inteligencia/ferramen
 import { montarAgenda } from "../../inteligencia/leituras/agenda-do-dia.ts";
 import { montarAnaliseRecebiveis } from "../../inteligencia/leituras/analisar-recebiveis.ts";
 import { capacidadeForaDaContratacaoAtiva } from "../../inteligencia/flags.ts";
-import { chaveProibida } from "../../inteligencia/registro-ferramentas.ts";
+import { agendaDoDia } from "../../inteligencia/leituras/agenda-do-dia.ts";
+import { chaveProibida, manifestoLeitura } from "../../inteligencia/registro-ferramentas.ts";
 import {
-  ErroCanalMcp, ITENS_AUDITORIA_MAX, LIMITE_AGENDA_PERIODO, consultaLiberadaNoAmbiente, dataBrasiliaDoInstante, dtoRecebiveis, executarFerramentaMcp,
+  ErroCanalMcp, ITENS_AUDITORIA_MAX, LIMITE_AGENDA_PERIODO, consultaLiberadaNoAmbiente, grupoLiberadoNoCanal, dataBrasiliaDoInstante, dtoRecebiveis, executarFerramentaMcp,
   type DependenciasFerramentasMcp, type EventoFerramenta, type NomeFerramentaMcp, type PrincipalMcp,
 } from "./ferramentas.ts";
 import { A, AGORA, B, DISPONIBILIDADE, ENV_OK, FESTAS, HOJE, PENDENTES, RECEBIVEIS, UA, UB, deps, mundo, principalA, rec, type Mundo } from "./apoio-mcp.test.ts";
@@ -321,6 +322,21 @@ test("19/11: sem o assistente, as outras portas do MCP continuam fechando (canal
     const { env, principal } = ajustar(m);
     await assert.rejects(executarFerramentaMcp("kidmais_consultar_festa", ARGS.kidmais_consultar_festa, principal ?? principalTodos, deps(m, env)), (e: unknown) => e instanceof ErroCanalMcp && e.codigo === codigo, caso);
     assert.deepEqual(m.leituras, [], caso);
+  }
+});
+
+// Astra r1, P2: o canal só serve leitura. Qualquer outro grupo, inclusive FUNDACAO (que no flags.ts só pede a chave-mestra),
+// fecha o canal mesmo com tudo ligado; READ e NENHUM abrem só com a chave-mestra.
+test("Astra r1 P2: só manifesto de leitura passa pela porta do canal; FUNDACAO, ADMIN_ACTIONS e CONTRACT_IMPORT fecham", () => {
+  const base = manifestoLeitura(agendaDoDia);
+  assert.ok(base);
+  const tudoLigado = { ...ENV_OK, AI_ADMIN_ACTIONS_ENABLED: "true", AI_CONTRACT_IMPORT_ENABLED: "true" };
+  for (const grupo of ["FUNDACAO", "ADMIN_ACTIONS", "CONTRACT_IMPORT"] as const) {
+    assert.equal(grupoLiberadoNoCanal(tudoLigado, { ...base, grupoExigido: grupo }), false, grupo);
+  }
+  for (const grupo of ["READ", "NENHUM"] as const) {
+    assert.equal(grupoLiberadoNoCanal({ ...ENV_OK, AI_READ_ENABLED: "false" }, { ...base, grupoExigido: grupo }), true, grupo);
+    assert.equal(grupoLiberadoNoCanal({ ...ENV_OK, INTELIGENCIA_ENABLED: "false" }, { ...base, grupoExigido: grupo }), false, grupo);
   }
 });
 

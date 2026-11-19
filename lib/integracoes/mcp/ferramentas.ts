@@ -10,7 +10,7 @@ import type { SessaoParaTenant, TenantComprovado } from "../../saas/provar-tenan
 import { buscar, criarReferencia, resolverReferencia, trechoDe, termos } from "../../conhecimento/busca.ts";
 import type { Corpus } from "../../conhecimento/corpus.ts";
 import { comPrazo } from "../../inteligencia/gateway.ts";
-import { grupoAtivo, grupoAtivoParaEmpresa, inteligenciaAtiva } from "../../inteligencia/flags.ts";
+import { inteligenciaAtiva } from "../../inteligencia/flags.ts";
 import { agendaDoDia } from "../../inteligencia/leituras/agenda-do-dia.ts";
 import { analisarRecebiveis } from "../../inteligencia/leituras/analisar-recebiveis.ts";
 import { diasEntre, somarDias } from "../../inteligencia/leituras/comum.ts";
@@ -928,7 +928,7 @@ export function consultaLiberadaNoAmbiente(env: AmbienteMcp, nome: NomeFerrament
   if ((nome === "kidmais_buscar_conhecimento" || nome === "kidmais_obter_trecho") && !segredoReferencias(env)) return false;
   const m = manifestoLeitura(LEITURA_CANONICA[nome]);
   if (!m) return false;
-  return grupoLiberadoNoCanal(env, m) && empresaNoPilotoMcp(env, empresaId) && grupoLiberadoNaEmpresa(env, m, empresaId);
+  return grupoLiberadoNoCanal(env, m) && empresaNoPilotoMcp(env, empresaId);
 }
 
 /**
@@ -936,21 +936,13 @@ export function consultaLiberadaNoAmbiente(env: AmbienteMcp, nome: NomeFerrament
  * as leituras do MCP (grupo READ ou NENHUM) dependem de MCP_ENABLED, da MCP_TENANT_ALLOWLIST e da chave-mestra
  * da Inteligência (desligamento de emergência de tudo que usa o registro da Inteligência), e NÃO da chave do grupo READ nem
  * da allowlist por empresa da IA, que ligam o assistente do painel (fora da contratação no R-5). Papel, escopo, concessão vigente,
- * assinatura e Tenant Context continuam exigidos em executarFerramentaMcp. Um manifesto de outro grupo (ADMIN_ACTIONS,
- * CONTRACT_IMPORT) continuaria exigindo a própria flag e a allowlist da IA: falha fechada para o que não for leitura.
+ * assinatura e Tenant Context continuam exigidos em executarFerramentaMcp. O canal só serve manifesto de LEITURA (grupo READ
+ * ou NENHUM): qualquer outro grupo (FUNDACAO, ADMIN_ACTIONS, CONTRACT_IMPORT) fecha o canal, sem exceção (Astra r1, P2).
+ * Exportada só para teste; a execução não aceita outro manifesto além dos canônicos de leitura.
  */
-function leituraDoCanal(m: Manifesto) {
-  return m.grupoExigido === "NENHUM" || m.grupoExigido === "READ";
-}
-
-function grupoLiberadoNoCanal(env: AmbienteMcp, m: Manifesto) {
+export function grupoLiberadoNoCanal(env: AmbienteMcp, m: Manifesto) {
   if (!inteligenciaAtiva(env)) return false;
-  return leituraDoCanal(m) ? true : grupoAtivo(env, m.grupoExigido as Exclude<Manifesto["grupoExigido"], "NENHUM">);
-}
-
-function grupoLiberadoNaEmpresa(env: AmbienteMcp, m: Manifesto, empresaId: string) {
-  if (!grupoLiberadoNoCanal(env, m)) return false;
-  return leituraDoCanal(m) ? true : grupoAtivoParaEmpresa(env, m.grupoExigido as Exclude<Manifesto["grupoExigido"], "NENHUM">, empresaId);
+  return m.grupoExigido === "NENHUM" || m.grupoExigido === "READ";
 }
 
 const SAIDAS: { [K in NomeFerramentaMcp]: z.ZodType<Saidas[K]> } = {
@@ -1030,7 +1022,7 @@ export async function executarFerramentaMcp<K extends NomeFerramentaMcp>(
     const dados = await comPrazo(Math.min(manifesto.prazoMs, LIMITES_MCP.prazoFerramentaMs), () => deps.withTenantTransaction(sessao, principal.empresaId, async (tx, tenant) => {
       if (tenant.empresaComprovada !== principal.empresaId || tenant.usuarioId !== principal.usuarioId) throw recusa.acesso();
       if (!empresaNoPilotoMcp(deps.env, tenant.empresaComprovada)) throw recusa.canal();
-      exigirPapel(tenant.papelAtual, manifesto, grupoLiberadoNaEmpresa(deps.env, manifesto, tenant.empresaComprovada));
+      exigirPapel(tenant.papelAtual, manifesto, grupoLiberadoNoCanal(deps.env, manifesto));
       if (!(await deps.concessaoVigente(tx, principal))) throw recusa.acesso();
       if (!(await deps.leituraComercialPermitida(tx, tenant.empresaComprovada))) throw recusa.assinatura();
       return (async (): Promise<Saidas[NomeFerramentaMcp]> => {

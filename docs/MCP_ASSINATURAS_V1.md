@@ -36,7 +36,7 @@
 | Agenda hoje/amanhã | `agendaDoTenant` (fonte de `agenda_do_dia`) + mesmas regras de `montarAgenda` | Fonte só tem escopo de EMPRESA ⇒ saída declara `escopo: "EMPRESA"`; sem filtro de unidade |
 | Recebíveis | `listarRecebiveis` (fonte de `analisar_recebiveis`) + mesmas faixas | Paridade provada por teste contra `montarAnaliseRecebiveis` |
 | Política | `decidirPolitica` (Policy V1) com o **manifesto canônico** de `agenda_do_dia`/`analisar_recebiveis` | Papel global antes; papel da MEMBERSHIP dentro do tenant |
-| Flags | `grupoAtivo` / `grupoAtivoParaEmpresa` (`lib/inteligencia/flags.ts`) | Chave-mestra + READ + allowlist da IA continuam obrigatórias |
+| Flags | `inteligenciaAtiva` (`lib/inteligencia/flags.ts`) via `grupoLiberadoNoCanal` | Desde 19/11/2026: só a chave-mestra; `AI_READ_ENABLED` e `AI_TENANT_ALLOWLIST` não valem para o canal. Só manifesto READ/NENHUM passa; a allowlist é a `MCP_TENANT_ALLOWLIST` |
 | Tenant | `withTenantTransaction` → `provarTenant` + `revalidarTenant` | Principal OAuth vira `SessaoParaTenant` **sem** `id` de sessão (não fabrica sessão UI) |
 | Prazo | `comPrazo` do gateway, limitado ao manifesto (≤ 5 s) | |
 | Minimização | `chaveProibida` do Tool Registry (exportada) + schema zod estrito por DTO | Lista positiva, não remoção de campos |
