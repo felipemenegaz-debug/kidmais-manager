@@ -1,3 +1,4 @@
+import * as limitesEscolhas from '../../lib/comercial/limites-escolhas.ts';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
@@ -5,7 +6,7 @@ import type { DbExecutor } from '../../lib/db/contracts.ts';
 import * as duracao from '../../lib/comercial/duracao.ts';
 import * as liberacao from '../../lib/agenda/saloes-liberacao.ts';
 import { definirSaloesPacote, exigirTipoDeAgendaLiberado } from '../../lib/agenda/configuracao-unidade.ts';
-import { achar, carregarComponente, cssFalso, elementos, texto } from './teste-componente.ts';
+import { achar, carregarComponente, cssFalso, elementos, texto, tique } from './teste-componente.ts';
 
 /**
  * Parecer do Astra de 25/10/2026 sobre a agenda com um salão (P2/P3, sem banco; o P1 da regra SQL fica para a migration):
@@ -91,16 +92,24 @@ test('pacote novo sem salões conta como nenhum; duplicar/revisar copiam os sal�
   assert.match(rota, /const criado = await criarPacoteAdmin\([^)]*\);\s*\/\/[^\n]*\n\s*await definirSaloesPacote\(tx, tenant\.empresaComprovada, criado\.id, \[\]\);/);
 });
 
-test('"Revisar e confirmar" de pacote antigo sem salão pede o salão e não esconde o formulário', () => {
-  function Botao(props: { children?: unknown }) { return props.children; }
-  function Vazio() { return null; }
-  const tela = carregarComponente('components/admin/PacotesAdmin.tsx', {
-    '@/lib/http/admin-fetch': { adminFetch: async () => Response.json({ ok: true, data: {} }) },
+function Botao(props: { children?: unknown }) { return props.children; }
+function Vazio() { return null; }
+function telaPacote(adminFetch: (url: string, opcoes?: RequestInit) => Promise<Response> = async () => Response.json({ ok: true, data: {} })) {
+  return carregarComponente('components/admin/PacotesAdmin.tsx', {
+    '@/lib/comercial/limites-escolhas': limitesEscolhas,
+    '@/lib/http/admin-fetch': { adminFetch },
     './workspace.module.css': cssFalso, './visual.module.css': cssFalso, './catalogo-editor.module.css': cssFalso,
     './DurationField': { DurationField: Vazio }, '@/lib/comercial/duracao': duracao, './AjudaCampo': { AjudaCampo: Vazio },
     './AdminPrimaryButton': { AdminPrimaryButton: Botao }, './ConfirmarPrecosPacote': { ConfirmarPrecosPacote: Vazio },
     './SaloesCombinados': { AVISO_COMBINADO: '' }, '@/lib/agenda/saloes-liberacao': liberacao,
     './PrecosPorQuantidade': { erroDosPontos: () => null, PrecosPorQuantidade: Vazio, pontosDaTela: () => [], valorDigitado: (v: unknown) => String(v) },
+  });
+}
+test('"Revisar e confirmar" de pacote antigo sem salão pede o salão e não esconde o formulário', async () => {
+  const envios: { conversao?: boolean; pontos?: unknown[] }[] = [];
+  const tela = telaPacote(async (_url, opcoes) => {
+    if (opcoes?.body) envios.push(JSON.parse(String(opcoes.body)));
+    return Response.json({ ok: false, erro: 'Envio capturado.' });
   });
   const pacote = { id: 'p1', nome: 'Festa antiga', descricao: null, duracaoMinutos: 240, convidadosMinimos: 50, convidadosMaximos: 100, diasPermitidos: [6], ativo: true, arquivadoEm: null };
   const vitrine = {
@@ -109,6 +118,8 @@ test('"Revisar e confirmar" de pacote antigo sem salão pede o salão e não esc
       faixas: { editavel: true, aConfirmar: true, faixas: [{ convidadosMin: 50, convidadosMax: 100, valor: '5000' }], proposta: [] } },
   };
   let arvore = tela.render('default', { vitrine });
+  (achar(arvore, 'form').props.onSubmit as (e: { preventDefault(): void }) => void)({ preventDefault() {} });
+  assert.match(texto(tela.render('default', { vitrine })), /Escolha o salão ou os salões/);
   (achar(arvore, Botao, 'Revisar e confirmar').props.onClick as () => void)();
   arvore = tela.render('default', { vitrine });
   assert.match(texto(arvore), /Escolha o salão ou os salões deste pacote\./);
@@ -121,4 +132,74 @@ test('"Revisar e confirmar" de pacote antigo sem salão pede o salão e não esc
   arvore = tela.render('default', { vitrine });
   assert.doesNotMatch(texto(arvore), /Escolha o salão ou os salões deste pacote\./);
   assert.equal(elementos(arvore).find((e) => e.type === 'form')?.props.hidden, true, 'formulário escondido: confirmação aberta');
+  // Nova tela, já com salão: confirmar somente a conversão deve enviar mesmo com todos os campos iguais.
+  const completa = { ...vitrine, edicao: { ...vitrine.edicao, saloes: ['S1'] } };
+  const outra = telaPacote(async (_url, opcoes) => {
+    if (opcoes?.body) envios.push(JSON.parse(String(opcoes.body)));
+    return Response.json({ ok: false, erro: 'Envio capturado.' });
+  });
+  (achar(outra.render('default', { vitrine: completa }), Botao, 'Revisar e confirmar').props.onClick as () => void)();
+  const confirmar = elementos(outra.render('default', { vitrine: completa })).find(e => e.props.onConfirmar);
+  assert.ok(confirmar);
+  const proposta = [{ convidados: 50, valor: '5000.00' }];
+  (confirmar.props.onConfirmar as (p: typeof proposta) => void)(proposta);
+  await tique();
+  assert.equal(envios.length, 1);
+  assert.equal(envios[0].conversao, true);
+  assert.deepEqual(envios[0].pontos, proposta);
+});
+
+test('editor mostra as regras, quantidade ativa e aviso, e salva o limite antigo sem conversão', async () => {
+  const gravados: unknown[] = [];
+  let minimoBanco = 0, falharLeitura = false;
+  const tela = telaPacote(async (url, opcoes) => {
+    if (opcoes?.body) {
+      const regras = JSON.parse(String(opcoes.body)).categorias;
+      minimoBanco = regras[0].escolhasMin;
+      gravados.push(regras);
+      return Response.json({ ok: true, data: { pacote } });
+    }
+    if (url.endsWith('/p1')) {
+      if (falharLeitura) return Response.json({ ok: false, erro: 'Falha de leitura simulada.' });
+      return Response.json({ ok: true, data: { ...vitrine.edicao, categorias: [{ ...vitrine.edicao.categorias[0], escolhasMin: minimoBanco }] } });
+    }
+    return Response.json({ ok: true, data: vitrine });
+  });
+  const categoria = { id: 'categoria', nome: 'Doces' };
+  const pacote = { id: 'p1', nome: 'Festa', descricao: null, duracaoMinutos: 240, convidadosMinimos: 20, convidadosMaximos: 100, diasPermitidos: [], ativo: true, arquivadoEm: null };
+  const vitrine = { pacotes: [pacote], horarios: [], categorias: [categoria],
+    itens: ['Brigadeiro', 'Beijinho', 'Cajuzinho'].map(nome => ({ id: nome, nome, categoria_id: categoria.id })),
+    edicao: { pacote, disponibilidade: [], categorias: [{ categoriaId: categoria.id, escolhas: 3, ativo: true, selecionadosAtivos: 0 }], faixas: { editavel: false, faixas: [] } } };
+  const render = () => tela.render('default', { vitrine });
+  const antigo = render();
+  assert.match(texto(antigo), /Escolha até 3/);
+  assert.match(texto(antigo), /3 itens ativos/);
+  assert.match(texto(antigo), /0 itens disponíveis neste pacote/);
+  assert.match(texto(antigo), /O limite supera/);
+  await (achar(antigo, 'form').props.onSubmit as (e: { preventDefault(): void }) => Promise<void>)({ preventDefault() {} });
+  assert.deepEqual(gravados, [], 'salvar sem alteração não gera revisão nem envia requisição');
+  const mudarModo = (modo: string) => {
+    const linha = achar(render(), 'fieldset', /Doces/);
+    (achar(linha, 'select').props.onChange as (e: { target: { value: string } }) => void)({ target: { value: modo } });
+  };
+  mudarModo('exato');
+  assert.match(texto(render()), /Escolha 3/);
+  mudarModo('faixa');
+  assert.match(texto(render()), /Escolha de 1 a 3/);
+  await (achar(render(), 'form').props.onSubmit as (e: { preventDefault(): void }) => Promise<void>)({ preventDefault() {} });
+  assert.deepEqual(gravados, [[{ categoriaId: categoria.id, escolhas: 3, escolhasMin: 1 }]]);
+  await tique();
+  const salvar = async () => {
+    (achar(render(), 'form').props.onSubmit as (e: { preventDefault(): void }) => void)({ preventDefault() {} });
+    await tique();
+  };
+  await salvar();
+  assert.equal(gravados.length, 1, 'salvar novamente não cria outra revisão');
+  mudarModo('ate');
+  falharLeitura = true;
+  await salvar();
+  assert.equal(minimoBanco, 0, 'restaurar o valor anterior foi salvo');
+  mudarModo('faixa');
+  await salvar();
+  assert.equal(minimoBanco, 1, 'falha de recarga não deixa a referência antiga engolir a alteração');
 });

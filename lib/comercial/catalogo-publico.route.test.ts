@@ -53,7 +53,7 @@ function carregar(arquivo: string, opcoes: { empresa?: string; ativa?: boolean; 
           if (sql.includes("SELECT DISTINCT i.codigo")) return resultado([]);
           if (sql.includes("FROM pacote_buffet_categorias")) {
             assert.equal(valores[0], linhas[0].id);
-            return resultado([{ categoria_id: "c", codigo: "DOCES", nome: "Doces A", escolhas_max: 2, item_id: "i", item_nome: "Doce A" }]);
+            return resultado([{ categoria_id: "c", codigo: "DOCES", nome: "Doces A", escolhas_min: 1, escolhas_max: 2, item_id: "i", item_nome: "Doce A" }]);
           }
           throw Error("Consulta inesperada: " + sql);
         },
@@ -142,6 +142,8 @@ test("catálogo configurado: pacote, adicionais e buffet só de A, mesmo com B/A
     } else if (rota === "adicionais") {
       assert.deepEqual(corpo.adicionais.map((a: { id: string; preco: number }) => [a.id, a.preco]), [["bombom", 5]]);
     } else {
+      assert.equal(corpo.categorias[0].min, 1);
+      assert.equal(corpo.categorias[0].max, 2);
       assert.equal(corpo.categorias[0].itens[0].nome, "Doce A");
     }
     assert.doesNotMatch(JSON.stringify(corpo), /Completa B/);

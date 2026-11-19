@@ -1,3 +1,4 @@
+import { escopoCardapioPublico, lerCardapioPublico } from "./cardapio-publico.ts";
 import test from "node:test";
 import assert from "node:assert/strict";
 import { createHash, randomBytes, randomUUID } from "node:crypto";
@@ -10,6 +11,7 @@ import { carregarModulo } from "../acessos/teste-carregador.ts";
 import { salvarAdicionalEmEtapas } from "./adicionais-admin.ts";
 import { adicionaisDoPacoteNoTenant } from "./adicionais-tenant.ts";
 import { criarCategoriaBuffet, criarItemBuffet, editarCategoriaBuffet, excluirCategoriaBuffet, lerCatalogoBuffet } from "./catalogo-buffet.ts";
+import { painelPacoteAdmin } from './pacote-comercial.ts';
 import { gravarFaixasPacote } from "./pacote-precos.ts";
 import { definirCategoriasPacoteAdmin, definirDisponibilidadePacoteAdmin, definirItensEspecificosPacoteAdmin } from "./pacotes-admin.ts";
 import { conectarDescartavel, encerrarDescartavel } from "./postgres-descartavel.ts";
@@ -113,6 +115,7 @@ test.before(async () => {
 test.after(async () => { if (client) await encerrarDescartavel(client); });
 
 test("antes da 078: 070 aplicada; catálogo global da 022 em uso pela Kidmais e por OUTRA (pacote, item solto, adicional e pedido)", async () => {
+  assert.equal((await escopoCardapioPublico(tx, "kidmais")).empresaId, undefined, "o catálogo global não pode ser publicado");
   await semTransacaoPendente(() => client.query(arquivo(M070)));
   kidmais = (await client.query<{ id: string }>(`SELECT id::text AS id FROM empresas WHERE codigo = 'kidmais'`)).rows[0].id;
   const id = async (sql: string, p: unknown[] = []) => (await client.query<{ id: string }>(sql, p)).rows[0].id;
@@ -286,10 +289,86 @@ test("escrita: Y não edita, exclui nem usa categoria/item de X (serviço = 404/
   await emTransacao(() => definirCategoriasPacoteAdmin(tx, pacoteY, [{ categoriaId: salgadosY, escolhas: 1 }], ctx(Y)));
 });
 
+test("cardápio público na estrutura 078: cada empresa publica apenas as próprias opções", async () => {
+  assert.deepEqual(await lerCardapioPublico(tx, X), [{ codigo: "salgados", nome: "Salgados", itens: ["Coxinha X"] }]);
+  assert.deepEqual(await lerCardapioPublico(tx, Y), [{ codigo: "salgados", nome: "Salgados", itens: ["Empada Y"] }]);
+});
+
 test("pedido: a escolha só aceita item do catálogo da empresa do pacote, mesmo com o mesmo código de categoria", async () => {
   await recusa(resolverEscolhasBuffet(tx, pacoteY, { SALGADOS: [coxinhaX] }, "DEFINIDO"), /indisponível para este pacote/);
   const ok = await resolverEscolhasBuffet(tx, pacoteY, { SALGADOS: [empadaY] }, "DEFINIDO") as { campos: { buffetSalgados: string } };
   assert.equal(ok.campos.buffetSalgados, "Empada Y");
+});
+
+test("limites por categoria: três formas, mínimo só no buffet definido e compatibilidade de gravação", async () => {
+  const salvar = (min: number | undefined, max: number) =>
+    emTransacao(() => definirCategoriasPacoteAdmin(tx, pacoteY, [{ categoriaId: salgadosY, escolhasMin: min, escolhas: max }], ctx(Y)));
+  const ler = async () => (await client.query("SELECT escolhas_min, escolhas_max FROM pacote_buffet_categorias WHERE pacote_id=$1 AND categoria_id=$2", [pacoteY, salgadosY])).rows[0];
+  for (const [min, max] of [[0, 3], [2, 4], [1, 1]]) {
+    await salvar(min, max);
+    assert.deepEqual(await ler(), { escolhas_min: min, escolhas_max: max });
+  }
+  await salvar(undefined, 1);
+  assert.deepEqual(await ler(), { escolhas_min: 1, escolhas_max: 1 });
+  for (const [min, max] of [[0, 0], [4, 3], [0, 31]]) await recusa(salvar(min, max), /máximo inteiro|mínimo inteiro/);
+  await recusa(resolverEscolhasBuffet(tx, pacoteY, {}, "DEFINIDO"), /Salgados: Escolha 1/);
+  assert.equal(await resolverEscolhasBuffet(tx, pacoteY, {}, "PENDENTE"), null);
+  assert.ok(await resolverEscolhasBuffet(tx, pacoteY, { SALGADOS: [empadaY] }, "DEFINIDO"));
+});
+
+test("editar limite mantém vínculo de categoria oculta e SELECIONADOS vazio", async () => {
+  const oculta = await criarCategoriaBuffet(tx, Y, "Categoria antiga");
+  await emTransacao(() => definirCategoriasPacoteAdmin(tx, pacoteY, [
+    { categoriaId: oculta, escolhasMin: 1, escolhas: 4 }, { categoriaId: salgadosY, escolhasMin: 0, escolhas: 2 },
+  ], ctx(Y)));
+  await client.query("UPDATE pacote_buffet_categorias SET modo_itens='SELECIONADOS' WHERE pacote_id=$1", [pacoteY]);
+  const ler = async () => (await client.query("SELECT categoria_id, ativo, modo_itens, escolhas_min, escolhas_max FROM pacote_buffet_categorias WHERE pacote_id=$1 ORDER BY categoria_id", [pacoteY])).rows;
+  await client.query("UPDATE buffet_categorias SET ativo=false WHERE id=$1", [oculta]);
+  const antes = await ler();
+  await emTransacao(() => definirCategoriasPacoteAdmin(tx, pacoteY, [{ categoriaId: salgadosY, escolhasMin: 2, escolhas: 3 }], ctx(Y)));
+  const depois = await ler();
+  assert.deepEqual(depois.find(r => r.categoria_id === oculta), antes.find(r => r.categoria_id === oculta));
+  assert.deepEqual(depois.find(r => r.categoria_id === salgadosY), { categoria_id: salgadosY, ativo: true, modo_itens: "SELECIONADOS", escolhas_min: 2, escolhas_max: 3 });
+  assert.equal((await client.query("SELECT 1 FROM pacote_buffet_itens WHERE pacote_id=$1", [pacoteY])).rowCount, 0);
+  const { GET } = carregarModulo("app/api/fechamentos/catalogo/route.ts", {
+    "lib/db/postgres": { db: () => tx },
+    "lib/http/limite-publico": { limitarPublico: async () => null },
+    "lib/comercial/cotacao-publica": {
+      codigoEmpresaDoPedido: () => null,
+      escopoCotacaoPublica: async () => ({ empresaId: Y, porCodigo: true }),
+    },
+    "lib/comercial/repositories": { buscarPacoteVigenteDaEmpresaPorCodigo: async () => ({ id: pacoteY }) },
+  }, new Map()) as { GET(request: { nextUrl: URL }): Promise<Response> };
+  const opcoesPublicas = async () => {
+    const resposta = await GET({ nextUrl: new URL("https://buffet.test/api/fechamentos/catalogo?pacote=POCKET") });
+    assert.equal(resposta.status, 200);
+    return (await resposta.json()).categorias;
+  };
+  const categoriaPublica = { codigo: "SALGADOS", nome: "Salgados", min: 2, max: 3 };
+  // A categoria obrigatória continua visível e exigida mesmo quando nenhum item passa pelo ON.
+  assert.deepEqual(await opcoesPublicas(), [{ ...categoriaPublica, itens: [] }]);
+  await recusa(resolverEscolhasBuffet(tx, pacoteY, {}, "DEFINIDO"), /Salgados: Escolha de 2 a 3/);
+  await recusa(resolverEscolhasBuffet(tx, pacoteY, { SALGADOS: [empadaY] }, "DEFINIDO"), /indisponível para este pacote/);
+  assert.equal(await resolverEscolhasBuffet(tx, pacoteY, {}, "PENDENTE"), null);
+  const selecionados = async () => (await painelPacoteAdmin(tx, Y, pacoteY))?.categorias.find(c => c.categoriaId === salgadosY)?.selecionadosAtivos;
+  assert.equal(await selecionados(), 0);
+  await client.query("INSERT INTO pacote_buffet_itens (pacote_id, categoria_id, item_id) VALUES ($1,$2,$3)", [pacoteY, salgadosY, empadaY]);
+  assert.equal(await selecionados(), 1);
+  assert.deepEqual(await opcoesPublicas(), [{ ...categoriaPublica, itens: [{ id: empadaY, nome: "Empada Y" }] }]);
+  await client.query("UPDATE buffet_itens SET ativo=false WHERE id=$1", [empadaY]);
+  assert.equal(await selecionados(), 0);
+  assert.deepEqual(await opcoesPublicas(), [{ ...categoriaPublica, itens: [] }]);
+});
+
+test("alterar o limite de um pacote usado preserva o fechamento anterior", async () => {
+  const categoria = (await client.query("SELECT categoria_id FROM pacote_buffet_categorias WHERE pacote_id=$1 AND ativo LIMIT 1", [pacoteOutra])).rows[0].categoria_id;
+  const antes = await Promise.all(TABELAS_HISTORICO.map(impressao));
+  const revisao = await emTransacao(() => definirCategoriasPacoteAdmin(tx, pacoteOutra, [{ categoriaId: categoria, escolhasMin: 3, escolhas: 5 }], ctx(OUTRA)));
+  assert.notEqual(revisao.id, pacoteOutra);
+  const linha = async (id: string) => (await client.query("SELECT escolhas_min, escolhas_max FROM pacote_buffet_categorias WHERE pacote_id=$1 AND categoria_id=$2", [id, categoria])).rows[0];
+  assert.deepEqual(await linha(pacoteOutra), { escolhas_min: 0, escolhas_max: 2 });
+  assert.deepEqual(await linha(revisao.id), { escolhas_min: 3, escolhas_max: 5 });
+  assert.deepEqual(await Promise.all(TABELAS_HISTORICO.map(impressao)), antes);
 });
 
 test("adicional do buffet e cotação: origem de outra empresa é recusada; a cotação de Y não enxerga o adicional de X", async () => {

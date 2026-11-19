@@ -245,6 +245,9 @@
   box-sizing: border-box;
 }
 .mensagensAcao .erro, .mensagensAcao .aviso { padding: 12px 14px; }
+@media not all and (max-width: 800px) {
+  .mensagensAcao { left: calc(50% + var(--admin-sidebar-width, 256px) / 2); width: min(560px, calc(100% - var(--admin-sidebar-width, 256px) - 32px)); }
+}
 .editor .mensagensAcao .fecharMensagem { flex: 0 0 auto; min-width: 44px; min-height: 44px; padding: 0; border: 0; background: transparent; box-shadow: none; font-size: 20px; line-height: 1; color: var(--secondary-text); }
 .editor .mensagensAcao .fecharMensagem:focus-visible { outline: 2px solid var(--lilac-accent); outline-offset: 2px; }
 .sugestaoOriginal blockquote { border-left-color: var(--lilac-accent); color: var(--main-text); background: #ffffff08; border-radius: 0 10px 10px 0; }

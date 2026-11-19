@@ -1,3 +1,4 @@
+import { erroLimitesEscolhas } from "./limites-escolhas.ts";
 import type { DbExecutor } from "../db/contracts.ts";
 import { randomUUID } from "node:crypto";
 import { auditarMutacaoComercial } from "./auditoria-comercial.ts";
@@ -519,6 +520,10 @@ export async function alterarComposicaoPacoteAdmin(
   const atual = await buscar(tx, ctx.empresaId, id, true);
   if (!atual) recusar("NAO_ENCONTRADO", "Pacote não encontrado nesta empresa.", 404);
   if (atual.arquivadoEm) recusar("ARQUIVADO", "Pacote arquivado não recebe composição por esta ação.", 409);
+  if (mudanca.tipo === "buffet") {
+    const erro = erroLimitesEscolhas(mudanca.escolhasMin, mudanca.escolhasMax);
+    if (erro) recusar("LIMITE_BUFFET", erro, 409);
+  }
   if (mudanca.tipo === "vinculo") {
     await exigirVinculoNaEmpresa(tx, ctx.empresaId, {
       sql: sqlPacoteAdicionalMesmaEmpresa(),
@@ -749,13 +754,17 @@ export async function definirDisponibilidadePacoteAdmin(
 export async function definirCategoriasPacoteAdmin(
   tx: DbExecutor,
   id: string,
-  categorias: Array<{ categoriaId: string; escolhas: number }>,
+  categorias: Array<{ categoriaId: string; escolhas: number; escolhasMin?: number }>,
   ctx: Contexto,
 ) {
   if (!ctx.motivo || ctx.motivo.trim().length < 3) recusar("DADOS_INVALIDOS", "A mudança de composição exige um motivo.", 409);
   const atual = await buscar(tx, ctx.empresaId, id, true);
   if (!atual) recusar("NAO_ENCONTRADO", "Pacote não encontrado nesta empresa.", 404);
   if (atual.arquivadoEm) recusar("ARQUIVADO", "Pacote arquivado não recebe composição por esta ação.", 409);
+  for (const categoria of categorias) {
+    const erro = erroLimitesEscolhas(categoria.escolhasMin ?? 0, categoria.escolhas);
+    if (erro) recusar("LIMITE_BUFFET", erro, 409);
+  }
   const ids = [...new Set(categorias.map((categoria) => categoria.categoriaId))];
   if (ids.length > 0) {
     // 078: só categorias do catálogo da própria empresa; antes dela, qualquer categoria cadastrada (catálogo global).
@@ -776,17 +785,21 @@ export async function definirCategoriasPacoteAdmin(
     }, ctx, { silenciarAuditoria: true })
     : atual;
   const antes = await lerComposicao(tx, destino.id);
+  for (const categoria of categorias) {
+    if (categoria.escolhasMin !== undefined) continue;
+    const existente = antes.buffet.find(item => item.categoriaId === categoria.categoriaId);
+    const erro = erroLimitesEscolhas(existente?.escolhasMin ?? 0, categoria.escolhas);
+    if (erro) recusar("LIMITE_BUFFET", erro, 409);
+  }
   await tx.query(
-    `UPDATE pacote_buffet_categorias
+    `UPDATE pacote_buffet_categorias r
         SET ativo = false
-      WHERE pacote_id = $1::uuid
-        AND NOT (categoria_id = ANY($2::uuid[]))`,
+      WHERE r.pacote_id = $1::uuid AND r.ativo
+        AND NOT (r.categoria_id = ANY($2::uuid[]))
+        AND EXISTS (SELECT 1 FROM buffet_categorias c WHERE c.id = r.categoria_id AND c.ativo)`,
     [destino.id, ids],
   );
   for (const categoria of categorias) {
-    if (!Number.isInteger(categoria.escolhas) || categoria.escolhas < 0 || categoria.escolhas > 30) {
-      recusar("LIMITE_BUFFET", "Informe quantas opções o cliente escolhe, de 0 a 30.", 409);
-    }
     await tx.query(
       `INSERT INTO pacote_buffet_categorias (pacote_id, categoria_id, modo_itens, escolhas_min, escolhas_max, ativo)
        VALUES (
@@ -795,23 +808,14 @@ export async function definirCategoriasPacoteAdmin(
            SELECT 1 FROM pacote_buffet_itens
             WHERE pacote_id = $1::uuid AND categoria_id = $2::uuid
          ) THEN 'SELECIONADOS' ELSE 'TODOS_ATIVOS' END,
-         0, $3, true
+         COALESCE($4::int, 0), $3, true
        )
        ON CONFLICT (pacote_id, categoria_id)
        DO UPDATE SET
+         escolhas_min = COALESCE($4::int, pacote_buffet_categorias.escolhas_min),
          escolhas_max = EXCLUDED.escolhas_max,
-         ativo = true,
-         modo_itens = CASE
-           WHEN pacote_buffet_categorias.modo_itens = 'SELECIONADOS'
-            AND EXISTS (
-              SELECT 1 FROM pacote_buffet_itens
-               WHERE pacote_id = pacote_buffet_categorias.pacote_id
-                 AND categoria_id = pacote_buffet_categorias.categoria_id
-            )
-           THEN 'SELECIONADOS'
-           ELSE 'TODOS_ATIVOS'
-         END`,
-      [destino.id, categoria.categoriaId, categoria.escolhas],
+         ativo = true`,
+      [destino.id, categoria.categoriaId, categoria.escolhas, categoria.escolhasMin ?? null],
     );
   }
   const depois = await lerComposicao(tx, destino.id);

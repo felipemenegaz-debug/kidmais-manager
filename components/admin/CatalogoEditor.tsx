@@ -3,6 +3,7 @@ import { FormEvent, useEffect, useMemo, useState } from 'react';
 import { adminFetch } from '@/lib/http/admin-fetch';
 import styles from './workspace.module.css';
 import editor from './catalogo-editor.module.css';
+import CompartilharCardapio from './CompartilharCardapio';
 import { AdminPrimaryButton } from './AdminPrimaryButton';
 import { formularioAdicional, pedidoAdicional, precoNaLista, UNIDADES, type AdicionaisAdmin, type AdicionalAdmin, type FormularioAdicional } from './catalogo-adicionais';
 
@@ -257,6 +258,7 @@ export default function CatalogoEditor({ vitrine }: { vitrine?: Catalogo & { sec
   return <main className={styles.page} data-admin-workspace>
     <header className={styles.header}>
       <h1>Itens do Buffet</h1>
+      {!vitrine && <CompartilharCardapio />}
       <AdminPrimaryButton disabled={secao === 'outros' && !adicionais} onClick={() => {
         setErro('');
         if (secao === 'outros') { abrirAdicional(null); return; }

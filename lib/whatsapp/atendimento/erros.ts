@@ -22,6 +22,7 @@ const MENSAGEM: Record<string, string> = {
   ATENDIMENTO_PRONTA_TITULO_EM_USO: 'Já existe uma mensagem pronta com este título.',
   ATENDIMENTO_PRONTA_DESATUALIZADA: 'A mensagem pronta mudou. Atualize a lista antes de continuar.',
   ATENDIMENTO_PRONTA_NAO_ENCONTRADA: 'Mensagem pronta não encontrada. Atualize a lista.',
+  ATENDIMENTO_CARDAPIO_INDISPONIVEL: 'Este buffet ainda não tem um cardápio público disponível para compartilhar.',
   ATENDIMENTO_MIDIA_INDISPONIVEL: 'Fotos, vídeos e os atalhos de salgados, bolos, endereço e localização ainda não estão disponíveis neste ambiente (migration 081 não aplicada).',
   ATENDIMENTO_LEGENDA_LONGA: 'A legenda da foto ou do vídeo passa de 1024 caracteres.',
   ATENDIMENTO_RECURSO_082_INDISPONIVEL: 'PDF, arquivos próprios, rascunho/publicação e envio automático pelo Wall-e ainda não estão disponíveis neste ambiente (migration 082 não aplicada).',
@@ -41,7 +42,7 @@ const MENSAGEM: Record<string, string> = {
   ATENDIMENTO_PRONTA_MIDIA_ALTERADA: 'A foto ou o vídeo desta mensagem pronta mudou ou foi removido depois da prévia. Nada foi enviado: remova o anexo e abra a prévia de novo para revisar.',
 };
 // Regra de negócio não é indisponibilidade: só falha inesperada (banco, configuração) devolve 503.
-const CONFLITO = ['ATENDIMENTO_DESATUALIZADO', 'ATENDIMENTO_ENVIO_EM_ANDAMENTO', 'ATENDIMENTO_CONTATO_BLOQUEADO', 'ATENDIMENTO_PAUSA_PEDIDA', 'ATENDIMENTO_JANELA_EXPIRADA', 'ATENDIMENTO_ASSUMA_ANTES_DE_ENVIAR', 'ATENDIMENTO_AUTOMACAO_DESLIGADA', 'ATENDIMENTO_RECURSO_NAO_INCLUIDO', 'ATENDIMENTO_IA_DESLIGADA', 'ATENDIMENTO_LEGENDA_LONGA',
+const CONFLITO = ['ATENDIMENTO_CARDAPIO_INDISPONIVEL', 'ATENDIMENTO_DESATUALIZADO', 'ATENDIMENTO_ENVIO_EM_ANDAMENTO', 'ATENDIMENTO_CONTATO_BLOQUEADO', 'ATENDIMENTO_PAUSA_PEDIDA', 'ATENDIMENTO_JANELA_EXPIRADA', 'ATENDIMENTO_ASSUMA_ANTES_DE_ENVIAR', 'ATENDIMENTO_AUTOMACAO_DESLIGADA', 'ATENDIMENTO_RECURSO_NAO_INCLUIDO', 'ATENDIMENTO_IA_DESLIGADA', 'ATENDIMENTO_LEGENDA_LONGA',
   'ATENDIMENTO_PRONTA_ATALHO_EM_USO', 'ATENDIMENTO_PRONTA_TITULO_EM_USO', 'ATENDIMENTO_PRONTA_DESATUALIZADA', 'ATENDIMENTO_PRONTA_MIDIA_ALTERADA', 'ATENDIMENTO_RECURSO_082_INDISPONIVEL', 'ATENDIMENTO_ARQUIVO_INVALIDO',
   'ATENDIMENTO_ARQUIVO_INDISPONIVEL', 'ATENDIMENTO_ARQUIVO_VENCIDO', 'ATENDIMENTO_ARQUIVO_NAO_VENCIDO', 'ATENDIMENTO_EXCLUSAO_ADIADA', 'ATENDIMENTO_GRUPO_PARCIAL'];
 // Dado informado inválido (data, prazo): 400, nunca 503.

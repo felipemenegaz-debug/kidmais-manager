@@ -111,7 +111,7 @@ const cor = async c => dataUrl(await sharp({ create: { width: 300, height: 400, 
       const recuperar = async (rotulo, consultas) => {
         cenario.gerar = () => 'pendurar';
         const enviosAntes = comandos.filter(c => c.acao === 'gerar').length, pendentesAntes = pendentes.length;
-        await gerar.click(); await status('Gerando sua arte').waitFor();
+        await gerar.click(); await page.locator('[data-mensagens-acao]').filter({ hasText: 'Gerando sua arte' }).waitFor();
         for (let i = 0; i < 100 && pendentes.length === pendentesAntes; i++) await page.waitForTimeout(50);
         assert.equal(pendentes.length, pendentesAntes + 1, `${rotulo}: POST chegou ao servidor e ficou sem resposta antes da recarga`);
         assert.equal(comandos.filter(c => c.acao === 'gerar').length, enviosAntes + 1);
@@ -147,7 +147,7 @@ const cor = async c => dataUrl(await sharp({ create: { width: 300, height: 400, 
       cenario.consultas = [{ chave: 'chave-de-outra-pessoa', estado: 'EM_ANDAMENTO' },
         () => { dados.artes = [arte(203), ...dados.artes]; dados.geracaoEmAndamento = null; return { chave: 'chave-de-outra-pessoa', estado: 'CONCLUIDA', arteId: id(203) }; }];
       await page.reload(); await grupo.waitFor();
-      await status('Gerando sua arte').waitFor();
+      await page.locator('[data-mensagens-acao]').filter({ hasText: 'Gerando sua arte' }).waitFor();
       await local.fill('Editado durante a geração alheia');
       await status('A arte gerada já está nas imagens da festa').waitFor({ timeout: 20000 });
       assert.deepEqual(await marcado(), ['Convite pronto'], 'D: composição intacta');

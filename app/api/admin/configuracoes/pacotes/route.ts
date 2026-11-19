@@ -66,7 +66,8 @@ const salvar = z.object({
   conversao: z.boolean().optional(),
   categorias: z.array(z.object({
     categoriaId: uuid,
-    escolhas: z.number().int().min(0).max(30),
+    escolhas: z.number(),
+    escolhasMin: z.number().optional(),
   }).strict()).max(40),
   itens: z.array(uuid).max(200).optional(),
   /** 093: salões permitidos (vazio = todos). Ausente mantém os atuais. */

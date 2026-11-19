@@ -29,6 +29,7 @@ import VincularFesta from './VincularFesta';
 import { useLogoNoConvite, type LogoNoConvite } from './LogoNoConvite';
 import { confirmadosDasFilas } from '@/lib/convites/fila-logo';
 import { ProgressoGeracao } from './ProgressoGeracao';
+import { AvisoAcao } from './AvisoAcao';
 import { AVISO_FALHA_LEITURA_LOGO, controleDeCarga, FALHA_CARGA_CONVITE, LeituraCancelada, lerComRecuperacao, TEXTO_ESPERANDO_LOGO, TEXTO_LOGO_NAO_SALVA } from './logo-editor';
 type Arte = { id: string; url: string; origem: string; completo?: boolean };
 // Situação simples de um pedido de geração; pendências técnicas ficam com o operador da plataforma.
@@ -680,10 +681,10 @@ export default function ConviteEditor({ festaId, conviteId }: { festaId?: string
     <header className={ui.cabecalho}><div><p className={ui.sobretitulo}>{admin ? 'FESTAS · CONVITE VIRTUAL' : 'CONVITES'}</p><h1>{admin ? (dados?.festaId === null ? 'Convite avulso' : 'Convite da festa') : <>Uma festa começa<br />com um convite.</>}</h1><p>{admin ? 'Personalize o convite, compartilhe com o cliente e acompanhe as confirmações.' : 'Escolha um tema, dê seu toque e compartilhe esse momento.'}</p></div>{admin && <div className={ui.acoesCabecalho}><Link className={ui.voltar} href={festaId ? `/admin/festas/${festaId}` : "/admin/convites"}>{festaId ? "← Voltar à festa" : "← Meus convites"}</Link></div>}</header>
     {admin && conviteId && dados?.festaId === null && <VincularFesta conviteId={conviteId} revisao={dados.revisao} bloqueado={busy || alterado || !!dados.geracaoEmAndamento || !!dados.geracaoIncerta} onVinculado={async () => { await carregar(); setAviso("Festa vinculada. Confira os dados e publique o convite."); }} />}
     {/* Retorno das ações num aviso fixo no rodapé da tela: visível mesmo com a página rolada até a arte. */}
-    {(erro || aviso || dados?.geracaoIncerta) && <div className={classes('mensagensAcao')} data-mensagens-acao>
-      <div>{erro && <p className={ui.erro} role="alert">{erro}</p>}{(aviso || dados?.geracaoIncerta) && <p className={ui.aviso} role="status">{aviso || MENSAGEM_VERIFICANDO}</p>}</div>
-      {(erro || aviso) && !(gerando && aviso === MENSAGEM_GERANDO && !erro) && <button type="button" className={classes('fecharMensagem')} aria-label="Fechar aviso" onClick={() => { setErro(''); setAviso(''); }}><span aria-hidden="true">×</span></button>}
-    </div>}
+    <AvisoAcao erro={erro} aviso={aviso} avisoPadrao={dados?.geracaoIncerta ? MENSAGEM_VERIFICANDO : undefined}
+      anunciar={!(aviso === MENSAGEM_GERANDO && gerando && !dados?.laboratorioLocal && modoArte === 'ia')}
+      podeFechar={!(gerando && aviso === MENSAGEM_GERANDO && !erro)} onFechar={() => { setErro(''); setAviso(''); }}
+      classes={{ caixa: classes('mensagensAcao'), erro: ui.erro, aviso: ui.aviso, fechar: classes('fecharMensagem') }} />
     {carregando ? <p>Preparando seu convite…</p> : falhaCarga && !dados ? <section className={ui.painel} data-falha-carga><p className={ui.erro} role="alert">{falhaCarga}</p><button type="button" className={ui.primario} onClick={() => { setFalhaCarga(''); setCarregando(true); void primeiraCarga(() => true); }}>Tentar de novo</button></section> : !dados || !conteudo ? <section className={ui.painel}><h2>Seu convite começa aqui</h2><p>Modelos prontos e arte própria não consomem créditos de IA.</p>{admin && <button disabled={busy} className={ui.primario} onClick={() => { setBusy(true); void carregar(true).then(() => setErro('')).catch(e => setErro(e.message)).finally(() => setBusy(false)); }}>Criar convite da festa</button>}</section> : <>
       <div className={ui.barra}><span>{dados.publicado ? '● Publicado' : '○ Rascunho'}{alterado ? ' · Alterações não salvas' : ''}</span><span>{dados.laboratorioLocal ? 'Teste local' : dados.creditos?.motor === 'CREDITOS'
         ? <><strong>{dados.disponiveis}</strong> {comUnidade(dados.disponiveis, 'geração restante', 'gerações restantes')} neste convite · <strong>{dados.creditos.disponivel}</strong> {creditosDisponiveisDaEmpresa(dados.creditos.disponivel)}</>

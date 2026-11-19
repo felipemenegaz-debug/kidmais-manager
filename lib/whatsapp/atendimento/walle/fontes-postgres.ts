@@ -1,3 +1,4 @@
+import { ITEM_DE_ESCOLHA_SQL } from "../../../comercial/itens-de-escolha.ts";
 import { lerBaseDocumentoContrato } from '../../../contratos/documento/base-documento.ts';
 import type { DbExecutor } from '../../../db/contracts.ts';
 import { listarPacotesAdmin } from '../../../comercial/pacotes-admin.ts';
@@ -57,7 +58,7 @@ async function itensBuffet(ex: DbExecutor, pacoteIds: string[]) {
        FROM pacote_buffet_categorias r
        JOIN buffet_categorias c ON c.id=r.categoria_id AND c.ativo
        JOIN buffet_itens i ON i.categoria_id=c.id AND i.ativo
-            AND (r.modo_itens='TODOS_ATIVOS' OR EXISTS (SELECT 1 FROM pacote_buffet_itens x WHERE x.pacote_id=r.pacote_id AND x.categoria_id=c.id AND x.item_id=i.id))
+            AND ${ITEM_DE_ESCOLHA_SQL}
       WHERE r.pacote_id = ANY($1::uuid[]) AND r.ativo
       ORDER BY i.nome LIMIT 300`, [pacoteIds]);
   return r.rows.map((x) => x.nome);
@@ -140,7 +141,7 @@ export function fontesPostgres(ex: DbExecutor, alvo: { empresaId: string; ambien
            FROM pacote_buffet_categorias r
            JOIN buffet_categorias c ON c.id=r.categoria_id AND c.ativo
            LEFT JOIN buffet_itens i ON i.categoria_id=c.id AND i.ativo
-                AND (r.modo_itens='TODOS_ATIVOS' OR EXISTS (SELECT 1 FROM pacote_buffet_itens x WHERE x.pacote_id=r.pacote_id AND x.categoria_id=c.id AND x.item_id=i.id))
+                AND ${ITEM_DE_ESCOLHA_SQL}
           WHERE r.pacote_id=$1::uuid AND r.ativo
           GROUP BY c.id, c.nome, c.ordem_exibicao, r.escolhas_min, r.escolhas_max
           ORDER BY c.ordem_exibicao, c.nome`, [pacote.id]);
