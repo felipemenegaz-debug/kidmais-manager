@@ -103,7 +103,8 @@ test('lista fechada: só 120, 121, 110, 111, 115, 123, 124, 125, 126 e 127, na o
   const permitidos = {'123': ['migration-123-staging.cjs', 'migration-123-staging.test.cjs'],
     '124': ['migration-124-staging.cjs', 'migration-124-staging.test.cjs'],
     '125': ['migration-125-staging.cjs', 'migration-125-staging.test.cjs'],
-    '126': ['migration-126-staging.cjs', 'migration-126-staging.test.cjs']};
+    '126': ['migration-126-staging.cjs', 'migration-126-staging.test.cjs'],
+    '127': ['migration-127-staging.cjs', 'migration-127-staging.test.cjs']};
   for (const id of g.IDS) assert.deepEqual(fs.readdirSync(__dirname).filter(n => n.startsWith(`migration-${id}`) && !(permitidos[id] ?? []).includes(n)), [], id);
   for (const fora of ['118', '112', '098', '099', '105', '116', '0', '', 'constructor', '__proto__', '120 ', undefined, 120])
     assert.throws(() => g.planoEtapas(fora, {situacao: 'ausente'}), /MIGRATION_FORA_DA_LISTA/, String(fora));
