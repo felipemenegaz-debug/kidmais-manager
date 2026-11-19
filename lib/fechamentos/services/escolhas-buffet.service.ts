@@ -1,3 +1,4 @@
+import { ITEM_DE_ESCOLHA_SQL } from "../../comercial/itens-de-escolha";
 import { faltaEscolha } from '../../comercial/limites-escolhas';
 import type { DbExecutor } from '../../db/contracts';
 import { FechamentoServiceError } from './errors';
@@ -22,8 +23,7 @@ export async function resolverEscolhasBuffet(tx: DbExecutor, pacoteId: string, e
       JOIN buffet_categorias c ON c.id = r.categoria_id AND c.ativo
       LEFT JOIN buffet_itens i ON i.categoria_id = c.id AND i.ativo AND i.id = ANY($2::uuid[])
         ${porEmpresa ? 'AND i.empresa_id = p.empresa_id' : ''}
-        AND (r.modo_itens = 'TODOS_ATIVOS' OR EXISTS (
-          SELECT 1 FROM pacote_buffet_itens x WHERE x.pacote_id = r.pacote_id AND x.categoria_id = c.id AND x.item_id = i.id))
+        AND ${ITEM_DE_ESCOLHA_SQL}
      WHERE p.id = $1 AND r.ativo ${porEmpresa ? 'AND c.empresa_id = p.empresa_id' : ''}
      ORDER BY c.ordem_exibicao, c.nome`, [pacoteId, ids]);
   const disponiveis = new Map(regras.rows.map(item => [item.item_id, item]));

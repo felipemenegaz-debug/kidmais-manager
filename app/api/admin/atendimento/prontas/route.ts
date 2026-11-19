@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { exigirApiAdminCrmDisponivel } from '@/lib/http/admin-crm-api';
 import { arquivarPronta, favoritarPronta, listarProntas, prepararRascunho, publicarPronta, salvarPronta } from '@/lib/whatsapp/atendimento/prontas-servico';
 import { respostaDeErroAtendimento } from '@/lib/whatsapp/atendimento/erros';
+import { OPCOES_CARDAPIO } from '@/lib/whatsapp/atendimento/prontas';
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
@@ -13,6 +14,7 @@ const pedidoSchema = z.discriminatedUnion('acao', [
   z.object({ acao: z.literal('publicar'), id: z.uuid(), versao: z.number().int().nonnegative(), publicar: z.boolean() }).strict(),
   z.object({ acao: z.literal('favoritar'), id: z.uuid(), favorita: z.boolean() }).strict(),
   z.object({ acao: z.literal('rascunho'), id: z.uuid(), conversaId: z.uuid() }).strict(),
+  z.object({ acao: z.literal('cardapio'), cardapio: z.enum(OPCOES_CARDAPIO), conversaId: z.uuid() }).strict(),
 ]);
 const resposta = (data: unknown, status = 200) => NextResponse.json(data, { status, headers: { 'Cache-Control': 'no-store' } });
 function erro(error: unknown) { const r = respostaDeErroAtendimento(error); return resposta(r.corpo, r.status); }
