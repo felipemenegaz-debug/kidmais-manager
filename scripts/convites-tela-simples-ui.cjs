@@ -73,6 +73,8 @@ async function abrir(browser, largura, { cliente = false, publicado = false, sus
         return json({ linkCliente: cmd.habilitado ? (anterior ? outroLinkCliente : linkCliente) : null });
       }
       if (cmd.acao === 'despublicar') { dados.publicado = false; return json({ salvo: true }); }
+      // Atraso curto: o botão Salvar fica desabilitado (e perde o foco) enquanto a ação roda.
+      if (cmd.acao === 'salvar') { await new Promise(ok => setTimeout(ok, 300)); return json({ salvo: true }); }
       // Resposta com atraso curto para o progresso da geração ficar visível e conferível.
       if (cmd.acao === 'gerar') { await new Promise(ok => setTimeout(ok, 1200)); return json({ chave: cmd.chave, estado: 'ENCERRADA' }); }
     }
@@ -178,13 +180,33 @@ async function executar(browser, largura) {
       assert.equal(await mensagemWhatsApp(page, enviar), `Você está convidado para a festa. Abra o convite e confirme presença: ${base.origin}${linkPublico}`);
       await copiar.click();
       assert.equal(await page.evaluate(() => window.textoCopiado), base.origin + linkPublico);
-      // O retorno da ação aparece num aviso fixo, visível sem rolar até o topo, e só some pelo botão Fechar.
+      // O retorno da ação aparece num aviso fixo, visível sem rolar até o topo.
       const avisoFixo = page.locator('[data-mensagens-acao]').getByRole('status');
       await avisoFixo.filter({ hasText: 'Link copiado.' }).waitFor();
       assert.ok(await avisoFixo.evaluate(el => { const r = el.getBoundingClientRect(); return r.top >= 0 && r.bottom <= innerHeight; }), 'aviso fixo dentro da tela');
       await capturar(page, 'aviso-fixo', largura, copiar);
       await page.locator('[data-mensagens-acao]').getByRole('button', { name: 'Fechar aviso' }).click();
       await page.getByText('Link copiado.', { exact: true }).waitFor({ state: 'hidden' });
+      // Ao fechar, o foco volta para o botão que disparou a ação, e não para o fim da página.
+      assert.equal(await copiar.evaluate(el => el === document.activeElement), true, 'foco volta para Copiar link');
+      if (largura === 375) {
+        // Sucesso curto some sozinho, sem precisar fechar.
+        await copiar.click();
+        await avisoFixo.filter({ hasText: 'Link copiado.' }).waitFor();
+        assert.equal(await page.locator('[data-mensagens-acao]').getAttribute('data-temporario'), 'true');
+        await page.getByText('Link copiado.', { exact: true }).waitFor({ state: 'hidden', timeout: 12000 });
+      } else {
+        // Botão desabilitado durante a ação (perde o foco): ao fechar, o foco volta para ele quando reabilita.
+        const salvar = page.getByRole('button', { name: 'Salvar rascunho', exact: true });
+        await salvar.click();
+        await avisoFixo.filter({ hasText: 'Rascunho salvo.' }).waitFor();
+        await page.locator('[data-mensagens-acao]').getByRole('button', { name: 'Fechar aviso' }).focus();
+        await page.keyboard.press('Enter');
+        await page.getByText('Rascunho salvo.', { exact: true }).waitFor({ state: 'hidden' });
+        await page.waitForFunction(() => document.activeElement?.textContent === 'Salvar rascunho', null, { timeout: 3000 });
+        assert.deepEqual(comandos.map(c => c.acao), ['salvar']);
+        comandos.length = 0;
+      }
       const despublicar = page.getByRole('button', { name: 'Despublicar', exact: true });
       assert.equal(await convidados.getByRole('button', { name: 'Despublicar' }).count(), 0);
       await despublicar.click();
@@ -353,6 +375,10 @@ async function executar(browser, largura) {
       const travado = page.getByRole('button', { name: 'Gerando…' });
       assert.equal(await travado.isDisabled(), true, 'sem clique duplo durante a geração');
       assert.equal(await page.getByRole('button', { name: 'Fechar aviso' }).count(), 0, 'aviso da geração não se fecha enquanto o progresso depende dele');
+      // Só o progresso anuncia a geração; o aviso fixo mostra o texto sem repetir o anúncio.
+      const avisoGeracao = page.locator('[data-mensagens-acao]');
+      assert.match(await avisoGeracao.innerText(), /Gerando sua arte/);
+      assert.equal(await avisoGeracao.locator('[role="status"], [role="alert"]').count(), 0, 'geração anunciada uma vez só');
       await capturar(page, 'progresso-geracao', largura, progresso);
     }
     await resposta;
