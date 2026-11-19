@@ -3,9 +3,9 @@
    hero → antes/depois → diferenciais → recursos em abas → Wall-e → fluxo do cliente → confiança → planos → dúvidas → CTA → rodapé legal. */
 .site{
   color-scheme:dark;
-  --bg:#030712; --surface:#0a1430; --raised:#0f1d40; --line:#9ec5ff1c; --line-2:#9ec5ff33;
-  --text:#eef3ff; --muted:#9aa8c7; --dim:#a4b1ca; --sky:#7dd3fc; --blue:#3b82f6;
-  --lilac:#b990ff; --lilac-ink:#170f22; --mint:#80f5c4; --mint-ink:#062419; --amber:#ffc56b;
+  --bg:var(--ia-fundo); --surface:var(--ia-painel); --raised:var(--ia-elevado); --line:var(--ia-linha); --line-2:var(--ia-divisor);
+  --text:var(--ia-texto); --muted:var(--ia-secundario); --dim:var(--ia-suave); --sky:var(--ia-ceu); --blue:#3b82f6;
+  --lilac:var(--ia-lilas); --lilac-ink:var(--ia-tinta); --mint:var(--ia-menta); --mint-ink:var(--ia-tinta-menta); --amber:var(--ia-ambar);
   --display:var(--font-site-display),"Bricolage Grotesque","Segoe UI",system-ui,sans-serif;
   --body:var(--font-site-body),"Figtree","Segoe UI",system-ui,sans-serif;
   --r-lg:18px; --r-md:12px; --r-sm:8px;

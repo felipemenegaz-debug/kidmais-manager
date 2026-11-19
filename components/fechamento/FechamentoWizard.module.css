@@ -1248,3 +1248,86 @@
 .guestEditor { margin: 0 0 18px; padding: 16px 18px; border: 1px solid var(--border); border-radius: 16px; background: #f8f9fd; }
 .guestEditor .field { margin-bottom: 12px; }
 .guestEditorActions { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 12px; }
+
+/* O assistente público compartilha a paleta da agenda. O painel administrativo
+   reutiliza campos deste módulo, mas não recebe a classe publico. */
+.page.publico {
+  --blue: var(--ia-ceu);
+  --blue-dark: var(--ia-ceu);
+  --purple: var(--ia-lilas);
+  --lilac: var(--ia-lilas);
+  --orange: var(--ia-ambar);
+  --ink: var(--ia-texto);
+  --muted: var(--ia-auxiliar);
+  --border: var(--ia-borda);
+  --bg: var(--ia-fundo);
+  --pacotes-fundo: var(--ia-painel);
+  --pacotes-texto: var(--muted);
+  --pacotes-borda: var(--border);
+  --pacotes-link: var(--blue);
+  --pacotes-acao: var(--lilac);
+  --pacotes-acao-texto: var(--ia-tinta);
+  isolation: isolate;
+  color-scheme: dark;
+  background: var(--ia-fundo-agenda);
+  font-family: var(--font-site-body), "Segoe UI", sans-serif;
+}
+
+.publico .header { border-bottom: 1px solid var(--border); padding-bottom: 16px; }
+.publico .header strong, .publico .confirmationBrand strong { color: var(--ink); }
+.publico .header span, .publico .confirmationBrand span { color: var(--muted); }
+.publico :is(h1,h2,h3) { font-family: var(--font-site-display), "Segoe UI", sans-serif; }
+.publico .progressTrack { background: var(--ia-elevado); }
+.publico .progressFill { background: linear-gradient(90deg, var(--ia-menta), var(--ia-ceu), var(--ia-lilas)); }
+
+.publico :is(.card,.successCard,.actions,.liveTotals) {
+  border-color: var(--border);
+  background: var(--ia-painel);
+  color: var(--ink);
+  box-shadow: 0 14px 40px #0004;
+}
+.publico :is(.packageCard,.choiceCard,.additionalCard,.birthdayCard,.paymentCard,.summaryCard,.maskedContact,
+  .packageDetails,.identificationPanel,.contractNotice,.consultPanel,.priceReference,.guestChip,.guestEditor,
+  .successSummary,.infoBox,.existingClientHeader,.updateDecision,.additionalItemAberto,.escolhasAdicional,
+  .buffetDecisionCard,.buffetSummaryBox,.valueCards > div) {
+  border-color: var(--border);
+  background: var(--ia-elevado);
+  color: var(--ink);
+  box-shadow: none;
+}
+.publico :is(.choiceSelected,.packageSelected,.paymentSelected,.additionalSelected,.birthdaySelected,.buffetDecisionSelected) {
+  border-color: var(--lilac);
+  background: #302548;
+  box-shadow: 0 0 0 1px var(--lilac);
+}
+.publico :is(.packageCard,.paymentCard,.infoBox,.warningBox,.summaryCard,.contractNotice,.identificationPanel,.packageDetails,.liveTotals) :is(p,small) { color: var(--muted); }
+.publico :is(.packageBadge,.warningBox,.consultNotice) { color: var(--ia-ambar); background: #392d20; border-color: #815f34; }
+.publico .packageMotivo { color: var(--ia-ambar) !important; }
+.publico .errorBox { color: var(--ia-rosa); background: #3a232f; border-color: #985969; }
+.publico .inlineError { color: var(--ia-rosa); }
+.publico .field :is(input,textarea,select), .publico :is(.guestEditor,.stepper) input {
+  background: var(--ia-painel); color: var(--ink); border-color: var(--border);
+}
+.publico .field label, .publico .field > span { color: var(--ink); }
+.publico input::placeholder, .publico textarea::placeholder { color: var(--muted); }
+.publico :is(.secondaryButton,.quickChoices button,.useCalculatedButton,.stepper button,.documentChoice button,.pause) {
+  background: var(--ia-elevado); border: 1px solid var(--border); color: var(--ink);
+}
+.publico .pause { display: inline-flex; align-items: center; gap: 8px; border-radius: 24px; padding: 8px 14px; min-height: 44px; font: inherit; cursor: pointer; }
+.publico :is(.primaryButton,.stepNumber,.successIcon), .publico :is(.packageSelected,.paymentSelected,.buffetDecisionSelected) .radioVisual,
+.publico .additionalSelected .checkBox {
+  background: var(--ia-lilas); color: var(--ia-tinta); border-color: var(--ia-lilas);
+}
+.publico :is(.guestChip,.guestEditor) button { color: var(--blue); }
+.publico :is(.primaryButton,.secondaryButton):enabled:hover { border-color: var(--ia-menta); box-shadow: 0 0 0 1px var(--ia-menta); }
+.publico :is(button,a,input,select,textarea):focus-visible { outline: 3px solid var(--ia-menta); outline-offset: 3px; }
+.publico[data-pausado=true] *, .publico[data-pausado=true] *::before, .publico[data-pausado=true] *::after { animation-play-state: paused !important; }
+
+.publico :is(.discountCallout,.weekdayDiscountBanner,.discountAppliedNotice,.datePricePreview,.foundBadge) {
+  background: #16352f; border-color: #467b69; color: var(--ia-menta);
+}
+.publico :is(.discountCallout,.weekdayDiscountBanner,.discountAppliedNotice,.datePricePreview) :is(p,small) { color: var(--ia-auxiliar); }
+.publico .documentChoice { background: var(--ia-painel); border-color: var(--border); }
+.publico .documentChoice .documentChoiceSelected { background: var(--ia-lilas); color: var(--ia-tinta); }
+
+.publico .liveTotals > div { background: var(--ia-elevado); color: var(--ink); }

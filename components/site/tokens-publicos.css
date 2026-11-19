@@ -1,0 +1,20 @@
+:root {
+  --ia-fundo: #030712;
+  --ia-painel: #0a1430;
+  --ia-elevado: #0f1d40;
+  --ia-texto: #eef3ff;
+  --ia-secundario: #9aa8c7;
+  --ia-auxiliar: #b3bfd8;
+  --ia-borda: #9ec5ff40;
+  --ia-linha: #9ec5ff1c;
+  --ia-divisor: #9ec5ff33;
+  --ia-ceu: #7dd3fc;
+  --ia-lilas: #b990ff;
+  --ia-menta: #80f5c4;
+  --ia-ambar: #ffc56b;
+  --ia-rosa: #ffb5bd;
+  --ia-tinta: #170f22;
+  --ia-tinta-menta: #062419;
+  --ia-suave: #a4b1ca;
+  --ia-fundo-agenda: radial-gradient(ellipse at 75% 0%, #102454, transparent 65%), var(--ia-fundo);
+}
