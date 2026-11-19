@@ -200,7 +200,7 @@ export async function receberEntrada(entrada: Entrada, opcoes: { automacaoGlobal
 export async function suprimirPesquisasDoContato(tx: DbExecutor, empresa: string, contato: string) {
   if (!(await pesquisaInstalada(tx))) return;
   for (const clienteId of await clientesDoNumero(tx, empresa, contato)) {
-    await suprimirPesquisas(tx, empresa, clienteId, { canal: 'WHATSAPP', motivo: 'PARAR', aindaElegivel: async () => (await elegivelParaMensagem(tx, empresa, clienteId)).ok });
+    await suprimirPesquisas(tx, empresa, clienteId, { canal: 'WHATSAPP', motivo: 'PARAR', aindaElegivel: async () => (await elegivelParaMensagem(tx, empresa, clienteId, 'PESQUISA')).ok });
   }
 }
 
