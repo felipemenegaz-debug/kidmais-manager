@@ -130,6 +130,22 @@ async function executar(browser, largura) {
     ['buffet-suspenso', { publicado: true, suspenso: true }], ['buffet-avulso', { avulso: true }],
   ]) {
     const { page, fechar, comandos, setPublicado } = await abrir(browser, largura, flags);
+    if (estado === 'buffet-rascunho') {
+      const resumoLogo = page.locator('[data-logo-buffet] summary');
+      const caixaLogo = page.getByRole('checkbox', { name: 'Mostrar a logo do buffet neste convite' });
+      if (largura <= 600) {
+        await resumoLogo.waitFor();
+        assert.match(await resumoLogo.innerText(), /Logo do buffet no convite · oculta/);
+        assert.equal(await caixaLogo.isVisible(), false);
+        await resumoLogo.click();
+      } else {
+        assert.equal(await resumoLogo.isVisible(), false);
+      }
+      await caixaLogo.waitFor();
+      assert.equal(await caixaLogo.isDisabled(), true, 'o buffet sintético ainda não tem logo');
+      if (largura <= 600) await resumoLogo.click();
+      assert.deepEqual(comandos, [], 'abrir e fechar o bloco não envia um comando');
+    }
     const convidados = page.getByRole('region', { name: 'Convite para os convidados' });
     const enviar = convidados.getByRole('button', { name: 'Enviar pelo WhatsApp' });
     const copiar = convidados.getByRole('button', { name: 'Copiar link' });
@@ -298,6 +314,7 @@ async function executar(browser, largura) {
   await fechar();
 
   const clienteComDeclaracaoDoBuffet = await abrir(browser, largura, { cliente: true, registradoPor: 'BUFFET' });
+  assert.equal(await clienteComDeclaracaoDoBuffet.page.locator('[data-logo-buffet]').count(), 0);
   await clienteComDeclaracaoDoBuffet.page.getByRole('button', { name: 'Criar com IA' }).click();
   await conferirDeclaracao(clienteComDeclaracaoDoBuffet.page, 'CLIENTE', 'BUFFET');
   await clienteComDeclaracaoDoBuffet.fechar();

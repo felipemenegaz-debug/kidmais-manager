@@ -10,7 +10,7 @@ const assert = require('node:assert/strict'), fs = require('node:fs'), path = re
 const base = process.env.CONVITES_TEST_URL || 'http://127.0.0.1:3059';
 assert(['localhost', '127.0.0.1'].includes(new URL(base).hostname));
 const id = n => `00000000-0000-4000-8000-${String(n).padStart(12, '0')}`;
-const out = path.resolve('.local-convites-qa/logo-sobre'); fs.mkdirSync(out, { recursive: true });
+const out = process.env.SAIDA || path.resolve('.local-convites-qa/logo-sobre'); fs.mkdirSync(out, { recursive: true });
 const dataUrl = (b, tipo) => `data:${tipo};base64,${b.toString('base64')}`;
 const contexto = { empresas: [{ id: id(2), nome: 'Buffet Teste', papel: 'REPRESENTANTE_AUTORIZADO' }], empresaAtual: { id: id(2), nome: 'Buffet Teste' }, gestaoNaEmpresa: true, plataforma: false, desenvolvedor: false, selecaoNecessaria: false };
 const ARTE = id(50), ARTE_B = id(51), TOKEN = 'p'.repeat(43);
@@ -242,23 +242,61 @@ async function ate(cond, msg, ms = 8000) { const fim = Date.now() + ms; while (D
       await context.close();
     }
 
-    // 11. Celular: controles cabem sem rolagem horizontal.
+    // 11. Celular: abre os controles para ajustar a logo e conserva a escolha ao redimensionar.
     {
-      const { page, context, estado } = await abrirEditor({ viewport: { width: 390, height: 844 }, posicoes: { [ARTE]: { modo: 'sobre', arteId: ARTE, x: 80, y: 10, largura: 18, fundo: true, origem: 'sugerida' } } });
-      await page.getByRole('group', { name: 'Lugar da logo' }).waitFor();
+      const { page, context, estado, dados } = await abrirEditor({ viewport: { width: 375, height: 812 }, posicoes: { [ARTE]: { modo: 'sobre', arteId: ARTE, x: 50, y: 50, largura: 18, fundo: true, origem: 'sugerida' } } });
+      const resumoLogo = page.locator('[data-logo-buffet] summary');
+      const painel = page.locator('[data-logo-buffet] details');
+      const aberto = () => painel.evaluate(el => el.open);
+      const caixa = page.getByRole('checkbox', { name: 'Mostrar a logo do buffet neste convite' });
+      await resumoLogo.waitFor();
+      assert.match(await resumoLogo.innerText(), /Logo do buffet no convite · aparecendo/);
+      assert.equal(await aberto(), false);
+      assert.equal(await caixa.isVisible(), false);
+      await resumoLogo.press('Enter');
+      await caixa.waitFor();
+      assert.equal(await aberto(), true);
+      await page.setViewportSize({ width: 601, height: 812 });
+      await resumoLogo.waitFor({ state: 'hidden' });
+      assert.equal(await aberto(), true);
+      await page.setViewportSize({ width: 600, height: 812 });
+      await resumoLogo.waitFor();
+      assert.equal(await aberto(), true, 'recolhível ainda aberto ao voltar para 600 px');
+      await page.setViewportSize({ width: 375, height: 812 });
+      assert.equal(estado.logo.length, 0, 'abrir e redimensionar não gravam a logo');
+      assert.equal(await page.getByRole('group', { name: 'Lugar da logo' }).getByRole('button').count(), 9);
+      assert.equal(await page.getByRole('group', { name: 'Mover a logo' }).getByRole('button').count(), 4);
+      await page.getByRole('checkbox', { name: 'Fundo claro atrás da logo' }).waitFor();
+      await page.getByRole('button', { name: 'Sugerir lugar', exact: true }).waitFor();
+      await page.getByRole('button', { name: 'Voltar para a faixa', exact: true }).waitFor();
+      await page.getByRole('button', { name: 'Mover para a direita' }).click(); await salvo(page);
+      assert.equal(ultimaPosicao(estado).x, 51);
+      await page.getByRole('radio', { name: 'Grande' }).check(); await salvo(page);
+      assert.equal(ultimaPosicao(estado).largura, 26);
+      await caixa.uncheck(); await salvo(page);
+      assert.equal(dados.logoBuffet.mostrar, false);
+      assert.match(await resumoLogo.innerText(), /· oculta/);
+      await caixa.check(); await salvo(page);
+      assert.equal(dados.logoBuffet.mostrar, true);
+      assert.match(await resumoLogo.innerText(), /· aparecendo/);
       await page.locator('[data-logo-buffet]').scrollIntoViewIfNeeded();
       await page.screenshot({ path: path.join(out, '06-celular-controles.png') });
-      assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), 'sem rolagem horizontal a 390 px');
-      assert.equal(estado.logo.length, 0); assert.deepEqual(estado.erros, []);
+      assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), 'sem rolagem horizontal a 375 px');
+      await resumoLogo.click();
+      assert.equal(await aberto(), false);
+      assert.deepEqual(estado.erros, []);
+      resumo.push({ cenario: 'controles-abertos-375', setaX: 51, largura: 26, mostrar: dados.logoBuffet.mostrar, permaneceuAbertoAoRedimensionar: true });
       await context.close();
     }
 
     // 11b. Toque (Astra r1, validação pendente): arrastar com o dedo grava um comando ao soltar; touchcancel
     // (pointercancel no controle) descarta o arraste sem enviar nada e a logo volta para onde estava.
     {
-      const { page, context, estado } = await abrirEditor({ hasTouch: true, viewport: { width: 390, height: 844 }, posicoes: { [ARTE]: { modo: 'sobre', arteId: ARTE, x: 50, y: 50, largura: 18, fundo: true, origem: 'sugerida' } } });
+      const { page, context, estado } = await abrirEditor({ hasTouch: true, viewport: { width: 375, height: 812 }, posicoes: { [ARTE]: { modo: 'sobre', arteId: ARTE, x: 50, y: 50, largura: 18, fundo: true, origem: 'sugerida' } } });
       const controle = page.getByRole('button', { name: 'Logo do buffet sobre a arte' });
       await controle.waitFor(); await controle.scrollIntoViewIfNeeded(); await page.locator('[data-camada-logo="pronta"]').first().waitFor();
+      const painel = page.locator('[data-logo-buffet] details');
+      assert.equal(await painel.evaluate(el => el.open), false, 'arraste começa com o bloco fechado');
       const cdp = await context.newCDPSession(page);
       const toque = (type, x, y) => cdp.send('Input.dispatchTouchEvent', { type, touchPoints: type === 'touchEnd' || type === 'touchCancel' ? [] : [{ x, y, id: 1 }] });
       await page.evaluate(() => { window.__cancel = 0; document.addEventListener('pointercancel', e => { if (e.pointerType === 'touch') window.__cancel++; }, true); });
@@ -268,6 +306,7 @@ async function ate(cond, msg, ms = 8000) { const fim = Date.now() + ms; while (D
       await toque('touchEnd'); await salvo(page);
       const comToque = ultimaPosicao(estado);
       assert.ok(comToque && comToque.x > 50 && comToque.y < 50, `toque moveu a logo (${comToque?.x},${comToque?.y})`);
+      assert.equal(await painel.evaluate(el => el.open), false, 'arrastar não abre o bloco');
       const n = estado.logo.length; c = await controle.boundingBox();
       const tx = c.x + c.width / 2, ty = c.y + c.height / 2;
       await toque('touchStart', tx, ty); for (let i = 1; i <= 4; i++) await toque('touchMove', tx - i * 15, ty + i * 25);
@@ -277,7 +316,7 @@ async function ate(cond, msg, ms = 8000) { const fim = Date.now() + ms; while (D
       const depois = await controle.boundingBox();
       assert.ok(Math.abs(depois.x - c.x) < 2 && Math.abs(depois.y - c.y) < 2, 'controle voltou ao lugar gravado depois do pointercancel');
       assert.deepEqual(estado.erros, []);
-      resumo.push({ cenario: 'toque', comandos: estado.logo.length, pointercancel: await page.evaluate(() => window.__cancel) });
+      resumo.push({ cenario: 'toque-375-bloco-fechado', x: comToque.x, y: comToque.y, comandos: estado.logo.length, pointercancel: await page.evaluate(() => window.__cancel) });
       await page.screenshot({ path: path.join(out, '11-toque-celular.png') });
       await context.close();
     }

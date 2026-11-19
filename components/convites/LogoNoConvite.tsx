@@ -60,11 +60,13 @@ export type LogoNoConvite = {
 /**
  * `ativo`: editor do buffet, fora do laboratório, com convite carregado. `conteudo` traz só o que a regra de exibição usa.
  */
-export function useLogoNoConvite({ ativo, conviteId, logoDataUrl, publicado, conteudo, arteUrl, busy, ui }: {
+export function useLogoNoConvite({ ativo, conviteId, logoDataUrl, publicado, conteudo, arteUrl, busy, ui, telaEstreita }: {
   ativo: boolean; conviteId?: string; logoDataUrl: string | null; publicado: boolean;
   conteudo: { arteId?: string | null; visual?: { modo: 'modelo' | 'completa' } | null } | null; arteUrl?: string;
   busy: boolean; ui: Record<string, string>;
+  telaEstreita: boolean;
 }): LogoNoConvite {
+  const [painelAbertoNoCelular, setPainelAbertoNoCelular] = useState(false);
   // r2 (Astra r1, P1): o endereço da fila nasce do id do convite dentro de filaDaLogo.
   const fila: FilaLogo | null = ativo && conviteId ? filaDaLogo(conviteId) : null;
   const [gravada, setGravada] = useState<Gravada>(SEM_LOGO);
@@ -246,9 +248,9 @@ export function useLogoNoConvite({ ativo, conviteId, logoDataUrl, publicado, con
   }
 
   const situacao = estadoFila && estadoFila.situacao !== 'ocioso' ? estadoFila.situacao : null;
-  const painel = ativo ? <div className={ui.logoBuffet} data-logo-buffet>
-    {efetiva.mostrar && temLogo && !sobreValendo && <div className={ui.logoBuffetPrevia} aria-label="Rodapé da página do convite"><img src={logoDataUrl!} alt="Logo do buffet" /></div>}
-    <label className={ui.check}><input type="checkbox" checked={efetiva.mostrar && temLogo} disabled={bloqueado || !temLogo} aria-describedby="logo-buffet-nota" onChange={e => mudarMostrar(e.target.checked)} />
+  const logoAparecendo = efetiva.mostrar && temLogo;
+  const controles = <>
+    <label className={ui.check}><input type="checkbox" checked={logoAparecendo} disabled={bloqueado || !temLogo} aria-describedby="logo-buffet-nota" onChange={e => mudarMostrar(e.target.checked)} />
       Mostrar a logo do buffet neste convite</label>
     <small id="logo-buffet-nota">{!temLogo
       ? <>Envie uma logo no <Link href="/admin/configuracoes/perfil-empresa">Perfil da empresa</Link> para mostrar neste convite.</>
@@ -284,7 +286,19 @@ export function useLogoNoConvite({ ativo, conviteId, logoDataUrl, publicado, con
       </fieldset>}
       {falhaSugestao && <p role="alert"><small>{falhaSugestao}</small></p>}
     </>}
-    {ativo && !carregada && <p role="status" data-logo-conferindo><small>Conferindo a logo gravada…</small></p>}
+  </>;
+  const painel = ativo ? <div className={ui.logoBuffet} data-logo-buffet>
+    {logoAparecendo && !sobreValendo && <div className={ui.logoBuffetPrevia} aria-label="Rodapé da página do convite"><img src={logoDataUrl!} alt="Logo do buffet" /></div>}
+    <details open={!telaEstreita || painelAbertoNoCelular}>
+      <summary className={ui.resumoLogo} hidden={!telaEstreita} onClick={event => {
+        event.preventDefault();
+        setPainelAbertoNoCelular(aberto => !aberto);
+      }}>
+        Logo do buffet no convite <span>· {logoAparecendo ? 'aparecendo' : 'oculta'}</span>
+      </summary>
+      {controles}
+    </details>
+    {!carregada && <p role="status" data-logo-conferindo><small>Conferindo a logo gravada…</small></p>}
     <p className={styles.somenteLeitor} aria-live="polite" data-anuncio-logo>{anuncio}</p>
     <p aria-live="polite" data-situacao-logo={situacao ?? 'ocioso'}>{situacao && <small>
       {TEXTO_SITUACAO_FILA[situacao]}
