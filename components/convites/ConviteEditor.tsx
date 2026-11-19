@@ -96,10 +96,11 @@ export default function ConviteEditor({ festaId, conviteId }: { festaId?: string
   const [acervoAutomatico] = useState(true);
   const [paginaModelo, setPaginaModelo] = useState(1);
   const [paginaArte, setPaginaArte] = useState(1);
-  const [colunasGaleria, setColunasGaleria] = useState(3);
+  const [telaEstreita, setTelaEstreita] = useState(false);
+  const colunasGaleria = telaEstreita ? 2 : 3;
   useEffect(() => {
     const tela = window.matchMedia('(max-width: 600px)');
-    const ajustar = () => setColunasGaleria(tela.matches ? 2 : 3);
+    const ajustar = () => setTelaEstreita(tela.matches);
     ajustar(); tela.addEventListener('change', ajustar);
     return () => tela.removeEventListener('change', ajustar);
   }, []);
@@ -193,7 +194,7 @@ export default function ConviteEditor({ festaId, conviteId }: { festaId?: string
   const logo = useLogoNoConvite({
     ativo: admin && !!dados?.logoBuffet && !dados.laboratorioLocal && !!dados.id, conviteId: dados?.id,
     logoDataUrl: dados?.logoBuffet?.logoDataUrl ?? null, publicado: !!dados?.publicado, conteudo, arteUrl: dados?.artes.find(a => a.id === conteudo?.arteId)?.url,
-    busy, ui,
+    busy, ui, telaEstreita,
   });
   useEffect(() => { logoRef.current = logo; });
   // Convite completo (arte + textos numa chamada): no produto, quando o servidor tem o provedor configurado.

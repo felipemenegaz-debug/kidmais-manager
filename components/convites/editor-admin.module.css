@@ -199,6 +199,17 @@
 .editor .confirmacaoImagens .check { align-items: flex-start; font-size: 13px; line-height: 1.5; }
 
 .logoBuffet { margin: 16px auto 0; max-width: 440px; text-align: left; }
+.resumoLogo:not([hidden]) {
+  min-height: 44px;
+  padding: 10px 12px;
+  border: 1px solid var(--input-border);
+  border-radius: 10px;
+  color: var(--lilac-accent);
+  font-weight: 700;
+  cursor: pointer;
+}
+.resumoLogo span { color: var(--secondary-text); font-weight: 400; }
+.resumoLogo:focus-visible { outline: 2px solid var(--lilac-accent); outline-offset: 3px; }
 .logoBuffetPrevia { display: flex; justify-content: center; padding: 14px 12px 4px; }
 .logoBuffetPrevia img { max-height: 48px; max-width: 160px; object-fit: contain; }
 /* Etapa 3: controles da logo sobre a arte, fora da imagem (§6). Alvos de 44 px. */
