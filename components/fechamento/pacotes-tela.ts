@@ -21,17 +21,23 @@ export function codigoServidorDoPacoteDaMarca(kidmais: boolean, id: string): str
  * O que /api/fechamentos/pacotes devolve por pacote vigente da empresa do endereço.
  * `disponibilidade`: dias e períodos publicados pela empresa. No endereço Kidmais vêm com a consulta por data.
  */
-export type FatoPacote = { nome: string; descricao: string | null; duracaoMinutos: number | null; convidadosMinimos: number | null; convidadosMaximos: number | null; precoMinimo: string | null; disponibilidade?: RegraPacoteEmpresa[]; comporta?: boolean; noSalao?: boolean };
+export type FatoPacote = { precoNoMinimo?: number | null; nome: string; descricao: string | null; duracaoMinutos: number | null; convidadosMinimos: number | null; convidadosMaximos: number | null; precoMinimo: string | null; disponibilidade?: RegraPacoteEmpresa[]; comporta?: boolean; noSalao?: boolean };
 export type FatosPacote = Record<string, FatoPacote>;
 
 /** Cartão da etapa “Escolha o pacote”. `disponibilidade`/`destaque` nulos = não exibidos. */
-export type PacoteExibido = { id: PacoteId; nome: string; preco: number | null; descricao: string; disponibilidade: string | null; destaque: string | null };
+export type PacoteExibido = { cobrancaMinima?: { convidados: number; preco: number | null }; id: PacoteId; nome: string; preco: number | null; descricao: string; disponibilidade: string | null; destaque: string | null };
 
 /** Pacote escolhido; `limiteCadastrado` falso = a empresa não informou o máximo de convidados. */
 export type PacoteDaTela = Pacote & { limiteCadastrado: boolean };
 
 /** Sem máximo cadastrado: o teto do pedido online, o mesmo do servidor. */
 const MAXIMO_SEM_CADASTRO = LIMITE_CONVIDADOS_PEDIDO_ONLINE;
+
+function cobrancaPublicada(fato?: FatoPacote) {
+    return fato?.convidadosMinimos && fato.precoNoMinimo !== undefined
+        ? { cobrancaMinima: { convidados: fato.convidadosMinimos, preco: fato.precoNoMinimo } }
+        : {};
+}
 
 function precoDe(fato: FatoPacote) {
     return fato.precoMinimo == null ? null : Number(fato.precoMinimo);
@@ -48,7 +54,7 @@ export function pacotesExibidos(kidmais: boolean, catalogo: readonly Pacote[], f
         return catalogo.map((item) => {
             const publicado = fatos?.[CODIGO_PACOTE[item.id]!];
             return {
-                id: item.id, nome: publicado?.nome ?? item.nome,
+                ...cobrancaPublicada(publicado), id: item.id, nome: publicado?.nome ?? item.nome,
                 preco: publicado ? precoDe(publicado) : item.precoInicial,
                 descricao: publicado ? (publicado.descricao || "Descrição não cadastrada.") : item.descricao,
                 disponibilidade: item.disponibilidade, destaque: item.destaque ?? null,
@@ -57,7 +63,7 @@ export function pacotesExibidos(kidmais: boolean, catalogo: readonly Pacote[], f
     if (!fatos) return null;
     // Na ordem do servidor (a da tela de Pacotes da empresa); o id é o código do pacote — inclusive "Novo pacote" (P_…).
     return Object.entries(fatos).map(([codigo, fato]) => ({
-        id: codigo, nome: fato.nome, preco: precoDe(fato), descricao: fato.descricao || "Descrição não cadastrada.", disponibilidade: null, destaque: null,
+        ...cobrancaPublicada(fato), id: codigo, nome: fato.nome, preco: precoDe(fato), descricao: fato.descricao || "Descrição não cadastrada.", disponibilidade: null, destaque: null,
     }));
 }
 
