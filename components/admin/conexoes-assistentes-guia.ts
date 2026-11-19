@@ -70,6 +70,7 @@ export const ROTULO_ESCOPO: Readonly<Record<string, string>> = {
     'conhecimento:read': 'Consultar ajuda e documentação',
     'agenda:read': 'Consultar agenda, datas livres e contratos pendentes (sem nomes)',
     'financeiro:read': 'Consultar resumo dos recebíveis',
+    'clientes:read': 'Consultar festas e famílias pelo nome',
 };
 
 /**
@@ -77,10 +78,12 @@ export const ROTULO_ESCOPO: Readonly<Record<string, string>> = {
  * O cartão diz isso com todas as letras, em vez de só trocar o rótulo.
  */
 export const AVISO_AGENDA_AMPLIADA = 'A permissão de agenda foi ampliada e vale também para conexões autorizadas antes: além do resumo do dia, o assistente pode consultar horários, convidados e situação do contrato de cada festa por período (até 62 dias por consulta, de até 1 ano atrás a 2 anos à frente), datas livres e o total de contratos aguardando assinatura, com até 100 deles detalhados em dias desde a criação e dias até a festa ou desde que ela passou. Sem nomes de clientes nem pacotes. Se não quiser, desconecte e reconecte sem marcar a agenda.';
+/** Etapa 0b: aparece só quando a pessoa concedeu clientes:read (nunca concedida por padrão). */
+export const AVISO_NOMES_CONCEDIDOS = 'Esta conexão vê nomes: o assistente pode consultar uma festa pelo nome do aniversariante (a criança) ou do cliente e, com a permissão do financeiro, quanto cada família deve, com atraso e próximo vencimento. Não vê CPF, telefone, e-mail, endereço nem data de nascimento. Se não quiser, desconecte e reconecte sem marcar essa permissão.';
 
-export const ORDEM_ESCOPOS: readonly string[] = ['conhecimento:read', 'agenda:read', 'financeiro:read'];
+export const ORDEM_ESCOPOS: readonly string[] = ['conhecimento:read', 'agenda:read', 'financeiro:read', 'clientes:read'];
 
-/** Começa só com a ajuda: agenda e financeiro exigem marcação da própria pessoa, mesmo que o assistente peça tudo. */
+/** Começa só com a ajuda: agenda, financeiro e nomes (clientes:read) exigem marcação da própria pessoa, mesmo que o assistente peça tudo. */
 export const ESCOPOS_INICIAIS: readonly string[] = ['conhecimento:read'];
 
 /** Primeira consulta: documental, sem dado da empresa. Confirmação só pela chamada real registrada no iA.Fest. */
@@ -100,6 +103,10 @@ export const EXEMPLOS_POR_ESCOPO: Readonly<Record<string, readonly string[]>> = 
     ],
     'financeiro:read': [
         'Qual o resumo de contas a receber no iA.Fest: em aberto, vencido e vencendo em 7 dias? Diga a data de referência.',
+    ],
+    'clientes:read': [
+        'Como está a festa da Alice no iA.Fest: quantos dias faltam e quantas pendências abertas?',
+        'Quais famílias têm parcelas vencidas no iA.Fest e há quantos dias? (precisa também do resumo dos recebíveis)',
     ],
 };
 

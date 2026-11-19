@@ -93,6 +93,9 @@ test("conhecimento: A não encontra documento de B; referência de A não abre e
 
 type Caso = { nome: string; codigo: string; ajustar: (m: Mundo) => { env?: Record<string, string | undefined>; principal?: PrincipalMcp; extra?: Partial<DependenciasFerramentasMcp> } };
 
+/** Etapa 0b: a matriz roda com todas as permissões, para que a recusa venha do caso testado e não do escopo de nomes. */
+const principalTodos: PrincipalMcp = { ...principalA, escopos: [...principalA.escopos, "clientes:read"] };
+
 const CASOS: Caso[] = [
   { nome: "MCP_ENABLED desligado", codigo: "CANAL_DESATIVADO", ajustar: () => ({ env: { ...ENV_OK, MCP_ENABLED: "false" } }) },
   { nome: "INTELIGENCIA_ENABLED desligado", codigo: "CANAL_DESATIVADO", ajustar: () => ({ env: { ...ENV_OK, INTELIGENCIA_ENABLED: undefined } }) },
@@ -100,8 +103,8 @@ const CASOS: Caso[] = [
   { nome: "empresa fora da allowlist MCP", codigo: "CANAL_DESATIVADO", ajustar: () => ({ env: { ...ENV_OK, MCP_TENANT_ALLOWLIST: B } }) },
   { nome: "allowlist MCP ausente", codigo: "CANAL_DESATIVADO", ajustar: () => ({ env: { ...ENV_OK, MCP_TENANT_ALLOWLIST: undefined } }) },
   { nome: "empresa fora da AI_TENANT_ALLOWLIST", codigo: "CANAL_DESATIVADO", ajustar: () => ({ env: { ...ENV_OK, AI_TENANT_ALLOWLIST: B } }) },
-  { nome: "escopo insuficiente", codigo: "ESCOPO_INSUFICIENTE", ajustar: () => ({ principal: { ...principalA, escopos: ["conhecimento:read"] } }) },
-  { nome: "papel global desconhecido", codigo: "ACESSO_NEGADO", ajustar: () => ({ principal: { ...principalA, papel: "CONVIDADO" } }) },
+  { nome: "escopo insuficiente", codigo: "ESCOPO_INSUFICIENTE", ajustar: () => ({ principal: { ...principalTodos, escopos: ["conhecimento:read"] } }) },
+  { nome: "papel global desconhecido", codigo: "ACESSO_NEGADO", ajustar: () => ({ principal: { ...principalTodos, papel: "CONVIDADO" } }) },
   { nome: "papel da membership removido", codigo: "ACESSO_NEGADO", ajustar: (m) => { m.membros.set(UA, [{ empresa: A, papel: "VISITANTE", ativa: true }]); return {}; } },
   { nome: "membership inativa", codigo: "ACESSO_NEGADO", ajustar: (m) => { m.membros.set(UA, [{ empresa: A, papel: "ADMINISTRATIVO", ativa: false }]); return {}; } },
   { nome: "usuário inativo", codigo: "ACESSO_NEGADO", ajustar: (m) => { m.usuariosAtivos.delete(UA); return {}; } },
@@ -110,7 +113,7 @@ const CASOS: Caso[] = [
   { nome: "assinatura bloqueada", codigo: "ASSINATURA_NECESSARIA", ajustar: (m) => { m.bloqueadas.add(A); return {}; } },
   { nome: "prazo esgotado", codigo: "INDISPONIVEL", ajustar: (m) => {
     const lento = <T>(): Promise<T> => { m.leituras.push("lento"); return new Promise<T>(() => undefined); };
-    return { extra: { recebiveis: lento, agenda: lento, agendaPeriodo: lento, disponibilidade: lento, contratosPendentes: lento } };
+    return { extra: { recebiveis: lento, agenda: lento, agendaPeriodo: lento, disponibilidade: lento, contratosPendentes: lento, festasPorNome: lento } };
   } },
   // Revisão P2-6: a espera acontece ANTES da leitura (trava do tenant/concessão): o prazo cobre a transação inteira.
   { nome: "transação presa antes da leitura", codigo: "INDISPONIVEL", ajustar: () => ({ extra: { withTenantTransaction: () => new Promise<never>(() => undefined) } }) },
@@ -120,6 +123,7 @@ const CASOS: Caso[] = [
     async agendaPeriodo() { m.leituras.push("x"); return [{ ...FESTAS[A][0], horaInicio: "<script>" }]; },
     async disponibilidade(_t, e, i) { m.leituras.push("x"); const d = DISPONIBILIDADE[A](i); d[0].periodos[0].horarioInicioPadrao = "<script>"; return { configurada: true, alcance: "EMPRESA", dias: d }; },
     async contratosPendentes() { m.leituras.push("x"); return { total: 1, contratos: [{ ...PENDENTES[A].contratos[0], criadoEm: "ontem à tarde" }] }; },
+    async festasPorNome() { m.leituras.push("x"); return { festas: [{ festaId: "f", contratoId: "c", data: HOJE, horaInicio: "<script>", horaFim: null, aniversariante: "Bento", cliente: "Rafaela", convidados: 10, contratoStatus: "ASSINADO" }], incompleto: false }; },
   } }) },
 ];
 
@@ -130,6 +134,8 @@ const ARGS: Record<string, Record<string, unknown>> = {
   kidmais_consultar_agenda_periodo: { inicio: HOJE, fim: "2026-11-30" },
   kidmais_consultar_datas_livres: { inicio: HOJE, fim: "2026-11-30", convidados: 80 },
   kidmais_consultar_contratos_pendentes: {},
+  kidmais_consultar_recebiveis_familias: {},
+  kidmais_consultar_festa: { nome: "Bento" },
 };
 const DE_DADOS = Object.keys(ARGS) as (keyof typeof ARGS & NomeFerramentaMcp)[];
 
@@ -141,7 +147,7 @@ for (const caso of CASOS) {
       const eventos: EventoFerramenta[] = [];
       let dados: unknown = null;
       await assert.rejects(
-        (async () => { dados = await executarFerramentaMcp(nome, ARGS[nome], principal ?? principalA, deps(m, env ?? ENV_OK, eventos, extra)); })(),
+        (async () => { dados = await executarFerramentaMcp(nome, ARGS[nome], principal ?? principalTodos, deps(m, env ?? ENV_OK, eventos, extra)); })(),
         (e: unknown) => e instanceof ErroCanalMcp && e.codigo === caso.codigo,
       );
       assert.equal(dados, null);

@@ -17,7 +17,7 @@ export const dynamic = "force-dynamic";
 
 const corpoSchema = z.object({
   pedido: z.string().max(80),
-  escopos: z.array(z.string().max(40)).max(3),
+  escopos: z.array(z.string().max(40)).max(4),
   decisao: z.enum(["PERMITIR", "NEGAR"]),
 }).strict();
 

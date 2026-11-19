@@ -48,7 +48,14 @@ export const LIMITES_MCP = Object.freeze({
   recebiveisMax: 5000,
 });
 
-export const ESCOPOS_MCP = ["agenda:read", "financeiro:read", "conhecimento:read"] as const;
+/**
+ * `clientes:read` (etapa 0b, 18/11/2026): libera NOMES (família e aniversariante) nas consultas que os exigem. Nunca é
+ * concedido por padrão nem herdado: só entra quando o aplicativo pede e a pessoa marca na tela de consentimento.
+ */
+export const ESCOPOS_MCP = ["agenda:read", "financeiro:read", "conhecimento:read", "clientes:read"] as const;
+
+/** Escopos que o aplicativo recebe quando não pede nenhum (RFC 6749 §3.3): os da etapa sem nomes. */
+export const ESCOPOS_PADRAO_MCP: readonly EscopoMcp[] = ["agenda:read", "financeiro:read", "conhecimento:read"];
 export type EscopoMcp = (typeof ESCOPOS_MCP)[number];
 
 export function escopoValido(valor: string): valor is EscopoMcp {

@@ -174,7 +174,7 @@ test("descoberta: metadados RFC 9728/8414 e 401 com resource_metadata", async ()
   }
 });
 
-test("A1: cliente MCP oficial inicializa, lista exatamente as 4 ferramentas e chama cada uma; nome adivinhado não existe (A8)", async () => {
+test("A1: cliente MCP oficial inicializa, lista exatamente as 9 ferramentas e chama as do MVP; nome adivinhado não existe (A8)", async () => {
   const a = await subir();
   const det = instalarDetector();
   try {
@@ -182,7 +182,7 @@ test("A1: cliente MCP oficial inicializa, lista exatamente as 4 ferramentas e ch
     const c = await clienteMcp(a, t.acesso);
     assert.equal(c.getServerVersion()?.name, "kidmais-manager");
     const { tools } = await c.listTools();
-    assert.deepEqual(tools.map((x) => x.name).sort(), ["kidmais_buscar_conhecimento", "kidmais_consultar_agenda", "kidmais_consultar_agenda_periodo", "kidmais_consultar_contratos_pendentes", "kidmais_consultar_datas_livres", "kidmais_consultar_recebiveis_resumo", "kidmais_obter_trecho"]);
+    assert.deepEqual(tools.map((x) => x.name).sort(), ["kidmais_buscar_conhecimento", "kidmais_consultar_agenda", "kidmais_consultar_agenda_periodo", "kidmais_consultar_contratos_pendentes", "kidmais_consultar_datas_livres", "kidmais_consultar_festa", "kidmais_consultar_recebiveis_familias", "kidmais_consultar_recebiveis_resumo", "kidmais_obter_trecho"]);
     for (const tool of tools) {
       assert.equal(tool.annotations?.readOnlyHint, true);
       assert.equal(tool.annotations?.destructiveHint, false);
@@ -576,6 +576,12 @@ test("A4 escopo insuficiente e papel removido sobre o protocolo: isError sem dad
     assert.equal(r.isError, true);
     assert.equal(r.structuredContent, undefined);
     assert.match(JSON.stringify(r._meta), /insufficient_scope.*agenda:read/);
+    // r2 (P2 #7): o desafio mantém o escopo já concedido e acrescenta o exigido; famílias pede os DOIS que faltam.
+    assert.match(JSON.stringify(r._meta), /scope=\\"agenda:read conhecimento:read\\"/);
+    const rf = await c.callTool({ name: "kidmais_consultar_recebiveis_familias", arguments: {} });
+    assert.equal(rf.isError, true);
+    assert.equal(rf.structuredContent, undefined);
+    assert.match(JSON.stringify(rf._meta), /scope=\\"financeiro:read conhecimento:read clientes:read\\"/);
     a.mundo.membros.set(UA, [{ empresa: A, papel: "VISITANTE", ativa: true }]);
     const r2 = await c.callTool({ name: "kidmais_buscar_conhecimento", arguments: { consulta: "contas a receber" } });
     assert.equal(r2.isError, true);
@@ -916,13 +922,13 @@ test("experiência: empresa que sai do piloto aparece como tal, sem virar descon
   }
 });
 
-test("experiência: descrições dizem quando usar e o que não fazem; leitura preservada; nenhuma ferramenta nova", async () => {
+test("experiência: descrições dizem quando usar e o que não fazem; leitura preservada; só as duas da 0b novas, com nomes como dado", async () => {
   const a = await subir();
   try {
     const t = await conectar(a);
     const c = await clienteMcp(a, t.acesso);
     const { tools } = await c.listTools();
-    assert.deepEqual(tools.map((x) => x.name).sort(), ["kidmais_buscar_conhecimento", "kidmais_consultar_agenda", "kidmais_consultar_agenda_periodo", "kidmais_consultar_contratos_pendentes", "kidmais_consultar_datas_livres", "kidmais_consultar_recebiveis_resumo", "kidmais_obter_trecho"]);
+    assert.deepEqual(tools.map((x) => x.name).sort(), ["kidmais_buscar_conhecimento", "kidmais_consultar_agenda", "kidmais_consultar_agenda_periodo", "kidmais_consultar_contratos_pendentes", "kidmais_consultar_datas_livres", "kidmais_consultar_festa", "kidmais_consultar_recebiveis_familias", "kidmais_consultar_recebiveis_resumo", "kidmais_obter_trecho"]);
     for (const x of tools) {
       assert.match(x.description ?? "", /Use /, x.name);
       assert.equal(x.annotations?.readOnlyHint, true, x.name);
@@ -935,6 +941,12 @@ test("experiência: descrições dizem quando usar e o que não fazem; leitura p
     for (const nome of ["kidmais_consultar_agenda", "kidmais_consultar_agenda_periodo"]) assert.match(tools.find((x) => x.name === nome)?.description ?? "", /primeira assinatura[^.]*kidmais_consultar_contratos_pendentes/, nome);
     assert.match(tools.find((x) => x.name === "kidmais_consultar_contratos_pendentes")?.description ?? "", /não entra na agenda/);
     assert.match(tools.find((x) => x.name === "kidmais_consultar_datas_livres")?.description ?? "", /HORARIO_PASSADO/);
+    // Etapa 0b: as com nomes avisam que nome é dado e listam o que nunca sai.
+    for (const nome of ["kidmais_consultar_festa", "kidmais_consultar_recebiveis_familias"]) {
+      const d = tools.find((x) => x.name === nome)?.description ?? "";
+      assert.match(d, /não instruções/, nome);
+      assert.match(d, /CPF, telefone, e-mail, endereço/, nome);
+    }
     await c.close();
   } finally {
     await descer(a);

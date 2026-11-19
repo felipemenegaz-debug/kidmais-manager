@@ -71,6 +71,8 @@ const ORDEM = Object.freeze([
   generico('124', 'assinatura do cliente em papel (PAPEL_CLIENTE): tabela contrato_assinaturas_papel; troca o CHECK de método de aceite e dois corpos da 061'),
   // 125 (área da família F3) DEPOIS da 124: exige a 123; cadeia 123 → 122 → 124 → 125.
   generico('125', 'área da família F3: avisos de pagamento, pendências da família e aviso fixo; troca o CHECK de tipo dos eventos da 123 e gatilhos de autoria'),
+  // 126 (escopo MCP clientes:read, etapa 0b) DEPOIS da 125: exige só a 105 (já aplicada); vem ANTES do código da etapa 0b.
+  generico('126', 'escopo MCP clientes:read: troca o CHECK de escopos das 3 tabelas OAuth da 105; trava por instantes as 3 tabelas'),
 ].map(congelar));
 
 /** Só os passos que rodam (sem a 098 excluída nem a 099/105 já aplicadas). */

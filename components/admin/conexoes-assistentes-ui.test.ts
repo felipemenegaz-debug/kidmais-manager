@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import test from 'node:test';
 import { createElement, type ComponentType } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
@@ -84,10 +85,25 @@ test('exemplos só das permissões concedidas; financeiro não aparece sem a per
     const reconectar = /marque as permissões que deseja manter e as que deseja adicionar: a nova autorização substitui a anterior/;
     assert.match(so.match(/data-escopo-faltando[^>]*>([^<]*)</)?.[1] ?? '', reconectar);
     assert.match(guia.ORIENTACOES.find((o) => o.id === 'permissao')?.oQueFazer ?? '', reconectar);
-    const todos = html(estado([conexao({ escopos: ['conhecimento:read', 'agenda:read', 'financeiro:read'] })]));
-    assert.match(todos, /Qual o resumo de contas a receber/);
-    assert.match(todos, /Quantas festas tenho hoje/);
+    // Etapa 0b: as três da 0a ainda deixam faltando só a permissão de nomes (opcional, nunca padrão), sem aviso de nomes.
+    const tres = html(estado([conexao({ escopos: ['conhecimento:read', 'agenda:read', 'financeiro:read'] })]));
+    assert.match(tres, /Qual o resumo de contas a receber/);
+    assert.match(tres, /Quantas festas tenho hoje/);
+    assert.equal(tres.match(/data-escopo-faltando[^>]*>([^<]*)</)?.[1].match(/Não concedidas: ([^.]*)./)?.[1], 'Consultar festas e famílias pelo nome');
+    assert.doesNotMatch(tres, /data-nomes-concedidos/);
+    const todos = html(estado([conexao({ escopos: ['conhecimento:read', 'agenda:read', 'financeiro:read', 'clientes:read'] })]));
     assert.doesNotMatch(todos, /data-escopo-faltando/);
+    assert.match(todos, /data-nomes-concedidos/);
+    assert.match(todos, /Não vê CPF, telefone, e-mail, endereço nem data de nascimento/);
+    // r2 (P2 #4): texto de abertura e aviso concordam: nomes só com a permissão; com o financeiro, saldo/atraso/vencimento por família.
+    assert.match(todos, /quanto cada família deve, com atraso e próximo vencimento/);
+    // O texto de abertura fica na página (com efeitos de rede), fora do corpo renderizado aqui: confere direto na fonte.
+    const fonte = readFileSync('components/admin/ConexoesAssistentes.tsx', 'utf8');
+    const abertura = fonte.match(/<h1>Assistentes conectados<\/h1>\s*<p[^>]*>([^<]*)<\/p>/)?.[1] ?? '';
+    assert.match(abertura, /Só se você marcar a permissão de nomes/);
+    assert.match(abertura, /quanto cada família deve \(saldo, atraso e próximo vencimento\)/);
+    assert.match(abertura, /Sem essa permissão, não vê nomes de clientes nem de aniversariantes/);
+    assert.match(abertura, /Em nenhum caso vê CPF, telefone, e-mail, endereço ou data de nascimento/);
 });
 
 test('causa comprovada fica separada das sugestões; falha temporária não pede reconexão', () => {

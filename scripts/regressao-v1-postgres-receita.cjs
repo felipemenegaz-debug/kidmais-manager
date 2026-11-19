@@ -146,6 +146,8 @@ const MODELOS = {
   "124": { banco: "kidmais_v1_modelo_124", ate: "124", sem: ["098"] },
   // Ações da área "Minha festa" (125, F3 LOCAL 15/11/2026): o estado da 124 com a 125.
   "125": { banco: "kidmais_v1_modelo_125", ate: "125", sem: ["098"] },
+  // Escopo MCP `clientes:read` (126, etapa 0b LOCAL 18/11/2026): o estado da 125 com a 126.
+  "126": { banco: "kidmais_v1_modelo_126", ate: "126", sem: ["098"] },
   // B-14 (28/10/2026, HB-3, plano rev. 8.1 §3.8): um modelo por prefixo da promoção, com o CONJUNTO exato de migrations
   // além da 088 aplicado na ORDEM DO RUNBOOK (`runbook: true`: 089, 092, 093, 099 → 090, 094, 095, 096, 097, 100, 091 —
   // revisão do HB-3, P3: a ordem numérica diferia também na 099), e o PH exato do staging (P11 + 102, 103 e 105, sem a
