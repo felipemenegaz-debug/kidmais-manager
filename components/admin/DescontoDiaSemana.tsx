@@ -71,7 +71,9 @@ function FormularioDia({ estado, aoSalvar, aviso, setAviso, aoMudarPrevia }: { e
     try {
       const novo = await enviarMarketing<EstadoDescontoDia>(URL_API, { dias: r.dias, percentual: pct, pacoteIds: r.pacoteIds, inicio: r.inicio, versao: estado.versao });
       aoSalvar(novo);
-      setAviso({ tipo: 'ok', texto: pct === 0 ? `Desligado para festas a partir de ${dataBr(r.inicio)}. Festas já fechadas não mudam.` : `Salvo. Vale para festas a partir de ${dataBr(r.inicio)}. Festas já fechadas não mudam.` });
+      // Mesma versão = o servidor não gravou nada (o pedido já era o que vale): não dizer "Salvo".
+      if (novo.disponivel && novo.versao === estado.versao) setAviso({ tipo: 'ok', texto: 'Nada mudou: isso já é o que vale. Nada foi gravado.' });
+      else setAviso({ tipo: 'ok', texto: pct === 0 ? `Desligado para festas a partir de ${dataBr(r.inicio)}. Festas já fechadas não mudam.` : `Salvo. Vale para festas a partir de ${dataBr(r.inicio)}. Festas já fechadas não mudam.` });
     } catch (e) {
       setAviso({ tipo: 'erro', texto: e instanceof Error ? e.message : 'Não foi possível salvar.' });
     } finally {
