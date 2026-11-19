@@ -21,12 +21,14 @@ import { modelosAcervo, sugestaoAcervo } from '@/lib/convites/acervo';
 import { aplicarModoArteLocal, selecionarArte, semArte } from './arte-local';
 import SeletorComposicao from './SeletorComposicao';
 import { opcoesComposicao } from './composicao';
-import { conferirPrompt, alinharPrompt, conflitoDeEstilo, estilosDoEditor, type EstiloEditor } from '@/lib/convites/conferencia-prompt';
+import { conferirPrompt, alinharPrompt, conflitoDeEstilo, estiloDoPedido, estilosDoEditor, type EstiloEditor } from '@/lib/convites/conferencia-prompt';
 import { acharPersonagemProtegido, type MencaoProtegida } from '@/lib/convites/personagens-protegidos';
+import { sugestaoOriginal } from '@/lib/convites/sugestao-original';
 import { exemplosPedido } from './exemplos-pedido';
 import VincularFesta from './VincularFesta';
 import { useLogoNoConvite, type LogoNoConvite } from './LogoNoConvite';
 import { confirmadosDasFilas } from '@/lib/convites/fila-logo';
+import { ProgressoGeracao } from './ProgressoGeracao';
 import { AVISO_FALHA_LEITURA_LOGO, controleDeCarga, FALHA_CARGA_CONVITE, LeituraCancelada, lerComRecuperacao, TEXTO_ESPERANDO_LOGO, TEXTO_LOGO_NAO_SALVA } from './logo-editor';
 type Arte = { id: string; url: string; origem: string; completo?: boolean };
 // Situação simples de um pedido de geração; pendências técnicas ficam com o operador da plataforma.
@@ -58,6 +60,8 @@ const campos = [['nome', 'Nome do aniversariante'], ['idade', 'Idade ou celebra�
 export default function ConviteEditor({ festaId, conviteId }: { festaId?: string; conviteId?: string }) {
   const admin = !!(festaId || conviteId);
   const ui = admin ? { ...styles, ...adminStyles } : styles;
+  // Classes definidas nos dois módulos: no painel do buffet valem as duas (a do painel, carregada depois, ajusta o tema).
+  const classes = (nome: string) => admin ? `${styles[nome] ?? ''} ${adminStyles[nome] ?? ''}`.trim() : styles[nome];
   const [dados, setDados] = useState<Dados | null>(null), [conteudoBase, setConteudo] = useState<Conteudo | null>(null);
   // Convites completos (textos na imagem) abrem em modo "completa"; modos já salvos nunca são rebaixados ao carregar.
   const conteudo = conteudoBase ? aplicarModoArteLocal(conteudoBase, dados?.artes.find(a => a.id === conteudoBase.arteId), !!dados?.laboratorioLocal) : null;
@@ -79,6 +83,12 @@ export default function ConviteEditor({ festaId, conviteId }: { festaId?: string
   const pedidoLiberado = useRef<string | null>(null);
   const [estiloNoPedido, setEstiloNoPedido] = useState('');
   const [manterEstilo, setManterEstilo] = useState(false);
+  // Estilo do pedido prevalece: com o seletor no padrão (não escolhido pela pessoa), o estilo citado no texto é aplicado
+  // sem perguntar; "Desfazer" volta ao padrão para aquele estilo citado. Só pergunta quando a pessoa escolheu outro estilo.
+  const [estiloAtivo, setEstiloAtivo] = useState(false);
+  const [estiloDesfeito, setEstiloDesfeito] = useState('');
+  const [avisoFotoEstilo, setAvisoFotoEstilo] = useState(false);
+  const fotoSemReferenciaAceita = useRef<string | null>(null);
   const [modoArte, setModoArte] = useState<'ia' | 'propria' | null>(null);
   const [tutorialAberto, setTutorialAberto] = useState<boolean | null>(null);
   const [confirmacao, setConfirmacao] = useState<Confirmacao | null>(null);
@@ -105,6 +115,8 @@ export default function ConviteEditor({ festaId, conviteId }: { festaId?: string
     return () => tela.removeEventListener('change', ajustar);
   }, []);
   const [acompanhando, setAcompanhando] = useState(''), acompanhamento = useRef('');
+  // Início da geração enviada por esta tela (relógio do progresso); null quando só acompanhamos um pedido de antes.
+  const [inicioGeracao, setInicioGeracao] = useState<number | null>(null);
   useEffect(() => () => { acompanhamento.current = ''; }, []);
   const [arteExcluir, setArteExcluir] = useState<Arte | null>(null);
   const dialogo = useRef<HTMLDialogElement>(null);
@@ -194,7 +206,7 @@ export default function ConviteEditor({ festaId, conviteId }: { festaId?: string
   const logo = useLogoNoConvite({
     ativo: admin && !!dados?.logoBuffet && !dados.laboratorioLocal && !!dados.id, conviteId: dados?.id,
     logoDataUrl: dados?.logoBuffet?.logoDataUrl ?? null, publicado: !!dados?.publicado, conteudo, arteUrl: dados?.artes.find(a => a.id === conteudo?.arteId)?.url,
-    busy, ui, telaEstreita,
+    busy, ui,
   });
   useEffect(() => { logoRef.current = logo; });
   // Convite completo (arte + textos numa chamada): no produto, quando o servidor tem o provedor configurado.
@@ -212,7 +224,15 @@ export default function ConviteEditor({ festaId, conviteId }: { festaId?: string
     || faltaAutorizacao || imagensSemAutorizacao
     || (dados.laboratorioLocal && !!dados.geradoresLocais && !dados.geradoresLocais.find(g => g.id === geradorLocal)?.disponivel)
     || (!dados.laboratorioLocal && dados.disponiveis < 1) || prompt.trim().length < 5;
-  const avatarBloqueado = busy || !foto || avatarPronto || !autorizacaoFoto || !['cartoon3d', 'cartoon2d'].includes(estilo);
+  const citadoNoPedido = completoAtivo ? estiloDoPedido(prompt) : undefined;
+  const termoEstiloPedido = citadoNoPedido?.termo;
+  // Geração em curso: o pedido desta tela (busy com a mensagem de geração) ou o acompanhamento de um pedido já enviado.
+  const gerando = (busy && aviso === MENSAGEM_GERANDO) || !!acompanhando;
+  const estiloAjustado = !estiloAtivo && estilo === 'cartoon3d' && !!citadoNoPedido && estiloDesfeito !== citadoNoPedido.termo;
+  const estiloUsado: EstiloEditor = estiloAjustado && citadoNoPedido ? citadoNoPedido.estilo : estilo;
+  // Só cartoon 3D, desenho 2D e realista têm referência aprovada para a foto (lib/convites/estilos.ts).
+  const fotoSemReferencia = completoAtivo && !!foto && estiloUsado === 'pedido';
+  const avatarBloqueado = busy || !foto || avatarPronto || !autorizacaoFoto || !['cartoon3d', 'cartoon2d'].includes(estiloUsado);
   const confirmacaoImagens = !dados?.laboratorioLocal && autorizacaoIA && imagensSelecionadas && autorizacaoFoto
     ? { autorizacaoImagens: { versao: autorizacaoIA.versao, textoHash: autorizacaoIA.hashes.imagens } } : {};
   useEffect(() => { const sair = (e: BeforeUnloadEvent) => { if (alterado) e.preventDefault(); }; window.addEventListener('beforeunload', sair); return () => window.removeEventListener('beforeunload', sair); }, [alterado]);
@@ -275,12 +295,20 @@ export default function ConviteEditor({ festaId, conviteId }: { festaId?: string
     setAvisoProtegido(null);
     setEstiloNoPedido('');
     setManterEstilo(false);
+    setAvisoFotoEstilo(false);
   }
 
   function mudarEstilo(valor: EstiloEditor) {
     setEstilo(valor);
+    setEstiloAtivo(true);
     setEstiloNoPedido('');
     setManterEstilo(false);
+    setAvisoFotoEstilo(false);
+  }
+
+  function desfazerEstilo() {
+    if (termoEstiloPedido) setEstiloDesfeito(termoEstiloPedido);
+    setAvisoFotoEstilo(false);
   }
 
   function usarExemplo(texto: string) {
@@ -293,7 +321,14 @@ export default function ConviteEditor({ festaId, conviteId }: { festaId?: string
     }
   }
 
+  // Troca o pedido bloqueado pela sugestão original (sem confirmação: o aviso já mostra o texto) e devolve o foco ao campo.
+  function usarSugestao(texto: string) {
+    mudarPrompt(texto);
+    requestAnimationFrame(() => painelIA.current?.querySelector('textarea')?.focus());
+  }
+
   function removerFoto() {
+    setAvisoFotoEstilo(false);
     setFoto('');
     setAvatarPronto(false);
     setAutorizacaoFoto(false);
@@ -315,8 +350,11 @@ export default function ConviteEditor({ festaId, conviteId }: { festaId?: string
     }
 
     const completo = completoAtivo;
-    const conflitoEstilo = completo && !manterEstilo ? conflitoDeEstilo(prompt, estilo) : undefined;
+    const conflitoEstilo = completo && estiloAtivo && !manterEstilo ? conflitoDeEstilo(prompt, estilo) : undefined;
     if (conflitoEstilo) { setEstiloNoPedido(conflitoEstilo); return; }
+    const avisoFoto = JSON.stringify([prompt, estiloUsado, foto.length]);
+    if (completo && !avatarOnly && fotoSemReferencia && fotoSemReferenciaAceita.current !== avisoFoto) { setAvisoFotoEstilo(true); return; }
+    setAvisoFotoEstilo(false);
     if (completo && conteudo) {
       if (conferirPrompt(prompt, conteudo).conflito) { setConflitoPrompt(true); return; }
       if (foto && !fotoLiberada) { setErro(dados?.laboratorioLocal ? 'Confirme a autorização para usar a foto.' : 'Confirme o envio da fotografia e das imagens da galeria selecionadas para esta geração.'); return; }
@@ -324,12 +362,12 @@ export default function ConviteEditor({ festaId, conviteId }: { festaId?: string
     // O servidor usa os dados salvos da festa: salvar antes evita gerar com textos diferentes da tela.
     if (!dados?.laboratorioLocal && completo && alterado && dados && conteudo && !await executar({ acao: 'salvar', revisao: dados.revisao, conteudo }, 'Rascunho salvo.')) return;
     if (dados?.laboratorioLocal && !completo && preparado?.pedido !== prompt && !await preparar()) return;
-    const assinatura = JSON.stringify({ prompt, referencias, ...(avatarOnly ? { avatarOnly } : {}), ...(dados?.laboratorioLocal ? { tipo: 'imagem', provedor: geradorLocal, completo, ...(completo ? { campos: conteudo, qualidade, estilo, foto } : {}) } : completo ? { completo, estilo, foto, ...(qualidade !== 'xhigh' ? { qualidade } : {}), campos: conteudo && { nome: conteudo.nome, idade: conteudo.idade, data: conteudo.data, horario: conteudo.horario, local: conteudo.local, endereco: conteudo.endereco, mensagem: conteudo.mensagem } } : {}) });
+    const assinatura = JSON.stringify({ prompt, referencias, ...(avatarOnly ? { avatarOnly } : {}), ...(dados?.laboratorioLocal ? { tipo: 'imagem', provedor: geradorLocal, completo, ...(completo ? { campos: conteudo, qualidade, estilo: estiloUsado, foto } : {}) } : completo ? { completo, estilo: estiloUsado, foto, ...(qualidade !== 'xhigh' ? { qualidade } : {}), campos: conteudo && { nome: conteudo.nome, idade: conteudo.idade, data: conteudo.data, horario: conteudo.horario, local: conteudo.local, endereco: conteudo.endereco, mensagem: conteudo.mensagem } } : {}) });
     if (!pedido.current || pedido.current.assinatura !== assinatura) pedido.current = pedidoSalvo(assinatura) ?? { assinatura, chave: crypto.randomUUID(), ...(dados?.laboratorioLocal ? { seed: crypto.getRandomValues(new Uint32Array(1))[0] } : {}) };
     if (dados?.laboratorioLocal) {
       setBusy(true); setErro(''); setRelatorioLocal(''); setEtapaLocal('Preparando workflow…');
       try {
-        const inicio = await api({ acao: 'gerar', chave: pedido.current.chave, prompt, referencias: [], tipo: 'imagem', provedor: geradorLocal, completo, ...(avatarOnly ? { avatarOnly } : {}), ...(completo ? { campos: conteudo, qualidade, estilo, ...(foto ? { foto, autorizacaoFoto } : {}) } : {}), seed: pedido.current.seed });
+        const inicio = await api({ acao: 'gerar', chave: pedido.current.chave, prompt, referencias: [], tipo: 'imagem', provedor: geradorLocal, completo, ...(avatarOnly ? { avatarOnly } : {}), ...(completo ? { campos: conteudo, qualidade, estilo: estiloUsado, ...(foto ? { foto, autorizacaoFoto } : {}) } : {}), seed: pedido.current.seed });
         setJobLocal(inicio.jobId);
         // Executado pelo clique de geração, nunca durante o render.
         // eslint-disable-next-line react-hooks/purity -- Prazo do polling no handler de clique.
@@ -363,7 +401,7 @@ export default function ConviteEditor({ festaId, conviteId }: { festaId?: string
       return;
     }
     const comando = completo
-      ? { acao: 'gerar', chave: pedido.current.chave, prompt, referencias: [], completo: true, estilo, qualidade, ...(foto && fotoLiberada ? { foto, ...confirmacaoImagens } : {}) }
+      ? { acao: 'gerar', chave: pedido.current.chave, prompt, referencias: [], completo: true, estilo: estiloUsado, qualidade, ...(foto && fotoLiberada ? { foto, ...confirmacaoImagens } : {}) }
       : { acao: 'gerar', chave: pedido.current.chave, prompt, referencias, ...confirmacaoImagens };
     // §4: o buffet espera o "Mostrar a logo" pendente (até 5 s); a família sempre envia false (o servidor não confere).
     let logoLigada = false;
@@ -379,6 +417,8 @@ export default function ConviteEditor({ festaId, conviteId }: { festaId?: string
     // Uso único: a confirmação das imagens vale só para este pedido; a próxima geração pede de novo.
     if (!dados?.laboratorioLocal) setAutorizacaoFoto(false);
     setBusy(true); setErro(''); setAviso(MENSAGEM_GERANDO);
+    // eslint-disable-next-line react-hooks/purity -- Início do relógio no handler de clique.
+    setInicioGeracao(Date.now());
     let r: SituacaoGeracao;
     try { r = await api({ ...comando, logoLigada }) as SituacaoGeracao; }
     catch (e) {
@@ -425,6 +465,7 @@ export default function ConviteEditor({ festaId, conviteId }: { festaId?: string
   async function acompanhar(chave: string, selecionar = true) {
     if (acompanhamento.current === chave) return;
     acompanhamento.current = chave; setAcompanhando(chave); setErro(''); setAviso(MENSAGEM_GERANDO);
+    if (pedido.current?.chave !== chave) setInicioGeracao(null);
     // eslint-disable-next-line react-hooks/purity -- Prazo do acompanhamento iniciado por clique ou pela carga do convite.
     const limite = Date.now() + 15 * 60 * 1000;
     let ausente = 0;
@@ -502,7 +543,7 @@ export default function ConviteEditor({ festaId, conviteId }: { festaId?: string
   const paginaAtual = Math.min(paginaModelo, totalPaginas);
   const modelosDaPagina = modelosFiltrados.slice((paginaAtual - 1) * 9, paginaAtual * 9);
   const conferencia = conteudo ? conferirPrompt(prompt, conteudo) : null;
-  const rotuloEstilo = estilosDoEditor.find(([id]) => id === estilo)?.[1] ?? estilo;
+  const rotuloEstilo = estilosDoEditor.find(([id]) => id === estiloUsado)?.[1] ?? estiloUsado;
   const tamanhoPaginaArte = colunasGaleria * 3;
   const paginasArte = Math.max(1, Math.ceil((dados?.artes.length ?? 0) / tamanhoPaginaArte));
   const paginaArteAtual = Math.min(paginaArte, paginasArte);
@@ -524,6 +565,12 @@ export default function ConviteEditor({ festaId, conviteId }: { festaId?: string
             {avisoProtegido.mencao.tipo === 'marca'
               ? <p>{avisoProtegido.mencao.termo} é uma marca protegida. Não podemos reproduzir seus personagens nem o logotipo. Podemos criar uma arte original com o mesmo clima.</p>
               : <p>{avisoProtegido.mencao.termo} é um personagem protegido. Não podemos reproduzi-lo. Podemos criar uma arte original com o mesmo clima, sem o personagem.</p>}
+            <div className={classes('sugestaoOriginal')} data-sugestao-original>
+              <p><strong>Sugestão de pedido original</strong></p>
+              <blockquote>{sugestaoOriginal(avisoProtegido.mencao)}</blockquote>
+              <div className={ui.acoes}><button type="button" className={ui.primario} onClick={() => usarSugestao(sugestaoOriginal(avisoProtegido.mencao))}>Usar esta sugestão</button></div>
+              <small>Você pode mudar as cores e os elementos antes de gerar. Usar a sugestão não consome créditos.</small>
+            </div>
             <div className={ui.acoes}>
               <button type="button" onClick={() => painelIA.current?.querySelector('textarea')?.focus()}>Editar meu pedido</button>
               <button type="button" onClick={semIA}>Enviar uma imagem minha</button>
@@ -536,6 +583,13 @@ export default function ConviteEditor({ festaId, conviteId }: { festaId?: string
             <div className={ui.acoes}>
               <button type="button" onClick={() => mudarEstilo('pedido')}>Usar o estilo do meu pedido</button>
               <button type="button" onClick={() => { setEstiloNoPedido(''); setManterEstilo(true); }}>Manter {rotuloEstilo}</button>
+            </div>
+          </section>}
+          {avisoFotoEstilo && fotoSemReferencia && <section className={ui.conferenciaPrompt} role="alert" data-aviso-foto-estilo>
+            <p>O estilo {termoEstiloPedido ? `${termoEstiloPedido}, do seu pedido,` : 'do seu pedido'} não tem referência aprovada para a foto do aniversariante. A foto vai junto, mas a arte pode não se parecer com ela.</p>
+            <div className={ui.acoes}>
+              <button type="button" onClick={() => { if (estiloAjustado) desfazerEstilo(); else { mudarEstilo('cartoon3d'); setManterEstilo(true); } }}>Usar Cartoon 3D com a foto</button>
+              <button type="button" disabled={geracaoBloqueada} onClick={() => { fotoSemReferenciaAceita.current = JSON.stringify([prompt, estiloUsado, foto.length]); setAvisoFotoEstilo(false); void gerar(); }}>Gerar mesmo assim</button>
             </div>
           </section>}
           {completoAtivo && <>
@@ -554,7 +608,7 @@ export default function ConviteEditor({ festaId, conviteId }: { festaId?: string
           </>}
           {autorizacaoIA && <ConviteAutorizacaoIA ia={autorizacaoIA} busy={busy || !!acompanhando} ui={ui} semIA={semIA} executar={(body, mensagem) => executar(body, mensagem, true)} />}
           <div className={ui.controlesIA}>
-            {completoAtivo && <div className={ui.qualidade}><span>Estilo</span><SeletorArte nome="Estilo da arte" valor={estilo} desativado={busy} mudar={mudarEstilo} opcoes={estilosDoEditor} ui={ui} /><small>Sem estilo no pedido, usamos cartoon 3D.</small></div>}
+            {completoAtivo && <div className={ui.qualidade}><span>Estilo</span><SeletorArte nome="Estilo da arte" valor={estiloUsado} desativado={busy} mudar={mudarEstilo} opcoes={estilosDoEditor} ui={ui} />{!citadoNoPedido && <small>Sem estilo no pedido, usamos cartoon 3D.</small>}{estiloAjustado && <p className={classes('estiloAjustado')} role="status" data-estilo-ajustado>Estilo ajustado para {termoEstiloPedido}, como no seu pedido. <button type="button" className={ui.linkBotao} disabled={busy} onClick={desfazerEstilo}>Desfazer</button></p>}</div>}
             {completoAtivo && <div className={ui.qualidade}><span>Qualidade</span><SeletorArte nome="Qualidade da imagem" valor={qualidade} desativado={busy || !!acompanhando} mudar={setQualidade} opcoes={[["high", "Alta"], ["xhigh", "Muito alta"], ["max", "Máxima"]]} ui={ui} /><small>Maior qualidade pode aumentar o custo e o tempo.</small></div>}
           </div>
           {!dados.laboratorioLocal && !completoAtivo && !!dados.artes.length && <><p>Referências: escolha até duas artes anexadas.</p><div className={ui.artes}>{dados.artes.map(a => <button key={a.id} disabled={busy || (!referencias.includes(a.id) && referencias.length >= 2)} type="button" aria-label="Usar arte como referência" aria-pressed={referencias.includes(a.id)} onClick={() => { setAutorizacaoFoto(false); setReferencias(refs => refs.includes(a.id) ? refs.filter(id => id !== a.id) : [...refs, a.id]); }}><img src={a.url} alt="Referência" /></button>)}</div></>}
@@ -573,8 +627,9 @@ export default function ConviteEditor({ festaId, conviteId }: { festaId?: string
             {autorizacaoIA && !autorizacaoIA.indisponivel && <ConfirmacaoImagensIA ia={autorizacaoIA} marcado={autorizacaoFoto} mudar={setAutorizacaoFoto} busy={busy || !!acompanhando} ui={ui} />}
           </section>}
           <div className={styles.gerarArte}>
-            <button type="button" className={ui.primario} disabled={geracaoBloqueada} onClick={() => void gerar()}>{busy ? 'Processando…' : dados.laboratorioLocal ? (conviteCompleto && geradorLocal === 'openai' ? 'Gerar convite completo' : 'Gerar imagem') : completoAtivo ? 'Gerar convite completo · 1 crédito' : 'Gerar arte · 1 crédito'}</button>
+            <button type="button" className={ui.primario} disabled={geracaoBloqueada} onClick={() => void gerar()}>{gerando ? 'Gerando…' : busy ? 'Processando…' : dados.laboratorioLocal ? (conviteCompleto && geradorLocal === 'openai' ? 'Gerar convite completo' : 'Gerar imagem') : completoAtivo ? 'Gerar convite completo · 1 crédito' : 'Gerar arte · 1 crédito'}</button>
           </div>
+          {gerando && !dados.laboratorioLocal && <ProgressoGeracao inicio={inicioGeracao} ui={ui} />}
           {dados.laboratorioLocal && <>
             <small>Confira os dados antes de gerar. {geradorLocal === 'comfy' ? 'Geração na sua GPU.' : 'Uma chamada paga.'} Sem repetição automática.</small>
             <details><summary>Opções avançadas</summary>
@@ -624,7 +679,11 @@ export default function ConviteEditor({ festaId, conviteId }: { festaId?: string
   return <main className={ui.editor} data-editor={admin ? 'buffet' : 'cliente'}>
     <header className={ui.cabecalho}><div><p className={ui.sobretitulo}>{admin ? 'FESTAS · CONVITE VIRTUAL' : 'CONVITES'}</p><h1>{admin ? (dados?.festaId === null ? 'Convite avulso' : 'Convite da festa') : <>Uma festa começa<br />com um convite.</>}</h1><p>{admin ? 'Personalize o convite, compartilhe com o cliente e acompanhe as confirmações.' : 'Escolha um tema, dê seu toque e compartilhe esse momento.'}</p></div>{admin && <div className={ui.acoesCabecalho}><Link className={ui.voltar} href={festaId ? `/admin/festas/${festaId}` : "/admin/convites"}>{festaId ? "← Voltar à festa" : "← Meus convites"}</Link></div>}</header>
     {admin && conviteId && dados?.festaId === null && <VincularFesta conviteId={conviteId} revisao={dados.revisao} bloqueado={busy || alterado || !!dados.geracaoEmAndamento || !!dados.geracaoIncerta} onVinculado={async () => { await carregar(); setAviso("Festa vinculada. Confira os dados e publique o convite."); }} />}
-    {erro && <p className={ui.erro} role="alert">{erro}</p>}{(aviso || dados?.geracaoIncerta) && <p className={ui.aviso} role="status">{aviso || MENSAGEM_VERIFICANDO}</p>}
+    {/* Retorno das ações num aviso fixo no rodapé da tela: visível mesmo com a página rolada até a arte. */}
+    {(erro || aviso || dados?.geracaoIncerta) && <div className={classes('mensagensAcao')} data-mensagens-acao>
+      <div>{erro && <p className={ui.erro} role="alert">{erro}</p>}{(aviso || dados?.geracaoIncerta) && <p className={ui.aviso} role="status">{aviso || MENSAGEM_VERIFICANDO}</p>}</div>
+      {(erro || aviso) && !(gerando && aviso === MENSAGEM_GERANDO && !erro) && <button type="button" className={classes('fecharMensagem')} aria-label="Fechar aviso" onClick={() => { setErro(''); setAviso(''); }}><span aria-hidden="true">×</span></button>}
+    </div>}
     {carregando ? <p>Preparando seu convite…</p> : falhaCarga && !dados ? <section className={ui.painel} data-falha-carga><p className={ui.erro} role="alert">{falhaCarga}</p><button type="button" className={ui.primario} onClick={() => { setFalhaCarga(''); setCarregando(true); void primeiraCarga(() => true); }}>Tentar de novo</button></section> : !dados || !conteudo ? <section className={ui.painel}><h2>Seu convite começa aqui</h2><p>Modelos prontos e arte própria não consomem créditos de IA.</p>{admin && <button disabled={busy} className={ui.primario} onClick={() => { setBusy(true); void carregar(true).then(() => setErro('')).catch(e => setErro(e.message)).finally(() => setBusy(false)); }}>Criar convite da festa</button>}</section> : <>
       <div className={ui.barra}><span>{dados.publicado ? '● Publicado' : '○ Rascunho'}{alterado ? ' · Alterações não salvas' : ''}</span><span>{dados.laboratorioLocal ? 'Teste local' : dados.creditos?.motor === 'CREDITOS'
         ? <><strong>{dados.disponiveis}</strong> {comUnidade(dados.disponiveis, 'geração restante', 'gerações restantes')} neste convite · <strong>{dados.creditos.disponivel}</strong> {creditosDisponiveisDaEmpresa(dados.creditos.disponivel)}</>
@@ -689,7 +748,7 @@ export default function ConviteEditor({ festaId, conviteId }: { festaId?: string
           <small>{conviteProprioPronto ? 'Sua imagem aparece como está. Os dados abaixo continuam valendo para a página do convite e a confirmação de presença.' : conteudo.visual?.modo === 'completa' ? 'Os textos já estão na arte: alterações aqui valem para a próxima geração e para a página do convite.' : 'Alterar os textos não consome créditos.'}</small>
         </fieldset>
       </div><aside className={`${ui.preview} ${ui.previewLocal}`}><p className={ui.sobretitulo}>É ASSIM QUE SEU CONVITE VAI FICAR</p><ConviteArte conteudo={conteudo} arte={arte} sobre={logo.sobre} />
-        {admin && dados.logoBuffet && logo.painel}
+        {admin && dados.logoBuffet && logo.previa}
         {opcoesPosicao.length > 0 && <div className={ui.posicaoImagem}><SeletorComposicao conteudo={conteudo} opcoes={opcoesPosicao} busy={busy} className={ui.seletorCriacao} mudar={v => campo('visual', v)} />
           {conviteProprioPronto && <p role="status" data-conferencia-convite><small>Confira se a sua imagem tem os mesmos dados da festa{dadosConferencia ? `: ${dadosConferencia}` : ''}.</small></p>}</div>}
         <div className={ui.acoes}><button disabled={busy} onClick={() => void baixarConvite(conteudo, arte, logo.baixar.logo, logo.baixar.sobre).catch(() => setErro('Não foi possível baixar. Tente novamente.'))}>Baixar imagem</button></div>
@@ -703,6 +762,7 @@ export default function ConviteEditor({ festaId, conviteId }: { festaId?: string
           titulo: 'Despublicar convite?', texto: 'O link dos convidados ficará indisponível até você publicar de novo.',
           acao: 'Despublicar', confirmar: async () => { await executar({ acao: 'despublicar', revisao: dados.revisao }, 'Convite despublicado.', true); },
         })}>Despublicar</button>}
+        {admin && dados.logoBuffet && logo.painel}
       </aside></div>
       {(dados.artes.length > 0 || !dados.laboratorioLocal) && <details className={`${ui.painel} ${ui.galeriaLocal}`}>
         <summary>Imagens da festa</summary>

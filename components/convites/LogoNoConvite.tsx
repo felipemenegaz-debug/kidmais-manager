@@ -54,19 +54,22 @@ export type LogoNoConvite = {
   sobre: SobreArte | null;
   /** Para o download: logo da faixa (ou da sobreposição) e posição sobre a arte, quando a regra vale. */
   baixar: { logo: string | null; sobre: PosicaoSobre | null };
+  /** Logo no rodapé, logo abaixo da prévia (quando não está sobre a arte). */
+  previa: ReactNode;
+  /** Opção "Mostrar a logo" e ajustes: bloco recolhível, discreto, no fim da coluna da prévia. */
   painel: ReactNode;
 };
 
 /**
  * `ativo`: editor do buffet, fora do laboratório, com convite carregado. `conteudo` traz só o que a regra de exibição usa.
  */
-export function useLogoNoConvite({ ativo, conviteId, logoDataUrl, publicado, conteudo, arteUrl, busy, ui, telaEstreita }: {
+export function useLogoNoConvite({ ativo, conviteId, logoDataUrl, publicado, conteudo, arteUrl, busy, ui }: {
   ativo: boolean; conviteId?: string; logoDataUrl: string | null; publicado: boolean;
   conteudo: { arteId?: string | null; visual?: { modo: 'modelo' | 'completa' } | null } | null; arteUrl?: string;
   busy: boolean; ui: Record<string, string>;
-  telaEstreita: boolean;
 }): LogoNoConvite {
-  const [painelAbertoNoCelular, setPainelAbertoNoCelular] = useState(false);
+  // Começa fechado em qualquer largura; abrir ou fechar não grava nada.
+  const [painelAberto, setPainelAberto] = useState(false);
   // r2 (Astra r1, P1): o endereço da fila nasce do id do convite dentro de filaDaLogo.
   const fila: FilaLogo | null = ativo && conviteId ? filaDaLogo(conviteId) : null;
   const [gravada, setGravada] = useState<Gravada>(SEM_LOGO);
@@ -287,12 +290,13 @@ export function useLogoNoConvite({ ativo, conviteId, logoDataUrl, publicado, con
       {falhaSugestao && <p role="alert"><small>{falhaSugestao}</small></p>}
     </>}
   </>;
-  const painel = ativo ? <div className={ui.logoBuffet} data-logo-buffet>
-    {logoAparecendo && !sobreValendo && <div className={ui.logoBuffetPrevia} aria-label="Rodapé da página do convite"><img src={logoDataUrl!} alt="Logo do buffet" /></div>}
-    <details open={!telaEstreita || painelAbertoNoCelular}>
-      <summary className={ui.resumoLogo} hidden={!telaEstreita} onClick={event => {
+  const previa = ativo && logoAparecendo && !sobreValendo
+    ? <div className={ui.logoBuffetPrevia} aria-label="Rodapé da página do convite" data-logo-previa><img src={logoDataUrl!} alt="Logo do buffet" /></div> : null;
+  const painel = ativo ? <div className={`${ui.logoBuffet} ${ui.logoBuffetOpcoes ?? ''}`} data-logo-buffet>
+    <details open={painelAberto}>
+      <summary className={ui.resumoLogo} onClick={event => {
         event.preventDefault();
-        setPainelAbertoNoCelular(aberto => !aberto);
+        setPainelAberto(aberto => !aberto);
       }}>
         Logo do buffet no convite <span>· {logoAparecendo ? 'aparecendo' : 'oculta'}</span>
       </summary>
@@ -308,7 +312,7 @@ export function useLogoNoConvite({ ativo, conviteId, logoDataUrl, publicado, con
   </div> : null;
 
   return {
-    aplicarLeitura, logoLigada, esquecerArte, sobre, painel,
+    aplicarLeitura, logoLigada, esquecerArte, sobre, previa, painel,
     baixar: { logo: ativo && efetiva.mostrar ? logoDataUrl : null, sobre: sobreValendo && entrada ? { x: entrada.x, y: entrada.y, largura: entrada.largura, fundo: entrada.fundo } : null },
   };
 }

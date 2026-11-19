@@ -22,7 +22,8 @@ function palavras(texto: string) {
   return texto.normalize('NFD').replace(/\p{M}/gu, '').toLowerCase().match(/[\p{L}\p{N}]+/gu)?.join(' ') ?? '';
 }
 
-const termos: MencaoProtegida[] = [
+/** Todos os termos reconhecidos; a sugestão original (sugestao-original.ts) cobre cada um. */
+export const termos: readonly MencaoProtegida[] = [
   ...personagens.map(termo => ({ termo, tipo: 'personagem' as const })),
   ...marcas.map(termo => ({ termo, tipo: 'marca' as const })),
 ];

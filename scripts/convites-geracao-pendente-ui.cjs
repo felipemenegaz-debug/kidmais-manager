@@ -77,7 +77,8 @@ const contexto = { empresas: [{ id: id(2), nome: 'Buffet Teste', papel: 'REPRESE
       await pedirArte(page);
       await gerarBotao(page).dblclick();
       await page.getByText('Gerando sua arte. Você pode aguardar nesta tela; não é preciso clicar de novo.').first().waitFor();
-      assert.equal(await page.getByRole('button', { name: 'Gerar convite completo · 1 crédito' }).isDisabled(), true, 'botão bloqueado enquanto acompanha');
+      assert.equal(await page.getByRole('button', { name: 'Gerando…' }).isDisabled(), true, 'botão bloqueado (Gerando…) enquanto acompanha');
+      await page.locator('[data-progresso-geracao]').waitFor();
       await page.screenshot({ path: path.join(out, '01-buffet-gerando-apos-conexao-perdida.png'), fullPage: false });
       await page.getByRole('status').filter({ hasText: 'Arte pronta' }).waitFor({ timeout: 20000 });
       await page.getByRole('article', { name: 'Prévia do convite' }).getByRole('img', { name: 'Arte escolhida para o convite' }).waitFor();
