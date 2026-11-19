@@ -20,7 +20,7 @@ const cor = async c => dataUrl(await sharp({ create: { width: 300, height: 400, 
       const quem = admin ? 'buffet' : 'cliente';
       const contexto = { empresas: [{ id: id(2), nome: 'Buffet Teste', papel: 'REPRESENTANTE_AUTORIZADO' }], empresaAtual: { id: id(2), nome: 'Buffet Teste' }, gestaoNaEmpresa: true, plataforma: false, desenvolvedor: false, selecaoNecessaria: false };
       const pronto = { modo: 'completa', ajuste: 'conter', x: 50, y: 50 };
-      const dados = { id: id(1), conteudo: { tema: 'celebrar', nome: 'Felipe', idade: '41 anos', mensagem: 'Venha!', data: '2027-03-03', horario: '17:00', local: 'Kidmais Asa Norte', endereco: 'Asa Norte', arteId: id(200), confirmarPresenca: true, visual: pronto },
+      const dados = { id: id(1), logoBuffet: admin ? { mostrar: false, logoDataUrl: null } : null, conteudo: { tema: 'celebrar', nome: 'Felipe', idade: '41 anos', mensagem: 'Venha!', data: '2027-03-03', horario: '17:00', local: 'Kidmais Asa Norte', endereco: 'Asa Norte', arteId: id(200), confirmarPresenca: true, visual: pronto },
         revisao: 1, publicado: false, desatualizado: false, linkPublico: `/convite/${'p'.repeat(43)}`, clienteHabilitado: false, convidadosContratados: 40, familias: [],
         disponiveis: 3, iaDisponivel: true, completoDisponivel: false, geracaoIncerta: false, geracaoEmAndamento: null, podeRecuperarGeracao: admin, geracoesPendentes: [], decisoesRecuperacao: [],
         cotas: admin ? { festa: 3, festaUsado: 0, cliente: 2, clienteUsado: 0, empresa: 60, empresaUsado: 0 } : { festa: 3, festaUsado: 0, cliente: 2, clienteUsado: 0 },
@@ -35,6 +35,7 @@ const cor = async c => dataUrl(await sharp({ create: { width: 300, height: 400, 
         if (url.origin !== new URL(base).origin && !['data:', 'blob:'].includes(url.protocol)) return route.abort();
         if (!url.pathname.startsWith('/api/')) return route.continue();
         let data;
+        if (url.pathname === '/api/endereco-atual') return route.fulfill({ json: { modoEfetivo: 'DESLIGADO' } });
         if (url.pathname === '/api/admin/autenticacao') data = { usuarioId: id(3), sessaoId: id(4), csrf: 'csrf-teste', nome: 'Teste', contexto, comercial: null };
         else if (url.pathname === '/api/admin/configuracoes/perfil-empresa/logo') data = { logoDataUrl: null };
         // AdminShell de staging (assistente da agenda): buffet já configurado, nenhuma unidade pendente.
@@ -76,6 +77,7 @@ const cor = async c => dataUrl(await sharp({ create: { width: 300, height: 400, 
       const status = texto => page.getByRole('status').filter({ hasText: texto });
 
       await page.goto(editor); await grupo.waitFor();
+      await page.getByRole('button', { name: 'Criar com IA' }).click();
       assert.deepEqual(await marcado(), ['Convite pronto']);
 
       // A. Conclusão imediata devolvendo a MESMA arte já selecionada: composição e campo não salvo preservados.
@@ -100,7 +102,7 @@ const cor = async c => dataUrl(await sharp({ create: { width: 300, height: 400, 
       // C. Recuperação após recarga: pedido guardado na aba, resposta perdida; após recarregar, a consulta conclui
       //    com a arte já selecionada no rascunho salvo (Convite pronto) e a composição é preservada.
       await local.fill('Kidmais Asa Norte');
-      await page.getByText('Imagens anteriores', { exact: true }).click();
+      await page.getByText('Imagens da festa', { exact: true }).click();
       await page.getByRole('button', { name: 'Selecionar imagem 2', exact: true }).click(); // id(200), a imagem enviada
       await grupo.getByRole('button', { name: 'Convite pronto', exact: true }).click();
       await page.getByRole('button', { name: 'Salvar rascunho', exact: true }).click(); await status('Rascunho salvo').waitFor();
@@ -124,6 +126,7 @@ const cor = async c => dataUrl(await sharp({ create: { width: 300, height: 400, 
         assert.equal(comandos.filter(c => c.acao === 'gerar').length, enviosAntes + 1, `${rotulo}: nenhum reenvio após recarregar`);
         assert.equal(await page.evaluate(k => sessionStorage.getItem(k), `convite-pedido:${id(1)}`), null, `${rotulo}: pedido esquecido ao concluir`);
         cenario.esperada = null;
+        await page.getByRole('button', { name: 'Criar com IA' }).click();
       };
       await pedido.fill('Festa no espaço, verde, com foguetes');
       await recuperar('C', chave => [{ chave, estado: 'EM_ANDAMENTO' }, { chave, estado: 'CONCLUIDA', arteId: id(200) }]);
@@ -136,7 +139,7 @@ const cor = async c => dataUrl(await sharp({ create: { width: 300, height: 400, 
       assert.equal(await imagemDaPrevia(), urls[202]); assert.deepEqual(await marcado(), ['Imagem como fundo']);
 
       // D. Pedido de OUTRA pessoa em andamento ao abrir: só acompanha; prévia, composição e campo local intactos.
-      await page.getByText('Imagens anteriores', { exact: true }).click();
+      await page.getByText('Imagens da festa', { exact: true }).click();
       await page.getByRole('button', { name: /^Selecionar imagem/ }).last().click(); // id(200)
       await grupo.getByRole('button', { name: 'Convite pronto', exact: true }).click();
       await page.getByRole('button', { name: 'Salvar rascunho', exact: true }).click(); await status('Rascunho salvo').waitFor();
@@ -153,7 +156,7 @@ const cor = async c => dataUrl(await sharp({ create: { width: 300, height: 400, 
       assert(consultadas.length >= 2 && consultadas.every(c => c === 'chave-de-outra-pessoa'), 'D: só acompanhou a chave da outra pessoa');
       assert.equal(comandos.filter(c => c.acao === 'gerar').length, 4, 'D: nenhum envio de geração');
       // A arte alheia aparece na galeria RENDERIZADA, sem ser selecionada; a do convite continua a única selecionada.
-      const galeria = page.locator('details', { hasText: 'Imagens anteriores' }).last();
+      const galeria = page.locator('details', { hasText: 'Imagens da festa' }).last();
       if (!await galeria.evaluate(d => d.open)) await galeria.locator('summary').first().click();
       const itens = galeria.getByRole('button', { name: /^Selecionar imagem/ });
       await itens.first().waitFor();
@@ -181,6 +184,7 @@ const cor = async c => dataUrl(await sharp({ create: { width: 300, height: 400, 
         const request = route.request(), url = new URL(request.url());
         if (url.origin !== new URL(base).origin && !['data:', 'blob:'].includes(url.protocol)) return route.abort();
         if (!url.pathname.startsWith('/api/')) return route.continue();
+        if (url.pathname === '/api/endereco-atual') return route.fulfill({ json: { modoEfetivo: 'DESLIGADO' } });
         let data;
         if (url.pathname === '/api/convites/cliente') {
           if (request.method() === 'POST') { const b = request.postDataJSON(); assert.equal(b.acao, 'salvar'); dados.conteudo = b.conteudo; dados.revisao++; data = { salvo: true }; }

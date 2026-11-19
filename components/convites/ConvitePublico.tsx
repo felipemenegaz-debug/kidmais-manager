@@ -4,14 +4,22 @@ import { useEffect, useRef, useState, type CSSProperties } from 'react';
 import { enderecoDoConvite, localDoConvite, type Conteudo } from '@/lib/convites/domain';
 import type { FamiliaPublica } from '@/lib/convites/familias-domain';
 import { contraste, luminancia, temaVisual, tintaLegivel } from '@/lib/convites/visual';
-import ConviteArte from './ConviteArte';
+import AvisoPresenca from './AvisoPresenca';
+import ConviteArte, { type PosicaoSobre } from './ConviteArte';
 import styles from './publico.module.css';
 export default function ConvitePublico({ token }: { token: string }) {
   const [conteudo, setConteudo] = useState<Conteudo | null>(null), [erro, setErro] = useState(''), [aviso, setAviso] = useState('');
   const [busy, setBusy] = useState(false), [nome, setNome] = useState(''), [presenca, setPresenca] = useState(true), [adultos, setAdultos] = useState(1), [criancas, setCriancas] = useState(0);
   const [efeitosPausados, setEfeitosPausados] = useState(false), [marcaKidmais, setMarcaKidmais] = useState(false), [logoBuffet, setLogoBuffet] = useState(false);
-  const [familia, setFamilia] = useState<FamiliaPublica | null>(null);
+  const [familia, setFamilia] = useState<FamiliaPublica | null>(null), [buffet, setBuffet] = useState('');
   const chave = useRef(''), acessoFamilia = useRef<string | null>(null);
+  // Etapa 3 (§7): logo sobre a arte publicada. `divergencia` conta respostas 409/erro da arte por id: 1 = já releu o JSON uma vez;
+  // 2 = mostra a arte sem a logo por cima e a logo volta ao rodapé.
+  const [logoSobre, setLogoSobre] = useState<PosicaoSobre | null>(null), [divergencia, setDivergencia] = useState(0), [logoSobreFalhou, setLogoSobreFalhou] = useState(false);
+  const releitura = useRef<(() => void) | null>(null);
+  // r2 (Astra r1, P2): enquanto a releitura do JSON está em voo, a arte não é pedida de novo e um erro dela não conta;
+  // a remontagem da arte acontece só quando o JSON chega (`tentativaArte`), com o id novo ou o mesmo.
+  const relendo = useRef(false), [tentativaArte, setTentativaArte] = useState(0);
   const endpoint = `/api/convites/publico/${encodeURIComponent(token)}`;
   useEffect(() => {
     let controller: AbortController | undefined, anterior: string | null | undefined;
@@ -20,19 +28,36 @@ export default function ConvitePublico({ token }: { token: string }) {
       if (anterior === acesso) return;
       anterior = acesso; controller?.abort(); const atual = new AbortController(); controller = atual;
       acessoFamilia.current = acesso;
-      setConteudo(null); setFamilia(null); setErro(''); setAviso(''); setNome(''); setPresenca(true); setAdultos(1); setCriancas(0);
+      relendo.current = false;
+      setConteudo(null); setLogoSobre(null); setDivergencia(0); setLogoSobreFalhou(false); setFamilia(null); setErro(''); setAviso(''); setNome(''); setPresenca(true); setAdultos(1); setCriancas(0);
       try { const k = `convite-rsvp:${token}`; chave.current = acesso != null ? crypto.randomUUID() : localStorage.getItem(k) || crypto.randomUUID(); if (acesso == null) localStorage.setItem(k, chave.current); }
       catch { chave.current = crypto.randomUUID(); }
       void fetch(endpoint, { cache: 'no-store', signal: atual.signal, headers: acesso != null ? { Authorization: `Bearer ${acesso}` } : {} }).then(async r => {
-        const j = await r.json(); if (atual.signal.aborted) return; if (!r.ok) throw new Error(j.erro); setConteudo(j.data.conteudo); setMarcaKidmais(j.data.marcaKidmais === true); setLogoBuffet(j.data.logoBuffet === true);
+        const j = await r.json(); if (atual.signal.aborted) return; if (!r.ok) throw new Error(j.erro); setConteudo(j.data.conteudo); setMarcaKidmais(j.data.marcaKidmais === true); setLogoBuffet(j.data.logoBuffet === true); setLogoSobre(j.data.logoSobre ?? null); setBuffet(j.data.buffet ?? '');
         const f = j.data.familia as FamiliaPublica | null; setFamilia(f ?? null);
         if (f) { setNome(f.nome); setPresenca(f.presenca ?? true); setAdultos(f.adultos); setCriancas(f.criancas); }
       }).catch(e => { if (!atual.signal.aborted) setErro(e.message); });
     }
+    // Relê só o convite (arte, logo e textos) sem tocar no formulário de presença.
+    releitura.current = () => {
+      const atual = controller; const acesso = acessoFamilia.current;
+      void fetch(endpoint, { cache: 'no-store', signal: atual?.signal, headers: acesso != null ? { Authorization: `Bearer ${acesso}` } : {} }).then(async r => {
+        const j = await r.json(); if (atual?.signal.aborted) return; if (!r.ok) throw new Error(j.erro);
+        relendo.current = false;
+        setConteudo(j.data.conteudo); setLogoBuffet(j.data.logoBuffet === true); setLogoSobre(j.data.logoSobre ?? null); setTentativaArte(n => n + 1);
+      }).catch(() => { if (!atual?.signal.aborted) { relendo.current = false; setDivergencia(2); } });
+    };
     carregar(); window.addEventListener('hashchange', carregar);
     return () => { controller?.abort(); window.removeEventListener('hashchange', carregar); };
   }, [endpoint, token]);
   const tema = conteudo ? temaVisual(conteudo) : null;
+  // D-L3-2: com a logo sobre a arte valendo, o rodapé fica sem logo.
+  const sobreAtiva = !!conteudo?.arteId && conteudo.visual?.modo === 'completa' && !!logoSobre && logoBuffet && divergencia < 2 && !logoSobreFalhou;
+  const arteSrc = conteudo?.arteId ? (sobreAtiva ? `${endpoint}?arte=${encodeURIComponent(conteudo.arteId)}` : `${endpoint}?arte=1`) : undefined;
+  const aoFalharArte = () => {
+    if (!sobreAtiva || relendo.current) return;
+    if (divergencia === 0) { relendo.current = true; setDivergencia(1); releitura.current?.(); } else setDivergencia(2);
+  };
   const cores = tema ? { '--convite-fundo': tema.fundo, '--convite-tinta': tema.tinta, '--convite-destaque': tema.destaque, '--botao-tinta': tintaLegivel(tema.destaque), '--brilho-fundo': contraste(tema.fundo, tema.tinta) < 10 ? 0 : 1, colorScheme: luminancia(tema.fundo) < .18 ? 'dark' : 'light' } as CSSProperties : undefined;
   return <main className={styles.publico} data-tema={conteudo?.tema} data-cores-proprias={!!conteudo?.visual?.cores} data-efeitos-pausados={efeitosPausados} style={cores}>
     {!conteudo && <div className={styles.estado}>{erro ? <p role="alert" className={styles.erro}>{erro}</p> : <p role="status">Preparando um convite especial…</p>}</div>}
@@ -43,7 +68,8 @@ export default function ConvitePublico({ token }: { token: string }) {
         <button type="button" className={styles.controleEfeitos} aria-pressed={efeitosPausados} onClick={() => setEfeitosPausados(v => !v)}>{efeitosPausados ? 'Ativar efeitos' : 'Pausar efeitos'}</button>
       </header>
       <div className={styles.colunas} data-com-rsvp={conteudo.confirmarPresenca}>
-      <section className={styles.arte} aria-label="Convite da festa"><div className={`${styles.moldura} ${styles.bordaAnimada}`}><ConviteArte conteudo={conteudo} arte={conteudo.arteId ? `${endpoint}?arte=1` : undefined} /></div>
+      <section className={styles.arte} aria-label="Convite da festa"><div className={`${styles.moldura} ${styles.bordaAnimada}`}><ConviteArte key={`${arteSrc ?? 'sem-arte'}|${tentativaArte}`} conteudo={conteudo} arte={arteSrc}
+        sobre={sobreAtiva && logoSobre ? { logo: `${endpoint}?logo=1`, posicao: logoSobre, aoFalharArte, aoFalharLogo: () => setLogoSobreFalhou(true) } : null} /></div>
       {/* D-LIB-3/5: o bloco "Local" fica visível na página mesmo quando a arte completa traz os textos na imagem. */}
       {conteudo.blocoLocal && <p className={styles.localFixo} data-bloco-local={conteudo.blocoLocal.origem}><strong>Local</strong> {localDoConvite(conteudo)}{enderecoDoConvite(conteudo) ? <span>{enderecoDoConvite(conteudo)}</span> : null}</p>}
       <a className={styles.mapa} href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(`${localDoConvite(conteudo)} ${enderecoDoConvite(conteudo)}`)}`} target="_blank" rel="noreferrer">Como chegar ↗</a></section>
@@ -54,11 +80,11 @@ export default function ConvitePublico({ token }: { token: string }) {
           const r = await fetch(endpoint, { method: 'POST', headers: { 'Content-Type': 'application/json', ...(acessoFamilia.current != null ? { Authorization: `Bearer ${acessoFamilia.current}` } : {}) }, body: JSON.stringify({ chave: chave.current, nome, presenca, adultos, criancas, site }) });
           const j = await r.json(); if (!r.ok) throw new Error(j.erro); setAviso(familia ? 'Resposta salva! Use este mesmo link para atualizar, inclusive em outro dispositivo.' : 'Resposta salva! Você pode atualizar sua resposta neste dispositivo.');
         } catch (err) { setErro((err as Error).message); } finally { setBusy(false); }
-      }}><span className={styles.selo} aria-hidden="true">{tema?.simbolo}</span><p className={styles.sobretitulo}>VAMOS NOS ENCONTRAR?</p><h2 id="titulo-presenca">Confirme sua presença</h2><p>{familia ? `Convite para ${familia.nome}. Este link mantém uma única resposta da sua família, mesmo em outro dispositivo.` : 'Uma resposta por família. Informe o total de pessoas que irão à festa.'}</p><fieldset disabled={busy} className={styles.formulario}><label>Seu nome<input required maxLength={100} minLength={2} readOnly={!!familia} value={nome} onChange={e => setNome(e.target.value)} autoComplete="name" /></label><label>Sua resposta<select value={presenca ? 'sim' : 'nao'} onChange={e => setPresenca(e.target.value === 'sim')}><option value="sim">Sim, vamos comemorar!</option><option value="nao">Não poderemos ir</option></select></label>
+      }}><span className={styles.selo} aria-hidden="true">{tema?.simbolo}</span><p className={styles.sobretitulo}>VAMOS NOS ENCONTRAR?</p><h2 id="titulo-presenca">Confirme sua presença</h2><p>{familia ? `Convite para ${familia.nome}. Este link mantém uma única resposta da sua família, mesmo em outro dispositivo.` : 'Uma resposta por família. Informe o total de pessoas que irão à festa.'}</p><AvisoPresenca buffet={buffet} /><fieldset disabled={busy} className={styles.formulario}><label>Seu nome<input required maxLength={100} minLength={2} readOnly={!!familia} value={nome} onChange={e => setNome(e.target.value)} autoComplete="name" /></label><label>Sua resposta<select value={presenca ? 'sim' : 'nao'} onChange={e => setPresenca(e.target.value === 'sim')}><option value="sim">Sim, vamos comemorar!</option><option value="nao">Não poderemos ir</option></select></label>
         {presenca && <div className={styles.campos}><label>Adultos<input required type="number" min={0} max={20} value={adultos} onChange={e => setAdultos(Number(e.target.value))} /></label><label>Crianças<input required type="number" min={0} max={20} value={criancas} onChange={e => setCriancas(Number(e.target.value))} /></label></div>}
-        <div className={styles.isca} aria-hidden="true"><label>Site<input name="site" tabIndex={-1} autoComplete="off" /></label></div><button className={styles.primario} type="submit">{busy ? 'Enviando…' : 'Enviar resposta'}</button></fieldset><small>Sua resposta será vista pelo organizador e pelo buffet.</small>{erro && <p role="alert" className={styles.erro}>{erro}</p>}{aviso && <p role="status" className={styles.aviso}>{aviso}</p>}</form>}
+        <div className={styles.isca} aria-hidden="true"><label>Site<input name="site" tabIndex={-1} autoComplete="off" /></label></div><button className={styles.primario} type="submit">{busy ? 'Enviando…' : 'Enviar resposta'}</button></fieldset>{erro && <p role="alert" className={styles.erro}>{erro}</p>}{aviso && <p role="status" className={styles.aviso}>{aviso}</p>}</form>}
       </div>
-      <footer className={styles.rodape}>{logoBuffet && <img className={styles.logoBuffet} src={`${endpoint}?logo=1`} alt="Logo do buffet" onError={() => setLogoBuffet(false)} />}{marcaKidmais ? 'Um momento especial, organizado com KidMais.' : 'Um momento especial.'}</footer>
+      <footer className={styles.rodape}>{logoBuffet && !sobreAtiva && <img className={styles.logoBuffet} src={`${endpoint}?logo=1`} alt="Logo do buffet" onError={() => setLogoBuffet(false)} />}{marcaKidmais ? 'Um momento especial, organizado com KidMais.' : 'Um momento especial.'}</footer>
     </>}
   </main>;
 }

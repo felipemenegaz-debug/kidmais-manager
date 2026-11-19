@@ -33,7 +33,9 @@ test('sem aviso enquanto ainda há geração disponível, mesmo em manutenção'
 test('limite do convite com crédito disponível: a gestão ajusta, sem ordem a quem não pode', () => {
   const texto = aviso(0, motor(7)) ?? '';
   assert.match(texto, /limite de gerações/);
-  assert.match(texto, /a gestão da conta pode aumentar/);
+  assert.match(texto, /A gestão da conta pode aumentar/);
+  assert.match(texto, /Edição pelo cliente/);
+  assert.match(aviso(0, motor(7), { avulso: true }) ?? '', /Limite deste convite/);
   assert.doesNotMatch(texto, /aumente/);
 });
 
@@ -78,8 +80,29 @@ test('geração deste convite em curso, inclusive incerta, e laboratório local 
   assert.equal(aviso(0, motor(0), { laboratorio: true }), null);
 });
 
-test('motor legado e cliente da festa mantêm a tela como era', () => {
-  assert.equal(aviso(0, { motor: 'LEGADO' }), null);
+test('motor legado: limite do convite esgotado aponta onde a gestão ajusta; franquia usada oferece seguir sem IA', () => {
+  const limite = aviso(0, { motor: 'LEGADO' }, { cotas: { festa: 6, festaUsado: 6 } }) ?? '';
+  assert.match(limite, /limite de gerações/);
+  assert.match(limite, /Edição pelo cliente/);
+  assert.match(aviso(0, { motor: 'LEGADO' }, { avulso: true, cotas: { festa: 3, festaUsado: 3 } }) ?? '', /Limite deste convite/);
+  const franquia = aviso(0, { motor: 'LEGADO' }, { cotas: { festa: 6, festaUsado: 2 } }) ?? '';
+  assert.match(franquia, /franquia mensal/);
+  assert.match(franquia, /envie uma imagem sua/);
+  assert.equal(aviso(0, { motor: 'LEGADO' }), franquia);
+});
+
+test('cliente da festa recebe o motivo e a saída, sem saldo nem limites do buffet', () => {
+  const texto = aviso(0, null, { cliente: true, cotas: { festa: 6, festaUsado: 6 } }) ?? '';
+  assert.equal(texto, 'As gerações com IA deste convite acabaram. Peça mais ao buffet ou envie uma imagem sua.');
+  assert.equal(aviso(0, motor(7), { cliente: true }), texto);
+  assert.doesNotMatch(texto, /franquia|crédito|limite/);
+});
+
+test('com geração disponível ou em curso, legado e cliente continuam sem aviso; buffet sem motor informado também', () => {
+  assert.equal(aviso(1, { motor: 'LEGADO' }), null);
+  assert.equal(aviso(1, null, { cliente: true }), null);
+  assert.equal(aviso(0, { motor: 'LEGADO' }, { geracaoEmCurso: true }), null);
+  assert.equal(aviso(0, null, { cliente: true, geracaoEmCurso: true }), null);
   assert.equal(aviso(0, null), null);
   assert.equal(aviso(0, undefined), null);
 });

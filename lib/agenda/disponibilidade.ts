@@ -1,4 +1,5 @@
 import type { HorarioBase, PacoteId } from "../../components/fechamento/types.ts";
+import type { DescontosEmpresaPublicos } from "../comercial/descontos-dia.ts";
 
 export type StatusCalendario =
   | "disponivel"
@@ -33,6 +34,11 @@ export type DisponibilidadeConfig = {
   agenda: AgendaSlot[];
   pacoteOverrides: PacoteOverride[];
   descontos: DescontoData[];
+  /**
+   * D4 (18/11/2026): regras de desconto da empresa (/b/<código>), por código do pacote. Presente = o calendário, o aviso
+   * e o selo usam estas regras (as mesmas da cotação do servidor). Ausente = caminho atual (Kidmais).
+   */
+  descontosEmpresa?: DescontosEmpresaPublicos;
 };
 
 export const CONFIG_VAZIA: DisponibilidadeConfig = {
@@ -40,6 +46,12 @@ export const CONFIG_VAZIA: DisponibilidadeConfig = {
   pacoteOverrides: [],
   descontos: [],
 };
+
+/**
+ * Antes da resposta do servidor (carregando) ou quando a consulta falha (Astra r1, P2): nenhum desconto. Sem isto o
+ * calendário e o resumo cairiam nos 15% fixos de segunda a quinta, que podem não ser a regra do buffet.
+ */
+export const CONFIG_SEM_RESPOSTA: DisponibilidadeConfig = { ...CONFIG_VAZIA, descontosEmpresa: {} };
 
 export function diaSemanaUTC(dataIso: string) {
   const [ano, mes, dia] = dataIso.split("-").map(Number);

@@ -289,6 +289,7 @@ export async function POST(request: NextRequest) {
       temaFesta: dados.data.temaFesta,
       formaPagamentoPretendida: FORMA_PAGAMENTO_BANCO[dados.data.formaPagamento],
       condicaoPixPretendida: dados.data.condicaoPixPretendida,
+      descontoFormaPagamentoExibido: dados.data.descontoFormaPagamentoExibido,
       responsavelAdicionalNome: dados.data.outroResponsavel,
       identidade,
       cliente: {

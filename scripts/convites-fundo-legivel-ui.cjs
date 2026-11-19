@@ -32,6 +32,7 @@ function montar(browser, { admin, conteudo, artes, publicadoInicial = null }) {
       if (url.origin !== new URL(base).origin && !['data:', 'blob:'].includes(url.protocol)) return route.abort();
       if (!url.pathname.startsWith('/api/')) return route.continue();
       let data;
+      if (url.pathname === '/api/endereco-atual') return route.fulfill({ json: { modoEfetivo: 'DESLIGADO' } });
       if (url.pathname === '/api/admin/autenticacao') data = { usuarioId: id(3), sessaoId: id(4), csrf: 'csrf-teste', nome: 'Teste', contexto, comercial: null };
       else if (url.pathname === '/api/admin/configuracoes/perfil-empresa/logo') data = { logoDataUrl: null };
       // AdminShell de staging (assistente da agenda): buffet já configurado, nenhuma unidade pendente.
@@ -84,7 +85,8 @@ async function baixar(page, arquivo) {
       const grupo = page.getByRole('group', { name: 'Posição da imagem' });
       const botao = nome => grupo.getByRole('button', { name: nome, exact: true });
 
-      await page.getByLabel('Usar uma arte própria').first().setInputFiles(upload);
+      await page.getByRole('button', { name: 'Usar imagem minha' }).click();
+      await page.getByLabel('Usar uma arte própria').setInputFiles(upload);
       await grupo.waitFor();
       assert.equal(await botao('Imagem como fundo').getAttribute('aria-pressed'), 'true');
       assert.deepEqual(await faixa(previa), [{ fill: '#fff3df', alfa: '0.8' }], 'fundo: uma faixa na cor do tema');

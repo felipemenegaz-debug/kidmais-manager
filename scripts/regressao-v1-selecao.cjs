@@ -309,6 +309,9 @@ const ESTADO_POSTGRES = {
   "lib/contratos/assinatura-papel-cliente.postgres.test.ts": { descartavel: "124", tambem: ["123"] },
   // 15/11/2026 (LOCAL): ciclo da 124 — precheck/postcheck, up repetido, down com COMMIT, up/down/up com o mesmo catálogo.
   "lib/contratos/migration-124.postgres.test.ts": { descartavel: "124" },
+  // 16/11/2026 (logo do buffet no convite, etapa 3): sessões/ordem da logo, intercalação real com travas, rotas reais,
+  // fila com o transporte real, logoOrdem na exportação e 3b com IA dublê, sobre o modelo 124 (estado de staging).
+  "lib/convites/logo-3.postgres.test.ts": { descartavel: "124" },
   // Entrega B: fechamento admin/público com contratante PJ e MODELO_INCOMPATIVEL_PJ na revisão; no 109, CNPJ → PJ_INDISPONIVEL.
   "lib/fechamentos/fechamento-pj.postgres.test.ts": { descartavel: "112", tambem: ["109", "b14-P12"] },
   "lib/assinatura/renovacao-schema.postgres.test.ts": { descartavel: "108" },
@@ -406,6 +409,11 @@ const ESTADO_POSTGRES = {
   "lib/agenda/aplicador-098-com-102.postgres.test.ts": { descartavel: "102" },
   // 25/10/2026: migration 103 (categoria Serviços): aplicação/reexecução/divergência/rollback no 102; estado final no 103.
   "lib/comercial/servicos-103.postgres.test.ts": { descartavel: "103", tambem: ["102"] },
+  // 16/11/2026: D1 Descontos e formas de pagamento: com a 077 (122) e sem ela (075).
+  "lib/comercial/regras-pagamento-admin.postgres.test.ts": { descartavel: "122", tambem: ["075"] },
+  "lib/fechamentos/desconto-revisao.postgres.test.ts": { descartavel: "122" },
+  // 18/11/2026: D3/D4 desconto por dia da semana (regras_desconto_pacote existe desde a 006; 122 = estado de staging).
+  "lib/comercial/descontos-dia-admin.postgres.test.ts": { descartavel: "122" },
   // Canal MCP (105): persistência OAuth, atomicidade (código, pedido, refresh), revogação entre conexões, trava FOR SHARE.
   "lib/integracoes/oauth/oauth.postgres.test.ts": { descartavel: "105", tambem: ["104"] },
   // Aplicador da 105 em staging (27/10/2026): staging de hoje (103, sem 104/105/106) e com a 104 da S-E.

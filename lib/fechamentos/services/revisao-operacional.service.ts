@@ -1,4 +1,4 @@
-import { preservarPrecoHistorico } from '../revisao-preco';
+import { manterDescontoDoDia, preservarPrecoHistorico } from '../revisao-preco';
 import { escolherSalaoDestinoRevisao, salaoDoDestinoRevisao } from '../../agenda/salao-festa.ts';
 import { randomUUID } from 'node:crypto';
 import type { DbExecutor } from '../../db/contracts';
@@ -11,7 +11,7 @@ import { atualizarClienteInterno } from '../../clientes/services';
 import { atualizarAniversarianteInterno, cadastrarAniversarianteInterno } from '../../clientes/services/aniversariante.service';
 import { calcularResumoComercial } from '../../comercial/services';
 import { validarPretensaoPix, centavosComerciais } from '../../comercial/condicao-pagamento';
-import { regraNaCondicao } from '../../comercial/regras-pagamento';
+import { regraNaRevisao } from '../../comercial/regras-pagamento';
 
 import { listarCodigosInclusos } from '../../comercial/composicao';
 import type { EdicaoFestaInput } from './edicao-administrativa-schema';
@@ -219,7 +219,7 @@ export async function editarPreparacao(tx: DbExecutor, r: RevisaoOperacional, in
     if (empresaEsperada === undefined)
         recusar('Fechamento não encontrado.');
     const preservarHistorico = preservarPrecoHistorico(f, input, fonte.adicionais, input.adicionais, !!input.comercial);
-    const resumo = preservarHistorico ? null : await calcularResumoComercial({ data: input.dataEvento, configuracaoAgendaId: input.configuracaoAgendaId, pacoteId: input.pacoteId, convidados: input.convidados, adicionais: input.adicionais, empresaEsperada }, tx);
+    const resumo = preservarHistorico ? null : manterDescontoDoDia(await calcularResumoComercial({ data: input.dataEvento, configuracaoAgendaId: input.configuracaoAgendaId, pacoteId: input.pacoteId, convidados: input.convidados, adicionais: input.adicionais, empresaEsperada }, tx), f, input);
     if (resumo && input.convidados < (resumo.pacote.pacote.convidadosMinimos ?? 1))
         recusar('Quantidade abaixo do mínimo do pacote.');
     const inclusos = resumo ? await listarCodigosInclusos(tx, resumo.pacote.pacote.id, empresaEsperada) : [];
@@ -245,7 +245,7 @@ export async function editarPreparacao(tx: DbExecutor, r: RevisaoOperacional, in
         f.valorAprovado = f.valorNegociado;
         f.motivoNegociacao = input.motivo;
         f.formaPagamentoPretendida = com.forma;
-        f.condicaoPagamento = { schemaVersao: 1, forma: com.forma, pretendida: null, aprovada: condicao, revisaoStatus: 'APROVADA', ...(await regraNaCondicao(tx, empresaAutorizada, com.forma)) };
+        f.condicaoPagamento = { schemaVersao: 1, forma: com.forma, pretendida: null, aprovada: condicao, revisaoStatus: 'APROVADA', ...(await regraNaRevisao(tx, empresaAutorizada, com.forma, r.operacao.condicaoPagamento, r.operacao.formaPagamentoPretendida)) };
     }
     else if (f.valorTabela !== r.operacao.valorTabela && (r.operacao.valorNegociado !== null || r.operacao.formaPagamentoPretendida === 'PIX_PARCELADO'))
         recusar('O novo preço exige revisão comercial explícita nesta edição.');

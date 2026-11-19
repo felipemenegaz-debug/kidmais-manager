@@ -1,0 +1,60 @@
+{
+  "versoes": [
+    {
+      "documento": "TERMOS_USO",
+      "versao": "2026-10-20-minuta",
+      "sha256": "8568c1afe40d681e7b32de5b093c6e015cea791b482df188d7433fe9487dfb6b",
+      "arquivo": "TERMOS_USO-2026-10-20-minuta.txt"
+    },
+    {
+      "documento": "PRIVACIDADE",
+      "versao": "2026-10-21-minuta5a",
+      "sha256": "fda552f33b3c5cdd3a211feab1a86e071f25b8676f8110123b70aac0ecc60514",
+      "arquivo": "PRIVACIDADE-2026-10-21-minuta5a.txt"
+    },
+    {
+      "documento": "TERMOS_USO",
+      "versao": "2026-11-15-termos",
+      "sha256": "738588abe9f6177d8db5faa708697b31a69faeefb2ba5a6fcd956383c8b8fb21",
+      "arquivo": "TERMOS_USO-2026-11-15-termos.txt",
+      "dpa": {
+        "versao": "2026-11-15-dpa",
+        "sha256": "6e656df23759f462e083977094b6e5aa77730a6998d8be0467906f0e8e22aca4"
+      }
+    },
+    {
+      "documento": "DPA",
+      "versao": "2026-11-15-dpa",
+      "sha256": "6e656df23759f462e083977094b6e5aa77730a6998d8be0467906f0e8e22aca4",
+      "arquivo": "DPA-2026-11-15-dpa.txt"
+    },
+    {
+      "documento": "PRIVACIDADE",
+      "versao": "2026-11-15-privacidade",
+      "sha256": "73912002038a4e1e5573203c7392ee84c747fc2ea35c33ee2cd145bcf96ee9a3",
+      "arquivo": "PRIVACIDADE-2026-11-15-privacidade.txt"
+    },
+    {
+      "documento": "TERMOS_USO",
+      "versao": "2026-11-17-termos",
+      "sha256": "5d9e561433abfc3ff63620221c9e51d848c9136999df24058c6d2db5bf4df918",
+      "arquivo": "TERMOS_USO-2026-11-17-termos.txt",
+      "dpa": {
+        "versao": "2026-11-17-dpa",
+        "sha256": "3b78ffa320658f58ec8277f9385a42908cfeb8618632a00a50a4da9e4e6f5fde"
+      }
+    },
+    {
+      "documento": "PRIVACIDADE",
+      "versao": "2026-11-17-privacidade",
+      "sha256": "a2b4994f3272e88f20ee695c949cae5532dc243ee1d69d4e9da2afae3da20e43",
+      "arquivo": "PRIVACIDADE-2026-11-17-privacidade.txt"
+    },
+    {
+      "documento": "DPA",
+      "versao": "2026-11-17-dpa",
+      "sha256": "3b78ffa320658f58ec8277f9385a42908cfeb8618632a00a50a4da9e4e6f5fde",
+      "arquivo": "DPA-2026-11-17-dpa.txt"
+    }
+  ]
+}

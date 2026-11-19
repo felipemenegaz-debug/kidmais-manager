@@ -3,11 +3,13 @@ import { cookies } from "next/headers";
 import { notFound } from "next/navigation";
 import AreaFamilia from "@/components/area-familia/AreaFamilia";
 import { MarcaPublicaProvider } from "@/components/fechamento/MarcaPublica";
+import { fonteTexto, fonteTitulo } from "@/components/site/fonte";
 import { empresaDaArea, lerSessao } from "@/lib/area-familia/acesso";
 import { areaFamiliaLigada } from "@/lib/area-familia/http";
 import { lerMinhaFesta } from "@/lib/area-familia/leitura";
 import { CODIGO_EMPRESA_AREA, nomeCookieArea } from "@/lib/area-familia/tokens";
 import { REGRAS_LEGADAS } from "@/lib/comercial/regras-pagamento";
+import { marcaDoBuffet } from "@/lib/convites/logo-buffet";
 import { db, withTransaction } from "@/lib/db/postgres";
 import { hojeBrasilia } from "@/lib/financeiro/calculos";
 import { contatoPublicoDaEmpresa } from "@/lib/perfil/contato-publico";
@@ -34,6 +36,8 @@ export default async function MinhaFestaPage({ params }: { params: Promise<{ emp
   const nome = await nomePublicoDaEmpresa(db(), empresaId).catch(() => null);
   if (!nome) notFound();
   const contato = await contatoPublicoDaEmpresa(db(), empresaId).catch(() => null);
+  // Visual iA.Fest: logo do buffet no topo (o mesmo dos convites); sem logo, só o nome.
+  const logo = await marcaDoBuffet(db(), empresaId).then((m) => m.logoDataUrl).catch(() => null);
   const token = (await cookies()).get(nomeCookieArea(empresa))?.value;
   const primeira = await lerSessao(db(), empresa, token).catch(() => null);
   // Revalida a sessão dentro da transação da leitura (mesma regra das APIs): logout ou revogação entre as duas leituras
@@ -51,7 +55,9 @@ export default async function MinhaFestaPage({ params }: { params: Promise<{ emp
   const { sessao, dados } = lido;
   return (
     <MarcaPublicaProvider nome={nome} pagamento={{ ...REGRAS_LEGADAS }} contato={contato}>
-      <AreaFamilia empresa={empresa} sessao={sessao ? { papel: sessao.papel, primeiroNome: sessao.primeiroNome } : null} dados={dados} />
+      <div className={`${fonteTitulo.variable} ${fonteTexto.variable}`}>
+        <AreaFamilia empresa={empresa} sessao={sessao ? { papel: sessao.papel, primeiroNome: sessao.primeiroNome } : null} dados={dados} logo={logo} />
+      </div>
     </MarcaPublicaProvider>
   );
 }

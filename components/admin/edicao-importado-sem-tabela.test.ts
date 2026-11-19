@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { z } from 'zod';
 import { achar, carregarComponente, cssFalso, elementos, texto, tique } from './teste-componente.ts';
 import * as errosPreco from '../../lib/comercial/services/errors.ts';
-import { preservarPrecoHistorico } from '../../lib/fechamentos/revisao-preco.ts';
+import { manterDescontoDoDia, preservarPrecoHistorico } from '../../lib/fechamentos/revisao-preco.ts';
 import { duracaoDoIntervalo } from '../../lib/disponibilidade/services/horario.utils.ts';
 
 const id = '00000000-0000-4000-8000-000000000001';
@@ -27,6 +27,7 @@ async function consultar(erroCatalogo: Error = erroPreco) {
     '@/lib/contratos/services/administrativo.service': { versaoDoTenant: async () => ({ versao: { id }, empresaId: id }) },
     '@/lib/contratos/services/revisao-inicial': {},
     '@/lib/fechamentos/services/revisao-operacional.service': { fontesPreparacao: async () => fonte },
+    '@/lib/fechamentos/revisao-preco': { manterDescontoDoDia, preservarPrecoHistorico },
     '@/lib/disponibilidade/services': { consultarDisponibilidadeData: async () => ({ periodos: [] }), duracaoDoIntervalo, duracaoAceita: () => null },
     '@/lib/comercial/composicao': { listarCodigosInclusos: async () => [] },
     '@/lib/comercial/services/errors': errosPreco,
@@ -66,7 +67,7 @@ test('editor abre sem catálogo, salva cadastro preservando adicionais e bloquei
     '@/lib/comercial/condicao-pagamento': { calcularCondicaoComercial: () => ({ valorFinalContrato: 7811.5 }) },
     '@/lib/comercial/regras-pagamento': { percentualDaForma: () => 0 },
     '@/lib/contratos/documento/formatters': { formatarMoeda: String },
-    '@/lib/fechamentos/revisao-preco': { preservarPrecoHistorico }, './admin.module.css': cssFalso,
+    '@/lib/fechamentos/revisao-preco': { manterDescontoDoDia, preservarPrecoHistorico }, './admin.module.css': cssFalso,
   });
   const props = { versaoId: id, revisao: 1, serverError: '', onClose: () => {}, onSave: async (b: Record<string, unknown>) => { salvos.push(b); return true; } };
   const render = () => tela.render('default', props);

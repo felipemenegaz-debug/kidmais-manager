@@ -8,6 +8,7 @@ import { escopoDaEmpresa } from "@/lib/disponibilidade/escopo";
 import { isAvailabilityServiceError, revalidarHorarioSelecionado } from "@/lib/disponibilidade/services";
 import { mensagemPeriodoDoPedido, periodoDoPedido, temPeriodoDoPedido } from "@/lib/fechamentos/comercial-schema";
 import { codigoDoPacoteDaTela } from "@/lib/comercial/pacotes-v1";
+import { origemDoDescontoCotado } from "@/lib/comercial/descontos-dia";
 import { apiErrorResponse } from "@/lib/http/api-response";
 import { limitarPublico } from "@/lib/http/limite-publico";
 import { combinadosPublicos } from "@/lib/agenda/combinados-publicos";
@@ -73,7 +74,12 @@ export async function POST(request: NextRequest) {
       ok: true,
       data: {
         valorTabela: p.valorTabelaBase,
-        desconto: { percentual: p.desconto.percentual, valor: p.desconto.valor, titulo: p.desconto.titulo },
+        desconto: {
+          percentual: p.desconto.percentual,
+          valor: p.desconto.valor,
+          titulo: p.desconto.titulo,
+          origem: origemDoDescontoCotado(p.desconto.codigo, p.desconto.valor),
+        },
         valor: p.valorTabelaAplicado,
         categoria: p.precoRegra.categoriaHorario,
         categoriaNome: CATEGORIA[p.precoRegra.categoriaHorario] ?? p.precoRegra.categoriaHorario,

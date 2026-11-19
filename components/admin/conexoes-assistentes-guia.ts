@@ -94,7 +94,7 @@ export const EXEMPLOS_POR_ESCOPO: Readonly<Record<string, readonly string[]>> = 
     ],
     'agenda:read': [
         'Quantas festas tenho hoje no iA.Fest e em quais horários? Diga a data consultada.',
-        'Quantos contratos estão pendentes nas festas de amanhã?',
+        'Quantos contratos aguardam assinatura no iA.Fest e quantos dias faltam para cada festa?',
         'Quantas festas tenho de 1 a 31 de dezembro no iA.Fest, dia a dia?',
         'Quais sábados de dezembro estão livres para 80 convidados no iA.Fest?',
     ],

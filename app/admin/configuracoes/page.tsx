@@ -11,6 +11,7 @@ const cards: CartaoConfiguracao[] = [
   { route:'catalogo', title:'Itens do Buffet', text:'Categorias e itens do buffet usados na composição dos pacotes.', icon:'buffet' },
   { route:'acessos', title:'Usuários e acessos', text:'Gerencie contas e os acessos disponíveis no sistema e na operação das festas.', icon:'users' },
   { route:'creditos', title:'IA e créditos', text:'Créditos de convite e do WhatsApp.AI: saldo, pacotes, pedidos, devoluções e extrato.', icon:'wallet' },
+  { route:'descontos', title:'Descontos e formas de pagamento', text:'Desconto do Pix à vista e do Pix parcelado e o nome do cartão que o cliente vê. Vale para fechamentos novos.', icon:'prices' },
   { route:'whatsapp', title:'WhatsApp', text:'Conecte o WhatsApp Business da empresa ao iA.Fest pelo fluxo oficial da Meta.', icon:'contact' },
 ];
 

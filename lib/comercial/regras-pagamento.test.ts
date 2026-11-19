@@ -56,9 +56,15 @@ test('cálculo e criação usam o percentual gravado na condição', () => {
     assert.match(ler('lib/contratos/services/snapshot-core.ts'), /calcularCondicaoComercial\(base, input\.condicaoPagamento\.forma, input\.condicaoPagamento\.descontoPercentual\)/);
     assert.match(ler('lib/contratos/services/contrato.service.ts'), /fechamento\.condicaoPagamento\.forma, fechamento\.condicaoPagamento\.descontoPercentual\)/);
     assert.match(ler('lib/fechamentos/services/revisao-comercial.service.ts'), /calcularCondicaoComercial\(base, condicao\.forma, condicao\.descontoPercentual\)/);
-    assert.match(ler('lib/fechamentos/services/fechamento.service.ts'), /\.\.\.\(await regraNaCondicao\(tx, resumoComercial\.pacote\.pacote\.empresaId \?\? null, input\.formaPagamentoPretendida\)\)/);
-    assert.match(ler('lib/fechamentos/services/edicao-administrativa.service.ts'), /revisaoStatus: 'APROVADA', \.\.\.\(await regraNaCondicao\(tx, empresaEsperada, com\.forma\)\) \}/);
-    assert.match(ler('lib/fechamentos/services/revisao-operacional.service.ts'), /revisaoStatus: 'APROVADA', \.\.\.\(await regraNaCondicao\(tx, empresaAutorizada, com\.forma\)\) \}/);
+    // Criação confere o percentual exibido; revisões mantêm o gravado na mesma forma (Astra r1, P1/P2, 16/11/2026).
+    const criacao = ler('lib/fechamentos/services/fechamento.service.ts');
+    assert.match(criacao, /await regraConferidaNaCriacao\(tx, resumoComercial\.pacote\.pacote\.empresaId \?\? null, input\.formaPagamentoPretendida,\s*input\.descontoFormaPagamentoExibido\)/);
+    assert.match(criacao, /new FechamentoServiceError\("REGRAS_PAGAMENTO_MUDARAM", erro\.message, 409,/);
+    assert.match(criacao, /\.\.\.regraDaCondicao,/);
+    const edicao = ler('lib/fechamentos/services/edicao-administrativa.service.ts');
+    assert.match(edicao, /revisaoStatus: 'APROVADA', \.\.\.\(await regraNaRevisao\(tx, empresaEsperada, com\.forma, f\.condicaoPagamento, f\.formaPagamentoPretendida\)\) \}/);
+    assert.match(edicao, /calcularCondicaoComercial\(novo\.valorAprovado \?\? resumo\.valorTotalTabela, input\.comercial\.forma, novo\.condicaoPagamento!\.descontoPercentual\)/);
+    assert.match(ler('lib/fechamentos/services/revisao-operacional.service.ts'), /revisaoStatus: 'APROVADA', \.\.\.\(await regraNaRevisao\(tx, empresaAutorizada, com\.forma, r\.operacao\.condicaoPagamento, r\.operacao\.formaPagamentoPretendida\)\) \}/);
 });
 
 test('tela pública: Kidmais com o texto e os rótulos de hoje; outra empresa com as regras dela, sem Cielo nem -15%', () => {
@@ -78,7 +84,10 @@ test('tela pública: Kidmais com o texto e os rótulos de hoje; outra empresa co
     const wizard = ler('components/fechamento/FechamentoWizard.tsx');
     assert.match(wizard, /calcularTotalPagamento\(valorInformado, "pix_avista", pagamento\)/);
     assert.match(wizard, /subtitle=\{pagamento\.cartaoRotulo\}/);
-    assert.match(wizard, /\{pagamento\.descontoDiaUtil && pacoteTemDescontoDiaUtil\(form\.pacote\) && \(/);
+    // D4 (18/11/2026): o aviso sai de avisoDescontoDoPacote; sem regras da empresa (Kidmais), a mesma condição de antes.
+    assert.match(wizard, /avisoDescontoDoPacote\(configDisponibilidade, form\.pacote, pagamento\.descontoDiaUtil, hojeIsoLocal\(\)\)/);
+    assert.match(wizard, /\{avisoEconomizeTela && \(/);
+    assert.match(ler('lib/comercial/descontos.ts'), /return automatico && pacoteTemDescontoDiaUtil\(pacote\)\n\s+\? \{ titulo: "Economize 15% escolhendo de segunda a quinta\.", selo: "-15%" \}/);
     assert.doesNotMatch(wizard, /subtitle="(10|3)% de desconto"|subtitle="Cielo"/);
 });
 
@@ -140,7 +149,9 @@ test('regras do servidor chegam às telas: pacotes públicos, edição administr
     assert.match(ler('app/api/admin/contratos/versoes/[versaoId]/edicao/route.ts'), /const regrasPagamento = await lerRegrasPagamento\(tx, empresaId\);/);
     assert.match(ler('components/admin/EdicaoFesta.tsx'), /ctx\.regrasPagamento \? percentualDaForma\(ctx\.regrasPagamento, forma\) : undefined/);
     const wizard = ler('components/fechamento/FechamentoWizard.tsx');
-    assert.match(wizard, /const pagamento = empresa \? marca\.pagamento : \(regrasDoServidor \?\? marca\.pagamento\);/);
+    assert.match(wizard, /const pagamento = regrasAtualizadas \?\? \(empresa \? marca\.pagamento : \(regrasDoServidor \?\? marca\.pagamento\)\);/);
+    assert.match(wizard, /descontoFormaPagamentoExibido: form\.formaPagamento === "pix_avista" \? pagamento\.pixAvistaPercentual/);
+    assert.match(wizard, /falha\?\.codigo === "REGRAS_PAGAMENTO_MUDARAM" && falha\?\.detalhes\?\.pagamento\) \{\s*setRegrasAtualizadas\(/);
     assert.match(wizard, /if \(body\.pagamento\) setRegrasDoServidor\(body\.pagamento as RegrasPagamento\);/);
     assert.match(wizard, /descontoDiaUtil=\{pagamento\.descontoDiaUtil\}/);
     assert.doesNotMatch(wizard, /marca\.pagamento\.(pix|cartao|descontoDiaUtil)/);

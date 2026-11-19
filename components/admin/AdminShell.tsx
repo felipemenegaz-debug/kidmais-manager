@@ -289,7 +289,7 @@ function iconeDaRota(href: string): AdminIconName {
     if (href.includes('/marketing/site')) return 'site';
     if (href.includes('/marketing/automacoes')) return 'automation';
     if (href.includes('perfil-empresa')) return 'profile';
-    if (href.includes('tabelas-preco')) return 'prices';
+    if (href.includes('tabelas-preco') || href.includes('configuracoes/descontos')) return 'prices';
     if (href.includes('importar-documentos')) return 'pdf';
     if (href.includes('pacotes')) return 'packages';
     if (href.includes('catalogo')) return 'buffet';

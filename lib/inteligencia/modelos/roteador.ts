@@ -93,6 +93,19 @@ export function politicaDoAmbiente(env: Ambiente): PoliticaRoteamento {
   };
 }
 
+/**
+ * Provedores que o roteador pode chamar para o workload, na ordem: tier ECONOMY tenta o econômico (ou o primário) e depois
+ * o primário; com fallback, OPENAI e DEEPSEEK. Sem fallback, só o primeiro configurado conta. Puro: também usado pela
+ * conferência pré-publicação dos textos legais (lib/inteligencia/publicacao.ts).
+ */
+export function ordemProvedores(politica: PoliticaRoteamento, workload: Workload, configurado: (id: IdProvedor) => boolean = () => true): IdProvedor[] {
+  const ordem: Array<IdProvedor | null> = politica.tiers[workload] === "ECONOMY" ? [politica.economico ?? politica.primario, politica.primario] : [politica.primario];
+  if (politica.fallback[workload]) ordem.push("OPENAI", "DEEPSEEK");
+  const lista: IdProvedor[] = [];
+  for (const id of ordem) if (id && !lista.includes(id) && configurado(id)) lista.push(id);
+  return politica.fallback[workload] ? lista : lista.slice(0, 1);
+}
+
 export function criarAdaptadores(env: Ambiente, buscar: Buscador): Map<IdProvedor, AdaptadorProvedor> {
   return new Map<IdProvedor, AdaptadorProvedor>([
     ["OPENAI", criarAdaptadorOpenAICompativel(PERFIL_OPENAI, env, buscar)],
@@ -143,19 +156,9 @@ export class RoteadorModelos {
 
   private candidatos(workload: Workload): AdaptadorProvedor[] {
     const { politica, adaptadores } = this.deps;
-    const tier = politica.tiers[workload];
-    const ordem: Array<IdProvedor | null> = tier === "ECONOMY" ? [politica.economico ?? politica.primario, politica.primario] : [politica.primario];
-    if (politica.fallback[workload]) ordem.push("OPENAI", "DEEPSEEK");
-    const vistos = new Set<IdProvedor>();
     const lista: AdaptadorProvedor[] = [];
-    for (const id of ordem) {
-      if (!id || vistos.has(id)) continue;
-      vistos.add(id);
-      const adaptador = adaptadores.get(id);
-      if (adaptador) lista.push(adaptador);
-    }
-    // Sem fallback, só o primeiro candidato configurado conta.
-    return politica.fallback[workload] ? lista : lista.slice(0, 1);
+    for (const id of ordemProvedores(politica, workload, (id) => adaptadores.has(id))) lista.push(adaptadores.get(id)!);
+    return lista;
   }
 
   private uso(base: { alvo: AlvoRoteamento; workload: Workload; tier: TierModelo; provedor: IdProvedor; modelo: string; fallback: boolean }, parcial: Partial<ModelUsage>): ModelUsage {

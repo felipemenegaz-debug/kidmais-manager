@@ -10,7 +10,7 @@ const id = n => `00000000-0000-4000-8000-${String(n).padStart(12, '0')}`;
 (async () => {
   const foto = await sharp({ create: { width: 300, height: 450, channels: 3, background: '#97b8cb' } }).png().toBuffer();
   const contexto = { empresas: [{ id: id(2), nome: 'Buffet Teste', papel: 'REPRESENTANTE_AUTORIZADO' }], empresaAtual: { id: id(2), nome: 'Buffet Teste' }, gestaoNaEmpresa: true, plataforma: false, desenvolvedor: false, selecaoNecessaria: false };
-  const dados = { conteudo: { ...inicioConteudo({}), nome: 'Alice', idade: '5 anos', data: '2099-12-20', horario: '15:00', local: 'Buffet Teste', endereco: 'Rua fictícia, 10' }, revisao: 1, publicado: false, desatualizado: false, linkPublico: `/convite/${'p'.repeat(43)}`, clienteHabilitado: false, disponiveis: 0, iaDisponivel: false, cotas: { festa: 3, festaUsado: 0, cliente: 3, clienteUsado: 0 }, artes: [], familias: [], respostas: [], historico: [] };
+  const dados = { conteudo: { ...inicioConteudo({}), tema: 'foto_aquarela', nome: 'Alice', idade: '5 anos', data: '2099-12-20', horario: '15:00', local: 'Buffet Teste', endereco: 'Rua fictícia, 10' }, revisao: 1, publicado: false, desatualizado: false, linkPublico: `/convite/${'p'.repeat(43)}`, clienteHabilitado: false, disponiveis: 0, iaDisponivel: false, cotas: { festa: 3, festaUsado: 0, cliente: 3, clienteUsado: 0 }, artes: [], familias: [], respostas: [], historico: [] };
   let acesso = null, publicado = null;
   const respostas = new Map(), comandos = [], erros = [], urls = [];
   const browser = await chromium.launch({ channel: 'msedge', headless: true });
@@ -23,6 +23,8 @@ const id = n => `00000000-0000-4000-8000-${String(n).padStart(12, '0')}`;
       if (!u.pathname.startsWith('/api/')) return route.continue();
       const json = (status, data) => route.fulfill({ status, contentType: 'application/json', body: JSON.stringify(status < 400 ? { ok: true, data } : { ok: false, erro: data }) });
       try {
+        if (u.pathname === '/api/endereco-atual') return route.fulfill({ json: { modoEfetivo: 'DESLIGADO' } });
+        if (u.pathname === '/api/admin/configuracoes/agenda') return json(200, { instalada: true, pendentes: [] });
         if (u.pathname === '/api/admin/autenticacao') return json(admin ? 200 : 401, admin ? { usuarioId: id(3), sessaoId: id(4), csrf: 'teste', nome: 'Teste', contexto, comercial: null } : 'Sem sessão.');
         if (u.pathname === '/api/admin/configuracoes/perfil-empresa/logo') return json(200, { logoDataUrl: null });
         if (['/api/admin/convites', '/api/convites/cliente'].includes(u.pathname)) {
@@ -34,7 +36,7 @@ const id = n => `00000000-0000-4000-8000-${String(n).padStart(12, '0')}`;
           const b = parsed.data; comandos.push(b.acao);
           assert.notEqual(b.acao, 'gerar', 'Fluxo gratuito não pode chamar IA');
           if (b.acao === 'acesso') {
-            assert(buffet); acesso = b.habilitado ? crypto.randomBytes(32).toString('base64url') : null; dados.clienteHabilitado = !!acesso;
+            assert(buffet); acesso = b.habilitado ? crypto.randomBytes(32).toString('base64url') : null; dados.clienteHabilitado = !!acesso; dados.editor_expira_em = acesso ? '2099-12-31T15:00:00Z' : null;
             return json(200, { linkCliente: acesso ? `/convites/criar#${acesso}` : null });
           }
           if (b.acao === 'upload') {
@@ -67,14 +69,14 @@ const id = n => `00000000-0000-4000-8000-${String(n).padStart(12, '0')}`;
     const buffetCtx = await sessao(true), clienteCtx = await sessao(), convidadoCtx = await sessao();
     const buffet = await buffetCtx.newPage(), cliente = await clienteCtx.newPage(), convidado = await convidadoCtx.newPage();
     await buffet.goto(`${base}/admin/festas/${id(1)}/convite`);
-    await buffet.getByText('Acesso do cliente e limites', { exact: false }).click();
-    await buffet.getByRole('button', { name: 'Gerar novo link do cliente', exact: true }).click();
-    const campoLink = buffet.getByRole('textbox', { name: 'Link exclusivo de edição', exact: false }); await campoLink.waitFor();
+    await buffet.getByText('Edição pelo cliente', { exact: false }).click();
+    await buffet.getByRole('button', { name: 'Liberar edição', exact: true }).click();
+    const campoLink = buffet.getByRole('textbox', { name: 'Link de edição · só para quem contratou a festa', exact: false }); await campoLink.waitFor();
     const link = await campoLink.inputValue(); assert(link.startsWith(`${base}/convites/criar#`));
     await cliente.goto(link); await cliente.getByLabel('Nome do aniversariante', { exact: true }).waitFor();
-    await cliente.getByRole('button', { name: 'Com foto', exact: true }).click();
-    await cliente.getByRole('button', { name: /^Foto com aquarela/ }).click();
+    await cliente.getByRole('button', { name: 'Usar imagem minha' }).click();
     await cliente.locator('input[type="file"]').setInputFiles({ name: 'foto-sintetica.png', mimeType: 'image/png', buffer: foto });
+    await cliente.getByText('Imagens da festa', { exact: true }).click();
     await cliente.getByRole('button', { name: 'Remover imagem do convite', exact: true }).waitFor();
     await cliente.getByLabel('Nome do aniversariante', { exact: true }).fill('Alice Sofia');
     await cliente.getByRole('button', { name: 'Salvar rascunho', exact: true }).click();
@@ -110,13 +112,16 @@ const id = n => `00000000-0000-4000-8000-${String(n).padStart(12, '0')}`;
     assert.equal(respostas.size, 1); assert.equal(dados.respostas[0].adultos, 0);
     await buffet.getByRole('button', { name: 'Publicar convite', exact: true }).click();
     await buffet.getByRole('status').filter({ hasText: 'Convite publicado' }).waitFor();
-    await buffet.getByText('Acesso do cliente e limites', { exact: false }).click();
+    await buffet.getByText('Edição pelo cliente', { exact: false }).click();
+    await buffet.getByText('Gerenciar acesso', { exact: true }).click();
     await buffet.getByRole('button', { name: 'Revogar acesso', exact: true }).click();
+    await buffet.getByRole('dialog', { name: 'Revogar acesso do cliente?' }).getByRole('button', { name: 'Revogar acesso', exact: true }).click();
     await buffet.getByRole('status').filter({ hasText: 'Acesso revogado' }).waitFor();
     await cliente.reload(); await cliente.getByRole('alert').filter({ hasText: 'indisponível' }).waitFor();
     await convidado.reload(); await convidado.getByRole('article').waitFor();
     assert((await convidado.getByRole('article').textContent()).includes('Alice atualizada'), 'Revogar editor não revoga convidados');
     await buffet.getByRole('button', { name: 'Despublicar', exact: true }).click();
+    await buffet.getByRole('dialog', { name: 'Despublicar convite?' }).getByRole('button', { name: 'Despublicar', exact: true }).click();
     await buffet.getByRole('status').filter({ hasText: 'Convite despublicado' }).waitFor();
     await convidado.reload(); await convidado.getByRole('alert').filter({ hasText: 'indisponível' }).waitFor();
     assert.equal(dados.cotas.festaUsado, 0); assert(!comandos.includes('gerar'));

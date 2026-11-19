@@ -130,7 +130,8 @@ export function expressoes(e: Entidade, exportadas: readonly Coluna[]) {
             }
             continue;
         }
-        sel.push(c.tipo === 'ARRAY' ? `to_json(${col})::text` : `${col}::text`);
+        const semChaves = e.semChavesJson?.[c.nome];
+        sel.push(c.tipo === 'ARRAY' ? `to_json(${col})::text` : semChaves?.length ? `(${col}${semChaves.map((k) => ` - ${literal(k)}`).join('')})::text` : `${col}::text`);
         cabecalho.push(c.nome);
         neutralizar.push(TIPOS_TEXTO.has(c.tipo));
     }

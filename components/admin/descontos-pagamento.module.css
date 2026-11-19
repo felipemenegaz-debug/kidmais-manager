@@ -1,0 +1,67 @@
+/* Configurações › Descontos e formas de pagamento (D1, 16/11/2026). Admin V1: escuro, glass sutil, violeta + teal; laranja só no alerta. */
+.pagina {
+  padding: 32px;
+  max-width: 1200px;
+  background:
+    radial-gradient(620px circle at 0% -8%, color-mix(in srgb, var(--km-violet) 18%, transparent), transparent 58%),
+    radial-gradient(480px circle at 100% 0%, color-mix(in srgb, var(--km-teal) 10%, transparent), transparent 52%);
+}
+.topo { margin-bottom: 20px; }
+.topo h1 { margin: 0; font-size: 30px; }
+.topo p { margin: 6px 0 0; color: var(--secondary-text); max-width: 70ch; }
+.cartao { composes: glass secao from "./visual.module.css"; padding: 20px; min-width: 0; margin-bottom: 16px; }
+.cartao h2 { margin: 0 0 12px; font-size: 17px; }
+.dois { display: grid; grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr); gap: 16px; }
+.campos { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; margin-bottom: 8px; }
+.campos label:last-child { grid-column: 1 / -1; }
+.campo { display: grid; align-content: start; gap: 6px; font-size: 13px; color: var(--secondary-text); }
+.campo input {
+  min-height: 44px; border-radius: 12px; border: 1px solid var(--km-border); background: rgba(255,255,255,.03);
+  color: var(--main-text); padding: 8px 12px; font: inherit; min-width: 0;
+}
+.campo input:focus { background: rgba(255,255,255,.06); outline: 2px solid color-mix(in srgb, var(--km-violet) 60%, transparent); outline-offset: 1px; }
+.campo input[aria-invalid="true"] { border-color: #f87171; }
+.erroCampo { color: #f87171; font-size: 12px; }
+.muted { color: var(--secondary-text); font-size: 13px; }
+.acoes { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; margin-top: 12px; }
+.acoes small { color: var(--secondary-text); }
+.primario { composes: primario from "./visual.module.css"; }
+.erro { color: #f87171; margin: 12px 0 0; }
+.ok { color: var(--km-teal); margin: 12px 0 0; }
+.alerta { border-left: 3px solid var(--km-orange); background: color-mix(in srgb, var(--km-orange) 8%, transparent); padding: 10px 14px; border-radius: 8px; margin: 0 0 16px; color: var(--km-text); }
+.formas { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+.forma {
+  display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 2px 12px; padding: 12px 14px; border-radius: 12px;
+  border: 1px solid var(--km-border); background: rgba(255,255,255,.03);
+}
+.forma strong { font-size: 14px; }
+.forma span { grid-column: 1; color: var(--secondary-text); font-size: 12px; overflow-wrap: anywhere; }
+.forma b { grid-column: 2; grid-row: 1 / span 2; align-self: center; white-space: nowrap; color: var(--km-text); }
+.lista { list-style: none; margin: 0; padding: 0; }
+.lista li { display: flex; justify-content: space-between; gap: 12px; padding: 10px 0; border-top: 1px solid rgba(255,255,255,.05); font-size: 14px; }
+.lista li:first-child { border-top: 0; }
+.lista li span:last-child { text-align: right; white-space: nowrap; }
+.lista small { color: var(--secondary-text); }
+.total { font-weight: 800; color: var(--km-teal); }
+@media (max-width: 900px) { .dois { grid-template-columns: 1fr; } }
+@media (max-width: 700px) {
+  .pagina { padding: 16px; }
+  .topo h1 { font-size: 24px; }
+  .campos { grid-template-columns: 1fr; }
+  .lista li { flex-direction: column; gap: 2px; }
+  .lista li span:last-child { text-align: left; white-space: normal; }
+}
+/* D3 (18/11/2026): desconto por dia da semana. */
+.grupo { border: 0; padding: 0; margin: 12px 0; min-width: 0; display: grid; gap: 8px; }
+.grupo legend { font-size: 13px; color: var(--secondary-text); margin-bottom: 6px; padding: 0; }
+.chips { display: flex; flex-wrap: wrap; gap: 8px; }
+.chip { position: relative; display: inline-flex; }
+.chip input { position: absolute; opacity: 0; inset: 0; margin: 0; cursor: pointer; }
+.chip span {
+  min-height: 40px; display: inline-flex; align-items: center; padding: 6px 14px; border-radius: 999px; font-size: 13px;
+  border: 1px solid var(--km-border); background: rgba(255,255,255,.03); color: var(--secondary-text);
+}
+.chip input:checked + span { border-color: color-mix(in srgb, var(--km-violet) 70%, transparent); background: color-mix(in srgb, var(--km-violet) 22%, transparent); color: var(--main-text); }
+.chip input:focus-visible + span { outline: 2px solid color-mix(in srgb, var(--km-violet) 60%, transparent); outline-offset: 2px; }
+.grupo:disabled .chip span { opacity: .6; }
+.subtitulo { margin: 20px 0 8px; font-size: 15px; }

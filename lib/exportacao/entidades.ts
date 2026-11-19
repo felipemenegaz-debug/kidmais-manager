@@ -31,6 +31,8 @@ export type Entidade = {
      * própria migration (ex.: arrependimento-097.postgres.test.ts).
      */
     migracao?: string;
+    /** Colunas jsonb exportadas sem estas chaves de primeiro nível (ex.: registros internos do convite, etapa 3 da logo). */
+    semChavesJson?: Readonly<Record<string, readonly string[]>>;
 };
 
 /** Defesa em profundidade: nenhum nome de coluna que case com este padrão sai no pacote, mesmo sem exclusão declarada. */
@@ -259,7 +261,9 @@ const BASE: readonly Entidade[] = [
     { arquivo: 'catalogo/importacoes_comerciais', tabela: 'importacoes_comerciais', grupo: 'Catálogo', descricao: 'Importações de tabela de preços e modelo (arquivo: tamanho e SHA-256).', onde: EMP },
 
     // Convites
-    { arquivo: 'convites/convites', tabela: 'convites', grupo: 'Convites', descricao: 'Convites (sem o código do link público).', onde: EMP },
+    { arquivo: 'convites/convites', tabela: 'convites', grupo: 'Convites', descricao: 'Convites (sem o código do link público).', onde: EMP,
+      // Registros internos da logo (sessões, gerações e artes sem o nome do salão) não saem do servidor.
+      semChavesJson: { rascunho: ['logoOrdem', 'logoGeracoes', 'logoSemNome'], publicado: ['logoOrdem', 'logoGeracoes', 'logoSemNome'] } },
     { arquivo: 'convites/familias', tabela: 'convite_familias', grupo: 'Convites', descricao: 'Famílias convidadas (sem o código do link).', onde: EMP },
     { arquivo: 'convites/respostas', tabela: 'convite_respostas', grupo: 'Convites', descricao: 'Respostas (confirmação de presença).', onde: em(CONVITES, 'convite_id') },
     { arquivo: 'convites/eventos', tabela: 'convite_eventos', grupo: 'Convites', descricao: 'Eventos do convite.', onde: em(CONVITES, 'convite_id') },

@@ -58,7 +58,7 @@ test('P2-2: o link do aviso aponta para a seção de IA do Aviso de privacidade,
   assert.equal(LINK_AVISO_IA, '/privacidade#inteligencia-artificial');
   const secao = DOCUMENTOS.PRIVACIDADE.secoes.find(s => s.titulo === 'Recursos de inteligência artificial');
   assert.ok(secao); const texto = secao.paragrafos.join(' ');
-  for (const trecho of [/convites/, /nome e idade da criança/, /endereço do evento/, /fotografia opcional/, /OpenAI/, /somente quando habilitado, o Google Gemini/, /não garantem anonimização/, /revisados antes do uso/])
+  for (const trecho of [/convites/, /nome e idade da criança/, /endereço do evento/, /fotografia opcional/, /utiliza a OpenAI/, /não garantem anonimização/, /revisados antes do uso/])
     assert.match(texto, trecho);
 });
 

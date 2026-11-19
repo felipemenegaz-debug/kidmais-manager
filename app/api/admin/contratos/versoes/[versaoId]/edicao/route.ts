@@ -6,6 +6,7 @@ import { jsonNoStore, apiErrorResponse } from '@/lib/http/api-response';
 import { fontesEdicao, edicaoDaVersao, versaoDoTenant } from '@/lib/contratos/services/administrativo.service';
 import { fonteDaRevisaoInicial } from '@/lib/contratos/services/revisao-inicial';
 import { calcularResumoComercial, listarPacotesComerciais, listarCatalogoAdicionais } from '@/lib/comercial/services';
+import { manterDescontoDoDia } from '@/lib/fechamentos/revisao-preco';
 import { consultarDisponibilidadeData, duracaoAceita, duracaoDoIntervalo } from '@/lib/disponibilidade/services';
 import { listarCodigosInclusos } from '@/lib/comercial/composicao';
 import { isPricingServiceError } from '@/lib/comercial/services/errors';
@@ -35,6 +36,9 @@ export async function GET(request: NextRequest, context: {
             const adicionais = q.has('adicionais') ? z.array(z.object({ codigo: z.string().max(80), quantidade: z.number().positive() }).strict()).max(60).parse(JSON.parse(q.get('adicionais')!)) : fonte.adicionais;
             // Horário livre (parecer do Astra, P2): os candidatos preservam a duração pretendida — a do formulário
             // (`?duracao=` em minutos) ou, na carga inicial, a do intervalo atual da fonte. No modo fixo não muda nada.
+            // D3 (Astra r1, P1): o intervalo escolhido no formulário entra na prévia, como na gravação; sem ele, o da fonte.
+            const horarioInicio = z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/).parse(q.get('inicio') || fonte.fechamento.horarioInicio.slice(0, 5));
+            const horarioFim = z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/).parse(q.get('fim') || fonte.fechamento.horarioFim.slice(0, 5));
             const duracaoMinutos = q.get('duracao') ? z.number().int().parse(duracaoAceita(q.get('duracao'))) : duracaoDoIntervalo(fonte.fechamento.horarioInicio, fonte.fechamento.horarioFim);
             const disponibilidade = await consultarDisponibilidadeData(dataEvento, tx, preparada ? fonte.fechamento.id : undefined, { fechamentoId: fonte.fechamento.id }, { duracaoMinutos, incluirCombinados: true });
             // Opções de troca de vínculo: só da empresa já comprovada (= empresa do fechamento).
@@ -58,7 +62,8 @@ export async function GET(request: NextRequest, context: {
             const incluidos = await listarCodigosInclusos(tx, pacoteId, empresaId);
             try {
                 // Fora da transação do tenant: um erro de preço aqui não pode abortar a prova de tenant.
-                resumo = await calcularResumoComercial({ data: dataEvento, configuracaoAgendaId, pacoteId, convidados, adicionais, empresaEsperada: empresaId });
+                // D3: mesma regra da gravação — mesma festa (pacote, data, horário) mantém o desconto do dia gravado.
+                resumo = manterDescontoDoDia(await calcularResumoComercial({ data: dataEvento, configuracaoAgendaId, pacoteId, convidados, adicionais, empresaEsperada: empresaId }), fonte.fechamento, { pacoteId, dataEvento, configuracaoAgendaId, horarioInicio, horarioFim });
             }
             catch (e) {
                 if (isPricingServiceError(e))

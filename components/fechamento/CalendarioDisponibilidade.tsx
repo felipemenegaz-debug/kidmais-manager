@@ -10,7 +10,7 @@ import styles from "./FechamentoWizard.module.css";
 import { apiPublica } from "../../lib/fechamentos/rota-publica";
 import { useMarcaPublica } from "./MarcaPublica";
 import {
-  CONFIG_VAZIA,
+  CONFIG_SEM_RESPOSTA,
   DisponibilidadeConfig,
   type RegraPacoteEmpresa,
   statusDataPacote,
@@ -19,7 +19,9 @@ import {
 import {
   descontoEfetivo,
   pacoteTemDescontoDiaUtil,
+  avisoDescontoDoPacote,
 } from "@/lib/comercial/descontos";
+import { textoPercentual } from "@/lib/comercial/descontos-dia";
 import type {
   DisponibilidadeDataPublica,
   HorarioCandidatoPublico,
@@ -45,7 +47,7 @@ function hojeIso() {
 /** Fonte do mês. Padrão: API pública. O painel administrativo passa a agenda da empresa/unidade comprovadas. */
 export type ConsultaAgendaMes = (inicio: string, fim: string) => Promise<{
   dias: DisponibilidadeDataPublica[];
-  comercial?: Pick<DisponibilidadeConfig, "pacoteOverrides" | "descontos">;
+  comercial?: Pick<DisponibilidadeConfig, "pacoteOverrides" | "descontos" | "descontosEmpresa">;
 }>;
 
 /** Parecer do Astra (P2-1): com pacote escolhido, o horário livre usa a duração dele (a mesma da revalidação). */
@@ -104,7 +106,7 @@ export default function CalendarioDisponibilidade({
   const [mes, setMes] = useState(agora.getMonth());
   const [ano, setAno] = useState(agora.getFullYear());
   const [config, setConfig] =
-    useState<DisponibilidadeConfig>(CONFIG_VAZIA);
+    useState<DisponibilidadeConfig>(CONFIG_SEM_RESPOSTA);
   const [operacionalPorData, setOperacionalPorData] = useState<
     Record<string, DisponibilidadeDataPublica>
   >({});
@@ -133,14 +135,16 @@ export default function CalendarioDisponibilidade({
         agenda: [],
         pacoteOverrides: json.comercial?.pacoteOverrides ?? [],
         descontos: json.comercial?.descontos ?? [],
+        // D4: regras de desconto da empresa (/b/<código>); ausente = caminho atual.
+        ...(json.comercial?.descontosEmpresa ? { descontosEmpresa: json.comercial.descontosEmpresa } : {}),
       };
       setConfig(novaConfig);
       onConfigChange?.(novaConfig);
       setAviso(null);
     } catch (falha) {
       setOperacionalPorData({});
-      setConfig(CONFIG_VAZIA);
-      onConfigChange?.(CONFIG_VAZIA);
+      setConfig(CONFIG_SEM_RESPOSTA);
+      onConfigChange?.(CONFIG_SEM_RESPOSTA);
       setAviso({
         tipo: "erro",
         titulo: "Não foi possível consultar a disponibilidade agora.",
@@ -244,6 +248,7 @@ export default function CalendarioDisponibilidade({
       data,
       legado,
       diaUtil,
+      turno.configuracaoId,
     );
 
     onSelecionar(
@@ -274,7 +279,7 @@ export default function CalendarioDisponibilidade({
           (atual.motivo ||
             "Você pode continuar. A equipe avaliará essa data antes de liberar o contrato.") +
           (desconto.ativo
-            ? ` Se a data for aprovada, será aplicado ${Math.round(
+            ? ` Se a data for aprovada, será aplicado ${textoPercentual(
                 desconto.percentual * 100
               )}% de desconto no valor do pacote.`
             : ""),
@@ -285,7 +290,7 @@ export default function CalendarioDisponibilidade({
     setAviso({
       tipo: "ok",
       titulo: desconto.ativo
-        ? `Data disponível com ${Math.round(
+        ? `Data disponível com ${textoPercentual(
             desconto.percentual * 100
           )}% de desconto.`
         : "Data disponível para este pacote.",
@@ -295,8 +300,13 @@ export default function CalendarioDisponibilidade({
     });
   }
 
-  const temAlgumBeneficioPadrao =
-    diaUtil && pacoteTemDescontoDiaUtil(pacote);
+  // D4: com regras da empresa, a faixa usa o que ela configurou; sem elas, a faixa de sempre (15% de segunda a quinta).
+  const avisoEmpresa = config.descontosEmpresa ? avisoDescontoDoPacote(config, pacote, diaUtil, hojeIso()) : null;
+  const faixaDesconto = config.descontosEmpresa
+    ? avisoEmpresa && { titulo: avisoEmpresa.titulo, texto: `As datas com desconto aparecem com o selo ${avisoEmpresa.selo} no calendário. O desconto vale sobre o valor do pacote.` }
+    : diaUtil && pacoteTemDescontoDiaUtil(pacote)
+      ? { titulo: "15% de desconto de segunda a quinta", texto: "Este pacote recebe 15% de desconto no valor do pacote quando a festa acontece de segunda a quinta." }
+      : null;
 
   return (
     <div className={styles.calendarWrap} data-calendario-disponibilidade>
@@ -330,15 +340,12 @@ export default function CalendarioDisponibilidade({
         </div>
       </div>
 
-      {temAlgumBeneficioPadrao && (
+      {faixaDesconto && (
         <div className={styles.weekdayDiscountBanner}>
           <span className={styles.weekdayDiscountIcon}>%</span>
           <div>
-            <strong>15% de desconto de segunda a quinta</strong>
-            <p>
-              Este pacote recebe 15% de desconto no valor do pacote
-              quando a festa acontece de segunda a quinta.
-            </p>
+            <strong>{faixaDesconto.titulo}</strong>
+            <p>{faixaDesconto.texto}</p>
           </div>
         </div>
       )}
@@ -419,6 +426,7 @@ export default function CalendarioDisponibilidade({
                   data,
                   legado,
                   diaUtil,
+                  turnoOperacional?.configuracaoId,
                 )
               : {
                   ativo: false,
@@ -465,7 +473,7 @@ export default function CalendarioDisponibilidade({
                 semDados ? "disponibilidade não carregada" : statusLabel(info.status, marca.kidmais)
               }${
                 desconto.ativo
-                  ? `, ${Math.round(
+                  ? `, ${textoPercentual(
                       desconto.percentual * 100
                     )}% de desconto`
                   : ""
@@ -486,7 +494,7 @@ export default function CalendarioDisponibilidade({
                     }
                   >
                     -
-                    {Math.round(
+                    {textoPercentual(
                       desconto.percentual * 100
                     )}
                     %

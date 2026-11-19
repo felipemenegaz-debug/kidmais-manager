@@ -49,14 +49,15 @@ import {
 } from "./periodos";
 import type { HorarioCandidatoPublico, PeriodoDisponibilidadePublica } from "@/lib/disponibilidade/services/models";
 import {
-  aplicarDesconto,
   descontoEfetivo,
-  pacoteTemDescontoDiaUtil,
+  avisoDescontoDoPacote,
 } from "@/lib/comercial/descontos";
+import { descontoSobreBase, textoPercentual, type OrigemDesconto } from "@/lib/comercial/descontos-dia";
 import {
-  CONFIG_VAZIA,
+  CONFIG_SEM_RESPOSTA,
   DisponibilidadeConfig,
   statusDataPacote,
+  hojeIsoLocal,
 } from "@/lib/agenda/disponibilidade";
 import { calcularIdade, cpfValido } from "@/lib/clientes/utils";
 import { cnpjRaizPlaceholder, cnpjValido, normalizarCnpj } from "@/lib/cadastro/cnpj";
@@ -121,7 +122,7 @@ type ClienteContextoValidado = {
 
 type CategoriaBuffet = { codigo:string; nome:string; max:number; itens:{id:string;nome:string}[] };
 type AdicionalDisponivel = AdicionalDaEtapa;
-type Cotacao = { valorTabela: number; valor: number; desconto: { percentual: number; valor: number; titulo: string | null }; categoria: string; categoriaNome: string; convidadosFaturados: number; minimoFaturavelAplicado: boolean; faixa: { min: number; max: number | null } };
+type Cotacao = { valorTabela: number; valor: number; desconto: { percentual: number; valor: number; titulo: string | null; origem: OrigemDesconto }; categoria: string; categoriaNome: string; convidadosFaturados: number; minimoFaturavelAplicado: boolean; faixa: { min: number; max: number | null } };
 function mensagemCotacao(codigo: string | undefined, erro?: string, equipe = 'equipe Kidmais') {
   if (codigo === 'TABELA_PRECO_NAO_CONFIGURADA' || codigo === 'PRECO_PACOTE_NAO_CONFIGURADO' || codigo === 'PRECO_AMBIGUO') return `Este pacote ainda não tem preço publicado para essa data e horário. Fale com a ${equipe}.`;
   if (codigo === 'PACOTE_INDISPONIVEL' || codigo === 'PACOTE_SOB_CONSULTA') return erro ?? 'Este pacote não está disponível nessa data e horário.';
@@ -286,7 +287,9 @@ export default function FechamentoWizard({ empresa = null }: { empresa?: string 
   // Endereço por empresa: regras entregues pela página (servidor). Endereço atual: regras da empresa configurada,
   // lidas em /api/fechamentos/pacotes; até chegarem (ou antes da 077), o legado — o mesmo que o servidor aplica.
   const [regrasDoServidor, setRegrasDoServidor] = useState<RegrasPagamento | null>(null);
-  const pagamento = empresa ? marca.pagamento : (regrasDoServidor ?? marca.pagamento);
+  // Regra devolvida pelo envio recusado (409 REGRAS_PAGAMENTO_MUDARAM): vale sobre as anteriores e o cliente confirma de novo.
+  const [regrasAtualizadas, setRegrasAtualizadas] = useState<RegrasPagamento | null>(null);
+  const pagamento = regrasAtualizadas ?? (empresa ? marca.pagamento : (regrasDoServidor ?? marca.pagamento));
   const router = useRouter();
   const [etapa, setEtapa] = useState(0);
   const [form, setForm] = useState<FechamentoForm>(FORM_INICIAL);
@@ -303,7 +306,7 @@ export default function FechamentoWizard({ empresa = null }: { empresa?: string 
   // Resultado da última consulta, preso à chave (pacote, data, convidados, tentativa) que o gerou.
   const [consultaAdicionais,setConsultaAdicionais]=useState<{chave:string;estado:'ok'|'erro';codigo?:string}|null>(null);
   const [configDisponibilidade, setConfigDisponibilidade] =
-    useState<DisponibilidadeConfig>(CONFIG_VAZIA);
+    useState<DisponibilidadeConfig>(CONFIG_SEM_RESPOSTA);
   // Candidatos livres do horário escolhido na data e os horários configurados do dia (qualquer quantidade).
   const [candidatosHorario, setCandidatosHorario] =
     useState<HorarioCandidatoPublico[]>([]);
@@ -506,6 +509,7 @@ export default function FechamentoWizard({ empresa = null }: { empresa?: string 
             agenda: [],
             pacoteOverrides: json.comercial?.pacoteOverrides ?? [],
             descontos: json.comercial?.descontos ?? [],
+            ...(json.comercial?.descontosEmpresa ? { descontosEmpresa: json.comercial.descontosEmpresa } : {}),
           });
           setCandidatosHorario(candidatosDisponiveis(periodo));
           setPeriodosDoDia(periodos);
@@ -624,12 +628,15 @@ export default function FechamentoWizard({ empresa = null }: { empresa?: string 
     [form.adicionaisSelecionados, form.adicionaisQuantidades, adicionaisDisponiveis, convidados]
   );
 
+  // D4: aviso "Economize" pelas regras da empresa (/b/<código>); sem elas, o de sempre (15% de segunda a quinta).
+  const avisoEconomizeTela = avisoDescontoDoPacote(configDisponibilidade, form.pacote, pagamento.descontoDiaUtil, hojeIsoLocal());
   const descontoAtual = descontoEfetivo(
     configDisponibilidade,
     form.pacote,
     form.dataFesta,
     form.horarioBase,
     pagamento.descontoDiaUtil,
+    form.configuracaoId,
   );
 
   const calculoDesconto =
@@ -645,6 +652,18 @@ export default function FechamentoWizard({ empresa = null }: { empresa?: string 
           valorPacoteComDesconto: 0,
         };
 
+  // D4 (Astra r1, P2): depois de cotar, percentual, título e valor do desconto vêm da MESMA cotação do servidor
+  // (o calendário pode ter sido lido antes de uma mudança de regra). Antes de cotar, a prévia do calendário.
+  const descontoTela = cotacaoAtual?.dados
+    ? {
+        ativo: cotacaoAtual.dados.desconto.valor > 0,
+        percentual: cotacaoAtual.dados.desconto.percentual / 100,
+        // Astra r2 (P2): a origem vem da regra que a cotação aplicou (o calendário pode dizer outra).
+        origem: cotacaoAtual.dados.desconto.valor > 0 ? cotacaoAtual.dados.desconto.origem : ("nenhum" as const),
+        titulo: cotacaoAtual.dados.desconto.valor > 0 ? cotacaoAtual.dados.desconto.titulo ?? `${textoPercentual(cotacaoAtual.dados.desconto.percentual)}% de desconto nesta data` : "",
+      }
+    : descontoAtual;
+
   const valorPacoteConsiderado =
     referenciaTabela != null
       ? calculoDesconto.valorPacoteComDesconto
@@ -655,12 +674,10 @@ export default function FechamentoWizard({ empresa = null }: { empresa?: string 
       ? valorPacoteConsiderado + adicionaisValor
       : null;
 
+  // Astra r2 (P2): "A partir de" com o percentual da cotação quando ela existe e a mesma regra de centavos do servidor.
   const precoInicialComDesconto =
-    pacote && pacote.precoInicial != null && descontoAtual.ativo
-      ? aplicarDesconto(
-          pacote.precoInicial,
-          descontoAtual.percentual
-        )
+    pacote && pacote.precoInicial != null && descontoTela.ativo
+      ? descontoSobreBase(pacote.precoInicial, descontoTela.percentual * 100).aplicado
       : null;
 
   const valorInformado = moedaParaNumero(form.valorCombinado);
@@ -1125,6 +1142,7 @@ export default function FechamentoWizard({ empresa = null }: { empresa?: string 
         agenda: [],
         pacoteOverrides: json.comercial?.pacoteOverrides ?? [],
         descontos: json.comercial?.descontos ?? [],
+        ...(json.comercial?.descontosEmpresa ? { descontosEmpresa: json.comercial.descontosEmpresa } : {}),
       });
       setHorarioRecusado(null);
       return true;
@@ -1420,6 +1438,11 @@ export default function FechamentoWizard({ empresa = null }: { empresa?: string 
               : null,
           ...form,
           escolhasBuffet: form.buffetDefinicao === 'agora' ? escolhasBuffet : {},
+          // Percentual mostrado para a forma escolhida: se a regra mudou desde então, o servidor recusa (409) e devolve a atual.
+          ...(form.formaPagamento ? {
+            descontoFormaPagamentoExibido: form.formaPagamento === "pix_avista" ? pagamento.pixAvistaPercentual
+              : form.formaPagamento === "pix_parcelado" ? pagamento.pixParceladoPercentual : 0,
+          } : {}),
           condicaoPixPretendida: form.formaPagamento === "pix_parcelado" ? {
             entrada: form.pixEntrada ? form.pixEntrada.replace(",", ".") : null,
             valorParcela: form.pixParcela ? form.pixParcela.replace(",", ".") : null,
@@ -1433,15 +1456,15 @@ export default function FechamentoWizard({ empresa = null }: { empresa?: string 
           horarioExibicao: horario,
           referenciaTabela,
           descontoDiaUtilAtivo:
-            descontoAtual.origem === "dia_util",
+            descontoTela.origem === "dia_util",
           percentualDescontoDiaUtil:
-            descontoAtual.percentual,
+            descontoTela.percentual,
           valorDescontoDiaUtil:
             calculoDesconto.valorDesconto,
           origemDesconto:
-            descontoAtual.origem,
+            descontoTela.origem,
           tituloDesconto:
-            descontoAtual.titulo,
+            descontoTela.titulo,
           valorPacoteConsiderado,
           adicionaisValor,
           totalCalculado,
@@ -1456,6 +1479,12 @@ export default function FechamentoWizard({ empresa = null }: { empresa?: string 
         const volta = destinoDaRecusaDoSalao(empresa, new URLSearchParams(window.location.search), enviado, falha);
         if (volta) {
           router.replace(volta);
+          return;
+        }
+        // Regra de pagamento mudou depois que a tela carregou: mostra os valores novos e pede nova confirmação.
+        if (falha?.codigo === "REGRAS_PAGAMENTO_MUDARAM" && falha?.detalhes?.pagamento) {
+          setRegrasAtualizadas(falha.detalhes.pagamento as RegrasPagamento);
+          setErro(falha.erro || "O desconto desta forma de pagamento mudou. Confira o novo valor e envie de novo.");
           return;
         }
         throw new Error(
@@ -1760,14 +1789,14 @@ export default function FechamentoWizard({ empresa = null }: { empresa?: string 
                   </strong>
                 </div>
 
-                {form.dataFesta && descontoAtual.ativo ? (
+                {form.dataFesta && descontoTela.ativo ? (
                   <>
                     <div className={styles.dateDiscountLine}>
                       <span>Desconto da data</span>
                       <strong>
-                        -{Math.round(descontoAtual.percentual * 100)}%
+                        -{textoPercentual(descontoTela.percentual * 100)}%
                       </strong>
-                      <small>{descontoAtual.titulo}</small>
+                      <small>{descontoTela.titulo}</small>
                     </div>
 
                     <div className={styles.datePriceFinal}>
@@ -1775,7 +1804,7 @@ export default function FechamentoWizard({ empresa = null }: { empresa?: string 
                       <strong>
                         A partir de{" "}
                         {numeroParaMoeda(
-                          precoInicialComDesconto?.valorPacoteComDesconto ??
+                          precoInicialComDesconto ??
                             pacote.precoInicial ?? 0
                         )}
                       </strong>
@@ -1827,13 +1856,13 @@ export default function FechamentoWizard({ empresa = null }: { empresa?: string 
                 <>
                   <span className={styles.calendarSectionLabel}>2. Escolha a data</span>
 
-                  {pagamento.descontoDiaUtil && pacoteTemDescontoDiaUtil(form.pacote) && (
+                  {avisoEconomizeTela && (
                     <div className={styles.discountCallout}>
                       <strong>
-                        Economize 15% escolhendo de segunda a quinta.
+                        {avisoEconomizeTela.titulo}
                       </strong>
                       <p>
-                        As datas elegíveis recebem o selo <b>-15%</b>.
+                        As datas elegíveis recebem o selo <b>{avisoEconomizeTela.selo}</b>.
                         {marca.A} também pode liberar promoções especiais em
                         outras datas, que aparecem com o percentual definido
                         no calendário.
@@ -1998,7 +2027,7 @@ export default function FechamentoWizard({ empresa = null }: { empresa?: string 
                     <>
                       <div className={styles.discountPriceLine}>
                         <del>{numeroParaMoeda(referenciaTabela)}</del>
-                        <span>{cotacaoAtual.dados.desconto.titulo ?? `-${Math.round(calculoDesconto.percentual * 100)}%`}</span>
+                        <span>{cotacaoAtual.dados.desconto.titulo ?? `-${textoPercentual(calculoDesconto.percentual)}%`}</span>
                       </div>
                       <strong>
                         {numeroParaMoeda(calculoDesconto.valorPacoteComDesconto)}
@@ -2278,7 +2307,7 @@ export default function FechamentoWizard({ empresa = null }: { empresa?: string 
                           ? numeroParaMoeda(valorPacoteConsiderado)
                           : "A confirmar"}
                       </strong>
-                      {descontoAtual.ativo && (
+                      {descontoTela.ativo && (
                         <small>
                           Desconto aplicado: -
                           {numeroParaMoeda(calculoDesconto.valorDesconto)}
@@ -2372,17 +2401,17 @@ export default function FechamentoWizard({ empresa = null }: { empresa?: string 
                   </strong>
                 </div>
 
-                {descontoAtual.ativo && (
+                {descontoTela.ativo && (
                   <div className={styles.discountValueCard}>
                     <span>Desconto da data</span>
                     <strong>
                       -{numeroParaMoeda(calculoDesconto.valorDesconto)}
                     </strong>
-                    <small>{Math.round(descontoAtual.percentual * 100)}% sobre o valor do pacote</small>
+                    <small>{textoPercentual(descontoTela.percentual * 100)}% sobre o valor do pacote</small>
                   </div>
                 )}
 
-                {descontoAtual.ativo && (
+                {descontoTela.ativo && (
                   <div>
                     <span>Pacote após desconto</span>
                     <strong>
@@ -2450,11 +2479,11 @@ export default function FechamentoWizard({ empresa = null }: { empresa?: string 
                 </button>
               )}
 
-              {descontoAtual.ativo && (
+              {descontoTela.ativo && (
                 <div className={styles.discountAppliedNotice}>
                   <strong>Desconto comercial aplicado</strong>
                   <p>
-                    Esta data possui {Math.round(descontoAtual.percentual * 100)}% de
+                    Esta data possui {textoPercentual(descontoTela.percentual * 100)}% de
                     desconto sobre o valor do pacote. Os adicionais permanecem
                     com seus valores normais.
                   </p>
@@ -3079,10 +3108,10 @@ export default function FechamentoWizard({ empresa = null }: { empresa?: string 
                   label="Adicionais"
                   value={numeroParaMoeda(adicionaisValor)}
                 />
-                {descontoAtual.ativo && (
+                {descontoTela.ativo && (
                   <Summary
-                    label="Desconto dia útil"
-                    value={`${Math.round(descontoAtual.percentual * 100)}% • -${numeroParaMoeda(
+                    label={descontoTela.titulo || "Desconto da data"}
+                    value={`${textoPercentual(descontoTela.percentual * 100)}% • -${numeroParaMoeda(
                       calculoDesconto.valorDesconto
                     )}`}
                   />

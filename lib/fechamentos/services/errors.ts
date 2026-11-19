@@ -18,7 +18,8 @@ export type FechamentoServiceErrorCode =
   | "FLUXO_INTERNO_NAO_AUTORIZADO"
   | "EMPRESA_INCOMPATIVEL"
   | "PACOTE_FORA_ESCOPO_V1"
-  | "SALAO_INDISPONIVEL";
+  | "SALAO_INDISPONIVEL"
+  | "REGRAS_PAGAMENTO_MUDARAM";
 
 export class FechamentoServiceError extends Error {
   constructor(

@@ -99,3 +99,53 @@
 .blocoLocal { margin: 0 0 16px; padding: 12px 14px; border: 1px solid currentColor; border-radius: 12px; font-size: 13px; line-height: 1.5; overflow-wrap: anywhere; }
 .blocoLocal strong { display: block; font-size: 11px; letter-spacing: .08em; text-transform: uppercase; }
 .blocoLocal small { display: block; margin-top: 6px; }
+/* Etapa 3: logo do buffet sobre a arte completa (mesma geometria no editor, na página pública e no PNG). */
+.camadaLogo { position: absolute; inset: 0; pointer-events: none; }
+.arteCompleta .camadaLogo img.logoSobre { position: absolute; display: block; max-width: none; object-fit: fill; pointer-events: none; }
+.pilulaLogo { position: absolute; background: #FFFFFF; border-radius: 9999px; }
+/* Controle do editor (§6): alvo de toque de 44 px, transparente, sobre a logo; contorno de foco de 3 px. */
+.arteCompleta .camadaLogo .controleLogo { position: absolute; pointer-events: auto; touch-action: none; transform: translate(-50%, -50%); min-width: 44px; min-height: 44px; padding: 0; margin: 0; border: 0; background: transparent; border-radius: 6px; cursor: grab; }
+.arteCompleta .camadaLogo .controleLogo:focus-visible { outline: 3px solid #0B1220; outline-offset: 0; box-shadow: 0 0 0 6px #FFFFFF; }
+.arteCompleta .camadaLogo .controleLogo[data-arrastando=true] { cursor: grabbing; }
+
+.conviteConvidados, .tutorial { margin-bottom: 20px; }
+.acoesConvite, .cabecalhoTutorial { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; }
+.acoesConvite a { display: inline-flex; align-items: center; min-height: 44px; }
+.cabecalhoTutorial { flex-wrap: nowrap; justify-content: space-between; }
+.cabecalhoTutorial h2 { margin: 0; font-size: clamp(20px, 4vw, 26px); }
+.tutorial ol { list-style: decimal; padding-inline-start: 24px; line-height: 1.6; }
+.tutorial li + li { margin-top: 6px; }
+.reabrirTutorial { margin: 0 0 20px; }
+.escolhaArte { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+.editor .escolhaArte button, .editor .acoesConvite button { margin: 0; min-height: 44px; }
+.escolhaArte + div:not([hidden]) { margin-top: 20px; }
+.exemplosPedido { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 12px; }
+.editor .exemplosPedido button { margin: 0; min-height: 44px; padding-inline: 12px; }
+.imagensDaGeracao { display: flex; flex-wrap: wrap; gap: 12px; }
+.imagensDaGeracao > div { display: grid; align-content: start; justify-items: start; gap: 6px; }
+.imagensDaGeracao .miniaturaFoto { margin: 0; }
+.confirmacaoImagens h3 { font-size: 14px; margin: 0 0 12px; }
+.gerarArte { margin-top: 12px; }
+.gerarArte button { min-height: 44px; }
+.gerenciarAcesso, .linkEdicao { margin-top: 16px; padding-top: 16px; border-top: 1px solid #ccd7cb; }
+.controlesLimites > p, .linkEdicao > p { font-size: 14px; line-height: 1.5; }
+@media (max-width: 600px) {
+  .escolhaArte button { padding-inline: 8px; }
+}
+
+.avisoProtegido .continuarPedido {
+  display: block;
+  margin: 0 auto;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font-weight: normal;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+.avisoPublicar {
+  flex-basis: 100%;
+  margin: 0;
+  text-align: center;
+  font-size: 13px;
+}

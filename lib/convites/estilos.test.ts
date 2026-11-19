@@ -10,6 +10,39 @@ const MARCAS = { cartoon3d: /CARICATURA CARTOON 3D/, cartoon2d: /DESENHO CARTOON
 const TEMA_CIENCIA = /laborat|jaleco|frasco|béquer|tubo de ensaio|microscópio|ciência|cientista|livros?\b/i;
 const campos = (idade = '8 anos') => ({ nome: 'Ana', idade, data: '2026-10-10', horario: '17:00', local: 'Kidmais', endereco: 'Asa Norte', mensagem: 'Venha brincar' });
 const lerSimulado = async (arquivo: string) => Buffer.from(`ref:${path.basename(arquivo)}`);
+
+// Etapa 3b (§8): sem "geração com logo", o texto é o de staging d1a0f6f5 byte a byte (SHA-256 calculado daquela versão).
+const camposLogo = (endereco: string) => ({ nome: 'Ana', idade: '8 anos', data: '2026-10-10', horario: '17:00', local: 'Salão Kidmais', endereco, mensagem: 'Venha brincar' });
+const HASH_HOJE: Record<string, string> = {
+  'pedido|Asa Norte': '70ad4c287feeeae0289415b1a905dc63c6d3d482c6f912886006d068c2f4af03', 'pedido|': '240a70adfd8372d9b0be00f96920dcf01a88790aa4b6de42b6a2a74d3ab8f367',
+  'cartoon3d|Asa Norte': '2eacd68d6aa2ae9be43efea8b3beaebac3ab458aa73aa8290d2f32e311596914', 'cartoon3d|': 'afb49e5e90bc62b999713ab99eb786393d3f1f3bfca9141f1a020bdd766b5f77',
+  'cartoon2d|Asa Norte': 'fe5abd151d9f26bfa1d9257a5072da44ebfc4b9e5c98b0afda99f727c67ef2b6', 'cartoon2d|': 'e936eba5dba1ff7c8d7431e3cf9448da344d5debb491d5eee0bebe97b07216ef',
+  'realista|Asa Norte': '0d60feff001e8f71192fba6ec94fa5547ba42cae3749176b44ff0da353b0cea6', 'realista|': 'ff783232c7afe8d16fb865b3ad6458708fd987bea61d9729344e538d5dcf6edf',
+};
+test('pedido sem reservarLogo: igual ao de hoje, byte a byte, nos 4 estilos, com e sem endereço', () => {
+  for (const chave of Object.keys(HASH_HOJE)) {
+    const [estilo, endereco] = chave.split('|') as [Estilo, string];
+    for (const p of [prepararConviteCompleto('Tema fazenda verde', camposLogo(endereco), estilo), prepararConviteCompleto('Tema fazenda verde', camposLogo(endereco), estilo, {}), prepararConviteCompleto('Tema fazenda verde', camposLogo(endereco), estilo, { reservarLogo: false })])
+      assert.equal(createHash('sha256').update(p.promptImagem).digest('hex'), HASH_HOJE[chave], chave);
+  }
+});
+test('pedido com reservarLogo: sem o local nos dados e com a linha da área lisa (com e sem endereço)', () => {
+  const com = prepararConviteCompleto('Tema fazenda verde', camposLogo('Asa Norte'), 'pedido', { reservarLogo: true }).promptImagem;
+  const sem = prepararConviteCompleto('Tema fazenda verde', camposLogo(''), 'pedido', { reservarLogo: true }).promptImagem;
+  for (const p of [com, sem]) {
+    const dados = JSON.parse(p.split('Dados da festa: ')[1]!);
+    assert.ok(!('local' in dados), 'sem local');
+    assert.equal(dados.nome, 'Ana');
+    assert.ok(!p.includes('Salão Kidmais'));
+    assert.match(p, /deixe uma área retangular de cor lisa, sem texto, desenho, moldura nem enfeite, com cerca de um quarto da largura do convite e um décimo da altura, centralizada na horizontal\. Ela receberá um selo aplicado depois\. Não desenhe logotipo, selo nem marca nessa área\./);
+    assert.ok(!/data:image|base64|logoDataUrl/.test(p), 'nada da logo vai ao provedor');
+  }
+  assert.match(com, /COMPOSIÇÃO — .*sem texto sobre o rosto\. Logo acima do endereço, deixe/);
+  assert.match(sem, /COMPOSIÇÃO — .*sem texto sobre o rosto\. Logo abaixo das informações da festa, deixe/);
+  // Só muda o texto: o restante é o mesmo prefixo/sufixo do pedido de hoje.
+  const hoje = prepararConviteCompleto('Tema fazenda verde', camposLogo('Asa Norte'), 'pedido').promptImagem;
+  assert.equal(com.split('\nTEXTOS')[0]!.replace(/ Logo acima do endereço.*$/, ''), hoje.split('\nTEXTOS')[0]);
+});
 async function montar(estilo: Estilo, foto?: Buffer, idade?: string) {
   const p = prepararConviteCompleto('Tema fazenda, verde e amarelo, com um cavalo', campos(idade), estilo);
   return adicionarReferenciaEstilo(foto ? { ...p, foto, promptImagem: p.promptImagem + orientacaoFoto(estilo) } : p, undefined, lerSimulado);

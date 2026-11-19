@@ -1,0 +1,6 @@
+/* Fundo animado de festa (FundoFesta.tsx + fundo-festa.ts). Sem o prefixo .site: vale no site iA.Fest e na área
+   "Minha festa". O pai do fundo precisa de position:relative e isolation:isolate para a camada ficar atrás do conteúdo.
+   Regras movidas de site.module.css (antes .site .fundoFesta, .site .fundoFesta canvas e .site .fundoGradiente). */
+.fundoFesta{position:absolute;inset:0;z-index:-1;pointer-events:none;background:radial-gradient(ellipse at 75% 20%,#29204366,transparent 60%),radial-gradient(ellipse at 90% 80%,#153c3c44,transparent 60%)}
+.fundoFesta canvas{position:absolute;inset:0;width:100%;height:100%;pointer-events:none}
+.fundoGradiente{position:absolute;inset:0;opacity:.9}

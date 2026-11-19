@@ -13,6 +13,7 @@ type Resumo = {
   acoes?: ResumoAcoesPainel;
 };
 type LinkGerado = { papel: Papel; url: string; expiraEm: string };
+type Copia = { alvo: 'link' | 'mensagem'; ok: boolean };
 
 const dia = (iso: string) => new Date(iso).toLocaleDateString('pt-BR', { timeZone: 'America/Sao_Paulo' });
 const momento = (iso: string) => new Date(iso).toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo', dateStyle: 'short', timeStyle: 'short' });
@@ -30,6 +31,7 @@ export default function AreaFamiliaPainel({ festaId, gestao }: { festaId: string
   const [busy, setBusy] = useState(false);
   const [link, setLink] = useState<LinkGerado | null>(null);
   const [novo, setNovo] = useState(false);
+  const [copia, setCopia] = useState<Copia | null>(null);
   const url = `/api/admin/festas/${festaId}/area-familia`;
 
   const carregar = useCallback(async () => {
@@ -66,7 +68,17 @@ export default function AreaFamiliaPainel({ festaId, gestao }: { festaId: string
 
   async function gerar(papel: Papel) {
     const d = await acao({ acao: 'GERAR_LINK', papel });
+    setCopia(null);
     if (d) setLink({ papel, url: `${window.location.origin}${String(d.caminho)}`, expiraEm: String(d.expiraEm) });
+  }
+
+  /** Copia e avisa. Se o navegador recusar (permissão, aba sem foco, navegador embutido), mostra o texto para copiar à mão. */
+  async function copiar(alvo: Copia['alvo'], texto: string) {
+    try {
+      if (!navigator.clipboard) throw new Error('sem área de transferência');
+      await navigator.clipboard.writeText(texto);
+      setCopia({ alvo, ok: true });
+    } catch { setCopia({ alvo, ok: false }); }
   }
 
   async function cadastrar(form: FormData) {
@@ -102,10 +114,16 @@ export default function AreaFamiliaPainel({ festaId, gestao }: { festaId: string
         {link && <div className={styles.row}>
           <p><strong>Link de {rotulo(link.papel).toLowerCase()}</strong> (aparece só agora; vale até {dia(link.expiraEm)}). Gerar outro cancela este.</p>
           <div className={styles.actions}>
-            <button type="button" onClick={() => void navigator.clipboard?.writeText(link.url)}>Copiar link</button>
-            <button type="button" onClick={() => void navigator.clipboard?.writeText(mensagem)}>Copiar mensagem pronta</button>
-            <button type="button" onClick={() => setLink(null)}>Fechar</button>
+            <button type="button" onClick={() => void copiar('link', link.url)}>Copiar link</button>
+            <button type="button" onClick={() => void copiar('mensagem', mensagem)}>Copiar mensagem pronta</button>
+            <button type="button" onClick={() => { setLink(null); setCopia(null); }}>Fechar</button>
           </div>
+          {copia && <p role="status">{copia.ok
+            ? (copia.alvo === 'link' ? 'Link copiado.' : 'Mensagem copiada.')
+            : 'Não foi possível copiar automaticamente. Selecione o texto abaixo e copie.'}</p>}
+          {copia && !copia.ok && (copia.alvo === 'link'
+            ? <label>Link da área<input readOnly value={link.url} onFocus={(e) => e.currentTarget.select()} /></label>
+            : <label>Mensagem pronta<textarea readOnly value={mensagem} onFocus={(e) => e.currentTarget.select()} /></label>)}
         </div>}
         {gestao && dados.aberta && !segundo && (novo
           ? <form action={cadastrar} className={styles.row}>

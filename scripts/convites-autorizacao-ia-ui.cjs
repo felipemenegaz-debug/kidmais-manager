@@ -33,6 +33,7 @@ const PNG = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR
       const errors = [], comandos = [];
       await context.route('**/api/**', async route => {
         const r = route.request(), u = new URL(r.url());
+        if (u.pathname === '/api/endereco-atual') return route.fulfill({ json: { modoEfetivo: 'DESLIGADO' } });
         assert.equal(u.pathname, '/api/convites/cliente', 'API inesperada: ' + u.pathname);
         let data = dados;
         if (u.searchParams.get('geracao')) data = { chave: u.searchParams.get('geracao'), estado: 'VERIFICANDO' };
@@ -47,6 +48,9 @@ const PNG = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR
       });
       const page = await context.newPage(); page.on('pageerror', e => errors.push(e.message));
       await page.goto(`${base}/convites/criar#${token}`);
+      await page.getByRole('button', { name: 'Usar imagem minha' }).click();
+      assert.equal(await page.getByRole('button', { name: 'Registrar autorização' }).count(), 0);
+      await page.getByRole('button', { name: 'Criar com IA' }).click();
       await page.getByRole('heading', { name: 'Antes de gerar com IA · OpenAI' }).waitFor();
       assert.ok(await page.getByText('enviaremos à OpenAI os dados selecionados da festa', { exact: false }).isVisible());
       assert.equal(await page.getByRole('link', { name: /Condições no Aviso de privacidade/ }).getAttribute('href'), '/privacidade#inteligencia-artificial');
@@ -65,7 +69,10 @@ const PNG = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR
       await registrar.click();
       await page.getByText('Autorização registrada.', { exact: true }).waitFor();
       assert.deepEqual(comandos.find(c => c.acao === 'autorizar_ia'), { acao: 'autorizar_ia', versao: textos.versao, provedor: 'openai', textoHash: textos.hashes.autorizacao, responsavelNome: 'Responsável Sintético', vinculo: 'MAE', declaracao: true });
-      await page.getByText('A fotografia e as imagens da galeria pedem confirmação própria a cada geração.').waitFor();
+      await page.getByRole('status').filter({ hasText: /^Autorização registrada em/ }).waitFor();
+      assert.equal(await page.getByText(textos.aviso, { exact: false }).isVisible(), false);
+      await page.getByText('Detalhes', { exact: true }).click();
+      await page.getByText(textos.consentimento, { exact: true }).waitFor();
       assert.equal(await gerar.isDisabled(), false, 'com autorização e sem imagens, o botão habilita');
       // Foto escolhida: aparece a confirmação desta geração, desmarcada, e o botão bloqueia até marcar.
       await page.getByText('Foto do aniversariante · opcional').click();
@@ -88,12 +95,15 @@ const PNG = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR
       await page.getByText('Autorização revogada.', { exact: false }).waitFor();
       assert.equal(await gerar.isDisabled(), true, 'revogada: o botão volta a ficar desabilitado');
       await page.getByRole('button', { name: 'Usar arte própria, sem IA' }).click();
-      assert.equal(await page.locator('details').filter({ hasText: 'Imagens anteriores' }).evaluate(d => d.open), true, 'alternativa sem IA abre a arte própria');
+      assert.equal(await page.getByRole('button', { name: 'Usar imagem minha' }).getAttribute('aria-expanded'), 'true');
+      assert.equal(await page.getByRole('button', { name: 'Registrar autorização' }).count(), 0);
       const larguraPagina = await page.evaluate(() => document.documentElement.scrollWidth);
       assert.ok(larguraPagina <= viewport.width + 1, `sem rolagem horizontal (${larguraPagina})`);
       // Banco sem a 088: mensagem única e coerente; nada de "registre a autorização"; botão bloqueado.
       dados.autorizacaoIA = { ...textos, vigente: null, indisponivel: true, mensagemIndisponivel: 'A geração com IA está indisponível até a atualização do banco. Você pode seguir sem IA.' };
-      await page.reload(); await page.getByRole('heading', { name: 'Antes de gerar com IA · OpenAI' }).waitFor();
+      await page.reload();
+      await page.getByRole('button', { name: 'Criar com IA' }).click();
+      await page.getByRole('heading', { name: 'Antes de gerar com IA · OpenAI' }).waitFor();
       await page.getByText('indisponível até a atualização do banco', { exact: false }).first().waitFor();
       assert.equal(await page.getByText('Registre a autorização do responsável legal', { exact: false }).count(), 0, 'sem mensagem contraditória');
       assert.equal(await page.getByRole('button', { name: 'Registrar autorização' }).count(), 0);
