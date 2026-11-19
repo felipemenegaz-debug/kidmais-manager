@@ -50,7 +50,10 @@ export default function EscolhaPacote({ itens, falha, selecionado, onEscolher, o
     : { comportam: itens, naoComportam: [] as Array<PacoteExibido & { motivo: string }> };
   // O pacote já escolhido nunca some da tela, mesmo que deixe de comportar.
   const mostrarDemais = verTodos || naoComportam.some((item) => item.id === selecionado);
-  const cartao = (item: PacoteExibido, motivo?: string) => (
+  const cartao = (item: PacoteExibido, motivo?: string) => {
+    const minimo = veioDaDisponibilidade && !motivo && convidados && item.cobrancaMinima && convidados < item.cobrancaMinima.convidados
+      ? item.cobrancaMinima : null;
+    return (
         <button
           key={item.id}
           type="button"
@@ -65,7 +68,10 @@ export default function EscolhaPacote({ itens, falha, selecionado, onEscolher, o
             {selecionado === item.id ? "✓" : ""}
           </span>
           <strong>{item.nome}</strong>
-          <b>{item.id === "pizza_party_scienza" || motivo === "Sob consulta" || item.preco == null ? "Sob consulta" : `A partir de ${numeroParaMoeda(item.preco)}`}</b>
+          {minimo ? <>
+            <b>{minimo.preco === null ? "Preço indisponível" : numeroParaMoeda(minimo.preco)}</b>
+            <small>Preço de tabela para {minimo.convidados} convidados. Descontos do dia aparecem na próxima etapa.</small>
+          </> : <b>{item.id === "pizza_party_scienza" || motivo === "Sob consulta" || item.preco == null ? "Sob consulta" : `A partir de ${numeroParaMoeda(item.preco)}`}</b>}
           <p>{item.descricao}</p>
           {item.disponibilidade ? <small>{item.disponibilidade}</small> : null}
           {motivo ? <small className={styles.packageMotivo}>{motivo}</small> : null}
@@ -73,7 +79,8 @@ export default function EscolhaPacote({ itens, falha, selecionado, onEscolher, o
             {selecionado === item.id ? "Selecionado" : "Selecionar"}
           </span>
         </button>
-  );
+    );
+  };
   return (
     <>
       {convidados && comportam.length === 0 && naoComportam.length > 0 ? (

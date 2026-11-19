@@ -3,7 +3,8 @@ import { readFileSync } from 'node:fs';
 import test from 'node:test';
 import { createElement, type ComponentType } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
-import { convidadosDaUrl, datasProximas, estadoDoDia, linkContatoBuffet, resumoSemanal, whatsappComMensagem, textoCapacidade } from './convidados-tela.ts';
+import { legendaMinimo, minimoDoDia, convidadosDaUrl, datasProximas, estadoDoDia, linkContatoBuffet, resumoSemanal, whatsappComMensagem, textoCapacidade } from './convidados-tela.ts';
+import { precoDoMinimo } from '../../lib/comercial/oferta-intervalo.ts';
 import { motivoNaoComporta, pacotesExibidos, separarPorConvidados, type FatosPacote } from '../fechamento/pacotes-tela.ts';
 import { PACOTES_FECHAMENTO_V1 } from '../fechamento/data.ts';
 import { convidadosDaConsulta, pacoteComporta } from '../../lib/fechamentos/convidados-consulta.ts';
@@ -181,4 +182,49 @@ test("resumo de dias úteis só aparece quando a oferta se repete no intervalo",
   assert.match(resumoSemanal(dias,30) ?? "",/30 convidados.*segunda a sexta.*Almoço/);
   dias[1].periodos = [];
   assert.equal(resumoSemanal(dias,30),null);
+});
+
+test('D-FP-6: só marca o dia se todos os períodos vendáveis exigirem mínimo', () => {
+    const sabado = dia('2026-11-28', ['DISPONIVEL', 'DISPONIVEL', 'INDISPONIVEL']);
+    sabado.periodos[0].minimoFaturavel = 50;
+    assert.equal(estadoDoDia(sabado), 'PARCIAL');
+    sabado.periodos[1].minimoFaturavel = 70;
+    assert.equal(estadoDoDia(sabado), 'MINIMO');
+    assert.equal(minimoDoDia(sabado), 50);
+    const quinta = dia('2026-11-26', ['DISPONIVEL']);
+    assert.equal(legendaMinimo([quinta], 30), null);
+    assert.equal(legendaMinimo([quinta, sabado], 30), 'Mínimo de 50 convidados');
+    quinta.periodos[0].minimoFaturavel = 40;
+    assert.equal(legendaMinimo([quinta, sabado], 30), 'Cobrança mínima acima de 30 convidados');
+    const mista = dia('2026-12-01', ['DISPONIVEL', 'DISPONIVEL']);
+    mista.periodos[0].minimoFaturavel = 80;
+    assert.equal(estadoDoDia(mista), 'DISPONIVEL');
+    assert.deepEqual(datasProximas({ sabado, quinta, mista }, sabado.data, '2026-11-19', 3, undefined, true), [mista.data]);
+});
+
+test('D-FP-6: preço da cobrança mínima considera categoria, faixa, preço por convidado e pontos', () => {
+    const geral = { exata: false, tipo: 'FIXO', min: 1, max: 100, valor: '1200.00' };
+    const propria = { ...geral, exata: true, tipo: 'POR_CONVIDADO', valor: '40.19' };
+    assert.equal(precoDoMinimo([geral, propria], 50), 2009.5);
+    assert.equal(precoDoMinimo([geral, { ...propria, min: 51 }], 50), 1200);
+    const pontos = [40, 60].map(min => ({ ...propria, tipo: 'PONTO', min, valor: String(min * 30) }));
+    assert.equal(precoDoMinimo([geral, ...pontos], 50), 1500);
+    assert.equal(precoDoMinimo(pontos, 20), null);
+});
+
+test('D-FP-6: cartão público abaixo do mínimo oferece o preço da seleção e continua selecionável', () => {
+    const fatos: FatosPacote = { POCKET: { nome: 'Festa', descricao: null, duracaoMinutos: 240,
+        convidadosMinimos: 50, convidadosMaximos: 150, precoMinimo: '800.00', precoNoMinimo: 2400 } };
+    for (const kidmais of [true, false]) {
+        const itens = pacotesExibidos(kidmais, PACOTES_FECHAMENTO_V1.filter(p => p.id === 'pocket'), fatos);
+        const render = (convidados: number, publico: boolean) => renderToStaticMarkup(createElement(EscolhaPacote, {
+            itens, convidados, veioDaDisponibilidade: publico, selecionado: '', onEscolher: nada, onTentarNovamente: nada,
+        }));
+        const html = render(30, true);
+        assert.match(html, /2\.400,00/);
+        assert.match(html, /Preço de tabela para 50 convidados\. Descontos do dia aparecem na próxima etapa\./);
+        assert.doesNotMatch(html, /disabled|packageFaded|800,00/);
+        assert.doesNotMatch(render(50, true), /Descontos do dia aparecem na próxima etapa/);
+        assert.doesNotMatch(render(30, false), /Descontos do dia aparecem na próxima etapa/);
+    }
 });

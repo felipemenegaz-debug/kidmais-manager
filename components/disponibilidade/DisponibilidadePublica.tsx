@@ -11,7 +11,7 @@ import { fonteTexto, fonteTitulo } from "@/components/site/fonte";
 import { horarioLegadoDoCodigo } from "@/components/fechamento/periodos";
 import { ATALHOS_CONVIDADOS, erroConvidadosEmpresa, erroConvidadosFechamento } from "@/lib/fechamentos/convidados";
 import { CONTATO_KIDMAIS } from "@/components/fechamento/data";
-import { convidadosDaUrl, datasProximas, doMes, estadoDoDia, exemploDeAtendimento, resumoSemanal, fimDoMesSeguinte, linkContatoBuffet, textoCapacidade, whatsappComMensagem, type EstadoDia } from "./convidados-tela";
+import { legendaMinimo, minimoDoDia, convidadosDaUrl, datasProximas, doMes, estadoDoDia, exemploDeAtendimento, resumoSemanal, fimDoMesSeguinte, linkContatoBuffet, textoCapacidade, whatsappComMensagem, type EstadoDia } from "./convidados-tela";
 import type {
   DisponibilidadeDataPublica,
   HorarioCandidatoPublico,
@@ -191,8 +191,12 @@ export default function DisponibilidadePublica({ empresa = null }: { empresa?: s
   const proximas = dataSelecionada ? datasProximas(porData, dataSelecionada, bloqueados.length ? dataSelecionada : hojeIso(), 3, parcial ? bloqueados.map(p => p.codigo) : undefined) : [];
   const exemplo = (!parcial && resumoSemanal(Object.values(porData).filter(d => d.data >= hojeIso()), convidados)) || exemploDeAtendimento(porData[proximas[0]], convidados, parcial ? bloqueados.map(p => p.codigo) : undefined);
   const minimoPublicado = Math.min(...Object.values(porData).map(d => d.minimoFaturavel ?? Infinity));
+  const minimoSelecionado = minimoDoDia(dataInfo);
+  const legendaCobranca = legendaMinimo(doMes(porData, ano, mes).filter(d => d.data >= hojeIso()), convidados);
+  const alternativasSemMinimo = minimoSelecionado ? datasProximas(porData, dataSelecionada, hojeIso(), 3, undefined, true) : [];
   const algumSemSalao = doMes(porData, ano, mes).some((d) => estadoDoDia(d) === "SEM_SALAO");
   const classeDoDia: Record<EstadoDia, string> = {
+    MINIMO: styles.dayMinimum,
     NEUTRO: styles.dayNeutral,
     DISPONIVEL: styles.dayAvailable,
     PARCIAL: styles.dayPartial,
@@ -333,6 +337,7 @@ export default function DisponibilidadePublica({ empresa = null }: { empresa?: s
             {Number.isFinite(minimoPublicado) && convidados < minimoPublicado && <p role="status">Nossos pacotes começam em {minimoPublicado} convidados. Com {convidados} presentes, vale o mínimo faturado do pacote escolhido.</p>}
             <div className={styles.legend}>
               <span><i className={styles.legendAvailable} /> Disponível</span>
+              {legendaCobranca && <span><b aria-hidden="true" className={styles.minimumSymbol}>≥</b> {legendaCobranca}</span>}
               <span><i className={styles.legendPartial} /> Parcial</span>
               <span><i className={styles.legendUnavailable} /> Sem horários</span>
               {doMes(porData, ano, mes).some(d => estadoDoDia(d) === "SEM_PACOTE") && <span>◇ Sem pacote para {convidados} convidados</span>}
@@ -361,6 +366,7 @@ export default function DisponibilidadePublica({ empresa = null }: { empresa?: s
                   <button
                     key={data}
                     type="button"
+                    aria-label={!passado && estado === "MINIMO" ? `${formatarData(data)}, mínimo de ${minimoDoDia(info)} convidados` : undefined}
                     disabled={passado || carregando || !info}
                     onClick={() => selecionarData(data)}
                     className={`${styles.day} ${classeStatus} ${passado ? styles.dayPast : ""} ${dataSelecionada === data ? styles.daySelected : ""}`}
@@ -368,7 +374,7 @@ export default function DisponibilidadePublica({ empresa = null }: { empresa?: s
                     <strong>{dia}</strong>
                     {!passado && info ? (
                       <small aria-label={estado === "PARCIAL" ? "Disponibilidade parcial" : estado === "SEM_PACOTE" ? `Sem pacote para ${convidados} convidados` : estado === "SEM_SALAO" ? `Sem salão para ${convidados}` : undefined}>
-                        {estado === "SEM_PACOTE" ? "◇" : estado === "SEM_SALAO" ? "↔" : estado === "INDISPONIVEL" ? "×" : estado === "PARCIAL" ? "◐" : "✓"}
+                        {estado === "MINIMO" ? "≥" : estado === "SEM_PACOTE" ? "◇" : estado === "SEM_SALAO" ? "↔" : estado === "INDISPONIVEL" ? "×" : estado === "PARCIAL" ? "◐" : "✓"}
                       </small>
                     ) : null}
                   </button>
@@ -401,6 +407,15 @@ export default function DisponibilidadePublica({ empresa = null }: { empresa?: s
                     </div>
                   </div>
 
+                  {minimoSelecionado !== null && <div className={styles.noFit} role="status">
+                    <strong>Nesta data, a cobrança começa em {minimoSelecionado} convidados.</strong>
+                    {alternativasSemMinimo.length ? <>
+                      <span>Datas próximas com período sem cobrança mínima para {convidados} convidados</span>
+                      <div className={styles.noFitDates}>{alternativasSemMinimo.map(data =>
+                        <button type="button" key={data} onClick={() => { const [a, m] = data.split("-").map(Number); setAno(a); setMes(m - 1); selecionarData(data); }}>{formatarData(data)}</button>
+                      )}</div>
+                    </> : <span>Nenhuma data próxima no intervalo consultado permite pagar apenas pelos {convidados} convidados.</span>}
+                  </div>}
                   <div className={styles.periodGrid}>
                     {(dataInfo?.periodos ?? []).map((periodo) => (
                       <button

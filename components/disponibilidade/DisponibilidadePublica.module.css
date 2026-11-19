@@ -192,6 +192,8 @@
 .day:not(:disabled):hover { transform: translateY(-2px); box-shadow: 0 8px 18px rgba(33, 54, 99, .08); }
 .day strong { font-size: 14px; }
 .day small { align-self: flex-end; font-size: 16px; font-weight: 900; }
+.minimumSymbol { color: #ffda91; }
+.dayMinimum { background: #413222; color: #ffda91; }
 .dayAvailable { background: #173934; }
 .dayPartial { background: #45331e; color: var(--amber); }
 .dayUnavailable { background: #3f2334; color: var(--rose); }
