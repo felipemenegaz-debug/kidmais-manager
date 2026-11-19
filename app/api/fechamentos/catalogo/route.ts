@@ -24,20 +24,21 @@ export async function GET(request: NextRequest) {
     if (!pacote) throw new PacoteAdminError("NAO_ENCONTRADO", "Pacote indisponível.", 404);
     // Escopo pelo pacote da empresa do endereço; com a 078, também pelo catálogo dela (segunda barreira, além do gatilho).
     const porEmpresa = await catalogoBuffetPorEmpresa(db());
-    const resultado = await db().query<{ categoria_id: string; codigo: string; nome: string; escolhas_max: number; item_id: string; item_nome: string }>(`
-      SELECT c.id AS categoria_id, c.codigo, c.nome, r.escolhas_max, i.id AS item_id, i.nome AS item_nome
+    const resultado = await db().query<{ categoria_id: string; codigo: string; nome: string; escolhas_min: number; escolhas_max: number; item_id: string | null; item_nome: string | null }>(`
+      SELECT c.id AS categoria_id, c.codigo, c.nome, r.escolhas_min, r.escolhas_max, i.id AS item_id, i.nome AS item_nome
       FROM pacote_buffet_categorias r
       JOIN buffet_categorias c ON c.id=r.categoria_id AND c.ativo
-      JOIN buffet_itens i ON i.categoria_id=c.id AND i.ativo
-      WHERE r.pacote_id=$1::uuid AND r.ativo AND
-        (r.modo_itens='TODOS_ATIVOS' OR EXISTS
+      LEFT JOIN buffet_itens i ON i.categoria_id=c.id AND i.ativo
+        ${porEmpresa ? "AND i.empresa_id=$2::uuid" : ""}
+        AND (r.modo_itens='TODOS_ATIVOS' OR EXISTS
           (SELECT 1 FROM pacote_buffet_itens x WHERE x.pacote_id=r.pacote_id AND x.categoria_id=c.id AND x.item_id=i.id))
-        ${porEmpresa ? "AND c.empresa_id=$2::uuid AND i.empresa_id=$2::uuid" : ""}
+      WHERE r.pacote_id=$1::uuid AND r.ativo AND (i.id IS NOT NULL OR r.escolhas_min > 0)
+        ${porEmpresa ? "AND c.empresa_id=$2::uuid" : ""}
       ORDER BY c.ordem_exibicao, i.ordem_exibicao, i.nome`, porEmpresa ? [pacote.id, escopo.empresaId] : [pacote.id]);
-    const categorias = new Map<string, { codigo: string; nome: string; max: number; itens: { id: string; nome: string }[] }>();
+    const categorias = new Map<string, { codigo: string; nome: string; min: number; max: number; itens: { id: string; nome: string }[] }>();
     for (const row of resultado.rows) {
-      const categoria = categorias.get(row.categoria_id) ?? { codigo: row.codigo, nome: row.nome, max: row.escolhas_max, itens: [] };
-      categoria.itens.push({ id: row.item_id, nome: row.item_nome });
+      const categoria = categorias.get(row.categoria_id) ?? { codigo: row.codigo, nome: row.nome, min: row.escolhas_min, max: row.escolhas_max, itens: [] };
+      if (row.item_id && row.item_nome) categoria.itens.push({ id: row.item_id, nome: row.item_nome });
       categorias.set(row.categoria_id, categoria);
     }
     return NextResponse.json({ categorias: [...categorias.values()] }, { headers: { "Cache-Control": "no-store" } });

@@ -1,3 +1,4 @@
+import { faltaEscolha } from '../../comercial/limites-escolhas';
 import type { DbExecutor } from '../../db/contracts';
 import { FechamentoServiceError } from './errors';
 import { catalogoBuffetPorEmpresa } from '../../comercial/catalogo-buffet-estrutura';
@@ -7,27 +8,34 @@ type Escolha = { categoria: string; categoriaId: string; categoriaNome: string; 
 /** Resolve uma única vez: texto contratual e trilha de escolhas usam os mesmos nomes do servidor. */
 export async function resolverEscolhasBuffet(tx: DbExecutor, pacoteId: string, escolhas: Record<string, string[]> | undefined, status?: string) {
   const entradas = Object.entries(escolhas ?? {}).flatMap(([categoria, ids]) => ids.map(id => ({ categoria, id })));
-  if (!entradas.length) return null; // Preserva fechamento legado/administrativo com texto livre.
-  if (status !== 'DEFINIDO' || entradas.length > 60 || new Set(entradas.map(e => e.id)).size !== entradas.length)
+  if (status !== 'DEFINIDO' && !entradas.length) return null;
+  const ids = entradas.map(e => e.id);
+  // O editor aceita até 40 categorias, cada uma com até 30 escolhas.
+  if (status !== 'DEFINIDO' || ids.length > 40 * 30 || new Set(ids).size !== ids.length)
     throw new FechamentoServiceError('BUFFET_INVALIDO', 'Escolhas do buffet inválidas.', 400);
-  const aplicadas: Escolha[] = [];
-  // Com a 078, categoria e item precisam ser do catálogo da empresa do pacote (códigos se repetem entre empresas).
   const porEmpresa = await catalogoBuffetPorEmpresa(tx);
-  for (const escolha of entradas) {
-    const item = (await tx.query<{ categoria_id: string; categoria_nome: string; item_nome: string; escolhas_max: number }>(`
-      SELECT c.id categoria_id,c.nome categoria_nome,i.nome item_nome,r.escolhas_max
-      FROM pacote_buffet_categorias r JOIN buffet_categorias c ON c.id=r.categoria_id AND c.ativo
-      JOIN buffet_itens i ON i.categoria_id=c.id AND i.ativo
-      JOIN pacotes p ON p.id=r.pacote_id
-      WHERE r.pacote_id=$1 AND r.ativo AND c.codigo=$2 AND i.id=$3
-        ${porEmpresa ? 'AND c.empresa_id=p.empresa_id AND i.empresa_id=p.empresa_id' : ''}
-        AND (r.modo_itens='TODOS_ATIVOS' OR EXISTS
-          (SELECT 1 FROM pacote_buffet_itens x WHERE x.pacote_id=r.pacote_id AND x.categoria_id=c.id AND x.item_id=i.id))`,
-    [pacoteId, escolha.categoria, escolha.id])).rows[0];
-    if (!item || (escolhas?.[escolha.categoria]?.length ?? 0) > item.escolhas_max)
+  const regras = await tx.query<{ categoria_id: string; codigo: string; nome: string; min: number; max: number; item_id: string | null; item_nome: string | null }>(`
+    SELECT c.id AS categoria_id, c.codigo, c.nome, r.escolhas_min AS min, r.escolhas_max AS max,
+           i.id AS item_id, i.nome AS item_nome
+      FROM pacote_buffet_categorias r
+      JOIN pacotes p ON p.id = r.pacote_id
+      JOIN buffet_categorias c ON c.id = r.categoria_id AND c.ativo
+      LEFT JOIN buffet_itens i ON i.categoria_id = c.id AND i.ativo AND i.id = ANY($2::uuid[])
+        ${porEmpresa ? 'AND i.empresa_id = p.empresa_id' : ''}
+        AND (r.modo_itens = 'TODOS_ATIVOS' OR EXISTS (
+          SELECT 1 FROM pacote_buffet_itens x WHERE x.pacote_id = r.pacote_id AND x.categoria_id = c.id AND x.item_id = i.id))
+     WHERE p.id = $1 AND r.ativo ${porEmpresa ? 'AND c.empresa_id = p.empresa_id' : ''}
+     ORDER BY c.ordem_exibicao, c.nome`, [pacoteId, ids]);
+  const disponiveis = new Map(regras.rows.map(item => [item.item_id, item]));
+  const aplicadas: Escolha[] = entradas.map(escolha => {
+    const item = disponiveis.get(escolha.id);
+    if (!item?.item_nome || item.codigo !== escolha.categoria || (escolhas?.[item.codigo]?.length ?? 0) > item.max)
       throw new FechamentoServiceError('BUFFET_INVALIDO', 'Opção de buffet indisponível para este pacote.', 409);
-    aplicadas.push({ categoria: escolha.categoria, categoriaId: item.categoria_id, categoriaNome: item.categoria_nome, itemId: escolha.id, itemNome: item.item_nome });
-  }
+    return { categoria: item.codigo, categoriaId: item.categoria_id, categoriaNome: item.nome, itemId: escolha.id, itemNome: item.item_nome };
+  });
+  const pendencia = faltaEscolha(regras.rows, escolhas);
+  if (pendencia) throw new FechamentoServiceError('BUFFET_INVALIDO', pendencia, 409);
+  if (!entradas.length) return null;
   const nomes = (codigo: string) => aplicadas.filter(e => e.categoria === codigo).map(e => e.itemNome).join(', ') || null;
   const conhecidos = ['SALGADOS', 'BEBIDAS', 'DOCES', 'MASSA_BOLO', 'RECHEIO_BOLO', 'LEMBRANCINHAS', 'EMPRATADOS', 'BOMBONS'];
   const outros = [...new Set(aplicadas.filter(e => !conhecidos.includes(e.categoria)).map(e => e.categoria))]

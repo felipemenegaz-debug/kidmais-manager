@@ -1,5 +1,6 @@
 "use client";
 
+import { faltaEscolha, fraseEscolhas } from '@/lib/comercial/limites-escolhas';
 import AdicionaisPizzaConsulta from './AdicionaisPizzaConsulta';
 import PacotesPdf from './PacotesPdf';
 import FestaDecoracao from './FestaDecoracao';
@@ -121,7 +122,7 @@ type ClienteContextoValidado = {
   };
 };
 
-type CategoriaBuffet = { codigo:string; nome:string; max:number; itens:{id:string;nome:string}[] };
+type CategoriaBuffet = { codigo:string; nome:string; min:number; max:number; itens:{id:string;nome:string}[] };
 type AdicionalDisponivel = AdicionalDaEtapa;
 type Cotacao = { valorTabela: number; valor: number; desconto: { percentual: number; valor: number; titulo: string | null; origem: OrigemDesconto }; categoria: string; categoriaNome: string; convidadosFaturados: number; minimoFaturavelAplicado: boolean; faixa: { min: number; max: number | null } };
 function mensagemCotacao(codigo: string | undefined, erro?: string, equipe = 'equipe Kidmais') {
@@ -299,7 +300,8 @@ export default function FechamentoWizard({ empresa = null }: { empresa?: string 
   const [errosCampo, setErrosCampo] = useState<ErroCampo[]>([]);
   const [enviando, setEnviando] = useState(false);
   const [concluido, setConcluido] = useState(false);
-  const [categoriasBuffet,setCategoriasBuffet]=useState<CategoriaBuffet[]>([]);
+  const [consultaBuffet, setConsultaBuffet] = useState<{ chave: string; categorias: CategoriaBuffet[] | null } | null>(null);
+  const [tentativaBuffet, setTentativaBuffet] = useState(0);
   const [escolhasBuffet,setEscolhasBuffet]=useState<Record<string,string[]>>({});
   const [categoriasAbertas,setCategoriasAbertas]=useState<string[]>([]);
   const [adicionaisDisponiveis,setAdicionaisDisponiveis]=useState<AdicionalDisponivel[]|null>(null);
@@ -383,16 +385,22 @@ export default function FechamentoWizard({ empresa = null }: { empresa?: string 
   const codigoPacote = codigoServidorDoPacoteDaMarca(marca.kidmais, form.pacote);
   const fato = codigoPacote ? fatosPacote?.[codigoPacote] : undefined;
   const pacote = pacoteDaTela(marca.kidmais, PACOTES_FECHAMENTO_V1, fatosPacote, form.pacote);
+  const chaveBuffet = JSON.stringify([empresa, codigoPacote, tentativaBuffet]);
+  const resultadoBuffet = consultaBuffet?.chave === chaveBuffet ? consultaBuffet.categorias : undefined;
+  const categoriasBuffet = resultadoBuffet ?? [];
   useEffect(()=>{
-    const codigo=codigoServidorDoPacoteDaMarca(marca.kidmais, form.pacote);
+    const codigo=codigoPacote;
     if(!codigo)return;
     const controller=new AbortController();
     void fetch(apiPublica(`/api/fechamentos/catalogo?pacote=${encodeURIComponent(codigo)}`, empresa),{signal:controller.signal})
-      .then(r=>r.ok?r.json():{categorias:[]})
-      .then(body=>setCategoriasBuffet(body.categorias??[]))
-      .catch(()=>setCategoriasBuffet([]));
+      .then(async r => {
+        if (!r.ok) throw new Error();
+        const body = await r.json();
+        if (!controller.signal.aborted) setConsultaBuffet({ chave: chaveBuffet, categorias: body.categorias });
+      })
+      .catch(() => { if (!controller.signal.aborted) setConsultaBuffet({ chave: chaveBuffet, categorias: null }); });
     return ()=>controller.abort();
-  },[form.pacote, empresa, marca.kidmais]);
+  },[codigoPacote, empresa, chaveBuffet]);
   const chaveAdicionais=form.pacote && form.dataFesta && Number.isInteger(Number(form.convidadosPagantes)) && Number(form.convidadosPagantes)>=1
     ? [form.pacote,form.dataFesta,form.convidadosPagantes,tentativaAdicionais].join('|')
     : null;
@@ -1266,6 +1274,13 @@ export default function FechamentoWizard({ empresa = null }: { empresa?: string 
       if (cotacaoEstado === 'erro') { setErro(cotacaoAtual?.erro ?? mensagemCotacao(undefined, undefined, marca.equipe)); return false; }
     }
 
+    if (etapa === 3 && form.buffetDefinicao === 'agora') {
+      const pendencia = resultadoBuffet === undefined ? 'Aguarde a consulta das opções de buffet.'
+        : resultadoBuffet === null ? 'Não foi possível consultar as opções. Tente novamente ou escolha depois.'
+        : faltaEscolha(resultadoBuffet, escolhasBuffet);
+      if (pendencia) { setErro(pendencia); return false; }
+    }
+
     if (etapa === 4 && adicionaisEstado !== 'ok') {
       setErro(adicionaisEstado === 'carregando' ? 'Aguarde a consulta dos adicionais.' : 'A consulta de adicionais está indisponível. Tente novamente antes de continuar.');
       return false;
@@ -1727,6 +1742,7 @@ export default function FechamentoWizard({ empresa = null }: { empresa?: string 
                 onTentarNovamente={() => { setFalhaPacotes(false); setTentativaPacotes((n) => n + 1); }}
                 onEscolher={(item) => {
                       const novoPacote = item.id as PacoteId;
+                      if (novoPacote !== form.pacote) setEscolhasBuffet({});
                       atualizar("pacote", novoPacote);
 
                       if (
@@ -2146,6 +2162,7 @@ export default function FechamentoWizard({ empresa = null }: { empresa?: string 
                     </p>
                   </div>
 
+                  {resultadoBuffet === null && <button type="button" onClick={() => setTentativaBuffet(v => v + 1)}>Tentar consultar o buffet novamente</button>}
                   {categoriasBuffet.map(categoria=>{
                     const escolhidos=escolhasBuffet[categoria.codigo]??[];
                     const cheio=escolhidos.length>=categoria.max;
@@ -2154,6 +2171,7 @@ export default function FechamentoWizard({ empresa = null }: { empresa?: string 
                     const ocultas=categoria.itens.length-visiveis.length;
                     return <fieldset key={categoria.codigo} className={styles.buffetCategoria}>
                     <legend className={styles.buffetCategoriaTitulo}>{ICONE_CATEGORIA[categoria.codigo]&&<span aria-hidden="true">{ICONE_CATEGORIA[categoria.codigo]}</span>}{categoria.nome}</legend>
+                    <span>{fraseEscolhas(categoria.min, categoria.max)}</span>
                     <span className={`${styles.buffetContador} ${cheio?styles.buffetContadorCheio:''}`} aria-live="polite">{escolhidos.length} de {categoria.max}{cheio?' · limite atingido':' escolhidos'}</span>
                     <div className={styles.buffetOpcoes}>{visiveis.map(item=>{
                       const selecionado=escolhidos.includes(item.id);
