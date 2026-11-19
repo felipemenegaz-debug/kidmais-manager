@@ -31,7 +31,7 @@ async function ate(cond, msg, ms = 8000) { const fim = Date.now() + ms; while (D
   const browser = await chromium.launch({ channel: process.env.PLAYWRIGHT_CHANNEL || 'chrome', headless: true });
   const resumo = [];
 
-  async function abrirEditor({ admin = true, posicoes = {}, mostrar = true, viewport = { width: 1440, height: 1100 }, hasTouch = false, arteAtrasada = false, falharGets = [], esperarEditor = true, segurarGets = false } = {}) {
+  async function abrirEditor({ abrirLogo = true, admin = true, posicoes = {}, mostrar = true, viewport = { width: 1440, height: 1100 }, hasTouch = false, arteAtrasada = false, falharGets = [], esperarEditor = true, segurarGets = false } = {}) {
     const dados = {
       id: id(1), festaId: id(5),
       conteudo: { tema: 'celebrar', nome: 'Lucas', idade: '5 anos', mensagem: 'Venha comemorar comigo!', data: '2027-04-20', horario: '15:00', local: 'Buffet KidMais', endereco: 'Asa Norte · Brasília',
@@ -99,6 +99,12 @@ async function ate(cond, msg, ms = 8000) { const fim = Date.now() + ms; while (D
     const page = await context.newPage(); page.on('pageerror', e => estado.erros.push(e.message));
     await page.goto(admin ? `${base}/admin/festas/${id(5)}/convite` : `${base}/convites/criar#${'a'.repeat(43)}`);
     if (esperarEditor) await page.getByLabel('Nome do aniversariante', { exact: true }).waitFor();
+    // O bloco da logo começa recolhido em qualquer largura; os cenários dos controles o abrem (abrir não grava nada).
+    if (esperarEditor && admin && abrirLogo && dados.logoBuffet) {
+      const resumoLogo = page.locator('[data-logo-buffet] summary');
+      await resumoLogo.waitFor();
+      if (!await page.locator('[data-logo-buffet] details').evaluate(el => el.open)) await resumoLogo.click();
+    }
     return { page, context, estado, dados };
   }
   const ultimaPosicao = estado => [...estado.logo].reverse().find(b => b.acao === 'logo_buffet' && b.posicoes?.length)?.posicoes.at(-1);
@@ -244,7 +250,7 @@ async function ate(cond, msg, ms = 8000) { const fim = Date.now() + ms; while (D
 
     // 11. Celular: abre os controles para ajustar a logo e conserva a escolha ao redimensionar.
     {
-      const { page, context, estado, dados } = await abrirEditor({ viewport: { width: 375, height: 812 }, posicoes: { [ARTE]: { modo: 'sobre', arteId: ARTE, x: 50, y: 50, largura: 18, fundo: true, origem: 'sugerida' } } });
+      const { page, context, estado, dados } = await abrirEditor({ abrirLogo: false, viewport: { width: 375, height: 812 }, posicoes: { [ARTE]: { modo: 'sobre', arteId: ARTE, x: 50, y: 50, largura: 18, fundo: true, origem: 'sugerida' } } });
       const resumoLogo = page.locator('[data-logo-buffet] summary');
       const painel = page.locator('[data-logo-buffet] details');
       const aberto = () => painel.evaluate(el => el.open);
@@ -257,8 +263,8 @@ async function ate(cond, msg, ms = 8000) { const fim = Date.now() + ms; while (D
       await caixa.waitFor();
       assert.equal(await aberto(), true);
       await page.setViewportSize({ width: 601, height: 812 });
-      await resumoLogo.waitFor({ state: 'hidden' });
-      assert.equal(await aberto(), true);
+      await resumoLogo.waitFor();
+      assert.equal(await aberto(), true, 'o resumo segue visível e aberto em telas largas');
       await page.setViewportSize({ width: 600, height: 812 });
       await resumoLogo.waitFor();
       assert.equal(await aberto(), true, 'recolhível ainda aberto ao voltar para 600 px');
@@ -292,7 +298,7 @@ async function ate(cond, msg, ms = 8000) { const fim = Date.now() + ms; while (D
     // 11b. Toque (Astra r1, validação pendente): arrastar com o dedo grava um comando ao soltar; touchcancel
     // (pointercancel no controle) descarta o arraste sem enviar nada e a logo volta para onde estava.
     {
-      const { page, context, estado } = await abrirEditor({ hasTouch: true, viewport: { width: 375, height: 812 }, posicoes: { [ARTE]: { modo: 'sobre', arteId: ARTE, x: 50, y: 50, largura: 18, fundo: true, origem: 'sugerida' } } });
+      const { page, context, estado } = await abrirEditor({ abrirLogo: false, hasTouch: true, viewport: { width: 375, height: 812 }, posicoes: { [ARTE]: { modo: 'sobre', arteId: ARTE, x: 50, y: 50, largura: 18, fundo: true, origem: 'sugerida' } } });
       const controle = page.getByRole('button', { name: 'Logo do buffet sobre a arte' });
       await controle.waitFor(); await controle.scrollIntoViewIfNeeded(); await page.locator('[data-camada-logo="pronta"]').first().waitFor();
       const painel = page.locator('[data-logo-buffet] details');
