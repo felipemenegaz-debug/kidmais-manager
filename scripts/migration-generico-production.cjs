@@ -1,6 +1,6 @@
 /* eslint-disable @typescript-eslint/no-require-imports */
 // Aplicador GENÉRICO de PRODUÇÃO para as migrations da promoção de 12/11/2026 que não têm aplicador próprio: 120, 121, 110,
-// 111, 115, 123, 124 e 125 (nessa ordem, a do inventário; scripts/promocao-production-ordem.cjs). SOMENTE no PostgreSQL do web de produção,
+// 111, 115, 123, 124, 125, 126 e 127 (nessa ordem, a do inventário; scripts/promocao-production-ordem.cjs). SOMENTE no PostgreSQL do web de produção,
 // no Web Shell do srv-dak77m2d0e5s73b8rkkg, DEPOIS do deploy de uma árvore que traga este arquivo e os SQL.
 //   - LISTA FECHADA neste arquivo: para cada id, o sha256 (LF) fixado do precheck, da migration e do postcheck, e as
 //     SENTINELAS do estado — os mesmos objetos que o precheck da própria migration usa para dizer "já presente" (o teste
@@ -129,9 +129,18 @@ const MIGRATIONS = Object.freeze({
     criados: ['mcp_oauth_pedidos_escopos_check', 'mcp_oauth_concessoes_escopos_check', 'mcp_oauth_tokens_escopos_check'].map(escopoComClientes),
     // DROP/ADD CONSTRAINT nas 3 tabelas da 105 exige a posse delas; nada novo no schema.
     privilegios: {criaNoSchema: false, alteradas: ['mcp_oauth_concessoes', 'mcp_oauth_pedidos', 'mcp_oauth_tokens'], funcoes: [], referenciadas: []}}),
+  '127': congelar({escopo: 'guarda dos clientes, fase 1a: marca de saída das campanhas por telefone/e-mail (marketing_saidas_contato), gatilhos e carga inicial (aditiva; exige 086 e 060)',
+    arquivos: [['precheck', 'database/checks/20261119_127_precheck.sql', '98e697308dc222a369763827b845118dc9bce6faf9fe9b196c20899c441402d6'],
+      ['migration', 'database/migrations/20261119_127_marketing_saidas_contato.sql', 'edefb4d1c57e47ca261a41c66d07d5d0e87fc574ea6edd57b794416179a84e12'],
+      ['postcheck', 'database/checks/20261119_127_postcheck.sql', 'fa15543275354145876e952620036ef3eed048d33784f0bccb696b259c83446c']],
+    // Sentinelas = o que o precheck da 127 usa para dizer "já presente": a tabela e a função do e-mail canônico.
+    criados: [tabela('marketing_saidas_contato'), funcao('kidmais127_email(text)')],
+    // Gatilhos novos em clientes, marketing_contato_preferencias e whatsapp_atendimento_conversas exigem a posse delas; todas as funções dos gatilhos são criadas pela 127.
+    privilegios: {criaNoSchema: true, alteradas: ['clientes', 'marketing_contato_preferencias', 'whatsapp_atendimento_conversas'], funcoes: [],
+      referenciadas: ['clientes', 'empresas', 'usuarios_administrativos']}}),
 });
-/** Ordem do inventário (scripts/production/check-migrations.mjs, approvedFiles): 120, 121, 110, 111, 115, 123, 124, 125, 126. */
-const IDS = Object.freeze(['120', '121', '110', '111', '115', '123', '124', '125', '126']);
+/** Ordem do inventário (scripts/production/check-migrations.mjs, approvedFiles): 120, 121, 110, 111, 115, 123, 124, 125, 126, 127. */
+const IDS = Object.freeze(['120', '121', '110', '111', '115', '123', '124', '125', '126', '127']);
 const definicao = id => { assert.ok(typeof id === 'string' && Object.hasOwn(MIGRATIONS, id), 'MIGRATION_FORA_DA_LISTA'); return MIGRATIONS[id]; };
 const marcadorDe = id => `migration-${id}.json`;
 const curta = e => String(e?.message ?? e).replace(/postgres(?:ql)?:\/\/\S+/gi, '<url>').slice(0, 300);
