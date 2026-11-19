@@ -10,7 +10,8 @@ import { conexaoDescartavelDoPool } from "@/lib/db/postgres";
 import { transacaoComPrazo, type AbrirConexao } from "@/lib/db/transacao-com-prazo";
 import { CanalOcupado, Vagas } from "@/lib/integracoes/mcp/admissao";
 import { agendaDoTenant, festasDoTenant } from "@/lib/festas/leitura-tenant";
-import { contarRecebiveis, listarRecebiveis } from "@/lib/financeiro/servico";
+import { contarRecebiveis, listarRecebiveis, listarRecebiveisDoContrato } from "@/lib/financeiro/servico";
+import { festasPorNome, membershipPodeConsultarFestas, resumoOperacionalDaFesta } from "@/lib/festas/resumo-tenant";
 import type { DependenciasFerramentasMcp } from "@/lib/integracoes/mcp/ferramentas";
 import { LimitadorMcp } from "@/lib/integracoes/mcp/limites";
 import { criarTransporteMcp } from "@/lib/integracoes/mcp/servidor";
@@ -166,6 +167,11 @@ function dependenciasFerramentas(repo: RepositorioOAuth): DependenciasFerramenta
       }
     },
     contratosPendentes: (tx, empresaId, limite, hoje) => contratosAguardandoAssinatura(tx, empresaId, limite, { proximasDe: hoje }),
+    // Etapa 0b: leitores com nomes. Empresa e membership SEMPRE as do tenant comprovado (passadas pelo executor).
+    podeConsultarFestas: (tx, empresaId, membershipId) => membershipPodeConsultarFestas(tx, empresaId, membershipId),
+    festasPorNome: (tx, empresaId, nome, data, hoje, limite) => festasPorNome(tx, empresaId, nome, data, hoje, limite),
+    resumoFesta: (tx, empresaId, festaId, hoje) => resumoOperacionalDaFesta(tx, empresaId, festaId, hoje),
+    recebiveisDoContrato: (tx, empresaId, contratoId, hoje) => listarRecebiveisDoContrato(tx, empresaId, contratoId, hoje),
     corpus: () => carregarCorpusAprovado(),
     registrar(evento) {
       repo.auditar({ evento: "FERRAMENTA", ...evento })

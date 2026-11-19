@@ -48,6 +48,9 @@ const PG_HERDADAS_RECUSADAS = prd.PG_HERDADAS_RECUSADAS;
 const tabela = t => [t, `to_regclass('public.${t}') IS NOT NULL`];
 const funcao = f => [f, `to_regprocedure('public.${f}') IS NOT NULL`];
 const restricao = c => [c, `EXISTS (SELECT 1 FROM pg_constraint WHERE conname = '${c}')`];
+/** Sentinela da 126: o par (tabela, restrição) com a definição EXATA da 126, CHECK e validada (não basta conter clientes:read). */
+const DEF_ESCOPOS_126 = "CHECK ((((cardinality(escopos) >= 1) AND (cardinality(escopos) <= 4)) AND (escopos <@ ARRAY[''agenda:read''::text, ''financeiro:read''::text, ''conhecimento:read''::text, ''clientes:read''::text])))";
+const escopoComClientes = c => [c, `EXISTS (SELECT 1 FROM pg_constraint WHERE conrelid = to_regclass('public.${c.replace(/_escopos_check$/, '')}') AND conname = '${c}' AND contype = 'c' AND convalidated AND pg_get_constraintdef(oid) = '${DEF_ESCOPOS_126}')`];
 const coluna = (t, c) => [`${t}.${c}`, `EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'public' AND table_name = '${t}' AND column_name = '${c}')`];
 const congelar = o => Object.freeze({...o, arquivos: Object.freeze(o.arquivos.map(a => Object.freeze(a))), criados: Object.freeze(o.criados), removidos: Object.freeze(o.removidos ?? []),
   privilegios: Object.freeze({criaNoSchema: o.privilegios.criaNoSchema, alteradas: Object.freeze(o.privilegios.alteradas), funcoes: Object.freeze(o.privilegios.funcoes),
@@ -118,9 +121,17 @@ const MIGRATIONS = Object.freeze({
     // Gatilhos de atualizado_em em kidmais_set_atualizado_em() (função que já existe) exigem EXECUTE nela (achado P3 do Astra em c71bae8a).
     privilegios: {criaNoSchema: true, alteradas: ['area_familia_eventos', 'festa_links_area', 'festa_pessoas'], funcoes: [], executadas: ['kidmais_set_atualizado_em()'],
       referenciadas: ['empresas', 'festa_pendencias', 'festa_pessoas', 'pagamento_parcelas', 'usuarios_administrativos']}}),
+  '126': congelar({escopo: 'escopo MCP clientes:read: troca o CHECK de escopos das 3 tabelas OAuth da 105 (1 a 4 escopos; exige 105; não cria objeto)',
+    arquivos: [['precheck', 'database/checks/20261118_126_precheck.sql', '815b2b00ddfc725295729c72e60f1e72e33aec1aa1b5b342062a7884ebc1d1a3'],
+      ['migration', 'database/migrations/20261118_126_mcp_escopo_clientes.sql', '4319b2ca2382bc863b6d143ed851b804d3ff6416dabbca3c6df17f19357e5f30'],
+      ['postcheck', 'database/checks/20261118_126_postcheck.sql', 'f1d2ca3f5dc4b1b936b66739ac66ecfe4fc52017d252caf1a5c44fae135a114f']],
+    // A 126 não cria objeto: as sentinelas são os 3 CHECKs pela DEFINIÇÃO (com clientes:read = presente; o nome existe desde a 105).
+    criados: ['mcp_oauth_pedidos_escopos_check', 'mcp_oauth_concessoes_escopos_check', 'mcp_oauth_tokens_escopos_check'].map(escopoComClientes),
+    // DROP/ADD CONSTRAINT nas 3 tabelas da 105 exige a posse delas; nada novo no schema.
+    privilegios: {criaNoSchema: false, alteradas: ['mcp_oauth_concessoes', 'mcp_oauth_pedidos', 'mcp_oauth_tokens'], funcoes: [], referenciadas: []}}),
 });
-/** Ordem do inventário (scripts/production/check-migrations.mjs, approvedFiles): 120, 121, 110, 111, 115, 123, 124, 125. */
-const IDS = Object.freeze(['120', '121', '110', '111', '115', '123', '124', '125']);
+/** Ordem do inventário (scripts/production/check-migrations.mjs, approvedFiles): 120, 121, 110, 111, 115, 123, 124, 125, 126. */
+const IDS = Object.freeze(['120', '121', '110', '111', '115', '123', '124', '125', '126']);
 const definicao = id => { assert.ok(typeof id === 'string' && Object.hasOwn(MIGRATIONS, id), 'MIGRATION_FORA_DA_LISTA'); return MIGRATIONS[id]; };
 const marcadorDe = id => `migration-${id}.json`;
 const curta = e => String(e?.message ?? e).replace(/postgres(?:ql)?:\/\/\S+/gi, '<url>').slice(0, 300);

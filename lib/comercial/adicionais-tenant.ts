@@ -1,3 +1,4 @@
+import { erroConvidadosPizzaParty } from "./pacotes-v1.ts";
 import type { DbExecutor } from "../db/contracts.ts";
 import { filtrarAdicionaisElegiveis } from "./adicionais-elegiveis.ts";
 import { migration070Aplicada } from "./migration-070.ts";
@@ -31,17 +32,21 @@ function recusar(codigo: string, mensagem: string, status: number): never {
 
 export async function adicionaisDoPacoteNoTenant(
   tx: DbExecutor,
-  entrada: { empresaId: string; pacoteCodigo: string; data: string; convidados: number },
+  entrada: { empresaId: string; pacoteCodigo: string; data: string; convidados: number; consultaPizzaKidmais?: boolean },
 ): Promise<AdicionalOferecido[]> {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(entrada.data) || !Number.isInteger(entrada.convidados) || entrada.convidados < 1 || entrada.convidados > 1000) {
     recusar("DADOS_INVALIDOS", "Informe pacote, data e convidados válidos.", 400);
   }
-  const pacotes = await tx.query<{ id: string }>(
-    `SELECT id::text AS id FROM pacotes
+  const pacotes = await tx.query<{ id: string; minimo: number | null; maximo: number | null }>(
+    `SELECT id::text AS id, convidados_minimos AS minimo, convidados_maximos AS maximo FROM pacotes
       WHERE empresa_id = $1::uuid AND codigo = $2 AND vigente AND ativo AND arquivado_em IS NULL`,
     [entrada.empresaId, entrada.pacoteCodigo],
   );
   if (pacotes.rows.length !== 1) recusar("NAO_ENCONTRADO", "Pacote não encontrado nesta empresa.", 404);
+  if (entrada.consultaPizzaKidmais) {
+    const erro = erroConvidadosPizzaParty(entrada.pacoteCodigo, entrada.convidados, pacotes.rows[0]);
+    if (erro) recusar("DADOS_INVALIDOS", erro, 400);
+  }
   const pacoteId = pacotes.rows[0].id;
   const tabelas = await tx.query<{ id: string }>(
     `SELECT id::text AS id FROM tabelas_preco

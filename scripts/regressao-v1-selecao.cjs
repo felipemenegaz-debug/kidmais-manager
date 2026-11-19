@@ -60,6 +60,7 @@ const ESTADO_POSTGRES = {
   // Catálogo do buffet por empresa (078): leitura, escrita, cotação e preservação entre duas empresas; 063 + 070 + 078.
   "lib/comercial/catalogo-buffet-078.postgres.test.ts": { descartavel: "063" },
   // Disponibilidade do pacote por empresa: tela (cotação pública e administração) = servidor; isolamento; legado Kidmais.
+  "lib/comercial/paridade-oferta-publica.postgres.test.ts": { descartavel: "094" },
   "lib/comercial/disponibilidade-empresa.postgres.test.ts": { descartavel: "063", tambem: ["094", "b14-P10", "b14-P11", "b14-P12", "b14-P12-sem091"] },
   // F-L: script de fixtures da atualização de staging (scripts/fixture-atualizacao-staging.cjs) no schema de staging (até a 078).
   "lib/comercial/fixture-atualizacao-staging.postgres.test.ts": { descartavel: "078" },
@@ -305,6 +306,8 @@ const ESTADO_POSTGRES = {
   // 15/11/2026 (LOCAL): área "Minha festa" F3 (125): ações da família e do painel, travas do banco, down com dados e ciclo.
   "lib/area-familia/acoes.postgres.test.ts": { descartavel: "125", tambem: ["123"] },
   "lib/area-familia/migration-125.postgres.test.ts": { descartavel: "125" },
+  // 18/11/2026 (LOCAL): MCP etapa 0b (126): ciclo da migration do escopo clientes:read e leitores de festa por nome.
+  "lib/integracoes/oauth/migration-126.postgres.test.ts": { descartavel: "126" },
   // 15/11/2026 (LOCAL): assinatura do cliente em papel (124): registro pela Gestão, travas do banco no COMMIT e down.
   "lib/contratos/assinatura-papel-cliente.postgres.test.ts": { descartavel: "124", tambem: ["123"] },
   // 15/11/2026 (LOCAL): ciclo da 124 — precheck/postcheck, up repetido, down com COMMIT, up/down/up com o mesmo catálogo.

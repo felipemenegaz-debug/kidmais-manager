@@ -299,3 +299,28 @@ test('troca de host (F2a): o estado final do endereço vale no lugar do aviso ge
     const c = await carregarPedido({ lerPedido: async () => { throw doEndereco; }, lerSessao: sessaoOk, prazoMs: 1000 });
     assert.deepEqual(c, { ok: false, erro: 'O iA.Fest mudou de endereço. Atualize a página.', recuperavel: false });
 });
+
+// ---------------------------------------------------------------- etapa 0b (18/11/2026): permissão de nomes
+
+test('0b: clientes:read aparece com o que sai, nunca começa marcada; o aviso de nomes muda só quando ela é marcada', () => {
+    const mod = carregarModulo('components/admin/ConsentimentoAssistente.tsx', css, cache) as {
+        avisoDeNomes: (m: readonly string[]) => string; escoposIniciais: (p: readonly string[]) => string[]; DADOS_QUE_SAEM: Record<string, string>;
+    };
+    const pedido: PedidoTela = { clienteNome: 'ChatGPT', clientHost: 'chatgpt.com', redirectHost: 'chatgpt.com', escopos: ['conhecimento:read', 'agenda:read', 'financeiro:read', 'clientes:read'], expiraEm: '2026-10-28T10:00:00Z', empresaNoPiloto: true };
+    const html = renderToStaticMarkup(createElement(FormularioConsentimento, { pedido, empresa: { id: 'e1', nome: 'Buffet Sintético' }, ocupado: false, enviar: semRede }));
+    assert.match(html, /<input type="checkbox" data-escopo="clientes:read"/, 'clientes:read desmarcada');
+    assert.doesNotMatch(html, /checked=""[^>]*data-escopo="clientes:read"/);
+    assert.match(html, /Consultar festas e famílias pelo nome/);
+    assert.match(html, /Sem CPF, telefone, e-mail, endereço nem data de nascimento/);
+    assert.match(html, /data-aviso-nomes[^>]*>Nomes, contatos, documentos e dados de crianças não são enviados/);
+    assert.deepEqual(mod.escoposIniciais(pedido.escopos), ['conhecimento:read']);
+    // r2 (P2 #4): o aviso diz o que a combinação com o financeiro revela (quanto a família deve, atraso, próximo vencimento).
+    const marcado = mod.avisoDeNomes(['clientes:read']);
+    assert.match(marcado, /saem nomes de clientes e de aniversariantes \(crianças\) nas consultas de festa e de famílias/);
+    assert.match(marcado, /quanto uma família específica deve, há quantos dias está em atraso e quando vence a próxima parcela/);
+    assert.doesNotMatch(mod.avisoDeNomes(['agenda:read']), /saem nomes/, 'sem a permissão, o aviso não diz que nomes saem');
+    assert.match(mod.DADOS_QUE_SAEM['clientes:read'], /maior atraso e próximo vencimento/);
+    assert.match(mod.DADOS_QUE_SAEM['clientes:read'], /sai omitido/);
+    assert.match(mod.avisoDeNomes(['clientes:read']), /Contatos, documentos, endereço e data de nascimento não são enviados/);
+    assert.ok(mod.DADOS_QUE_SAEM['clientes:read'].length > 0);
+});

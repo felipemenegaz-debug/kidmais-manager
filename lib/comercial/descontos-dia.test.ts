@@ -326,4 +326,6 @@ test('Astra r1 da Kidmais na tela: linha do tempo, rascunho que não muda preço
   const tela2 = codigo('components/admin/DescontoDiaSemana.tsx');
   assert.match(tela2, /useState<Rascunho>\(\(\) => rascunhoDoEstado\(estado\)\)/);
   assert.match(tela2, /estado\.desligaEm && <li>/);
+  // Salvar igual não grava (mesma versão): a tela não diz "Salvo".
+  assert.match(tela2, /if \(novo\.disponivel && novo\.versao === estado\.versao\) setAviso\(\{ tipo: 'ok', texto: 'Nada mudou: isso já é o que vale\. Nada foi gravado\.' \}\);\s*else setAviso\(\{ tipo: 'ok', texto: pct === 0 \?/);
 });

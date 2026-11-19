@@ -54,6 +54,9 @@ export type LogoNoConvite = {
   sobre: SobreArte | null;
   /** Para o download: logo da faixa (ou da sobreposição) e posição sobre a arte, quando a regra vale. */
   baixar: { logo: string | null; sobre: PosicaoSobre | null };
+  /** Logo no rodapé, logo abaixo da prévia (quando não está sobre a arte). */
+  previa: ReactNode;
+  /** Opção "Mostrar a logo" e ajustes: bloco recolhível, discreto, no fim da coluna da prévia. */
   painel: ReactNode;
 };
 
@@ -65,6 +68,8 @@ export function useLogoNoConvite({ ativo, conviteId, logoDataUrl, publicado, con
   conteudo: { arteId?: string | null; visual?: { modo: 'modelo' | 'completa' } | null } | null; arteUrl?: string;
   busy: boolean; ui: Record<string, string>;
 }): LogoNoConvite {
+  // Começa fechado em qualquer largura; abrir ou fechar não grava nada.
+  const [painelAberto, setPainelAberto] = useState(false);
   // r2 (Astra r1, P1): o endereço da fila nasce do id do convite dentro de filaDaLogo.
   const fila: FilaLogo | null = ativo && conviteId ? filaDaLogo(conviteId) : null;
   const [gravada, setGravada] = useState<Gravada>(SEM_LOGO);
@@ -246,9 +251,9 @@ export function useLogoNoConvite({ ativo, conviteId, logoDataUrl, publicado, con
   }
 
   const situacao = estadoFila && estadoFila.situacao !== 'ocioso' ? estadoFila.situacao : null;
-  const painel = ativo ? <div className={ui.logoBuffet} data-logo-buffet>
-    {efetiva.mostrar && temLogo && !sobreValendo && <div className={ui.logoBuffetPrevia} aria-label="Rodapé da página do convite"><img src={logoDataUrl!} alt="Logo do buffet" /></div>}
-    <label className={ui.check}><input type="checkbox" checked={efetiva.mostrar && temLogo} disabled={bloqueado || !temLogo} aria-describedby="logo-buffet-nota" onChange={e => mudarMostrar(e.target.checked)} />
+  const logoAparecendo = efetiva.mostrar && temLogo;
+  const controles = <>
+    <label className={ui.check}><input type="checkbox" checked={logoAparecendo} disabled={bloqueado || !temLogo} aria-describedby="logo-buffet-nota" onChange={e => mudarMostrar(e.target.checked)} />
       Mostrar a logo do buffet neste convite</label>
     <small id="logo-buffet-nota">{!temLogo
       ? <>Envie uma logo no <Link href="/admin/configuracoes/perfil-empresa">Perfil da empresa</Link> para mostrar neste convite.</>
@@ -284,7 +289,20 @@ export function useLogoNoConvite({ ativo, conviteId, logoDataUrl, publicado, con
       </fieldset>}
       {falhaSugestao && <p role="alert"><small>{falhaSugestao}</small></p>}
     </>}
-    {ativo && !carregada && <p role="status" data-logo-conferindo><small>Conferindo a logo gravada…</small></p>}
+  </>;
+  const previa = ativo && logoAparecendo && !sobreValendo
+    ? <div className={ui.logoBuffetPrevia} aria-label="Rodapé da página do convite" data-logo-previa><img src={logoDataUrl!} alt="Logo do buffet" /></div> : null;
+  const painel = ativo ? <div className={`${ui.logoBuffet} ${ui.logoBuffetOpcoes ?? ''}`} data-logo-buffet>
+    <details open={painelAberto}>
+      <summary className={ui.resumoLogo} onClick={event => {
+        event.preventDefault();
+        setPainelAberto(aberto => !aberto);
+      }}>
+        Logo do buffet no convite <span>· {logoAparecendo ? 'aparecendo' : 'oculta'}</span>
+      </summary>
+      {controles}
+    </details>
+    {!carregada && <p role="status" data-logo-conferindo><small>Conferindo a logo gravada…</small></p>}
     <p className={styles.somenteLeitor} aria-live="polite" data-anuncio-logo>{anuncio}</p>
     <p aria-live="polite" data-situacao-logo={situacao ?? 'ocioso'}>{situacao && <small>
       {TEXTO_SITUACAO_FILA[situacao]}
@@ -294,7 +312,7 @@ export function useLogoNoConvite({ ativo, conviteId, logoDataUrl, publicado, con
   </div> : null;
 
   return {
-    aplicarLeitura, logoLigada, esquecerArte, sobre, painel,
+    aplicarLeitura, logoLigada, esquecerArte, sobre, previa, painel,
     baixar: { logo: ativo && efetiva.mostrar ? logoDataUrl : null, sobre: sobreValendo && entrada ? { x: entrada.x, y: entrada.y, largura: entrada.largura, fundo: entrada.fundo } : null },
   };
 }

@@ -40,10 +40,19 @@ const seletorPorEstilo: Record<string, Exclude<EstiloEditor, 'pedido'>> = {
   'realista': 'realista', 'fotografia': 'realista',
 };
 
+const rotulos: Record<string, string> = { manga: 'mangá', lapis: 'lápis', '2d': '2D', '3d': '3D', 'desenho 2d': 'desenho 2D', 'desenho 3d': 'desenho 3D' };
+function estilosCitados(prompt: string) {
+  return [...normal(prompt).matchAll(/(?<![\p{L}\p{N}])(?:desenho [23]d|aquarela|realista|fotografia|2d|3d|pixel|manga|anime|lapis)(?![\p{L}\p{N}])/gu)].map(([estilo]) => estilo);
+}
+
 export function conflitoDeEstilo(prompt: string, escolhido: EstiloEditor): string | undefined {
   if (escolhido === 'pedido') return;
-  const estilos = normal(prompt).matchAll(/(?<![\p{L}\p{N}])(?:desenho [23]d|aquarela|realista|fotografia|2d|3d|pixel|manga|anime|lapis)(?![\p{L}\p{N}])/gu);
-  const termo = [...estilos].find(([estilo]) => seletorPorEstilo[estilo] !== escolhido)?.[0];
-  const rotulos: Record<string, string> = { manga: 'mangá', lapis: 'lápis', '2d': '2D', '3d': '3D', 'desenho 2d': 'desenho 2D', 'desenho 3d': 'desenho 3D' };
+  const termo = estilosCitados(prompt).find(estilo => seletorPorEstilo[estilo] !== escolhido);
   return termo && (rotulos[termo] ?? termo);
+}
+
+/** Estilo citado no pedido que difere do padrão (cartoon 3D): a opção do seletor que o representa, ou "O que eu escrevi". */
+export function estiloDoPedido(prompt: string): { termo: string; estilo: EstiloEditor } | undefined {
+  const termo = estilosCitados(prompt).find(estilo => seletorPorEstilo[estilo] !== 'cartoon3d');
+  return termo ? { termo: rotulos[termo] ?? termo, estilo: seletorPorEstilo[termo] ?? 'pedido' } : undefined;
 }

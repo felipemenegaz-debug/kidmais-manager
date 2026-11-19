@@ -79,8 +79,8 @@ const conferir = id => ['--conferir', id];
 const aplicar = id => ['--aplicar-autorizado', id, '--backup', BACKUP];
 const marcador = (dir, id) => JSON.parse(fs.readFileSync(path.join(dir, g.marcadorDe(id)), 'utf8'));
 
-test('lista fechada: só 120, 121, 110, 111, 115, 123, 124 e 125, na ordem do inventário; hash LF fixado dos 3 SQL de cada uma; nenhum down', async () => {
-  assert.deepEqual([...g.IDS], ['120', '121', '110', '111', '115', '123', '124', '125']);
+test('lista fechada: só 120, 121, 110, 111, 115, 123, 124, 125 e 126, na ordem do inventário; hash LF fixado dos 3 SQL de cada uma; nenhum down', async () => {
+  assert.deepEqual([...g.IDS], ['120', '121', '110', '111', '115', '123', '124', '125', '126']);
   assert.deepEqual(Object.keys(g.MIGRATIONS).sort(), [...g.IDS].sort());
   for (const id of g.IDS) {
     const d = g.MIGRATIONS[id];
@@ -97,12 +97,13 @@ test('lista fechada: só 120, 121, 110, 111, 115, 123, 124 e 125, na ordem do in
   const doInventario = approvedFiles.map(f => f.split('_')[1]).filter(id => g.IDS.includes(id));
   assert.deepEqual(doInventario, [...g.IDS]);
   for (const id of g.IDS) assert.ok(approvedFiles.includes(path.basename(arquivo(id, 'migration'))), id);
-  // Nenhuma delas tem aplicador próprio de production (se ganhar um, sai do genérico). A 123, a 124 e a 125 têm só o adaptador
+  // Nenhuma delas tem aplicador próprio de production (se ganhar um, sai do genérico). A 123, a 124, a 125 e a 126 têm só o adaptador
   // de STAGING, que reaproveita este núcleo (scripts/migration-12x-staging.cjs); qualquer outro arquivo migration-<id>* continua
-  // recusado. (lib/area-familia/migration-125.postgres.test.ts fica fora de scripts/.)
+  // recusado. (lib/area-familia/migration-125.postgres.test.ts e lib/integracoes/oauth/migration-126.postgres.test.ts ficam fora de scripts/.)
   const permitidos = {'123': ['migration-123-staging.cjs', 'migration-123-staging.test.cjs'],
     '124': ['migration-124-staging.cjs', 'migration-124-staging.test.cjs'],
-    '125': ['migration-125-staging.cjs', 'migration-125-staging.test.cjs']};
+    '125': ['migration-125-staging.cjs', 'migration-125-staging.test.cjs'],
+    '126': ['migration-126-staging.cjs', 'migration-126-staging.test.cjs']};
   for (const id of g.IDS) assert.deepEqual(fs.readdirSync(__dirname).filter(n => n.startsWith(`migration-${id}`) && !(permitidos[id] ?? []).includes(n)), [], id);
   for (const fora of ['118', '112', '098', '099', '105', '116', '0', '', 'constructor', '__proto__', '120 ', undefined, 120])
     assert.throws(() => g.planoEtapas(fora, {situacao: 'ausente'}), /MIGRATION_FORA_DA_LISTA/, String(fora));
@@ -121,7 +122,7 @@ test('sentinelas do estado: cada nome vem do precheck da própria migration; est
     assert.deepEqual(g.planoEtapas(id, g.lerEstado(id, linhaEstado(id, false))), ['precheck', 'migration', 'postcheck']);
     assert.deepEqual(g.planoEtapas(id, g.lerEstado(id, linhaEstado(id, true))), ['postcheck']);
   }
-  for (const id of ['120', '121', '110', '111', '123', '124', '125']) {
+  for (const id of ['120', '121', '110', '111', '123', '124', '125', '126']) {
     const s = g.lerEstado(id, linhaEstado(id, i => i === 0));
     assert.equal(s.situacao, 'parcial'); assert.equal(s.divergencias.length, g.MIGRATIONS[id].criados.length - 1);
     assert.throws(() => g.planoEtapas(id, s), new RegExp(`APLICACAO_PARCIAL_${id} falta `));
@@ -129,7 +130,7 @@ test('sentinelas do estado: cada nome vem do precheck da própria migration; est
   // 115: índice novo ausente = ausente (com ou sem o da 054); novo presente e o da 054 ainda presente = intermediário
   // aplicável (a subida é idempotente e o precheck decide); novo presente sem o da 054 = presente.
   assert.equal(g.MIGRATIONS['115'].idempotente, true);
-  for (const id of ['120', '121', '110', '111', '123', '124', '125']) assert.notEqual(g.MIGRATIONS[id].idempotente, true);
+  for (const id of ['120', '121', '110', '111', '123', '124', '125', '126']) assert.notEqual(g.MIGRATIONS[id].idempotente, true);
   assert.equal(g.lerEstado('115', {c0: false, r0: true}).situacao, 'ausente'); assert.equal(g.lerEstado('115', {c0: false, r0: false}).situacao, 'ausente');
   const meio = g.lerEstado('115', {c0: true, r0: true});
   assert.equal(meio.situacao, 'parcial'); assert.deepEqual(meio.divergencias, ['sobra fechamentos_054_empresa_idx']);
@@ -155,7 +156,7 @@ test('molduras: migration sem o BEGIN e sem o COMMIT do arquivo; checks sem a pr
   }
   // Postchecks sem moldura (110, 111 e 115) vão inteiros; os com moldura (120, 121 e 123) terminam na linha `aprovado`.
   for (const id of ['110', '111', '115']) assert.equal(g.corpoCheck(lf(arquivo(id, 'postcheck')), 'p'), lf(arquivo(id, 'postcheck')));
-  for (const id of ['120', '121', '123', '124', '125']) for (const etapa of ['precheck', 'postcheck']) assert.match(g.corpoCheck(lf(arquivo(id, etapa)), 'p'), /true AS aprovado;\n$/);
+  for (const id of ['120', '121', '123', '124', '125', '126']) for (const etapa of ['precheck', 'postcheck']) assert.match(g.corpoCheck(lf(arquivo(id, etapa)), 'p'), /true AS aprovado;\n$/);
   const m = lf(arquivo('120', 'migration'));
   for (const ruim of [m + 'COMMIT;\n', m.replace('BEGIN;\n', ''), m.replace('BEGIN;\n', 'BEGIN;\nBEGIN;\n'), m + '-- x\n', 'SELECT 1;\n' + m, m.replace('COMMIT;\n', 'ROLLBACK;\nCOMMIT;\n'), m.replace('BEGIN;\n', 'BEGIN;\nSAVEPOINT a;\n')])
     assert.throws(() => g.corpoMigration(ruim, 'x'), /TRANSACAO_INESPERADA/);
@@ -198,7 +199,7 @@ test('alvo e identidade de produção iguais aos do molde, com a rigidez dos ada
 });
 
 for (const id of g.IDS) {
-  const comAprovado = ['120', '121', '123', '124', '125'].includes(id) ? true : undefined;
+  const comAprovado = ['120', '121', '123', '124', '125', '126'].includes(id) ? true : undefined;
 
   test(`${id}: conferência só leitura, nada no disco: ausente = precheck e PRONTA_PARA_APLICAR; presente = postcheck e JA_APLICADA; identidade errada = FALHA`, async () => {
     const gravacoes = [], orig = {w: fs.writeFileSync, m: fs.mkdirSync};

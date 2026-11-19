@@ -9,7 +9,7 @@ export function atalhosConvidados(minimo: number, maximo: number) {
 export function erroConvidadosFechamento(quantidade: number, pacote?: {
     id: string; nome: string; minPagantes: number; maxPagantes: number;
 }) {
-    const erroPizza = erroConvidadosPizzaParty(pacote?.id ?? '', quantidade);
+    const erroPizza = erroConvidadosPizzaParty(pacote?.id ?? '', quantidade, pacote && { minimo: pacote.minPagantes, maximo: pacote.maxPagantes });
     if (erroPizza) return erroPizza;
     if (!Number.isInteger(quantidade) || quantidade <= 0) return 'Informe a quantidade de convidados pagantes.';
     if (quantidade > 150) return 'A Kidmais atende no máximo 150 convidados neste fechamento.';
