@@ -97,12 +97,13 @@ test('lista fechada: só 120, 121, 110, 111, 115, 123, 124, 125 e 126, na ordem 
   const doInventario = approvedFiles.map(f => f.split('_')[1]).filter(id => g.IDS.includes(id));
   assert.deepEqual(doInventario, [...g.IDS]);
   for (const id of g.IDS) assert.ok(approvedFiles.includes(path.basename(arquivo(id, 'migration'))), id);
-  // Nenhuma delas tem aplicador próprio de production (se ganhar um, sai do genérico). A 123, a 124 e a 125 têm só o adaptador
+  // Nenhuma delas tem aplicador próprio de production (se ganhar um, sai do genérico). A 123, a 124, a 125 e a 126 têm só o adaptador
   // de STAGING, que reaproveita este núcleo (scripts/migration-12x-staging.cjs); qualquer outro arquivo migration-<id>* continua
-  // recusado. (lib/area-familia/migration-125.postgres.test.ts fica fora de scripts/.)
+  // recusado. (lib/area-familia/migration-125.postgres.test.ts e lib/integracoes/oauth/migration-126.postgres.test.ts ficam fora de scripts/.)
   const permitidos = {'123': ['migration-123-staging.cjs', 'migration-123-staging.test.cjs'],
     '124': ['migration-124-staging.cjs', 'migration-124-staging.test.cjs'],
-    '125': ['migration-125-staging.cjs', 'migration-125-staging.test.cjs']};
+    '125': ['migration-125-staging.cjs', 'migration-125-staging.test.cjs'],
+    '126': ['migration-126-staging.cjs', 'migration-126-staging.test.cjs']};
   for (const id of g.IDS) assert.deepEqual(fs.readdirSync(__dirname).filter(n => n.startsWith(`migration-${id}`) && !(permitidos[id] ?? []).includes(n)), [], id);
   for (const fora of ['118', '112', '098', '099', '105', '116', '0', '', 'constructor', '__proto__', '120 ', undefined, 120])
     assert.throws(() => g.planoEtapas(fora, {situacao: 'ausente'}), /MIGRATION_FORA_DA_LISTA/, String(fora));

@@ -278,6 +278,8 @@ jobs:
         run: node --test scripts/migration-124-staging.test.cjs
       - name: Aplicador da 125 em staging (adaptador do genérico)
         run: node --test scripts/migration-125-staging.test.cjs
+      - name: Aplicador da 126 em staging (adaptador do genérico)
+        run: node --test scripts/migration-126-staging.test.cjs
       - name: Promoção de production — blocos de Shell da 112 a 118 e do genérico
         run: node --test scripts/bloco-shell-promocao-production.test.cjs scripts/bloco-shell-118-production.test.cjs
       - name: Promoção de production — ordem da cadeia
