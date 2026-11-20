@@ -1,3 +1,4 @@
+import { valorParaGravar } from "./valor-para-gravar";
 import { buscarClientePorId } from "../../clientes/repositories";
 import { calcularResumoComercial } from "../../comercial/services";
 import { observacoesDasEscolhas } from "../../comercial/adicionais-escolhas";
@@ -51,13 +52,6 @@ function validarInput(input: CriarFechamentoComercialInput) {
     );
   }
 
-  if (!Number.isFinite(input.valorProposto) || input.valorProposto <= 0) {
-    throw new FechamentoServiceError(
-      "VALOR_PROPOSTO_INVALIDO",
-      "O valor proposto para o Fechamento é inválido.",
-    );
-  }
-
   if (
     input.idadeAniversarianteEvento !== null &&
     input.idadeAniversarianteEvento !== undefined &&
@@ -102,7 +96,7 @@ async function criarFechamentoComercialNaTransacao(
   }
 
   const valorTabela = arredondarDinheiro(resumoComercial.valorTotalTabela);
-  const valorProposto = centavosComerciais(input.valorProposto) / 100;
+  const valorProposto = valorParaGravar(input.origemFechamento, valorTabela, input.valorProposto, input.totalExibidoCentavos);
   const negociacaoNecessaria = centavosComerciais(valorProposto) !== centavosComerciais(valorTabela);
   const pretendida = validarPretensaoPix(input.condicaoPixPretendida);
   if (pretendida && input.formaPagamentoPretendida !== "PIX_PARCELADO") {

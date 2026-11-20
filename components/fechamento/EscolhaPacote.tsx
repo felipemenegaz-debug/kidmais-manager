@@ -68,7 +68,11 @@ export default function EscolhaPacote({ itens, falha, selecionado, onEscolher, o
             {selecionado === item.id ? "✓" : ""}
           </span>
           <strong>{item.nome}</strong>
-          {minimo ? <>
+          {veioDaDisponibilidade && item.precoData !== undefined && item.id !== "pizza_party_scienza" && !motivo ? <>
+            <b>{item.precoData ? numeroParaMoeda(item.precoData.liquido) : "Preço indisponível"}</b>
+            {item.precoData && <small>{minimo ? "Cobrança mínima" : "Preço"} para {item.precoData.faturados} convidados.
+              {item.precoData.percentual > 0 && ` Tabela ${numeroParaMoeda(item.precoData.base)} · desconto do dia de ${item.precoData.percentual}%.`}</small>}
+          </> : minimo ? <>
             <b>{minimo.preco === null ? "Preço indisponível" : numeroParaMoeda(minimo.preco)}</b>
             <small>Preço de tabela para {minimo.convidados} convidados. Descontos do dia aparecem na próxima etapa.</small>
           </> : <b>{item.id === "pizza_party_scienza" || motivo === "Sob consulta" || item.preco == null ? "Sob consulta" : `A partir de ${numeroParaMoeda(item.preco)}`}</b>}

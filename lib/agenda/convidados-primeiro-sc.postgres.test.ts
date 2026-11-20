@@ -234,7 +234,17 @@ test("S-C (P3-T1): rotas públicas reais — motivo sem ids, 409 SEM_SALAO_PARA_
   assert.equal(positivo.body.ok, true);
   assert.equal((positivo.body.data as { valor: unknown }).valor != null, true, "cotação com preço");
   assert.deepEqual(await fotografia(), antes, "a cotação não grava");
-  const criado = await post(envio, "/api/fechamentos", { ...fechamento, convidadosPagantes: 40 });
+  const totalCentavos = Math.round((positivo.body.data as { total: number }).total * 100);
+  assert.ok(Number.isSafeInteger(totalCentavos) && totalCentavos > 1);
+  const pedidoValido = { ...fechamento, convidadosPagantes: 40 };
+  for (const diferenca of [-1, 1]) {
+    const conflito = await post(envio, "/api/fechamentos", { ...pedidoValido, totalExibidoCentavos: totalCentavos + diferenca });
+    assert.equal(conflito.status, 409);
+    assert.equal(conflito.body.codigo, "PRECO_MUDOU");
+    assert.deepEqual(conflito.body.detalhes, { totalCentavos });
+    assert.deepEqual(await fotografia(), antes, "a transação do preço divergente não deixou gravações");
+  }
+  const criado = await post(envio, "/api/fechamentos", { ...pedidoValido, totalExibidoCentavos: totalCentavos });
   assert.equal(criado.status, 201, JSON.stringify(criado.body));
   const novas = (await a.query<{ convidados: number; data: string }>(
     `SELECT convidados, data_evento::text AS data FROM fechamentos WHERE empresa_id = $1::uuid AND convidados = 40`, [c.empresa])).rows;
