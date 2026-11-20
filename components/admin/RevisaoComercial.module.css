@@ -23,6 +23,10 @@
 .card { border-radius:12px; }
 .page input:not([type=checkbox]),.page textarea { width:100%; background:var(--input-bg); color:var(--main-text); border-color:var(--input-border); }
 .page button { background:var(--emerald-accent); color:var(--main-bg); min-height:44px; }
-.actions button + button { background:var(--input-bg); color:var(--main-text); border:1px solid var(--input-border); }
+.page .secundario, .actions button + button { background:var(--input-bg); color:var(--main-text); border:1px solid var(--input-border); }
 .page small { color:var(--secondary-text); font-size:13px; font-weight:400; }
 @media(max-width:800px) { .page { padding-top:80px; } .page input,.page textarea { font-size:16px; } }
+
+.dialogo { width: min(30rem, calc(100% - 2rem)); max-height: 90dvh; overflow: auto; padding: 24px; color: var(--main-text); background: var(--main-bg); border: 1px solid var(--input-border); border-radius: 12px; }
+.dialogo::backdrop { background: rgb(0 0 0 / 65%); }
+.dialogo select { padding: 10px; font: inherit; color: var(--main-text); background: var(--input-bg); }

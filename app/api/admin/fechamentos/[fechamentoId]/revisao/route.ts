@@ -9,6 +9,10 @@ import { pretensaoPixSchema, valorComercialSchema } from "@/lib/http/condicao-pa
 import { PacoteAdminError } from "@/lib/comercial/pacotes-admin";
 import { withTenantTransaction } from "@/lib/saas/provar-tenant";
 
+import { resumoComercialDaEmpresa } from '@/lib/assinatura/paywall';
+import { situacaoRecusa } from '@/lib/oportunidades/service';
+import { MarketingError } from '@/lib/marketing/erros';
+
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 type Context = { params: Promise<{ fechamentoId: string }> };
@@ -37,7 +41,21 @@ export async function GET(request: NextRequest, context: Context) {
     const id = z.string().uuid().parse((await context.params).fechamentoId);
     // Tenant provado antes de ler; fechamento de outra empresa responde como inexistente.
     const data = await withTenantTransaction(sessao, request.nextUrl.searchParams.get("empresaId"),
-      (tx, tenant) => obterRevisaoComercial(id, tenant.empresaComprovada, tx));
+      async (tx, tenant) => {
+        const dados = await obterRevisaoComercial(id, tenant.empresaComprovada, tx);
+        if (dados.fechamento.status !== 'AGUARDANDO_CONTRATO' || !dados.fechamento.clienteId ||
+            tenant.papelAtual !== 'REPRESENTANTE_AUTORIZADO') return dados;
+        const comercial = await resumoComercialDaEmpresa(tx, tenant.empresaComprovada);
+        if (comercial.nivel !== 'COMPLETO') return dados;
+        try {
+          return { ...dados, recusa: await situacaoRecusa(tx, id, tenant) };
+        } catch (e) {
+          if (!(e instanceof MarketingError)) throw e;
+          if (e.code === 'OPORTUNIDADES_INDISPONIVEIS') return { ...dados, recusa: 'INDISPONIVEL' };
+          if (e.httpStatus === 403 || e.httpStatus === 409) return dados;
+          throw e;
+        }
+      });
     return resposta({ ok: true, data });
   } catch (error) { return erro(error); }
 }

@@ -50,7 +50,7 @@ function caso(options: { status?: string; clienteAssinou?: boolean; temFinanceir
         '../../fechamentos/repositories/revisao.repository': { buscarRevisaoDaVersao: async () => null },
         '../../clientes/repositories': { registrarAuditoria: async (value: unknown) => { auditoria.push(value); }, registrarEventoHistorico: async () => {} },
     });
-    return { operar: () => operar('versao', { acao: 'cancelar_contratacao', motivo: 'Cliente desistiu',perda:{motivo:'Desistiu da festa'} }, 'sessao', { requestId: 'pedido', ip: null, userAgent: null }), escritos, auditoria };
+    return { operar: (perda: {motivo: string; observacao?: string} = {motivo:'Desistiu da festa'}) => operar('versao', { acao: 'cancelar_contratacao', motivo: 'Cliente desistiu',perda }, 'sessao', { requestId: 'pedido', ip: null, userAgent: null }), escritos, auditoria };
 }
 
 test('cancelamento antes da formalização registra motivo e encerra contrato e fechamento', async () => {
@@ -70,4 +70,13 @@ for (const [name, options] of [
     const c = caso(options);
     await assert.rejects(c.operar());
     assert.deepEqual(c.escritos, []);
+});
+
+test('Outro exige explicação antes de cancelar administrativamente', async () => {
+    for (const observacao of [undefined, '', '   ']) {
+        const c = caso();
+        await assert.rejects(c.operar({motivo:'Outro', observacao}));
+        assert.deepEqual(c.escritos, []);
+    }
+    assert.deepEqual(await caso().operar({motivo:'Outro',observacao:'Mudança sintética'}), {cancelada:true});
 });
