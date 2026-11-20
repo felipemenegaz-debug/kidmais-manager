@@ -81,10 +81,10 @@ async function prova(c: Cenario, documento: string) {
 }
 
 type DadosCliente = { nomeCompleto: string; cpf: string; cnpj?: string | null; rg?: string | null; nomeFantasia?: string | null; representanteNome?: string | null; representanteCpf?: string | null };
-function entradaPublica(c: Cenario, turno: string, data: string, cliente: DadosCliente, identidade: object, valorProposto = 100) {
+function entradaPublica(c: Cenario, turno: string, data: string, cliente: DadosCliente, identidade: object, formaPagamentoPretendida = "PIX_AVISTA") {
   return {
     dataEvento: data, horarioInicio: "10:00", horarioFim: "22:00", configuracaoAgendaId: turno, pacoteId: c.pacote,
-    convidados: 30, adicionais: [], valorProposto, formaPagamentoPretendida: "PIX_AVISTA", buffetStatus: "PENDENTE", empresaEsperada: c.empresa,
+    convidados: 30, adicionais: [], formaPagamentoPretendida, buffetStatus: "PENDENTE", empresaEsperada: c.empresa,
     identidade,
     cliente: { ...cliente, telefone: "11999998888", whatsapp: "11999998888", email: `${randomUUID()}@example.invalid`,
       cep: "01001000", logradouro: "Rua Sintética", numero: "1", complemento: null, bairro: "Centro", cidade: "São Paulo", uf: "SP" },
@@ -177,10 +177,10 @@ test("112: modelo que qualifica o contratante como PF recusa o fechamento de PJ 
     const pf = await clientePf(c, cpfValido());
     const anivPf = await aniversariante(pf);
 
-    // Modelo compatível: contexto sem bloqueio; fechamento público PJ com negociação (vai para a revisão comercial).
+    // Modelo compatível: contexto sem bloqueio; fechamento público PJ em Pix parcelado exige revisão da condição.
     assert.deepEqual((await admin.obterContextoFechamentoAdministrativo(pj, contexto(c))).modeloIncompativelPj, []);
     const negociado = await publico.criarFechamentoPublicoComIdentidade(entradaPublica(c, nativo.turno, dia(141),
-      { nomeCompleto: "Escola Um Ltda", cpf: "", cnpj: CNPJ }, { tipo: "CLIENTE_EXISTENTE", provaToken: await prova(c, CNPJ), atualizarCadastro: false }, 90), executor(a));
+      { nomeCompleto: "Escola Um Ltda", cpf: "", cnpj: CNPJ }, { tipo: "CLIENTE_EXISTENTE", provaToken: await prova(c, CNPJ), atualizarCadastro: false }, "PIX_PARCELADO"), executor(a));
     assert.equal(negociado.fechamento.status, "AGUARDANDO_APROVACAO");
     const pendente = (await a.query(`SELECT id::text AS id FROM aprovacoes_negociacao WHERE fechamento_id = $1::uuid AND status = 'PENDENTE'`, [negociado.fechamento.id])).rows[0].id;
 
@@ -193,7 +193,7 @@ test("112: modelo que qualifica o contratante como PF recusa o fechamento de PJ 
     const segundaProva = await prova(c, CNPJ);
     await recusa(() => publico.criarFechamentoPublicoComIdentidade(entradaPublica(c, nativo.turno, dia(143),
       { nomeCompleto: "Escola Um Ltda", cpf: "", cnpj: CNPJ }, { tipo: "CLIENTE_EXISTENTE", provaToken: segundaProva, atualizarCadastro: false }), executor(a)), "MODELO_INCOMPATIVEL_PJ");
-    await recusa(() => revisao.revisarComercial(negociado.fechamento.id, c.empresa, { solicitacaoId: pendente, decisao: "APROVAR", valorBaseAprovado: 90, motivo: "Aprovado" },
+    await recusa(() => revisao.revisarComercial(negociado.fechamento.id, c.empresa, { solicitacaoId: pendente, decisao: "APROVAR", condicaoAprovada: { entrada: 30 }, motivo: "Aprovado" },
       { usuarioId: c.usuario, origem: "FECHAMENTO_ADMIN" }, executor(a)), "MODELO_INCOMPATIVEL_PJ");
     assert.equal(await fechamentosDo(pj), 1, "nenhum fechamento novo da PJ");
     // Recusar continua possível (não leva ao contrato).

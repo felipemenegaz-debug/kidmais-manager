@@ -127,7 +127,7 @@ type ClienteContextoValidado = {
 
 type CategoriaBuffet = { codigo:string; nome:string; min:number; max:number; itens:{id:string;nome:string}[] };
 type AdicionalDisponivel = AdicionalDaEtapa;
-type Cotacao = { valorTabela: number; valor: number; desconto: { percentual: number; valor: number; titulo: string | null; origem: OrigemDesconto }; categoria: string; categoriaNome: string; convidadosFaturados: number; minimoFaturavelAplicado: boolean; faixa: { min: number; max: number | null } };
+type Cotacao = { total: number; adicionais: number; valorTabela: number; valor: number; desconto: { percentual: number; valor: number; titulo: string | null; origem: OrigemDesconto }; categoria: string; categoriaNome: string; convidadosFaturados: number; minimoFaturavelAplicado: boolean; faixa: { min: number; max: number | null } };
 function mensagemCotacao(codigo: string | undefined, erro?: string, equipe = 'equipe Kidmais') {
   if (codigo === 'TABELA_PRECO_NAO_CONFIGURADA' || codigo === 'PRECO_PACOTE_NAO_CONFIGURADO' || codigo === 'PRECO_AMBIGUO') return `Este pacote ainda não tem preço publicado para essa data e horário. Fale com a ${equipe}.`;
   if (codigo === 'PACOTE_INDISPONIVEL' || codigo === 'PACOTE_SOB_CONSULTA') return erro ?? 'Este pacote não está disponível nessa data e horário.';
@@ -301,6 +301,7 @@ export default function FechamentoWizard({ empresa = null, logo = null }: { empr
   const [erro, setErro] = useState("");
   /** N1/N2: pendências da identificação ligadas ao campo exato (borda vermelha, mensagem abaixo, resumo com links). */
   const [errosCampo, setErrosCampo] = useState<ErroCampo[]>([]);
+  const envioEmCurso = useRef(false);
   const [enviando, setEnviando] = useState(false);
   const [concluido, setConcluido] = useState(false);
   const [consultaBuffet, setConsultaBuffet] = useState<{ chave: string; categorias: CategoriaBuffet[] | null } | null>(null);
@@ -361,15 +362,17 @@ export default function FechamentoWizard({ empresa = null, logo = null }: { empr
   const ultimaRecusa = useRef<string | null>(null);
 
   const configuracaoCartao = preselecaoDisponibilidade && !origemInterna ? form.configuracaoId : "";
-  const chaveCatalogo = JSON.stringify([empresa, salaoPreferido?.id, configuracaoCartao, preselecaoDisponibilidade ? form.dataFesta : null]);
+  const chaveCatalogo = JSON.stringify([empresa, form.convidadosPagantes, salaoPreferido?.id, configuracaoCartao, preselecaoDisponibilidade ? form.dataFesta : null]);
   const [catalogoCarregado, setCatalogoCarregado] = useState<{ chave: string; fatos: FatosPacote } | null>(null);
   const fatosPacote = catalogoCarregado?.chave === chaveCatalogo ? catalogoCarregado.fatos : null;
   // Falha da lista de pacotes: no endereço atual o catálogo continua; em outra empresa a etapa mostra o erro.
   const [falhaPacotes, setFalhaPacotes] = useState(false);
   const [tentativaPacotes, setTentativaPacotes] = useState(0);
   useEffect(() => {
+    if (!entradaResolvida || entradaPublicaInvalida) return;
     const controller = new AbortController();
     const parametros = new URLSearchParams();
+    if (Number(form.convidadosPagantes) > 0) parametros.set("convidados", String(form.convidadosPagantes));
     if (configuracaoCartao) parametros.set("configuracaoId", configuracaoCartao);
     if (salaoPreferido) parametros.set("salao", salaoPreferido.id);
     if (preselecaoDisponibilidade && form.dataFesta) parametros.set("data", form.dataFesta);
@@ -385,7 +388,7 @@ export default function FechamentoWizard({ empresa = null, logo = null }: { empr
       })
       .catch(() => { if (!controller.signal.aborted) setFalhaPacotes(true); });
     return () => controller.abort();
-  }, [empresa, tentativaPacotes, salaoPreferido, form.dataFesta, preselecaoDisponibilidade, chaveCatalogo, configuracaoCartao]);
+  }, [entradaResolvida, entradaPublicaInvalida, empresa, tentativaPacotes, salaoPreferido, form.dataFesta, preselecaoDisponibilidade, chaveCatalogo, configuracaoCartao, form.convidadosPagantes]);
   const pacotesDaEtapa = pacotesExibidos(marca.kidmais, PACOTES_FECHAMENTO_V1, fatosPacote);
   const codigoPacote = codigoServidorDoPacoteDaMarca(marca.kidmais, form.pacote);
   const fato = codigoPacote ? fatosPacote?.[codigoPacote] : undefined;
@@ -395,7 +398,7 @@ export default function FechamentoWizard({ empresa = null, logo = null }: { empr
   const categoriasBuffet = resultadoBuffet ?? [];
   useEffect(()=>{
     const codigo=codigoPacote;
-    if(!codigo)return;
+    if(!origemInterna || !codigo)return;
     const controller=new AbortController();
     void fetch(apiPublica(`/api/fechamentos/catalogo?pacote=${encodeURIComponent(codigo)}`, empresa),{signal:controller.signal})
       .then(async r => {
@@ -405,7 +408,7 @@ export default function FechamentoWizard({ empresa = null, logo = null }: { empr
       })
       .catch(() => { if (!controller.signal.aborted) setConsultaBuffet({ chave: chaveBuffet, categorias: null }); });
     return ()=>controller.abort();
-  },[codigoPacote, empresa, chaveBuffet]);
+  },[origemInterna, codigoPacote, empresa, chaveBuffet]);
   const chaveAdicionais=form.pacote && form.dataFesta && Number.isInteger(Number(form.convidadosPagantes)) && Number(form.convidadosPagantes)>=1
     ? [form.pacote,form.dataFesta,form.convidadosPagantes,tentativaAdicionais].join('|')
     : null;
@@ -502,7 +505,7 @@ export default function FechamentoWizard({ empresa = null, logo = null }: { empr
         /^([01]\d|2[0-3]):[0-5]\d$/.test(fimParam ?? "");
 
       // O fluxo público oficial sempre começa em Disponibilidade.
-      if (!interna && !origemDisponibilidade) {
+      if (!interna && (!origemDisponibilidade || !convidadosParam)) {
         router.replace(paginaPublica("/disponibilidade", empresa) + (convidadosParam ? `?convidados=${convidadosParam}` : ""));
         return;
       }
@@ -618,13 +621,15 @@ export default function FechamentoWizard({ empresa = null, logo = null }: { empr
   );
   const horario = intervaloSelecionado ? `${intervaloSelecionado.inicio} às ${intervaloSelecionado.fim}` : "";
 
-  const indicesEtapasVisiveis = preselecaoDisponibilidade
+  const [editandoRevisao, setEditandoRevisao] = useState(false);
+  const [resumoAberto, setResumoAberto] = useState(false);
+  const indicesEtapasVisiveis = !origemInterna ? [0, 4, 6, 8] : preselecaoDisponibilidade
     ? convidadosDaEntrada ? [0, 3, 4, 5, 6, 7, 8] : [0, 2, 3, 4, 5, 6, 7, 8]
     : [0, 1, 2, 3, 4, 5, 6, 7, 8];
   // Etapa que confere convidados e espera a cotação: a própria Convidados, ou o Pacote quando ela não aparece (S-C).
   const etapaDosConvidados = preselecaoDisponibilidade && convidadosDaEntrada ? 0 : 2;
   const etapaAposPacote = preselecaoDisponibilidade && convidadosDaEntrada ? 3 : 2;
-  const etapasVisiveis = indicesEtapasVisiveis.map((indice) => ETAPAS[indice]);
+  const etapasVisiveis = origemInterna ? indicesEtapasVisiveis.map((indice) => ETAPAS[indice]) : ["Pacote", "Extras", "Seus dados", "Revisar e enviar"];
   const etapaVisualAtual = Math.max(0, indicesEtapasVisiveis.indexOf(etapa));
   const numeroEtapaVisivel = (indiceReal: number) =>
     String(Math.max(0, indicesEtapasVisiveis.indexOf(indiceReal)) + 1);
@@ -632,8 +637,10 @@ export default function FechamentoWizard({ empresa = null, logo = null }: { empr
   // Preço do pacote: cotação do servidor, o mesmo cálculo do envio (tabela publicada, horário, faixa e desconto).
   const inicioCotacao = intervaloSelecionado?.inicio ?? '';
   const fimCotacao = intervaloSelecionado?.fim ?? '';
+  const [versaoCotacao, setVersaoCotacao] = useState(0);
+  const extrasCotacao = JSON.stringify({ adicionaisSelecionados: form.adicionaisSelecionados, adicionaisQuantidades: form.adicionaisQuantidades, adicionaisEscolhas: form.adicionaisEscolhas });
   const chaveCotacao = form.pacote && form.dataFesta && form.configuracaoId && inicioCotacao && convidados >= 1
-    ? [form.pacote, form.dataFesta, form.configuracaoId, form.ajusteHorario, inicioCotacao, fimCotacao, convidados].join('|')
+    ? [form.pacote, form.dataFesta, form.configuracaoId, form.ajusteHorario, inicioCotacao, fimCotacao, convidados, extrasCotacao, versaoCotacao].join('|')
     : null;
   const [cotacao, setCotacao] = useState<{ chave: string; estado: 'ok' | 'erro'; dados?: Cotacao; erro?: string } | null>(null);
   useEffect(() => {
@@ -643,7 +650,7 @@ export default function FechamentoWizard({ empresa = null, logo = null }: { empr
       void fetch(apiPublica('/api/fechamentos/cotacao', empresa), {
         method: 'POST', headers: { 'Content-Type': 'application/json' }, cache: 'no-store', signal: controller.signal,
         // horarioBase (legado) só vai para TURNO_1/TURNO_2; o servidor revalida pelo configuracaoId.
-        body: JSON.stringify({ pacote: form.pacote, dataFesta: form.dataFesta, configuracaoId: form.configuracaoId, horarioBase: form.horarioBase || undefined, ajusteHorario: form.ajusteHorario, horarioInicio: inicioCotacao, horarioFim: fimCotacao, convidados }),
+        body: JSON.stringify({ pacote: form.pacote, dataFesta: form.dataFesta, configuracaoId: form.configuracaoId, horarioBase: form.horarioBase || undefined, ajusteHorario: form.ajusteHorario, horarioInicio: inicioCotacao, horarioFim: fimCotacao, convidados, ...JSON.parse(extrasCotacao) }),
       }).then(async (r) => {
         const corpo = await r.json().catch(() => null) as { ok?: boolean; data?: Cotacao; erro?: string; codigo?: string } | null;
         if (controller.signal.aborted) return;
@@ -652,7 +659,7 @@ export default function FechamentoWizard({ empresa = null, logo = null }: { empr
       }).catch(() => { if (!controller.signal.aborted) setCotacao({ chave: chaveCotacao, estado: 'erro', erro: mensagemCotacao(undefined, undefined, marca.equipe) }); });
     }, 250);
     return () => { clearTimeout(temporizador); controller.abort(); };
-  }, [chaveCotacao, form.pacote, form.dataFesta, form.configuracaoId, form.horarioBase, form.ajusteHorario, inicioCotacao, fimCotacao, convidados, empresa, marca.equipe]);
+  }, [extrasCotacao, chaveCotacao, form.pacote, form.dataFesta, form.configuracaoId, form.horarioBase, form.ajusteHorario, inicioCotacao, fimCotacao, convidados, empresa, marca.equipe]);
   const cotacaoAtual = cotacao && cotacao.chave === chaveCotacao ? cotacao : null;
   const cotacaoEstado: 'sem' | 'carregando' | 'ok' | 'erro' = !chaveCotacao ? 'sem' : !cotacaoAtual ? 'carregando' : cotacaoAtual.estado;
   // "Continuar" clicado enquanto o preço é calculado: avança sozinho quando a cotação chega (ou mostra o erro dela).
@@ -660,12 +667,12 @@ export default function FechamentoWizard({ empresa = null, logo = null }: { empr
   const referenciaTabela = cotacaoAtual?.estado === 'ok' && cotacaoAtual.dados ? cotacaoAtual.dados.valorTabela : null;
 
   const adicionaisValor = useMemo(
-    () =>
+    () => !origemInterna ? cotacaoAtual?.dados?.adicionais ?? 0 :
       form.adicionaisSelecionados.reduce((total, id) => {
         const adicional = adicionaisDisponiveis?.find((item) => item.id === id);
         return total + (adicional ? totalDoAdicional(adicional, form.adicionaisQuantidades[id] ?? 1, convidados) : 0);
       }, 0),
-    [form.adicionaisSelecionados, form.adicionaisQuantidades, adicionaisDisponiveis, convidados]
+    [origemInterna, cotacaoAtual, form.adicionaisSelecionados, form.adicionaisQuantidades, adicionaisDisponiveis, convidados]
   );
 
   // D4: aviso "Economize" pelas regras da empresa (/b/<código>); sem elas, o de sempre (15% de segunda a quinta).
@@ -709,7 +716,7 @@ export default function FechamentoWizard({ empresa = null, logo = null }: { empr
       ? calculoDesconto.valorPacoteComDesconto
       : null;
 
-  const totalCalculado =
+  const totalCalculado = !origemInterna ? cotacaoAtual?.dados?.total ?? null :
     valorPacoteConsiderado != null
       ? valorPacoteConsiderado + adicionaisValor
       : null;
@@ -720,7 +727,7 @@ export default function FechamentoWizard({ empresa = null, logo = null }: { empr
       ? descontoSobreBase(pacote.precoInicial, descontoTela.percentual * 100).aplicado
       : null;
 
-  const valorInformado = moedaParaNumero(form.valorCombinado);
+  const valorInformado = origemInterna ? moedaParaNumero(form.valorCombinado) : totalCalculado ?? 0;
   const errosPorCampo = mapaErros(errosCampo);
   const marcar = (nome: string) => propsCampo(idPublico(nome), errosPorCampo[idPublico(nome)]);
   const mensagemDe = (nome: string) => <MensagemCampo id={idPublico(nome)} mensagem={errosPorCampo[idPublico(nome)]} />;
@@ -1286,7 +1293,7 @@ export default function FechamentoWizard({ empresa = null, logo = null }: { empr
       if (pendencia) { setErro(pendencia); return false; }
     }
 
-    if (etapa === 4 && adicionaisEstado !== 'ok') {
+    if ((etapa === 4 || (!origemInterna && etapa === 8)) && adicionaisEstado !== 'ok') {
       setErro(adicionaisEstado === 'carregando' ? 'Aguarde a consulta dos adicionais.' : 'A consulta de adicionais está indisponível. Tente novamente antes de continuar.');
       return false;
     }
@@ -1296,11 +1303,18 @@ export default function FechamentoWizard({ empresa = null, logo = null }: { empr
       return false;
     }
 
-    if (etapa === 4) {
+    if (etapa === 4 || (!origemInterna && etapa === 8)) {
       const pendencia = form.adicionaisSelecionados
         .map((id) => { const item = adicionaisDisponiveis?.find((a) => a.id === id); return item ? pendenciaEscolhas(item, form.adicionaisEscolhas?.[id] ?? []) : null; })
         .find(Boolean);
-      if (pendencia) { setErro(pendencia); return false; }
+      if (pendencia) {
+        if (etapa === 8) {
+          setEditandoRevisao(true);
+          setEtapa(4);
+        }
+        setErro(pendencia);
+        return false;
+      }
     }
 
     if (etapa === 5) {
@@ -1395,11 +1409,13 @@ export default function FechamentoWizard({ empresa = null, logo = null }: { empr
     if (etapa === 0 && preselecaoDisponibilidade) {
       const aindaDisponivel = await revalidarHorarioAtual();
       if (!aindaDisponivel) return;
-      setEtapa(etapaAposPacote);
+      const proxima = origemInterna ? etapaAposPacote : 4;
+      setEtapa(editandoRevisao ? 8 : proxima);
     } else {
-      setEtapa((atual) => Math.min(atual + 1, ETAPAS.length - 1));
+      setEtapa(origemInterna ? Math.min(etapa + 1, ETAPAS.length - 1) : editandoRevisao ? 8 : indicesEtapasVisiveis[etapaVisualAtual + 1]);
     }
 
+    setEditandoRevisao(false);
     window.scrollTo({ top: 0, behavior: "smooth" });
   }
 
@@ -1449,18 +1465,25 @@ export default function FechamentoWizard({ empresa = null, logo = null }: { empr
   function voltar() {
     setAvancarAposCotacao(false);
     setErro("");
+    setEditandoRevisao(false);
     setEtapa((atual) =>
-      preselecaoDisponibilidade && atual === etapaAposPacote ? 0 : Math.max(atual - 1, 0),
+      !origemInterna ? indicesEtapasVisiveis[Math.max(0, etapaVisualAtual - 1)] : preselecaoDisponibilidade && atual === etapaAposPacote ? 0 : Math.max(atual - 1, 0),
     );
     window.scrollTo({ top: 0, behavior: "smooth" });
   }
 
   async function finalizar(event: FormEvent) {
     event.preventDefault();
+    if (etapa !== 8 || envioEmCurso.current) return;
+    if (!origemInterna && totalCalculado === null) { setErro("Aguarde a cotação atualizada."); return; }
     if (!validarEtapaAtual()) return;
 
+    envioEmCurso.current = true;
     const aindaDisponivel = await revalidarHorarioAtual();
-    if (!aindaDisponivel || !intervaloSelecionado || !form.configuracaoId) return;
+    if (!aindaDisponivel || !intervaloSelecionado || !form.configuracaoId) {
+      envioEmCurso.current = false;
+      return;
+    }
 
     setEnviando(true);
     setErro("");
@@ -1523,6 +1546,7 @@ export default function FechamentoWizard({ empresa = null, logo = null }: { empr
             descontoTela.titulo,
           valorPacoteConsiderado,
           adicionaisValor,
+          ...(!origemInterna && totalCalculado !== null ? { totalExibidoCentavos: Math.round(totalCalculado * 100) } : {}),
           totalCalculado,
           valorInformado,
           status: "AGUARDANDO_APROVACAO",
@@ -1538,6 +1562,11 @@ export default function FechamentoWizard({ empresa = null, logo = null }: { empr
           return;
         }
         // Regra de pagamento mudou depois que a tela carregou: mostra os valores novos e pede nova confirmação.
+        if (falha?.codigo === "PRECO_MUDOU" && Number.isSafeInteger(falha.detalhes?.totalCentavos)) {
+          setVersaoCotacao(v => v + 1);
+          setErro(`O preço mudou para ${numeroParaMoeda(falha.detalhes.totalCentavos / 100)}. Confira e confirme novamente.`);
+          return;
+        }
         if (falha?.codigo === "REGRAS_PAGAMENTO_MUDARAM" && falha?.detalhes?.pagamento) {
           setRegrasAtualizadas(falha.detalhes.pagamento as RegrasPagamento);
           setErro(falha.erro || "O desconto desta forma de pagamento mudou. Confira o novo valor e envie de novo.");
@@ -1556,6 +1585,7 @@ export default function FechamentoWizard({ empresa = null, logo = null }: { empr
           : "Não foi possível enviar agora. Seus dados continuam nesta tela; tente novamente.",
       );
     } finally {
+      envioEmCurso.current = false;
       setEnviando(false);
     }
   }
@@ -1697,29 +1727,36 @@ export default function FechamentoWizard({ empresa = null, logo = null }: { empr
           </div>
         </nav>
 
+        <div className={origemInterna ? undefined : styles.corpoPublico}>
+        {!origemInterna && <aside className={styles.resumoPublico} aria-label="Resumo da festa">
+          <button type="button" className={styles.alternarResumo} aria-expanded={resumoAberto} onClick={() => setResumoAberto(v => !v)}>
+            Resumo da festa · {totalCalculado == null ? "A confirmar" : numeroParaMoeda(totalCalculado)}
+          </button>
+          <div className={resumoAberto ? styles.resumoAberto : styles.resumoDetalhes}>
+            <strong>Resumo da festa</strong>
+            <span>{form.dataFesta.split("-").reverse().join("/")} · {horario}</span>
+            <span>{convidados} convidados</span><span>{pacote?.nome || "Escolha o pacote"}</span>
+            <strong>Total · {totalCalculado == null ? "A confirmar" : numeroParaMoeda(totalCalculado)}</strong>
+          </div>
+        </aside>}
         <form className={styles.card} onSubmit={finalizar} noValidate>
           {etapa === 0 && (
             <section className={styles.step}>
               <StepTitle numero={numeroEtapaVisivel(0)} titulo="Escolha o pacote">
                 {preselecaoDisponibilidade
-                  ? `Seu horário ${horario} em ${form.dataFesta.split("-").reverse().join("/")} já foi revalidado. Agora escolha o pacote para continuar.`
+                  ? "Escolha o pacote para a sua festa."
                   : "Primeiro selecione o tipo de festa. Na próxima etapa o calendário será ajustado às regras e às datas previamente liberadas para esse pacote."}
               </StepTitle>
 
               <div className={styles.packageIntro}>
               {preselecaoDisponibilidade && form.dataFesta && intervaloSelecionado ? (
                 <div className={styles.infoBox}>
-                  <strong>Data e horário já escolhidos</strong>
-                  <p>
-                    {form.dataFesta.split("-").reverse().join("/")} · {intervaloSelecionado.inicio}–{intervaloSelecionado.fim}.
-                    Esta consulta não reserva a data.
-                  </p>
                   <a className={styles.secondaryButton} href={paginaPublica("/disponibilidade", empresa) + (convidados ? `?convidados=${convidados}` : "")}>
                     Alterar data ou horário
                   </a>
                 </div>
               ) : null}
-                {!empresa && <PacotesPdf />}
+                {!empresa && <PacotesPdf mostrarDownload={origemInterna} />}
               </div>
 
               {convidadosDaEntrada && convidados >= 1 ? (
@@ -2286,7 +2323,7 @@ export default function FechamentoWizard({ empresa = null, logo = null }: { empr
 
           {etapa === 4 && (
             <section className={styles.step}>
-              <StepTitle numero={numeroEtapaVisivel(4)} titulo="Quer adicionar algo à festa?">
+              <StepTitle numero={numeroEtapaVisivel(4)} titulo={origemInterna ? "Quer adicionar algo à festa?" : "Extras"}>
                 Selecione apenas o que foi solicitado. O valor será conferido
                 pela equipe antes do contrato.
               </StepTitle>
@@ -3105,12 +3142,18 @@ export default function FechamentoWizard({ empresa = null, logo = null }: { empr
             </section>
           )}
 
-          {etapa === 7 && (
+          {(etapa === 7 || (!origemInterna && etapa === 8)) && (
             <section className={styles.step}>
-              <StepTitle numero={numeroEtapaVisivel(7)} titulo="Revise os detalhes">
+              <StepTitle numero={numeroEtapaVisivel(origemInterna ? 7 : 8)} titulo={origemInterna ? "Revise os detalhes" : "Revisar e enviar"}>
                 Confira as informações antes de enviar para {marca.a}.
               </StepTitle>
 
+              {!origemInterna && <div className={styles.revisarLinks}>{[0, 4, 6].map((indice, i) => (
+                <button type="button" key={indice} className={styles.secondaryButton} aria-label={`Alterar ${etapasVisiveis[i]}`}
+                  onClick={() => { setEditandoRevisao(true); setErro(""); setEtapa(indice); window.scrollTo(0, 0); }}>
+                  Alterar {etapasVisiveis[i]}
+                </button>
+              ))}</div>}
               <div className={styles.summaryGrid}>
                 <Summary
                   label="Cadastro do contratante"
@@ -3122,10 +3165,10 @@ export default function FechamentoWizard({ empresa = null, logo = null }: { empr
                         : "Novo cliente"
                   }
                 />
-                <Summary
+                {origemInterna && <Summary
                   label="Origem do fechamento"
                   value={origemInterna ? (marca.kidmais ? "Atendimento Kidmais" : "Atendimento do buffet") : "Cliente"}
-                />
+                />}
                 <Summary label="Pacote" value={pacote?.nome || "-"} />
                 {salaoPreferido ? (
                   <Summary label="Salão de preferência" value={`${salaoPreferido.nome} · a confirmação vem no contrato`} />
@@ -3187,14 +3230,14 @@ export default function FechamentoWizard({ empresa = null, logo = null }: { empr
                   }
                 />
 
-                <Summary
+                {origemInterna && <Summary
                   label="Valor combinado"
                   value={
                     valorInformado
                       ? numeroParaMoeda(valorInformado)
                       : "Não informado"
                   }
-                />
+                />}
                 <Summary
                   label="Buffet"
                   value={
@@ -3257,10 +3300,10 @@ export default function FechamentoWizard({ empresa = null, logo = null }: { empr
 
           {etapa === 8 && (
             <section className={styles.step}>
-              <StepTitle numero={numeroEtapaVisivel(8)} titulo="Como pretende pagar?">
+              {origemInterna ? <StepTitle numero={numeroEtapaVisivel(8)} titulo="Como pretende pagar?">
                 Esta é apenas a preferência. O pagamento será liberado depois
                 que {marca.a} aprovar o fechamento e disponibilizar o contrato.
-              </StepTitle>
+              </StepTitle> : <h3>Forma de pagamento</h3>}
 
               <div className={styles.paymentGrid}>
                 <PaymentCard
@@ -3325,7 +3368,7 @@ export default function FechamentoWizard({ empresa = null, logo = null }: { empr
                         onChange={(event) => atualizar("pixQuantidade", event.target.value)} />
                     </label>
                   </div>
-                  <p>Esta proposta não cria parcelas financeiras nem confirma a reserva.</p>
+                  <p>Esta proposta não cria parcelas financeiras.</p>
                 </fieldset>
               )}
 
@@ -3343,7 +3386,9 @@ export default function FechamentoWizard({ empresa = null, logo = null }: { empr
                 <div>3</div>
                 <span>
                   <strong>Confirmação da contratação</strong>
-                  <small>O envio não reserva a data. A confirmação depende da disponibilidade e das assinaturas {marca.daMaiusculo} e do CLIENTE.</small>
+                  <small>{origemInterna
+                    ? <>O envio não reserva a data. A confirmação depende da disponibilidade e das assinaturas {marca.daMaiusculo} e do CLIENTE.</>
+                    : "A contratação é confirmada após a assinatura das duas partes."}</small>
                 </span>
               </div>
             </section>
@@ -3397,6 +3442,7 @@ export default function FechamentoWizard({ empresa = null, logo = null }: { empr
             )}
           </footer>
         </form>
+        </div>
 
         {!empresa && <footer className={styles.pageFooter}>
           <span>Kidmais • {CONTATO_KIDMAIS.whatsapp}</span>

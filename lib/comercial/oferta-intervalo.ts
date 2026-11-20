@@ -4,6 +4,7 @@ import { PACOTES_CONTRATAVEIS_V1 } from "./pacotes-v1.ts";
 import { regrasPublicasDoPacote } from "./disponibilidade-pacote-publica.ts";
 import { motivoPacoteNoPeriodo, type OfertaPeriodo } from "./venda-periodo.ts";
 
+import { descontoSobreBase } from "./descontos-dia.ts";
 import { centavosPorPontos } from "./modelo-preco.ts";
 
 type FaixaCartao = { exata: boolean; tipo: string; min: number; max: number | null; valor: string };
@@ -26,6 +27,7 @@ export function precoDoMinimo(linhas: FaixaCartao[], minimo: number) {
 type Linha = Parameters<typeof regrasPublicasDoPacote>[0][number] & {
   pacote: string; minimo: number | null; maximo: number | null;
   precos_cartao?: FaixaCartao[];
+  percentual_cartao?: number;
   datas_com_preco: string[]; saloes: string[];
 };
 
@@ -71,14 +73,20 @@ const precosCartao = `(SELECT jsonb_agg(jsonb_build_object(
     WHERE pp.ativo AND pp.pacote_id = p.id AND pp.tabela_preco_id = tabela.id
       AND pp.categoria_horario IN (categoria.categoria_horario, 'GERAL'))`;
 
-export async function ofertasDoIntervalo(db: DbExecutor, empresa: string, kidmais: boolean, inicio: string, fim: string, convidados?: number, porSalao = false, configuracaoCartao?: string) {
+export async function ofertasDoIntervalo(db: DbExecutor, empresa: string, kidmais: boolean, inicio: string, fim: string, convidados?: number, porSalao = false, configuracaoCartao?: string, quantidadeCartao?: number) {
   const params: unknown[] = [empresa, inicio, fim, kidmais ? PACOTES_CONTRATAVEIS_V1.map(p => p.codigo) : null];
   if (convidados) params.push(convidados);
   const incluirPrecoCartao = !convidados && Boolean(configuracaoCartao);
   if (incluirPrecoCartao) params.push(configuracaoCartao);
   const { rows } = await db.query<Linha>(`
     SELECT p.codigo AS pacote, p.convidados_minimos AS minimo, p.convidados_maximos AS maximo,
-           ${incluirPrecoCartao ? precosCartao + " AS precos_cartao," : ""}
+           ${incluirPrecoCartao ? precosCartao + ` AS precos_cartao,
+             (SELECT d.percentual FROM regras_desconto_pacote d
+               WHERE d.ativo AND d.pacote_id = p.id AND d.dia_semana = extract(isodow FROM $2::date)
+                 AND (d.configuracao_agenda_id = $5::uuid OR d.configuracao_agenda_id IS NULL)
+                 AND d.vigencia_inicio <= $2::date AND (d.vigencia_fim IS NULL OR d.vigencia_fim >= $2::date)
+               ORDER BY CASE WHEN d.configuracao_agenda_id = $5::uuid THEN 0 ELSE 1 END, d.prioridade, d.vigencia_inicio DESC
+               LIMIT 1) AS percentual_cartao,` : ""}
            r.dia_semana, r.estado, r.configuracao_agenda_id::text AS configuracao_id,
            c.codigo, r.vigencia_inicio::text, r.vigencia_fim::text,
            ${convidados ? datasComPreco : "ARRAY[]::text[]"} AS datas_com_preco,
@@ -90,11 +98,16 @@ export async function ofertasDoIntervalo(db: DbExecutor, empresa: string, kidmai
      WHERE p.empresa_id = $1::uuid AND p.ativo AND p.vigente AND p.arquivado_em IS NULL
        AND ($4::text[] IS NULL OR p.codigo = ANY($4::text[]))
      ORDER BY p.codigo, r.vigencia_inicio`, params);
-  const pacotes = new Map<string, OfertaPeriodo & { precosAplicaveis?: Set<string>; precoNoMinimo?: number | null }>();
+  const pacotes = new Map<string, OfertaPeriodo & { precosAplicaveis?: Set<string>; precoNoMinimo?: number | null; precoData?: { base: number; liquido: number; percentual: number; faturados: number } | null }>();
   for (const row of rows) {
     let pacote = pacotes.get(row.pacote);
     if (!pacote) {
-      pacote = { codigo: row.pacote, convidadosMinimos: row.minimo, convidadosMaximos: row.maximo, disponibilidade: [],
+      const faturados = Math.max(quantidadeCartao ?? 0, row.minimo ?? 0);
+      const base = incluirPrecoCartao && quantidadeCartao && (!row.maximo || quantidadeCartao <= row.maximo)
+        ? precoDoMinimo(row.precos_cartao ?? [], faturados) : null;
+      const percentual = Number(row.percentual_cartao ?? 0);
+      const precoData = base === null ? null : { base, faturados, percentual, liquido: descontoSobreBase(base, percentual).aplicado };
+      pacote = { ...(incluirPrecoCartao && quantidadeCartao ? { precoData } : {}), codigo: row.pacote, convidadosMinimos: row.minimo, convidadosMaximos: row.maximo, disponibilidade: [],
         ...(incluirPrecoCartao && row.minimo ? { precoNoMinimo: precoDoMinimo(row.precos_cartao ?? [], row.minimo) } : {}),
         saloesPermitidos: row.saloes, ...(convidados ? { precosAplicaveis: new Set<string>() } : {}) };
       pacotes.set(row.pacote, pacote);

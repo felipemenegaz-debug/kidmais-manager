@@ -131,7 +131,9 @@ test("11º parecer, P2: a lista diz por conexão se a pergunta pronta passaria p
   const base = { MCP_ENABLED: "true", MCP_TENANT_ALLOWLIST: E1 + "," + E2, MCP_PUBLIC_URL: "http://127.0.0.1:9/api/mcp", MCP_REF_SECRET: "r".repeat(40), INTELIGENCIA_ENABLED: "true", AI_READ_ENABLED: "true", NODE_ENV: "test" };
   const liberada = async (env: Record<string, string | undefined>) => (await conexoesDaPessoa(env, repo, "u1")).conexoes.map((c) => [c.empresaNoPiloto, c.consultaDaAjudaLiberada]);
   assert.deepEqual(await liberada(base), [[true, true], [true, true]]);
-  assert.deepEqual(await liberada({ ...base, AI_READ_ENABLED: "false" }), [[true, false], [true, false]]);
+  // 19/11/2026: a chave e a allowlist do assistente do painel não fecham mais a consulta do MCP; a chave-mestra fecha.
+  assert.deepEqual(await liberada({ ...base, AI_READ_ENABLED: "false" }), [[true, true], [true, true]]);
+  assert.deepEqual(await liberada({ ...base, INTELIGENCIA_ENABLED: "false" }), [[true, false], [true, false]]);
   assert.deepEqual(await liberada({ ...base, MCP_TENANT_ALLOWLIST: E1 }), [[true, true], [false, false]]);
-  assert.deepEqual(await liberada({ ...base, AI_TENANT_ALLOWLIST: E1 }), [[true, true], [true, false]]);
+  assert.deepEqual(await liberada({ ...base, AI_TENANT_ALLOWLIST: E1 }), [[true, true], [true, true]]);
 });

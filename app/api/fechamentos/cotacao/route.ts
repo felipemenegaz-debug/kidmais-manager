@@ -10,6 +10,8 @@ import { mensagemPeriodoDoPedido, periodoDoPedido, temPeriodoDoPedido } from "@/
 import { codigoDoPacoteDaTela } from "@/lib/comercial/pacotes-v1";
 import { origemDoDescontoCotado } from "@/lib/comercial/descontos-dia";
 import { apiErrorResponse } from "@/lib/http/api-response";
+import { traduzirAdicionais } from "@/lib/fechamentos/comercial-input";
+import { camposComerciaisFechamento } from "@/lib/fechamentos/comercial-schema";
 import { limitarPublico } from "@/lib/http/limite-publico";
 import { combinadosPublicos } from "@/lib/agenda/combinados-publicos";
 
@@ -30,6 +32,9 @@ const entrada = z.object({
   ajusteHorario: z.string().regex(/^-?\d{1,4}$/),
   horarioInicio: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/),
   horarioFim: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/),
+  adicionaisSelecionados: camposComerciaisFechamento.adicionaisSelecionados,
+  adicionaisQuantidades: camposComerciaisFechamento.adicionaisQuantidades,
+  adicionaisEscolhas: camposComerciaisFechamento.adicionaisEscolhas,
   convidados: z.coerce.number().int().min(1).max(1000),
 }).refine(temPeriodoDoPedido, mensagemPeriodoDoPedido);
 
@@ -61,18 +66,22 @@ export async function POST(request: NextRequest) {
     }, undefined, { ...escopo, estabelecimentoId: unidade.estabelecimentoId });
     const pacote = await buscarPacoteVigenteDaEmpresaPorCodigo(escopo.empresaId, codigoPacote, db());
     if (!pacote) return NextResponse.json({ ok: false, erro: "Pacote indisponível.", codigo: "PACOTE_NAO_ENCONTRADO" }, { status: 404, headers: semCache });
+    const itens = traduzirAdicionais(dados.data.adicionaisSelecionados, dados.data.adicionaisQuantidades, dados.data.adicionaisEscolhas);
+    if (!itens.ok) return NextResponse.json({ ok: false, erro: itens.erro, codigo: itens.codigo }, { status: 409, headers: semCache });
     const resumo = await calcularResumoComercial({
       data: dados.data.dataFesta,
       configuracaoAgendaId: horario.periodo.configuracaoId,
       pacoteId: pacote.id,
       convidados: dados.data.convidados,
-      adicionais: [],
+      adicionais: itens.itens,
       empresaEsperada: escopo.empresaId,
     }, db());
     const p = resumo.pacote;
     return NextResponse.json({
       ok: true,
       data: {
+        total: resumo.valorTotalTabela,
+        adicionais: resumo.valorAdicionais,
         valorTabela: p.valorTabelaBase,
         desconto: {
           percentual: p.desconto.percentual,

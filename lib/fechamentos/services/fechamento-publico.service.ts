@@ -841,7 +841,7 @@ export async function criarFechamentoPublicoComIdentidade(
         estabelecimentoId: input.estabelecimentoId,
         convidados: input.convidados,
         adicionais: input.adicionais,
-        valorProposto: input.valorProposto,
+        totalExibidoCentavos: input.totalExibidoCentavos,
         origemFechamento: "CLIENTE",
         clienteId: cliente.id,
         aniversarianteId: aniversariante.aniversariante.id,

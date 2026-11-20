@@ -2,8 +2,10 @@
  * Configuração do canal MCP externo (docs/MCP_ASSINATURAS_V1.md). Único lugar que lê as variáveis do canal.
  *
  * Tudo falha fechado: só o texto exato "true" liga, URL fora de HTTPS (exceto loopback fora de produção) desliga, segredo
- * curto desliga a parte que depende dele. O canal NÃO substitui as guardas da Inteligência: a chave-mestra, o grupo READ e a
- * allowlist por empresa (lib/inteligencia/flags.ts) continuam valendo em cada chamada de ferramenta (gateway canônico).
+ * curto desliga a parte que depende dele. O canal NÃO substitui as guardas da Inteligência: a chave-mestra da Inteligência
+ * (lib/inteligencia/flags.ts), o papel pela Policy V1 e o Tenant Context continuam valendo em cada chamada de ferramenta.
+ * Desde 19/11/2026 o canal NÃO depende da chave do grupo READ nem da allowlist por empresa da IA (chaves do assistente do painel): a
+ * allowlist que vale para o MCP é a MCP_TENANT_ALLOWLIST (ver grupoLiberadoNoCanal em ferramentas.ts).
  *
  * - MCP_ENABLED: chave do canal. Desligada, /api/mcp responde 503 antes de autenticar ou abrir banco.
  * - MCP_TENANT_ALLOWLIST: empresas (uuid, vírgula) do piloto. OBRIGATÓRIA: ausente, vazia ou inválida ⇒ nenhuma empresa.
