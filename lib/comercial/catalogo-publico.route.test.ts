@@ -38,7 +38,7 @@ function carregar(arquivo: string, opcoes: { empresa?: string; ativa?: boolean; 
             assert.match(sql, /empresa_id = \$1::uuid/);
             assert.match(sql, /vigente/);
             assert.match(sql, /arquivado_em IS NULL/);
-            const filtradas = linhas.filter(l => l.empresa_id === valores[0] && l.codigo === valores[1]);
+            const filtradas = linhas.filter(l => l.empresa_id === valores[0] && (valores.length === 1 || l.codigo === valores[1]));
             return resultado(opcoes.ambigua ? [...filtradas, ...filtradas] : filtradas);
           }
           if (sql.includes("FROM tabelas_preco")) {

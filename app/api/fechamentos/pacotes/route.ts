@@ -42,12 +42,12 @@ export async function GET(request: NextRequest) {
     // "A partir de" e catálogo efetivo do endereço (endereço atual: os sete V1; /b/<código>: todos os contratáveis da
     // empresa): os mesmos da faixa do salão combinado (E2b, lib/comercial/oferta-publica).
     const precos = await precosPublicosDeHoje(db(), escopo.empresaId);
-    const ofertas = data ? await ofertasDoIntervalo(db(), escopo.empresaId, !enderecoDaEmpresa, data, data, undefined, false, configuracao ?? undefined) : null;
+    const ofertas = data ? await ofertasDoIntervalo(db(), escopo.empresaId, !enderecoDaEmpresa, data, data, undefined, false, configuracao ?? undefined, convidados ?? undefined) : null;
     const pacotes = [];
-    for (const pacote of await pacotesDaOfertaPublica(db(), escopo.empresaId, enderecoDaEmpresa)) {
+    for (const pacote of await pacotesDaOfertaPublica(db(), escopo.empresaId, enderecoDaEmpresa, Boolean(data))) {
       const oferta = ofertas?.find(o => o.codigo === pacote.codigo);
       pacotes.push({
-        ...(configuracao && oferta ? { precoNoMinimo: oferta.precoNoMinimo ?? null } : {}),
+        ...(configuracao && oferta ? { precoData: oferta.precoData, precoNoMinimo: oferta.precoNoMinimo ?? null } : {}),
         codigo: pacote.codigo, nome: pacote.nome, descricao: pacote.descricao,
         duracaoMinutos: pacote.duracaoMinutos, convidadosMinimos: pacote.convidadosMinimos,
         convidadosMaximos: pacote.convidadosMaximos,

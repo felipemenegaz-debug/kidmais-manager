@@ -71,7 +71,7 @@ async function semear(cliente: Client) {
 }
 
 type Rota = (request: NextRequest) => Promise<Response>;
-type Cartao = { codigo: string; convidadosMinimos: number; precoNoMinimo: number };
+type Cartao = { codigo: string; convidadosMinimos: number; precoNoMinimo: number; precoData: { base: number; liquido: number; percentual: number; faturados: number } };
 type Cotacao = {
   convidadosFaturados: number;
   categoria: string;
@@ -123,46 +123,50 @@ test("D-FP-6: preço no mínimo do cartão igual à base da cotação pelas rota
       for (const config of configs) {
         const periodo = agenda.periodos.find(p => p.configuracaoId === config.id);
         assert.ok(periodo, `${data} / ${config.codigo}`);
-        const consulta = new URLSearchParams({ data, configuracaoId: config.id, convidados: "15" });
-        const { pacotes } = await corpo<{ pacotes: Cartao[] }>(
-          await listarPacotes(new NextRequest(`${ORIGEM}/api/fechamentos/pacotes?${consulta}`)),
-        );
-        assert.deepEqual(pacotes.map(p => p.codigo).sort(), PACOTES.map(p => p.codigo).sort());
-        for (const pacote of PACOTES) {
-          await t.test(`${pacote.tipo} / ${pacote.codigo} / ${data} / ${config.codigo}`, async (caso) => {
-            const horario = periodo.horarios.find(h => h.pacotesVendaveis?.includes(pacote.codigo));
-            assert.ok(horario, "a agenda deve oferecer um horário vendável para o pacote");
-            const cartao = pacotes.find(p => p.codigo === pacote.codigo);
-            assert.ok(cartao);
-            assert.equal(cartao.convidadosMinimos, pacote.minimo);
-            const { data: cotacao } = await corpo<{ data: Cotacao }>(await cotar(new NextRequest(`${ORIGEM}/api/fechamentos/cotacao`, {
-              method: "POST",
-              headers: { "content-type": "application/json" },
-              body: JSON.stringify({
-                pacote: pacote.tela, dataFesta: data, configuracaoId: config.id, convidados: pacote.minimo,
-                ajusteHorario: String(horario.ajusteMinutos), horarioInicio: horario.inicio, horarioFim: horario.fim,
-              }),
-            })));
-            const geral = data === DATAS[1] && config.codigo === "TURNO_2";
-            const baseEmCentavos = pacote[geral ? "geral" : "exato"] * (pacote.tipo === "POR_CONVIDADO" ? pacote.minimo : 1);
-            const percentual = data === DATAS[0] ? 15 : 0;
-            const descontoEmCentavos = Math.round(baseEmCentavos * percentual / 100);
-
-            assert.equal(cotacao.convidadosFaturados, pacote.minimo);
-            assert.equal(cotacao.categoria, geral ? "GERAL" : "PADRAO");
-            assert.equal(cotacao.valorTabela, baseEmCentavos / 100);
-            assert.equal(cartao.precoNoMinimo, cotacao.valorTabela);
-            assert.equal(cotacao.desconto.percentual, percentual);
-            assert.equal(cotacao.desconto.origem, percentual ? "empresa" : "nenhum");
-            assert.equal(cotacao.desconto.valor, descontoEmCentavos / 100);
-            assert.equal(cotacao.valor, (baseEmCentavos - descontoEmCentavos) / 100);
-            caso.diagnostic(`categoria=${cotacao.categoria} mínimo=${pacote.minimo} cartão=${cartao.precoNoMinimo.toFixed(2)} base=${cotacao.valorTabela.toFixed(2)} desconto=${cotacao.desconto.valor.toFixed(2)} cotação=${cotacao.valor.toFixed(2)}`);
-            comparacoes++;
-          });
+        for (const convidados of [15, 25, 40]) {
+          const consulta = new URLSearchParams({ data, configuracaoId: config.id, convidados: String(convidados) });
+          const { pacotes } = await corpo<{ pacotes: Cartao[] }>(
+            await listarPacotes(new NextRequest(`${ORIGEM}/api/fechamentos/pacotes?${consulta}`)),
+          );
+          assert.deepEqual(pacotes.map(p => p.codigo).sort(), PACOTES.map(p => p.codigo).sort());
+          for (const pacote of PACOTES) {
+            await t.test(`${pacote.tipo} / ${pacote.codigo} / ${data} / ${config.codigo} / N=${convidados}`, async (caso) => {
+              const horario = periodo.horarios.find(h => h.pacotesVendaveis?.includes(pacote.codigo));
+              assert.ok(horario, "a agenda deve oferecer um horário vendável para o pacote");
+              const cartao = pacotes.find(p => p.codigo === pacote.codigo);
+              assert.ok(cartao);
+              assert.equal(cartao.convidadosMinimos, pacote.minimo);
+              const { data: cotacao } = await corpo<{ data: Cotacao }>(await cotar(new NextRequest(`${ORIGEM}/api/fechamentos/cotacao`, {
+                method: "POST",
+                headers: { "content-type": "application/json" },
+                body: JSON.stringify({
+                  pacote: pacote.tela, dataFesta: data, configuracaoId: config.id, convidados,
+                  ajusteHorario: String(horario.ajusteMinutos), horarioInicio: horario.inicio, horarioFim: horario.fim,
+                }),
+              })));
+              const geral = data === DATAS[1] && config.codigo === "TURNO_2";
+              const percentual = data === DATAS[0] ? 15 : 0;
+              assert.equal(cotacao.categoria, geral ? "GERAL" : "PADRAO");
+              assert.equal(cotacao.convidadosFaturados, Math.max(convidados, pacote.minimo));
+              assert.equal(cotacao.desconto.percentual, percentual);
+              assert.equal(cartao.precoData.faturados, cotacao.convidadosFaturados);
+              assert.equal(cartao.precoData.percentual, percentual);
+              if (pacote.tipo === "FIXO" && !geral && percentual === 15 && convidados === 15) {
+                // A fixture cobra R$ 2.020,35 pelo mínimo de 25; sexta tem 15% de desconto.
+                assert.equal(cartao.precoData.base, 2020.35);
+                assert.equal(cartao.precoData.liquido, 1717.30);
+              }
+              assert.equal(Math.round(cartao.precoData.base * 100), Math.round(cotacao.valorTabela * 100));
+              assert.equal(Math.round(cartao.precoData.liquido * 100), Math.round(cotacao.valor * 100));
+              if (convidados <= pacote.minimo) assert.equal(cartao.precoNoMinimo, cotacao.valorTabela);
+              caso.diagnostic(`N=${convidados} faturados=${cartao.precoData.faturados} desconto=${percentual}% cartão=${cartao.precoData.liquido} cotação=${cotacao.valor}`);
+              comparacoes++;
+            });
+          }
         }
       }
     }
-    assert.equal(comparacoes, 12);
+    assert.equal(comparacoes, 36);
   } finally {
     if (extensaoAnterior) extensoes[".ts"] = extensaoAnterior;
     else delete extensoes[".ts"];

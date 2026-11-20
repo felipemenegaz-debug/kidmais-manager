@@ -62,7 +62,7 @@ function ambiente() {
       isPricingServiceError: () => false,
       calcularResumoComercial: async (entrada: unknown) => {
         calculos.push(entrada);
-        return { pacote: { valorTabelaBase: 4500, desconto: { percentual: 0, valor: 0, titulo: null }, valorTabelaAplicado: 4500,
+        return { valorTotalTabela: 4812.34, valorAdicionais: 312.34, pacote: { valorTabelaBase: 4500, desconto: { percentual: 0, valor: 0, titulo: null }, valorTabelaAplicado: 4500,
           precoRegra: { categoriaHorario: "GERAL", convidadosMin: 30, convidadosMax: 80 }, convidadosFaturados: 40, minimoFaturavelAplicado: false } };
       },
     },
@@ -217,4 +217,29 @@ test("rota pública traduz definir agora e escolher depois e entrega as escolhas
     assert.equal(a.envios[0].buffetStatus, status);
     assert.deepEqual(a.envios[0].escolhasBuffet, enviados);
   }
+});
+
+test("envio público ignora valor combinado e repassa apenas o total a conferir", async () => {
+  const a = ambiente();
+  for (const valorCombinado of ["1,00", "99000,00", undefined]) {
+    const resposta = await a.envio.POST!(pedido("/api/fechamentos?empresa=buffet-a", {
+      ...FECHAMENTO, pacote: LIVRE, valorCombinado, totalExibidoCentavos: 450000,
+    }));
+    assert.equal(resposta.status, 201);
+    const entrada = a.envios.at(-1)!;
+    assert.equal(entrada.totalExibidoCentavos, 450000);
+    assert.equal("valorProposto" in entrada, false);
+  }
+});
+
+test("cotação devolve o total do serviço com os extras escolhidos", async () => {
+  const a = ambiente();
+  const resposta = await a.cotacao.POST!(pedido("/api/fechamentos/cotacao?empresa=buffet-a", {
+    ...COTACAO, pacote: LIVRE, adicionaisSelecionados: ["penne"], adicionaisQuantidades: { penne: 2 },
+  }));
+  assert.equal(resposta.status, 200);
+  assert.deepEqual((a.calculos[0] as { adicionais: unknown[] }).adicionais, [{ codigo: "PENNE", quantidade: 2 }]);
+  const dados = resposta.body.data as { total: number; adicionais: number };
+  assert.equal(dados.total, 4812.34);
+  assert.equal(dados.adicionais, 312.34);
 });

@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import styles from "./PacotesPdf.module.css";
 
-export default function PacotesPdf() {
+export default function PacotesPdf({ mostrarDownload = true }: { mostrarDownload?: boolean }) {
   const [disponivel, setDisponivel] = useState(false);
 
   useEffect(() => {
@@ -38,7 +38,7 @@ export default function PacotesPdf() {
       </a>
       <div className={styles.secondary}>
         <span>PDF · abre em nova aba</span>
-        <a href="/api/fechamentos/tabela-pacotes?download=1" download="pacotes-e-precos.pdf">Baixar PDF</a>
+        {mostrarDownload && <a href="/api/fechamentos/tabela-pacotes?download=1" download="pacotes-e-precos.pdf">Baixar PDF</a>}
       </div>
     </aside>
   );

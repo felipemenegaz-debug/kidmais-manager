@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { camposComerciaisFechamento, mensagemPeriodoDoPedido, pacoteDaTelaPublicaSchema, periodoDoPedido, temPeriodoDoPedido } from "@/lib/fechamentos/comercial-schema";
-import { FORMA_PAGAMENTO_BANCO, moedaParaNumeroServidor, traduzirAdicionais } from "@/lib/fechamentos/comercial-input";
+import { FORMA_PAGAMENTO_BANCO, traduzirAdicionais } from "@/lib/fechamentos/comercial-input";
 import { CondicaoPagamentoError } from "@/lib/comercial/condicao-pagamento";
 import {
   isAvailabilityServiceError,
@@ -37,6 +37,8 @@ const fechamentoSchema = z.object({
   aniversarianteIdExistente: z.string().uuid().nullable().optional(),
 
   ...camposComerciaisFechamento,
+  valorCombinado: z.unknown().optional(),
+  totalExibidoCentavos: z.number().int().safe().nonnegative().optional(),
   pacote: pacoteDaTelaPublicaSchema,
   escolhasBuffet: z.record(z.string().max(80), z.array(z.uuid()).max(30)).optional(),
   // S-D: salão de preferência escolhido em "Conheça os salões" (o serviço confere de novo sob a trava da data).
@@ -211,14 +213,6 @@ export async function POST(request: NextRequest) {
     return apiErrorResponse(error);
   }
 
-  const valorProposto = moedaParaNumeroServidor(dados.data.valorCombinado);
-  if (valorProposto === null) {
-    return NextResponse.json(
-      { ok: false, erro: "Informe um valor combinado válido.", codigo: "VALOR_PROPOSTO_INVALIDO" },
-      { status: 400 },
-    );
-  }
-
   const adicionais = traduzirAdicionais(dados.data.adicionaisSelecionados, dados.data.adicionaisQuantidades, dados.data.adicionaisEscolhas);
   if (!adicionais.ok) {
     return NextResponse.json(
@@ -270,7 +264,7 @@ export async function POST(request: NextRequest) {
       estabelecimentoId: escopo.estabelecimentoId,
       convidados: dados.data.convidadosPagantes,
       adicionais: adicionais.itens,
-      valorProposto,
+      totalExibidoCentavos: dados.data.totalExibidoCentavos,
       buffetStatus: dados.data.buffetDefinicao === "agora" ? "DEFINIDO" : "PENDENTE",
       escolhasBuffet: dados.data.escolhasBuffet,
       salaoPreferido: dados.data.salaoPreferido ?? null,
@@ -362,7 +356,7 @@ export async function POST(request: NextRequest) {
           adicionais: resumo.adicionais.itens,
           valorAdicionais: resumo.valorAdicionais,
           valorTotalTabela: fechamento.valorTabela,
-          valorProposto,
+          valorProposto: resumo.valorTotalTabela,
           valorNegociado: fechamento.valorNegociado,
           condicaoPagamento: fechamento.condicaoPagamento,
         },
