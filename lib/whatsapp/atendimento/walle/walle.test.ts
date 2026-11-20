@@ -5,7 +5,7 @@ import { pedidoDeParar } from '../opt-out.ts';
 import { mesclarContexto, lerContexto } from './contexto.ts';
 import { CLAUSULAS_POR_TEMA, clausulasDoTema, modeloVigente } from './contrato-modelo.ts';
 import { linkDisponibilidadePublica } from './link-disponibilidade.ts';
-import { DESISTE_CONTRATAR, entenderPorRegras, extrairConvidados, itensCitados, juntarSinais, limitar, limparTema, pratoSemCadastro, registroDoBloqueio, revalidarEntendimento, type SaidaModelo } from './entendimento.ts';
+import { DESISTE_CONTRATAR, entenderPorRegras, extrairConvidados, extrairTurno, itensCitados, juntarSinais, limitar, limparTema, pratoSemCadastro, registroDoBloqueio, revalidarEntendimento, type SaidaModelo } from './entendimento.ts';
 import { LIMITE_MENSAGEM, partirMensagem, resolverWallE, type Composicao, type FontesWallE, type PeriodoAgenda, type PrecoAdicional, type ProntaAutorizada } from './resolver.ts';
 import type { Catalogos, ContextoWallE, EscopoAgendaConsultado, Intencao, ResultadoWallE } from './tipos.ts';
 
@@ -4344,4 +4344,59 @@ test('explica os sete pacotes e mostra o mínimo mesmo sem teto de convidados', 
   const catalogo = {...catalogos, pacotes};
   const r = await resolverWallE({ texto: pergunta, entendimento: entenderPorRegras(pergunta, catalogo), contexto: {}, config, catalogos: catalogo, agora: HOJE }, fontes);
   for (const p of pacotes) assert.ok(texto(r).includes(p.nome + ': a partir de ' + p.convidadosMinimos + ' convidados'));
+});
+
+// Produção 19/11 (cliente real): turnos que se sobrepõem — "19h a 23h" caía no 17–21, o primeiro que contém as 19h.
+test('período pela hora: faixa e hora de início escolhem o turno exato entre turnos sobrepostos', () => {
+  const sobrepostos: Catalogos['turnos'] = [
+    { codigo: 'ALMOCO', nome: 'Almoço', inicio: '11:00', fim: '15:00' },
+    { codigo: 'NOITE_1', nome: 'Noite 1', inicio: '17:00', fim: '21:00' },
+    { codigo: 'NOITE_2', nome: 'Noite 2', inicio: '18:00', fim: '22:00' },
+    { codigo: 'NOITE_3', nome: 'Noite 3', inicio: '19:00', fim: '23:00' },
+  ];
+  assert.equal(extrairTurno('9 de janeiro 19h a 23h', sobrepostos), 'NOITE_3');
+  assert.equal(extrairTurno('das 19h às 23h', sobrepostos), 'NOITE_3');
+  assert.equal(extrairTurno('19h-23h', sobrepostos), 'NOITE_3');
+  assert.equal(extrairTurno('às 19h', sobrepostos), 'NOITE_3');
+  assert.equal(extrairTurno('18h até 22h', sobrepostos), 'NOITE_2');
+  assert.equal(extrairTurno('a partir das 18h', sobrepostos), 'NOITE_2');
+  assert.equal(extrairTurno('17h', sobrepostos), 'NOITE_1');
+  // Sem início exato: o critério antigo (o primeiro que contém a hora).
+  assert.equal(extrairTurno('20h', sobrepostos), 'NOITE_1');
+  assert.equal(extrairTurno('12h', sobrepostos), 'ALMOCO');
+  // Faixa sem turno com esse fim: vale a hora de início.
+  assert.equal(extrairTurno('19h a 22h', sobrepostos), 'NOITE_3');
+  // Dois turnos sem sobreposição: comportamento de antes.
+  assert.equal(extrairTurno('às 19h', catalogos.turnos), 'TURNO_2');
+  assert.equal(extrairTurno('12h às 15h', catalogos.turnos), 'TURNO_1');
+});
+
+// Produção 19/11 (cliente real, antes de contratar): "Formas de pagamento" ia à equipe com "de uma festa", mesmo com a
+// resposta cadastrada pelo buffet.
+test('formas de pagamento na pré-venda: resposta cadastrada sem passar; sem ela, a equipe com frase de pré-venda; pedido ou aviso igual', async () => {
+  const cfgPag: ConfiguracaoAtendimento = { ...config, perguntas: [...config.perguntas, { id: 'pagamento', pergunta: 'Quais as formas de pagamento?', resposta: 'Pix, cartão em até 10x ou boleto.' }] };
+  const catPag: Catalogos = { ...catalogos, perguntas: [...catalogos.perguntas, { id: 'pagamento', pergunta: 'Quais as formas de pagamento?' }] };
+  for (const t of ['Formas de pagamento', 'quais as formas de pagamento?']) {
+    const r = (await conversaCom(catPag, cfgPag, [t])).ultima;
+    assert.match(texto(r), /Pix, cartão em até 10x ou boleto\./, t);
+    assert.doesNotMatch(texto(r), /de uma festa|Vou passar/, t);
+    assert.ok(!r.passagem, t);
+  }
+  for (const t of ['Formas de pagamento', 'aceitam cartão?', 'vcs parcelam?']) {
+    const r = (await conversa([t])).ultima;
+    assert.match(texto(r), /As formas e condições de pagamento são combinadas com a equipe na contratação\./, t);
+    assert.doesNotMatch(texto(r), /de uma festa/, t);
+    assert.equal(r.passagem?.motivo, 'PAGAMENTO', t);
+  }
+  // Pergunta cadastrada de outro assunto na mesma mensagem não dispensa a equipe para o pagamento.
+  const misto = (await conversaCom(catPag, cfgPag, ['aceitam cartão? tem estacionamento?'])).ultima;
+  assert.match(texto(misto), /Sim, estacionamento gratuito no local\./);
+  assert.match(texto(misto), /As formas e condições de pagamento são combinadas com a equipe na contratação\./);
+  assert.equal(misto.passagem?.motivo, 'PAGAMENTO');
+  // Pedido ou aviso do próprio pagamento: sempre a equipe, também com a pergunta cadastrada.
+  for (const t of ['me passa a chave pix', 'paguei o sinal', 'quais as formas de pagamento? me manda a chave pix']) {
+    const r = (await conversaCom(catPag, cfgPag, [t])).ultima;
+    assert.match(texto(r), /Pagamentos e cobranças de uma festa são conferidos pela equipe\./, t);
+    assert.equal(r.passagem?.motivo, 'PAGAMENTO', t);
+  }
 });
