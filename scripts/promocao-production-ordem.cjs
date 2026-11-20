@@ -75,6 +75,8 @@ const ORDEM = Object.freeze([
   generico('126', 'escopo MCP clientes:read: troca o CHECK de escopos das 3 tabelas OAuth da 105; trava por instantes as 3 tabelas'),
   // 127 (guarda dos clientes, fase 1a) DEPOIS da 126: exige só a 086 e a 060 (já aplicadas); vem ANTES do código que lê marketing_saidas_contato.
   generico('127', 'guarda dos clientes 1a: marca de saída das campanhas por telefone/e-mail, gatilhos e carga inicial; trava por instantes clientes, marketing_contato_preferencias e whatsapp_atendimento_conversas'),
+  // 128 (dados fora do disco) DEPOIS da 127: exige só a 021 (já aplicada); vem ANTES do código que lê disponibilidade_config_legada (que tolera a ausência).
+  generico('128', 'dados fora do disco: tabela das regras legadas da agenda e coluna com os bytes do PDF público; trava por instantes documentos_publicos'),
 ].map(congelar));
 
 /** Só os passos que rodam (sem a 098 excluída nem a 099/105 já aplicadas). */

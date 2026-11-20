@@ -282,6 +282,10 @@ jobs:
         run: node --test scripts/migration-126-staging.test.cjs
       - name: Aplicador da 127 em staging (adaptador do genérico)
         run: node --test scripts/migration-127-staging.test.cjs
+      - name: Aplicador da 128 em staging (adaptador do genérico)
+        run: node --test scripts/migration-128-staging.test.cjs
+      - name: Cópia do disco para o banco (128)
+        run: node --test scripts/disco-para-banco-128.test.cjs
       - name: Promoção de production — blocos de Shell da 112 a 118 e do genérico
         run: node --test scripts/bloco-shell-promocao-production.test.cjs scripts/bloco-shell-118-production.test.cjs
       - name: Promoção de production — ordem da cadeia

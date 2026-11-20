@@ -1,8 +1,6 @@
 import type { HorarioCandidatoPublico } from "@/lib/disponibilidade/services/models";
 import { aplicarOferta, ofertasDoIntervalo } from "@/lib/comercial/oferta-intervalo";
 import { NextRequest, NextResponse } from "next/server";
-import { promises as fs } from "fs";
-import path from "path";
 import {
   consultarDisponibilidadeData,
   consultarDisponibilidadePeriodo,
@@ -17,15 +15,10 @@ import { convidadosDaConsulta } from "@/lib/fechamentos/convidados-consulta";
 import { combinadosPublicos } from "@/lib/agenda/combinados-publicos";
 import { descontosPublicosDaEmpresa } from "@/lib/comercial/descontos-dia-publico";
 import { descontosPorIdV1 } from "@/lib/comercial/descontos-dia";
+import { lerConfigLegada } from "@/lib/disponibilidade/config-legada-armazem";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
-
-const arquivoComercialLegado = path.join(
-  process.cwd(),
-  "data",
-  "disponibilidade.json",
-);
 
 type ComercialLegado = {
   pacoteOverrides?: Array<{
@@ -45,29 +38,27 @@ type ComercialLegado = {
 };
 
 async function lerComercialPublico() {
-  try {
-    const conteudo = await fs.readFile(arquivoComercialLegado, "utf8");
-    const parsed = JSON.parse(conteudo) as ComercialLegado;
+  // 128: banco quando a linha existe; senão o arquivo do disco (até a cópia). Arquivo ausente ou ilegível já vira listas
+  // vazias dentro de lerConfigLegada; erro do banco NÃO vira vazio: sobe para o GET, que responde erro em vez de uma
+  // agenda sem as regras comerciais.
+  const parsed = (await lerConfigLegada(db())) as ComercialLegado;
 
-    return {
-      // Motivos/observações internas não saem pela API pública.
-      pacoteOverrides: (parsed.pacoteOverrides ?? []).map((item) => ({
-        data: item.data,
-        horario: item.horario,
-        pacote: item.pacote,
-        status: item.status,
-      })),
-      descontos: (parsed.descontos ?? []).map((item) => ({
-        data: item.data,
-        horario: item.horario,
-        pacote: item.pacote,
-        percentual: item.percentual,
-        titulo: item.titulo,
-      })),
-    };
-  } catch {
-    return { pacoteOverrides: [], descontos: [] };
-  }
+  return {
+    // Motivos/observações internas não saem pela API pública.
+    pacoteOverrides: (parsed.pacoteOverrides ?? []).map((item) => ({
+      data: item.data,
+      horario: item.horario,
+      pacote: item.pacote,
+      status: item.status,
+    })),
+    descontos: (parsed.descontos ?? []).map((item) => ({
+      data: item.data,
+      horario: item.horario,
+      pacote: item.pacote,
+      percentual: item.percentual,
+      titulo: item.titulo,
+    })),
+  };
 }
 
 export async function GET(request: NextRequest) {

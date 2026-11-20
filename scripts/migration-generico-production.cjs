@@ -1,6 +1,6 @@
 /* eslint-disable @typescript-eslint/no-require-imports */
 // Aplicador GENÉRICO de PRODUÇÃO para as migrations da promoção de 12/11/2026 que não têm aplicador próprio: 120, 121, 110,
-// 111, 115, 123, 124, 125, 126 e 127 (nessa ordem, a do inventário; scripts/promocao-production-ordem.cjs). SOMENTE no PostgreSQL do web de produção,
+// 111, 115, 123, 124, 125, 126, 127 e 128 (nessa ordem, a do inventário; scripts/promocao-production-ordem.cjs). SOMENTE no PostgreSQL do web de produção,
 // no Web Shell do srv-dak77m2d0e5s73b8rkkg, DEPOIS do deploy de uma árvore que traga este arquivo e os SQL.
 //   - LISTA FECHADA neste arquivo: para cada id, o sha256 (LF) fixado do precheck, da migration e do postcheck, e as
 //     SENTINELAS do estado — os mesmos objetos que o precheck da própria migration usa para dizer "já presente" (o teste
@@ -138,9 +138,17 @@ const MIGRATIONS = Object.freeze({
     // Gatilhos novos em clientes, marketing_contato_preferencias e whatsapp_atendimento_conversas exigem a posse delas; todas as funções dos gatilhos são criadas pela 127.
     privilegios: {criaNoSchema: true, alteradas: ['clientes', 'marketing_contato_preferencias', 'whatsapp_atendimento_conversas'], funcoes: [],
       referenciadas: ['clientes', 'empresas', 'usuarios_administrativos']}}),
+  '128': congelar({escopo: 'dados fora do disco: regras legadas da agenda (disponibilidade_config_legada) e bytes do PDF público (documentos_publicos.conteudo) no banco (aditiva; exige a 021)',
+    arquivos: [['precheck', 'database/checks/20261120_128_precheck.sql', 'c93295f01730b883b62ce39d7affcedd39b878887b80ea6999dd81e2fe10cf44'],
+      ['migration', 'database/migrations/20261120_128_dados_fora_do_disco.sql', '3c9b2825d063d67afce998baf5200ac19085000c27bc82156d39abb9007f0a5e'],
+      ['postcheck', 'database/checks/20261120_128_postcheck.sql', 'ca96b35c5c2b22c14d36952b303080b19c8ce2ce0959df6fd792324b78e79c42']],
+    // Sentinelas = o que o precheck da 128 usa para dizer "já presente": a tabela e a coluna conteudo.
+    criados: [tabela('disponibilidade_config_legada'), coluna('documentos_publicos', 'conteudo')],
+    // ADD COLUMN e ADD CONSTRAINT em documentos_publicos exigem a posse dela; a tabela nova não referencia ninguém.
+    privilegios: {criaNoSchema: true, alteradas: ['documentos_publicos'], funcoes: [], referenciadas: []}}),
 });
-/** Ordem do inventário (scripts/production/check-migrations.mjs, approvedFiles): 120, 121, 110, 111, 115, 123, 124, 125, 126, 127. */
-const IDS = Object.freeze(['120', '121', '110', '111', '115', '123', '124', '125', '126', '127']);
+/** Ordem do inventário (scripts/production/check-migrations.mjs, approvedFiles): 120, 121, 110, 111, 115, 123, 124, 125, 126, 127, 128. */
+const IDS = Object.freeze(['120', '121', '110', '111', '115', '123', '124', '125', '126', '127', '128']);
 const definicao = id => { assert.ok(typeof id === 'string' && Object.hasOwn(MIGRATIONS, id), 'MIGRATION_FORA_DA_LISTA'); return MIGRATIONS[id]; };
 const marcadorDe = id => `migration-${id}.json`;
 const curta = e => String(e?.message ?? e).replace(/postgres(?:ql)?:\/\/\S+/gi, '<url>').slice(0, 300);

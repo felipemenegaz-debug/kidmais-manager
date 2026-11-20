@@ -19,6 +19,7 @@ import sharp from 'sharp';
 import type { LogoOrdem, LogoPosicaoGravada } from './domain';
 import { disponivelConvites, encerrarGeracao, infoCreditosConvites, motorConvites, reservarGeracao } from '../creditos/convites.ts';
 import { flagsCreditos } from '../creditos/config.ts';
+import { abrirGeracao, MENSAGEM_DESLIGANDO } from './desligamento.ts';
 
 export type Acesso = ({ tipo: 'admin'; sessao: SessaoAdmin } & ({ festaId: string; conviteId?: never } | { conviteId: string; festaId?: never })) | { tipo: 'cliente'; token: string };
 type Convite = { id: string; empresa_id: string; festa_id: string | null; cliente_id: string | null; estabelecimento_id: string | null;
@@ -710,7 +711,17 @@ export async function concluirGeracaoComImagem(tx: DbExecutor, operadorId: strin
   return { concluida: true, estado: 'CONCLUIDA', liberouReserva: false, geracaoId: g.id, conviteId: g.convite_id, empresaId: g.empresa_id };
 }
 
-async function gerar(a: Acesso, i: Extract<ReturnType<typeof comandoSchema.parse>, { acao: 'gerar' }>, opcoes?: OpcoesInternas) {
+type ComandoGerar = Extract<ReturnType<typeof comandoSchema.parse>, { acao: 'gerar' }>;
+
+// Cada geração fica registrada neste processo do pedido até o fim (resposta, falha ou verificação). No desligamento
+// (deploy), gerações novas são recusadas antes de qualquer reserva e o processo espera as abertas (./desligamento).
+async function gerar(a: Acesso, i: ComandoGerar, opcoes?: OpcoesInternas) {
+  const encerrar = abrirGeracao();
+  exigir(encerrar, MENSAGEM_DESLIGANDO, 503);
+  try { return await gerarNoProcesso(a, i, opcoes); } finally { encerrar(); }
+}
+
+async function gerarNoProcesso(a: Acesso, i: ComandoGerar, opcoes?: OpcoesInternas) {
   exigir(iaConfigurada(), 'A geração com IA ainda não foi habilitada pelo buffet.', 503);
   const provedor = provedorAtual();
   exigir(provedor, 'A geração com IA ainda não foi habilitada pelo buffet.', 503);
