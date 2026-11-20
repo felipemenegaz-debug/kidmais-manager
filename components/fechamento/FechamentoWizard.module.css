@@ -1288,12 +1288,17 @@
 }
 .publico :is(.packageCard,.choiceCard,.additionalCard,.birthdayCard,.paymentCard,.summaryCard,.maskedContact,
   .packageDetails,.identificationPanel,.contractNotice,.consultPanel,.priceReference,.guestChip,.guestEditor,
-  .successSummary,.infoBox,.existingClientHeader,.updateDecision,.additionalItemAberto,.escolhasAdicional,
+  .infoBox,.existingClientHeader,.updateDecision,.additionalItemAberto,.escolhasAdicional,
   .buffetDecisionCard,.buffetSummaryBox,.valueCards > div) {
   border-color: var(--border);
   background: var(--ia-elevado);
   color: var(--ink);
   box-shadow: none;
+}
+.publico .successSummary > div {
+  background: color-mix(in srgb, var(--ia-elevado) 70%, transparent);
+  border: 1px solid var(--border);
+  color: var(--ink);
 }
 .publico :is(.choiceSelected,.packageSelected,.paymentSelected,.additionalSelected,.birthdaySelected,.buffetDecisionSelected) {
   border-color: var(--lilac);
