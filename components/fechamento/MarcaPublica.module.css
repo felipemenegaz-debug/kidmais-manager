@@ -23,3 +23,7 @@
   font-size: 11px;
   line-height: 1.2;
 }
+
+.comLogo { display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: center; column-gap: 12px; }
+.logo { grid-column: 1; grid-row: 1 / span 2; width: 48px; height: 48px; border-radius: 10px; object-fit: contain; }
+.comLogo :is(.nome,.subtitulo) { grid-column: 2; }

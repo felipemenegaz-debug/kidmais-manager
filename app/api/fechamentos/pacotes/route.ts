@@ -32,6 +32,9 @@ export async function GET(request: NextRequest) {
   }
   const data = request.nextUrl.searchParams.get("data");
   if (data !== null && !dataIsoValida(data)) return NextResponse.json({ erro: "Data inválida" }, { status: 400 });
+  const configuracao = request.nextUrl.searchParams.get("configuracaoId");
+  if (configuracao !== null && !/^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/i.test(configuracao))
+    return NextResponse.json({ erro: "Período inválido." }, { status: 400 });
   try {
     const escopo = await escopoCotacaoPublica(db, codigoEmpresaDoPedido(request.nextUrl));
     const doSalao = salao ? new Set(await pacotesElegiveisDoSalao(db(), escopo.empresaId, salao.toLowerCase())) : null;
@@ -39,10 +42,12 @@ export async function GET(request: NextRequest) {
     // "A partir de" e catálogo efetivo do endereço (endereço atual: os sete V1; /b/<código>: todos os contratáveis da
     // empresa): os mesmos da faixa do salão combinado (E2b, lib/comercial/oferta-publica).
     const precos = await precosPublicosDeHoje(db(), escopo.empresaId);
-    const ofertas = data ? await ofertasDoIntervalo(db(), escopo.empresaId, !enderecoDaEmpresa, data, data) : null;
+    const ofertas = data ? await ofertasDoIntervalo(db(), escopo.empresaId, !enderecoDaEmpresa, data, data, undefined, false, configuracao ?? undefined, convidados ?? undefined) : null;
     const pacotes = [];
-    for (const pacote of await pacotesDaOfertaPublica(db(), escopo.empresaId, enderecoDaEmpresa)) {
+    for (const pacote of await pacotesDaOfertaPublica(db(), escopo.empresaId, enderecoDaEmpresa, Boolean(data))) {
+      const oferta = ofertas?.find(o => o.codigo === pacote.codigo);
       pacotes.push({
+        ...(configuracao && oferta ? { precoData: oferta.precoData, precoNoMinimo: oferta.precoNoMinimo ?? null } : {}),
         codigo: pacote.codigo, nome: pacote.nome, descricao: pacote.descricao,
         duracaoMinutos: pacote.duracaoMinutos, convidadosMinimos: pacote.convidadosMinimos,
         convidadosMaximos: pacote.convidadosMaximos,
@@ -50,7 +55,7 @@ export async function GET(request: NextRequest) {
         ...(convidados ? { comporta: pacoteComporta(pacote, convidados) } : {}),
         ...(doSalao ? { noSalao: doSalao.has(pacote.id) } : {}),
         // Com data, ambos os endereços recebem as regras comerciais do intervalo.
-        ...(ofertas ? { disponibilidade: ofertas.find(o => o.codigo === pacote.codigo)?.disponibilidade ?? [] } : enderecoDaEmpresa ? { disponibilidade: await lerRegrasDisponibilidadePacote(db(), pacote.id) } : {}),
+        ...(ofertas ? { disponibilidade: oferta?.disponibilidade ?? [] } : enderecoDaEmpresa ? { disponibilidade: await lerRegrasDisponibilidadePacote(db(), pacote.id) } : {}),
       });
     }
     // Regras de pagamento da empresa do endereço (077); null = antes da 077 (a tela usa o legado, como o servidor).

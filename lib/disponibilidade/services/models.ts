@@ -18,6 +18,7 @@ export type HorarioCandidatoPublico = {
 
 export type PeriodoDisponibilidadePublica = {
   motivoComercial?: string;
+  minimoFaturavel?: number;
   avisoMinimoFaturavel?: string;
   configuracaoId: string;
   codigo: string;

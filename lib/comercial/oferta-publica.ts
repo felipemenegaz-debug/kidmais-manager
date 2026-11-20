@@ -10,8 +10,15 @@ import type { PacoteRecord } from "./repositories/models.ts";
  *   * /b/<código>: todos os pacotes contratáveis da empresa (vigentes, ativos, não arquivados), na ordem da tela de Pacotes;
  *   * endereço atual (dona da agenda pública): os sete V1, na ordem do catálogo.
  */
-export async function pacotesDaOfertaPublica(db: DbExecutor, empresaId: string, enderecoDaEmpresa: boolean): Promise<PacoteRecord[]> {
+export async function pacotesDaOfertaPublica(db: DbExecutor, empresaId: string, enderecoDaEmpresa: boolean, emLote = false): Promise<PacoteRecord[]> {
   if (enderecoDaEmpresa) return listarPacotesContrataveisDaEmpresa(empresaId, db);
+  if (emLote) {
+    const vigentes = await listarPacotesContrataveisDaEmpresa(empresaId, db);
+    return PACOTES_CONTRATAVEIS_V1.flatMap(({ codigo }) => {
+      const encontrados = vigentes.filter(p => p.codigo === codigo);
+      return encontrados.length === 1 ? encontrados : [];
+    });
+  }
   const lista: PacoteRecord[] = [];
   for (const { codigo } of PACOTES_CONTRATAVEIS_V1) {
     const pacote = await buscarPacoteVigenteDaEmpresaPorCodigo(empresaId, codigo, db);

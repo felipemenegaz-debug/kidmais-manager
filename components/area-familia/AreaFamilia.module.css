@@ -3,9 +3,9 @@
    comportamento e seletores dos testes continuam os mesmos. Nada aqui depende do ancestral .site do site de venda. */
 .page {
   color-scheme: dark;
-  --bg: #030712; --surface: #0a1430; --line: #9ec5ff1c; --line-2: #9ec5ff33;
-  --text: #eef3ff; --muted: #9aa8c7; --dim: #a4b1ca; --sky: #7dd3fc;
-  --lilac: #b990ff; --lilac-ink: #170f22; --mint: #80f5c4; --mint-ink: #062419; --amber: #ffc56b;
+  --bg: var(--ia-fundo); --surface: var(--ia-painel); --line: var(--ia-linha); --line-2: var(--ia-divisor);
+  --text: var(--ia-texto); --muted: var(--ia-secundario); --dim: var(--ia-suave); --sky: var(--ia-ceu);
+  --lilac: var(--ia-lilas); --lilac-ink: var(--ia-tinta); --mint: var(--ia-menta); --mint-ink: var(--ia-tinta-menta); --amber: var(--ia-ambar);
   --display: var(--font-site-display), "Bricolage Grotesque", "Segoe UI", system-ui, sans-serif;
   --body: var(--font-site-body), "Figtree", "Segoe UI", system-ui, sans-serif;
   /* Pai do fundo animado: a camada (z-index -1) fica atrás do conteúdo e dentro da área. */

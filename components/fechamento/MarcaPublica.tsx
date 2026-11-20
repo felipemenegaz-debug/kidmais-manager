@@ -19,12 +19,15 @@ export function useMarcaPublica() {
   return useMemo(() => textosMarca(marca), [marca]);
 }
 
-/** Cabeçalho do cliente: logo Kidmais no endereço atual; nome da empresa, sem logo, nos demais. */
-export function MarcaPublicaCabecalho({ subtitle }: { subtitle?: string }) {
+/** Cabeçalho do cliente: logo Kidmais no endereço atual; nome da empresa e logo quando disponível nos demais. */
+export function MarcaPublicaCabecalho({ subtitle, logo }: { subtitle?: string; logo?: string | null }) {
   const marca = useMarcaPublica();
   if (marca.kidmais) return <KidmaisBrand context="customer" subtitle={subtitle} />;
   return (
-    <div className={styles.marca} aria-label={marca.nome}>
+    <div className={logo ? styles.comLogo : styles.marca} aria-label={marca.nome}>
+      {/* O perfil fornece a imagem como data URL, tal como no cabeçalho da família. */}
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      {logo && <img className={styles.logo} src={logo} alt="" />}
       <strong className={styles.nome}>{marca.nome}</strong>
       {subtitle ? <span className={styles.subtitulo}>{subtitle}</span> : null}
     </div>

@@ -21,7 +21,8 @@ export type CriarFechamentoComercialInput = {
   adicionais?: AdicionalSelecionadoInput[];
 
   /** Valor efetivamente proposto pelo cliente/atendimento. */
-  valorProposto: number;
+  valorProposto?: number;
+  totalExibidoCentavos?: number;
 
   origemFechamento: OrigemFechamento;
   clienteId?: string | null;

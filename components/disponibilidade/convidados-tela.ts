@@ -5,7 +5,20 @@
 import type { CapacidadeConvidadosPublica, DisponibilidadeDataPublica } from "../../lib/disponibilidade/services/models.ts";
 import type { ContatoPublico } from "../../lib/fechamentos/marca-publica.ts";
 
-export type EstadoDia = "NEUTRO" | "DISPONIVEL" | "PARCIAL" | "INDISPONIVEL" | "SEM_SALAO" | "SEM_PACOTE";
+export type EstadoDia = "NEUTRO" | "MINIMO" | "DISPONIVEL" | "PARCIAL" | "INDISPONIVEL" | "SEM_SALAO" | "SEM_PACOTE";
+
+/** Menor cobrança possível no dia, somente quando todo período vendável exige mínimo. */
+export function minimoDoDia(dia?: DisponibilidadeDataPublica) {
+  const livres = dia?.periodos.filter(p => p.status === "DISPONIVEL") ?? [];
+  if (!livres.length || livres.some(p => p.minimoFaturavel == null)) return null;
+  return Math.min(...livres.map(p => p.minimoFaturavel!));
+}
+
+export function legendaMinimo(dias: DisponibilidadeDataPublica[], convidados: number | null) {
+  const minimos = new Set(dias.map(minimoDoDia).filter(n => n !== null));
+  if (!minimos.size || !convidados) return null;
+  return minimos.size === 1 ? `Mínimo de ${[...minimos][0]} convidados` : `Cobrança mínima acima de ${convidados} convidados`;
+}
 
 /** Dia do calendário: sem salão para N (motivo CAPACIDADE) tem estado próprio, diferente de ocupado. */
 export function estadoDoDia(info: DisponibilidadeDataPublica | undefined): EstadoDia {
@@ -13,6 +26,7 @@ export function estadoDoDia(info: DisponibilidadeDataPublica | undefined): Estad
   const disponiveis = info.periodos.filter((p) => p.status === "DISPONIVEL").length;
   if (disponiveis === 0 && info.periodos.some(p => p.motivoComercial)) return "SEM_PACOTE";
   if (disponiveis === 0) return info.motivoDia?.motivo === "CAPACIDADE" ? "SEM_SALAO" : "INDISPONIVEL";
+  if (minimoDoDia(info) !== null) return "MINIMO";
   return disponiveis < info.periodos.length ? "PARCIAL" : "DISPONIVEL";
 }
 
@@ -28,10 +42,10 @@ export function textoCapacidade(capacidade: CapacidadeConvidadosPublica | undefi
  * Datas próximas com espaço: até `limite` dias já carregados (mês na tela), a partir de hoje, com algum período
  * disponível, do mais perto ao mais longe da data escolhida. Sem consulta extra.
  */
-export function datasProximas(porData: Record<string, DisponibilidadeDataPublica>, selecionada: string, hoje: string, limite = 3, periodos?: readonly string[]) {
+export function datasProximas(porData: Record<string, DisponibilidadeDataPublica>, selecionada: string, hoje: string, limite = 3, periodos?: readonly string[], semMinimo = false) {
   const alvo = Date.parse(`${selecionada}T12:00:00Z`);
   return Object.values(porData)
-    .filter((d) => d.data >= hoje && d.data !== selecionada && d.periodos.some((p) => p.status === "DISPONIVEL" && (!periodos || periodos.includes(p.codigo))))
+    .filter((d) => d.data >= hoje && d.data !== selecionada && d.periodos.some((p) => p.status === "DISPONIVEL" && (!semMinimo || p.minimoFaturavel == null) && (!periodos || periodos.includes(p.codigo))))
     .map((d) => ({ data: d.data, distancia: Math.abs(Date.parse(`${d.data}T12:00:00Z`) - alvo) }))
     .sort((a, b) => a.distancia - b.distancia || a.data.localeCompare(b.data))
     .slice(0, limite)

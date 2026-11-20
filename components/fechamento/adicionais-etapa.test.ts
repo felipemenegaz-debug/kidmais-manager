@@ -19,9 +19,9 @@ test("só categorias com adicionais viram seção: nada de título vazio", () =>
   assert.deepEqual(agruparPorCategoria([]), []);
 });
 
-test("etapa 4: em erro/carregando não aparecem títulos, totais nem campos de personalização; há 'Tentar novamente'", () => {
+test("Extras: em erro/carregando não aparecem títulos, totais nem campos de personalização; há 'Tentar novamente'", () => {
   const tela = readFileSync("components/fechamento/FechamentoWizard.tsx", "utf8").replace(/\r\n/g, "\n");
-  const inicio = tela.indexOf('titulo="Quer adicionar algo à festa?"');
+  const inicio = tela.indexOf('{etapa === 4 && (');
   const fim = tela.indexOf("{etapa === 5 && (", inicio);
   const etapa = tela.slice(inicio, fim);
   const blocoOk = etapa.indexOf('{adicionaisEstado === "ok" && (');
@@ -32,7 +32,7 @@ test("etapa 4: em erro/carregando não aparecem títulos, totais nem campos de p
   assert.match(etapa.slice(0, blocoOk), /Tentar novamente/);
   assert.match(etapa, /role="checkbox"/);
   assert.match(etapa, /aria-checked=\{selected\}/);
-  assert.match(tela, /etapa === 4 && adicionaisEstado !== 'ok'/, "não avança sem adicionais consultados");
+  assert.match(tela, /\(etapa === 4 \|\| \(!origemInterna && etapa === 8\)\) && adicionaisEstado !== 'ok'/, "não avança sem adicionais consultados");
 });
 
 test("unidade de cobrança: rótulo, quantidade e total iguais ao cálculo do servidor", async () => {

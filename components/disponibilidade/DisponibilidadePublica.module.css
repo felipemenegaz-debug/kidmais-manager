@@ -1,24 +1,24 @@
 .page {
-  --text: #eef3ff;
-  --muted: #b3bfd8;
-  --line: #9ec5ff40;
-  --surface: #0f1d40;
-  --lilac: #b990ff;
-  --mint: #80f5c4;
-  --sky: #7dd3fc;
-  --amber: #ffc56b;
-  --rose: #ffb5bd;
+  --text: var(--ia-texto);
+  --muted: var(--ia-auxiliar);
+  --line: var(--ia-borda);
+  --surface: var(--ia-elevado);
+  --lilac: var(--ia-lilas);
+  --mint: var(--ia-menta);
+  --sky: var(--ia-ceu);
+  --amber: var(--ia-ambar);
+  --rose: var(--ia-rosa);
   --pacotes-borda: var(--line);
   --pacotes-fundo: #111a33;
   --pacotes-texto: var(--muted);
   --pacotes-link: var(--sky);
   --pacotes-acao: var(--lilac);
-  --pacotes-acao-texto: #170f22;
+  --pacotes-acao-texto: var(--ia-tinta);
   min-height: 100vh;
   position: relative;
   isolation: isolate;
   color-scheme: dark;
-  background: radial-gradient(ellipse at 75% 0%, #102454, transparent 65%), #030712;
+  background: var(--ia-fundo-agenda);
   color: var(--text);
   font-family: var(--font-site-body), "Segoe UI", sans-serif;
 }
@@ -192,6 +192,8 @@
 .day:not(:disabled):hover { transform: translateY(-2px); box-shadow: 0 8px 18px rgba(33, 54, 99, .08); }
 .day strong { font-size: 14px; }
 .day small { align-self: flex-end; font-size: 16px; font-weight: 900; }
+.minimumSymbol { color: var(--ia-lilas); }
+.dayMinimum { background: #322447; color: var(--ia-lilas); }
 .dayAvailable { background: #173934; }
 .dayPartial { background: #45331e; color: var(--amber); }
 .dayUnavailable { background: #3f2334; color: var(--rose); }

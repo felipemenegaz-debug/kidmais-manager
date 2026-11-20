@@ -11,7 +11,7 @@ const { renderToStaticMarkup } = require('react-dom/server');
 const source = readFileSync(new URL('./PacotesPdf.tsx', import.meta.url), 'utf8');
 
 // Executa o componente real com transporte e ciclo de efeito controlados, sem HTTP/banco.
-async function montar(status: number | Error, desmontar = false) {
+async function montar(status: number | Error, desmontar = false, mostrarDownload = true) {
   let state = false;
   let effect: () => (() => void);
   const calls: Array<{ url: string; options: RequestInit }> = [];
@@ -33,7 +33,7 @@ async function montar(status: number | Error, desmontar = false) {
       return { ok: status >= 200 && status < 300 };
     },
   });
-  const render = () => renderToStaticMarkup(React.createElement(compiledModule.exports.default));
+  const render = () => renderToStaticMarkup(React.createElement(compiledModule.exports.default, { mostrarDownload }));
   assert.equal(render(), '', 'Não deve oferecer link antes da confirmação de publicação');
   const cleanup = effect!();
   if (desmontar) cleanup();
@@ -60,6 +60,12 @@ test('PDF publicado: visualizar em nova aba sem download forçado; download sepa
   assert.match(links[1], /download="pacotes-e-precos.pdf"/);
   assert.match(html, /Ver pacotes e preços/);
   assert.match(html, /Baixar PDF/);
+});
+
+test('assistente público oferece um único acesso ao PDF', async () => {
+  const html = await montar(204, false, false);
+  assert.equal((html.match(/<a\b/g) ?? []).length, 1);
+  assert.match(html, /Ver pacotes e preços/);
 });
 
 for (const status of [404, 503, new Error('offline')]) {
