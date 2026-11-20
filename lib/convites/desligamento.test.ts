@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { abrirGeracao, desligando, DRENAGEM_RESPOSTA_MS, esperarGeracoes, geracoesAbertas, instalarDesligamento, PRAZO_DESLIGAMENTO_MS } from "./desligamento.ts";
+import { readFileSync } from "node:fs";
+import { abrirGeracao, desligando, identificarProcesso, DRENAGEM_RESPOSTA_MS, esperarGeracoes, geracoesAbertas, instalarDesligamento, PRAZO_DESLIGAMENTO_MS } from "./desligamento.ts";
 import { LIMITE_PROVEDOR_SEGUNDOS } from "./progresso-geracao.ts";
 
 /**
@@ -54,7 +55,7 @@ test("handler só com NEXT_MANUAL_SIG_HANDLE; ouvinte permanente; SIGTERM espera
   zerar();
   const ouvintes = new Map<string, () => void>();
   const saidas: number[] = [];
-  const processo = { on: (s: string, f: () => void) => { ouvintes.set(s, f); return processo; }, exit: (c?: number) => { saidas.push(c ?? 0); } };
+  const processo = { pid: 4242, ppid: 7, on: (s: string, f: () => void) => { ouvintes.set(s, f); return processo; }, exit: (c?: number) => { saidas.push(c ?? 0); } };
   assert.equal(instalarDesligamento({}, processo as never, 50, () => undefined), false);
   assert.equal(ouvintes.size, 0, "sem a variável o Next cuida do sinal");
 
@@ -72,7 +73,7 @@ test("handler só com NEXT_MANUAL_SIG_HANDLE; ouvinte permanente; SIGTERM espera
   assert.deepEqual(saidas, [], "drenagem: a resposta ainda está sendo enviada");
   await new Promise((r) => setTimeout(r, 80));
   assert.deepEqual(saidas, [143]);
-  assert.match(linhas[0], /SIGTERM: recusando gerações novas; 1 em curso/);
+  assert.ok(linhas[0].includes("SIGTERM recebido (pid=4242 ppid=7): recusando gerações novas; 1 em curso"), linhas[0]);
   assert.ok(linhas.some((l) => /repetido; a espera continua/.test(l)));
   assert.match(linhas.at(-1)!, /terminaram; encerrando em/);
   zerar();
@@ -90,4 +91,13 @@ test("prazo vencido: sai na hora, sem drenagem", async () => {
   assert.deepEqual(saidas, [130]);
   presa();
   zerar();
+});
+
+test("identificação do processo no log; staging inicia o next sem npm/sh no meio, para o SIGTERM chegar a ele", () => {
+  assert.equal(identificarProcesso({ pid: 10, ppid: 1 }), "pid=10 ppid=1");
+  assert.equal(identificarProcesso({}), "pid=? ppid=?");
+  const yaml = readFileSync(new URL("../../render.yaml", import.meta.url), "utf8");
+  assert.ok(yaml.includes("startCommand: node scripts/init-staging-data.cjs && exec node_modules/.bin/next start\n"));
+  const staging = yaml.split("name: kidmais-manager-staging")[1].split("  - type:")[0];
+  assert.doesNotMatch(staging, /startCommand:.*npm start/, "npm start põe um sh entre o sinal e o next");
 });
