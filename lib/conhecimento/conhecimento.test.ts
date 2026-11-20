@@ -247,11 +247,12 @@ test("endereço da mídia não pontua na busca; a descrição pontua", () => {
   assert.equal(buscar(corpus, leitorA, HOJE, "calendário colorido", 5)[0]?.doc.id, "midia");
 });
 
-test("corpus fora de data/ e de qualquer disco do Render (staging e produção montam disco em src/data)", () => {
+test("corpus fora de data/ e de qualquer disco do Render (production ainda monta disco em src/data, fora do render.yaml)", () => {
   const raiz = join(import.meta.dirname, "..", "..");
   // O Render monta o disco em /opt/render/project/src/<mountPath relativo>; tudo sob ele some no deploy.
   const montagens = [...readFileSync(join(raiz, "render.yaml"), "utf8").matchAll(/mountPath:\s*\/opt\/render\/project\/src\/(\S+)/g)].map((m) => m[1].replace(/\/+$/, ""));
-  assert.ok(montagens.includes("data"), "controle positivo: o render.yaml declara o disco em src/data");
+  // Staging saiu do disco em 20/11/2026 (migration 128); production ainda o monta em src/data pelo painel. Por isso "data"
+  // entra sempre na lista abaixo, declarado ou não no render.yaml.
   for (const m of [...montagens, "data"]) {
     assert.ok(PASTA_CORPUS !== m && !PASTA_CORPUS.startsWith(m + "/"), `corpus (${PASTA_CORPUS}) não pode ficar sob ${m}/`);
   }

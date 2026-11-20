@@ -12,10 +12,10 @@ services:
     startCommand: node scripts/init-staging-data.cjs && npm start
     healthCheckPath: /api/health
     numInstances: 1
-    disk:
-      name: kidmais-manager-staging-data
-      mountPath: /opt/render/project/src/data
-      sizeGB: 1
+    # Sem disco desde 20/11/2026 (migration 128: regras legadas da agenda e PDFs públicos no banco; disco removido no painel).
+    # Com disco o Render limita a carência a 30 s; 150 s deixa a geração de convite em curso terminar no deploy
+    # (lib/convites/desligamento.ts, ligado por NEXT_MANUAL_SIG_HANDLE). Não recolocar `disk:` sem rever as duas coisas.
+    maxShutdownDelaySeconds: 150
     envVars:
       - key: NODE_VERSION
         value: 22.23.2
@@ -23,6 +23,8 @@ services:
         value: production
       - key: NEXT_TELEMETRY_DISABLED
         value: "1"
+      - key: NEXT_MANUAL_SIG_HANDLE
+        value: "true"
       - key: FESTA_ENABLED
         value: "true"
       - key: DATABASE_SSL
