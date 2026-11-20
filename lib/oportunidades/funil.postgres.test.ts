@@ -47,7 +47,8 @@ for (const caso of ['contato recorrente','conversão sem responsável','convers�
     // O caminho antigo de descarte também permite o retorno sem vínculo.
     const outro=await novo();
     const contatos=carregar<{executarAcaoContato(tx:unknown,e:string,u:string,v:unknown):Promise<unknown>}>('lib/marketing/contatos.ts');
-    await contatos.executarAcaoContato(tx,e,a.usuario,{acao:'status',id:outro,status:'DESCARTADO',perda:{motivo:'Outro'}});
+    await assert.rejects(contatos.executarAcaoContato(tx,e,a.usuario,{acao:'status',id:outro,status:'DESCARTADO',perda:{motivo:'Outro',observacao:'   '}}));
+    await contatos.executarAcaoContato(tx,e,a.usuario,{acao:'status',id:outro,status:'DESCARTADO',perda:{motivo:'Outro',observacao:'Motivo sintético do teste'}});
     const retorno=await novo(),proxima=(await ok({acao:'agendar',alvo:{tipo:'CONTATO',id:retorno},esperada:null,proxima:{tipo:'WhatsApp',data:hoje,responsavelId:b.usuario}})).id;
     const novaNegociacao=await fechamento(c,e,base,cli,{data:'2027-09-02'});
     const conversao=carregar<{herdarAcoesDoContato(tx:unknown,f:string):Promise<void>}>('lib/oportunidades/conversao.ts');
@@ -83,10 +84,10 @@ for (const caso of ['contato recorrente','conversão sem responsável','convers�
     await c.query("UPDATE fechamentos SET status='CONFIRMADO' WHERE id=$1",[f]);
     assert.equal((await ok(undefined,dono)).contadores.fechadas,1);assert.equal((await ok(undefined,outroDono)).contadores.fechadas,0);
     await c.query("UPDATE fechamentos SET status='RASCUNHO' WHERE id=$1",[f]);
-    await ok({acao:'perder',alvo:{tipo:'FECHAMENTO',id:f},esperada:acao,perda:{motivo:'Outro'}});
+    await ok({acao:'perder',alvo:{tipo:'FECHAMENTO',id:f},esperada:acao,perda:{motivo:'Outro',observacao:'Motivo sintético do teste'}});
     assert.equal((await ok(undefined,dono)).contadores.perdidas,1);assert.equal((await ok(undefined,outroDono)).contadores.perdidas,0);
    }
-   sessao=leitor.sessao;assert.equal((await ok()).podeEditar,false);assert.equal((await chamar({acao:'perder',alvo:{tipo:'CONTATO',id:k},esperada:null,perda:{motivo:'Outro'}})).status,403);
+   sessao=leitor.sessao;assert.equal((await ok()).podeEditar,false);assert.equal((await chamar({acao:'perder',alvo:{tipo:'CONTATO',id:k},esperada:null,perda:{motivo:'Outro',observacao:'Motivo sintético do teste'}})).status,403);
    await c.query('ROLLBACK');
   } finally {await encerrarDescartavel(c);}
  });
@@ -123,6 +124,7 @@ test('funil real: ciclo, isolamento A/B, perdas, histórico, relatórios e assin
   const seguinte=(await ok({acao:'concluir',alvo:{tipo:'CONTATO',id:ca},esperada:aa,proxima:{tipo:'WhatsApp',data:hoje,responsavelId:pa.usuario}})).id;
   const concluidas=(await c.query("SELECT count(*)::int AS n FROM oportunidades_acoes WHERE empresa_id=$1 AND resultado='FEITA'",[a])).rows[0].n;assert.equal(concluidas,1);
   assert.equal((await chamar({acao:'perder',alvo:{tipo:'CONTATO',id:ca},esperada:seguinte,perda:{motivo:''}})).status,400);
+  assert.equal((await chamar({acao:'perder',alvo:{tipo:'CONTATO',id:ca},esperada:seguinte,perda:{motivo:'Outro',observacao:'   '}})).status,400);
   await ok({acao:'perder',alvo:{tipo:'CONTATO',id:ca},esperada:seguinte,perda:{motivo:'Preço',observacao:'Dado sintético'}});
   assert.equal((await ok()).contadores.perdidas,1);
   const perdasA=await consultas.relatorioFunil(executor(c),a,hoje,hoje,null);assert.equal(perdasA.perdas[0].motivo,'Preço');assert.equal(perdasA.perdas[0].quantidade,1);
@@ -134,7 +136,7 @@ test('funil real: ciclo, isolamento A/B, perdas, histórico, relatórios e assin
   assert(enviados[0].texto.includes('Contato B sintético'));assert(!enviados[0].texto.includes('Contato A sintético'));
   assert.equal((await resumo.enviarResumosDiarios(deps)).enviados,0,'resumo é diário e idempotente');
   sessao=pb.sessao;const bDepois=await ok();assert.equal(bDepois.itens[0].proxima?.id,ab,'ação B preservada');assert.equal(bDepois.contadores.perdidas,0);
-  assert.equal((await chamar({acao:'perder',alvo:{tipo:'CONTATO',id:ca},esperada:null,perda:{motivo:'Outro'}})).status,404);
+  assert.equal((await chamar({acao:'perder',alvo:{tipo:'CONTATO',id:ca},esperada:null,perda:{motivo:'Outro',observacao:'Motivo sintético do teste'}})).status,404);
   await c.query('SAVEPOINT fk');
   await assert.rejects(c.query("INSERT INTO oportunidades_acoes(empresa_id,contato_id,responsavel_id,tipo,data,criada_por) VALUES($1,$2,$3,'Ligar',current_date,$3)",[b,ca,pb.usuario]),/fora da empresa/);await c.query('ROLLBACK TO SAVEPOINT fk');
   sessao=pa.sessao;
@@ -148,7 +150,7 @@ test('funil real: ciclo, isolamento A/B, perdas, histórico, relatórios e assin
   assert.equal((await ok()).contadores.fechadas,1);
   const rel=await consultas.relatorioFunil(executor(c),a,hoje,hoje,null);for(const l of rel.conversoes.slice(1)){assert.equal(l.base,1);assert.equal(l.convertidas,1);}
   const assinado=await fechamento(c,a,base,cli,{data:'2027-06-02',status:'AGUARDANDO_CONTRATO'});await contratoAssinado(c,assinado,4500,null);
-  assert.equal((await chamar({acao:'perder',alvo:{tipo:'FECHAMENTO',id:assinado},esperada:null,perda:{motivo:'Outro'}})).status,409,'assinatura real bloqueia mesmo com fechamento em estado antigo');
+  assert.equal((await chamar({acao:'perder',alvo:{tipo:'FECHAMENTO',id:assinado},esperada:null,perda:{motivo:'Outro',observacao:'Motivo sintético do teste'}})).status,409,'assinatura real bloqueia mesmo com fechamento em estado antigo');
   const n=(await c.query("SELECT count(*)::int AS n FROM eventos_historico_cliente WHERE cliente_id=(SELECT cliente_id FROM marketing_contatos WHERE id=$1) AND tipo_evento LIKE 'OPORTUNIDADE_%'",[ca])).rows[0].n;assert.equal(n,4,'2 mudanças + conclusão + perda');
   item=(await ok()).itens.find(i=>i.id===assinado)!;assert(item);
   const contatoTransferir=await novo('Contato que virou proposta');

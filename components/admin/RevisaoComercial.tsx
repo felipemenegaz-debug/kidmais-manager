@@ -1,13 +1,14 @@
 "use client";
 import { adminFetch } from "@/lib/http/admin-fetch";
 
-import { useEffect, useState } from "react";
+import { MOTIVOS_PERDA } from '@/lib/oportunidades/modelo';
+import { useEffect, useRef, useState } from "react";
 import type { AprovacaoNegociacaoRecord, FechamentoRecord } from "@/lib/fechamentos/repositories/models";
 import { calcularCondicaoComercial, centavosComerciais } from "@/lib/comercial/condicao-pagamento";
 import { formatarMoeda, formatarCondicaoPix, formatarFormaPagamento } from "@/lib/contratos/documento/formatters";
 import styles from "./RevisaoComercial.module.css";
 
-type Dados = { fechamento: FechamentoRecord; aprovacoes: AprovacaoNegociacaoRecord[] };
+type Dados = { recusa?: 'SEM_CONTRATO' | 'COM_PREPARACAO' | 'INDISPONIVEL'; fechamento: FechamentoRecord; aprovacoes: AprovacaoNegociacaoRecord[] };
 export default function RevisaoComercial({ fechamentoId }: { fechamentoId: string }) {
   const [dados, setDados] = useState<Dados | null>(null);
   const [erro, setErro] = useState("");
@@ -30,7 +31,46 @@ export default function RevisaoComercial({ fechamentoId }: { fechamentoId: strin
     }).catch((e) => { if (ativo) setErro(e.message); });
     return () => { ativo = false; };
   }, [url]);
+  const dialogo = useRef<HTMLDialogElement>(null);
+  const [motivoPerda, setMotivoPerda] = useState('');
+  const [observacao, setObservacao] = useState('');
+  const enviando = useRef(false);
+  async function atualizar() {
+    const r = await adminFetch(url, { cache: 'no-store' });
+    const body = await r.json();
+    if (!r.ok) throw new Error(body.erro);
+    setDados(body.data);
+  }
+  async function recusar() {
+    if (enviando.current || !motivoPerda || (motivoPerda === 'Outro' && !observacao.trim())) return;
+    enviando.current = true;
+    setOcupado(true);
+    setErro('');
+    try {
+      const r = await adminFetch(url.replace(/revisao$/, 'recusar'), {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ motivo: motivoPerda, observacao: observacao.trim() }),
+      });
+      const body = await r.json();
+      dialogo.current?.close();
+      if (!r.ok) {
+        if ([403, 409, 503].includes(r.status)) await atualizar();
+        throw new Error(body.erro);
+      }
+      setDados(null);
+      setContratoGerado(false);
+      setMensagem('Pedido recusado.');
+      await atualizar();
+    } catch (e) {
+      dialogo.current?.close();
+      setErro(e instanceof Error ? e.message : 'Falha ao recusar o pedido.');
+    } finally {
+      setOcupado(false);
+      enviando.current = false;
+    }
+  }
   const f = dados?.fechamento;
+  const podeRecusar = dados?.recusa === 'SEM_CONTRATO' || dados?.recusa === 'COM_PREPARACAO';
   const condicao = f?.condicaoPagamento;
   const pendente = dados?.aprovacoes.find((a) => a.status === "PENDENTE" && a.condicaoPagamento);
   let previa = null;
@@ -67,6 +107,7 @@ export default function RevisaoComercial({ fechamentoId }: { fechamentoId: strin
       const r = await adminFetch("/api/admin/contratos", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ fechamentoId }) });
       const body = await r.json(); if (!r.ok) throw new Error(body.erro);
       setContratoGerado(true);
+      await atualizar();
       setMensagem(`Contrato gerado com valor final de ${formatarMoeda(body.data.versao.snapshot.comercial.valorFinalContrato)}.`);
     } catch (e) { setErro(e instanceof Error ? e.message : "Falha ao gerar contrato."); }
     finally { setOcupado(false); }
@@ -112,7 +153,34 @@ export default function RevisaoComercial({ fechamentoId }: { fechamentoId: strin
       {condicao?.revisaoStatus === "APROVADA" && <section className={styles.card}>
         <h2>Condição aprovada pelo buffet</h2><p>{formatarCondicaoPix(condicao.aprovada)}</p>
       </section>}
-      {condicao && f.status === "AGUARDANDO_CONTRATO" && <button disabled={ocupado} onClick={gerarContrato}>Gerar contrato</button>}
+      {f.status === "AGUARDANDO_CONTRATO" && (condicao || podeRecusar) && <div className={styles.actions}>
+        {condicao && <button disabled={ocupado} onClick={gerarContrato}>Gerar contrato</button>}
+        {podeRecusar && <button className={styles.secundario} type="button" disabled={ocupado} onClick={() => {
+          setMotivoPerda(''); setObservacao(''); dialogo.current?.showModal();
+        }}>Recusar pedido</button>}
+      </div>}
+      {podeRecusar &&
+        <dialog ref={dialogo} className={styles.dialogo} aria-labelledby="titulo-recusa" onCancel={e => { if (ocupado) e.preventDefault(); }}>
+          <form onSubmit={e => { e.preventDefault(); void recusar(); }}>
+            <h2 id="titulo-recusa">Recusar pedido?</h2>
+            <p>A recusa é definitiva. O pedido sairá da fila de contratações.</p>
+            <p>{dados.recusa === 'COM_PREPARACAO'
+              ? 'O contrato em preparação será cancelado junto com o pedido.'
+              : 'Se um contrato entrar em preparação antes da confirmação, ele também poderá ser cancelado.'}</p>
+            <label>Motivo da perda<select required value={motivoPerda} disabled={ocupado} onChange={e => setMotivoPerda(e.target.value)}>
+              <option value="">Selecione o motivo</option>
+              {MOTIVOS_PERDA.map(m => <option key={m}>{m}</option>)}
+            </select></label>
+            <label>{motivoPerda === 'Outro' ? 'Explique o motivo' : 'Observação (opcional)'}
+              <textarea maxLength={1000} required={motivoPerda === 'Outro'} value={observacao} disabled={ocupado} onChange={e => setObservacao(e.target.value)} />
+            </label>
+            <div className={styles.actions}>
+              <button type="button" disabled={ocupado} onClick={() => dialogo.current?.close()}>Voltar</button>
+              <button disabled={ocupado || !motivoPerda || (motivoPerda === 'Outro' && !observacao.trim())}>Confirmar recusa</button>
+            </div>
+          </form>
+        </dialog>}
+      {dados.recusa === 'INDISPONIVEL' && <p>Recusa temporariamente indisponível.</p>}
       {!condicao && <p>Registro anterior ao novo fluxo. Esta revisão não altera condições legadas.</p>}
     </>}
   </main>;

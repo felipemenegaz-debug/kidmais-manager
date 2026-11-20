@@ -261,9 +261,11 @@ export default function ContratoAdmin() {
         const escolha=window.prompt('Motivo da perda (digite o número):\n'+MOTIVOS_PERDA.map((m,i)=>`${i+1}. ${m}`).join('\n'));
         const perdaMotivo=MOTIVOS_PERDA[Number(escolha)-1];
         if(!perdaMotivo)return;
-        const observacao=window.prompt('Observação (opcional). O histórico e os documentos serão preservados.');
+        const observacao=window.prompt(perdaMotivo === 'Outro' ? 'Explique o motivo da perda (obrigatório).' : 'Observação (opcional). O histórico e os documentos serão preservados.');
         if(observacao===null)return;
-        const motivo=observacao.trim()||perdaMotivo;
+        if(perdaMotivo==='Outro' && !observacao.trim()){window.alert('Explique o motivo Outro.');return;}
+        if(observacao.trim().length>1000){window.alert('Use até 1.000 caracteres na observação.');return;}
+        const motivo=observacao.trim().length >= 3 && observacao.trim().length <= 500 ? observacao.trim() : perdaMotivo;
         if(!window.confirm(`Cancelar a contratação de ${v.snapshot.contratante.nomeCompleto}? A festa sairá das listas ativas.`))return;
         if(await action({acao:'cancelar_contratacao',motivo:motivo.trim(),perda:{motivo:perdaMotivo,observacao:observacao.trim()}})){
             if(enderecoFinal())return;
