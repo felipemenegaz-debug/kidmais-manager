@@ -361,7 +361,7 @@ export default function FechamentoWizard({ empresa = null, logo = null }: { empr
   const ultimaRecusa = useRef<string | null>(null);
 
   const configuracaoCartao = preselecaoDisponibilidade && !origemInterna ? form.configuracaoId : "";
-  const chaveCatalogo = JSON.stringify([empresa, salaoPreferido?.id, configuracaoCartao, preselecaoDisponibilidade ? form.dataFesta : null]);
+  const chaveCatalogo = JSON.stringify([empresa, form.convidadosPagantes, salaoPreferido?.id, configuracaoCartao, preselecaoDisponibilidade ? form.dataFesta : null]);
   const [catalogoCarregado, setCatalogoCarregado] = useState<{ chave: string; fatos: FatosPacote } | null>(null);
   const fatosPacote = catalogoCarregado?.chave === chaveCatalogo ? catalogoCarregado.fatos : null;
   // Falha da lista de pacotes: no endereço atual o catálogo continua; em outra empresa a etapa mostra o erro.
@@ -370,6 +370,7 @@ export default function FechamentoWizard({ empresa = null, logo = null }: { empr
   useEffect(() => {
     const controller = new AbortController();
     const parametros = new URLSearchParams();
+    if (Number(form.convidadosPagantes) > 0) parametros.set("convidados", String(form.convidadosPagantes));
     if (configuracaoCartao) parametros.set("configuracaoId", configuracaoCartao);
     if (salaoPreferido) parametros.set("salao", salaoPreferido.id);
     if (preselecaoDisponibilidade && form.dataFesta) parametros.set("data", form.dataFesta);
@@ -385,7 +386,7 @@ export default function FechamentoWizard({ empresa = null, logo = null }: { empr
       })
       .catch(() => { if (!controller.signal.aborted) setFalhaPacotes(true); });
     return () => controller.abort();
-  }, [empresa, tentativaPacotes, salaoPreferido, form.dataFesta, preselecaoDisponibilidade, chaveCatalogo, configuracaoCartao]);
+  }, [empresa, tentativaPacotes, salaoPreferido, form.dataFesta, preselecaoDisponibilidade, chaveCatalogo, configuracaoCartao, form.convidadosPagantes]);
   const pacotesDaEtapa = pacotesExibidos(marca.kidmais, PACOTES_FECHAMENTO_V1, fatosPacote);
   const codigoPacote = codigoServidorDoPacoteDaMarca(marca.kidmais, form.pacote);
   const fato = codigoPacote ? fatosPacote?.[codigoPacote] : undefined;

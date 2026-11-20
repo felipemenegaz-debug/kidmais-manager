@@ -21,11 +21,12 @@ export function codigoServidorDoPacoteDaMarca(kidmais: boolean, id: string): str
  * O que /api/fechamentos/pacotes devolve por pacote vigente da empresa do endereço.
  * `disponibilidade`: dias e períodos publicados pela empresa. No endereço Kidmais vêm com a consulta por data.
  */
-export type FatoPacote = { precoNoMinimo?: number | null; nome: string; descricao: string | null; duracaoMinutos: number | null; convidadosMinimos: number | null; convidadosMaximos: number | null; precoMinimo: string | null; disponibilidade?: RegraPacoteEmpresa[]; comporta?: boolean; noSalao?: boolean };
+type PrecoData = { base: number; liquido: number; percentual: number; faturados: number };
+export type FatoPacote = { precoData?: PrecoData | null; precoNoMinimo?: number | null; nome: string; descricao: string | null; duracaoMinutos: number | null; convidadosMinimos: number | null; convidadosMaximos: number | null; precoMinimo: string | null; disponibilidade?: RegraPacoteEmpresa[]; comporta?: boolean; noSalao?: boolean };
 export type FatosPacote = Record<string, FatoPacote>;
 
 /** Cartão da etapa “Escolha o pacote”. `disponibilidade`/`destaque` nulos = não exibidos. */
-export type PacoteExibido = { cobrancaMinima?: { convidados: number; preco: number | null }; id: PacoteId; nome: string; preco: number | null; descricao: string; disponibilidade: string | null; destaque: string | null };
+export type PacoteExibido = { precoData?: PrecoData | null; cobrancaMinima?: { convidados: number; preco: number | null }; id: PacoteId; nome: string; preco: number | null; descricao: string; disponibilidade: string | null; destaque: string | null };
 
 /** Pacote escolhido; `limiteCadastrado` falso = a empresa não informou o máximo de convidados. */
 export type PacoteDaTela = Pacote & { limiteCadastrado: boolean };
@@ -34,9 +35,10 @@ export type PacoteDaTela = Pacote & { limiteCadastrado: boolean };
 const MAXIMO_SEM_CADASTRO = LIMITE_CONVIDADOS_PEDIDO_ONLINE;
 
 function cobrancaPublicada(fato?: FatoPacote) {
-    return fato?.convidadosMinimos && fato.precoNoMinimo !== undefined
+    const minimo = fato?.convidadosMinimos && fato.precoNoMinimo !== undefined
         ? { cobrancaMinima: { convidados: fato.convidadosMinimos, preco: fato.precoNoMinimo } }
         : {};
+    return fato?.precoData === undefined ? minimo : { ...minimo, precoData: fato.precoData };
 }
 
 function precoDe(fato: FatoPacote) {
