@@ -1189,6 +1189,8 @@ function cuidadosAfastaveis(ent: Entendimento): Intencao[] {
 const DUVIDA_GERAL_ATRASO = /\b(?:se|caso|e se|quando|o que acontece|acontece o que)\b/;
 /** Rodada 34: pedido ou aviso sobre o PRÓPRIO pagamento (vai à equipe). */
 const PAGAMENTO_PESSOAL = /\b(?:me (?:manda|mande|envia|envie|passa|passe|gera|gere)|segunda via|boleto novo|outro boleto|novo boleto|(?:ja )?paguei|pagamos|pix|chave|comprovante|como (?:eu )?(?:pago|faco pra pagar)|onde (?:eu )?pago|(?:meu|minha|o meu|a minha) (?:boleto|parcela|pagamento|mensalidade)\b[^.?!]{0,25}\b(?:venceu|vencid\w*|atrasad\w*|vence (?:hoje|amanha))|(?:venceu|vencid\w*) (?:ontem|hoje|semana passada|mes passado|faz)|nao consegui pagar|nao paguei|vou atrasar|ja atrasei|(?:estou|to|tou) atrasad\w*|atrasei)\b/;
+/** Produção 19/11: dúvida de CONDIÇÃO de pagamento, típica de pré-venda ("formas de pagamento", "parcelam?", "aceitam cartão?"). */
+const CONDICAO_DE_PAGAMENTO = /\b(?:(?:formas?|meios?|condic\w*|opcoes|opcao) de pagamento|aceit\w* (?:pix|cartao|cartoes|boleto|debito|credito|cheque|transferencia|deposito|dinheiro|especie)|parcel\w*|em quantas vezes|(?:no|em) (?:cartao|boleto))\b/;
 /** Frase de proteção de cada consulta comum (sai junto da resposta pelas fontes; nada é prometido nem confirmado). */
 const PROTECAO_CONSULTA_COMUM: Record<CriterioConsultaComum, string> = {
   ORCAMENTO_INFORMADO: 'Os valores aqui são os de tabela; descontos e condições especiais são decididos pela equipe.',
@@ -1309,7 +1311,20 @@ export async function resolverWallE(entrada: { texto: string; entendimento: Ente
   const excecaoPaga = !protecao && await excecaoDeCapacidadePaga(e);
   // Pedido ou aviso de pagamento ("chave pix", "segue o comprovante", "paguei") vai sempre: o Wall-e nunca passa dado de
   // pagamento nem confirma recebimento.
-  if (!excecaoPaga && !duvidaDeAtraso && (s?.pagamentoAcao || (s?.pagamento && soOutro && !entendimento.intencoes.some((i) => i.tipo === 'DUVIDA' && i.perguntaId)))) { dizer(e, 'Pagamentos e cobranças de uma festa são conferidos pela equipe.'); passar(e, 'PAGAMENTO'); }
+  // Produção 19/11 (cliente real, antes de contratar): "Formas de pagamento" recebia "Pagamentos e cobranças de uma festa
+  // são conferidos pela equipe" e ia à equipe mesmo com a resposta cadastrada pelo buffet. DÚVIDA DE CONDIÇÃO (formas,
+  // meios ou condições de pagamento, parcelamento, "aceitam cartão?"), sem pedido ou aviso do próprio pagamento e sem festa
+  // já contratada: com pergunta cadastrada respondida, fica na resposta do buffet (sem passar); sem ela, a equipe combina,
+  // com frase de pré-venda. Pedido ou aviso (pix, comprovante, segunda via, "paguei") continua igual.
+  const duvidaDeCondicao = !!s?.pagamentoAcao && !pedidoDePagamento && CONDICAO_DE_PAGAMENTO.test(tPag) && !PAGAMENTO_PESSOAL.test(tPag)
+    && !entendimento.intencoes.some((i) => i.tipo === 'CONTRATO_PROPRIO');
+  // A pergunta cadastrada que respondeu precisa ser de pagamento ("aceitam cartão? tem estacionamento?" não fica só no estacionamento).
+  const condicaoCadastrada = duvidaDeCondicao && entendimento.intencoes.some((i) => i.tipo === 'DUVIDA' && i.perguntaId
+    && /\b(?:pagamento|pagar|pago|parcel\w*|cartao|cartoes|pix|boleto|debito|credito)\b/.test(semAcento(catalogos.perguntas.find((p) => p.id === i.perguntaId)?.pergunta ?? '')));
+  if (!excecaoPaga && !duvidaDeAtraso && !condicaoCadastrada && (s?.pagamentoAcao || (s?.pagamento && soOutro && !entendimento.intencoes.some((i) => i.tipo === 'DUVIDA' && i.perguntaId)))) {
+    dizer(e, duvidaDeCondicao ? 'As formas e condições de pagamento são combinadas com a equipe na contratação.' : 'Pagamentos e cobranças de uma festa são conferidos pela equipe.');
+    passar(e, 'PAGAMENTO');
+  }
   if (entendimento.alergia) { dizer(e, 'Sobre alergias e restrições alimentares, quem confirma é a equipe: não consigo garantir ingredientes ou substituições por aqui.'); passar(e, 'RESTRICAO_ALIMENTAR'); }
   // Rodada 25: o dia citado não define a data (dois meses na mensagem): confirma a data, sem calcular com outra.
   if (entendimento.dataAmbigua && !entendimento.entidades.data) { dizer(e, CONFIRMAR_DATA); perguntar(e, 'data', entendimento.intencoes.find((i) => ['PRECOS', 'DISPONIBILIDADE', 'CONTRATAR'].includes(i.tipo))?.tipo ?? 'DISPONIBILIDADE'); }

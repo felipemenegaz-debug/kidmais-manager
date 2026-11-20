@@ -250,6 +250,14 @@ export function extrairTurno(texto: string, turnos: Catalogos['turnos']): string
   const hora = /(?:as|a partir das|depois das)?\s*(\d{1,2})(?:[:h](\d{2}))?\s*(?:h\b|horas|:\d{2})/.exec(t);
   if (hora) {
     const h = `${String(Number(hora[1])).padStart(2, '0')}:${hora[2] ?? '00'}`;
+    // Produção 19/11 (cliente real): "19h a 23h" com turnos 17–21, 18–22 e 19–23 caía no 17–21, o primeiro que CONTÉM
+    // as 19h. Faixa citada ("19h a 23h", "das 19 às 23h", "19h-23h"): o turno com esse início e esse fim. Hora só de
+    // início ("às 19h"): o turno que COMEÇA nessa hora. Sem correspondência exata, o critério antigo (o que contém a hora).
+    const faixa = new RegExp(String.raw`\b${hora[1]}(?:[:h]${hora[2] ?? '00'})?\s*(?:h|horas)?\s*(?:a|as|ate|-|–)\s*(\d{1,2})(?:[:h](\d{2}))?\s*(?:h\b|horas|:\d{2})?`).exec(t.slice(hora.index));
+    const fim = faixa ? `${String(Number(faixa[1])).padStart(2, '0')}:${faixa[2] ?? '00'}` : null;
+    const exato = (fim ? ordenados.find((x) => x.inicio.slice(0, 5) === h && x.fim.slice(0, 5) === fim) : undefined)
+      ?? ordenados.find((x) => x.inicio.slice(0, 5) === h);
+    if (exato) return exato.codigo;
     const dentro = ordenados.find((x) => x.inicio.slice(0, 5) <= h && h < x.fim.slice(0, 5)) ?? ordenados.find((x) => Math.abs(Number(x.inicio.slice(0, 2)) - Number(h.slice(0, 2))) <= 1);
     if (dentro) return dentro.codigo;
   }
