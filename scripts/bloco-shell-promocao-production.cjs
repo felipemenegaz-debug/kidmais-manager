@@ -69,9 +69,10 @@ const PASSOS = Object.freeze({
   '124': pelGenerico('124', 'tabela da assinatura do cliente em papel, CHECK de metodo de aceite e dois corpos da 061; trava por instantes contrato_versoes'),
   '125': pelGenerico('125', 'tabelas das acoes da area da familia (avisos de pagamento, pendencias, aviso fixo), CHECK de tipo e gatilhos de autoria; trava por instantes area_familia_eventos, festa_pessoas e festa_links_area'),
   '126': pelGenerico('126', 'CHECK de escopos das 3 tabelas OAuth do MCP aceita clientes:read; trava por instantes mcp_oauth_pedidos, mcp_oauth_concessoes e mcp_oauth_tokens'),
+  '127': pelGenerico('127', 'marca de saida das campanhas por telefone/e-mail (marketing_saidas_contato), gatilhos e carga inicial; trava por instantes clientes, marketing_contato_preferencias e whatsapp_atendimento_conversas'),
 });
 /** Na ordem da cadeia (Object.keys ordenaria as chaves numéricas). */
-const IDS = Object.freeze(['114', '112', '116', '117', '120', '121', '110', '111', '115', '123', '122', '124', '125', '126']);
+const IDS = Object.freeze(['114', '112', '116', '117', '120', '121', '110', '111', '115', '123', '122', '124', '125', '126', '127']);
 const passo = id => { assert.ok(typeof id === 'string' && Object.hasOwn(PASSOS, id), 'PASSO_DESCONHECIDO'); return PASSOS[id]; };
 
 const sha = b => createHash('sha256').update(b).digest('hex');

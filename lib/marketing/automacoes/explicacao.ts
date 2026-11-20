@@ -72,6 +72,7 @@ export const ROTULO_MOTIVO: Record<string, string> = {
   SEM_AUTORIZACAO: "cliente sem autorização confirmada para mensagens",
   SEM_AUTORIZACAO_DESTINO: "a autorização é de um número que não está no cadastro atual",
   DESCADASTRADO: "cliente pediu para não receber mensagens (descadastro)",
+  SAIU_PELO_CONTATO: "este telefone ou e-mail já pediu para sair das campanhas",
   SEM_TELEFONE: "cliente sem telefone no cadastro",
   NAO_CONTATAR_ATENDIMENTO: "pediu para não ser contatado no atendimento",
   CLIENTE_INATIVO: "cliente inativo",
@@ -99,6 +100,7 @@ export const QUEM_RECEBE = [
   "Só recebe quem tem autorização CONFIRMADA para um número que ainda está no cadastro (WhatsApp primeiro, depois telefone).",
   "Autorização pendente (ex.: número novo vindo do site) ou revogada não vale; a equipe confirma na seção Preferências.",
   "Quem pediu descadastro, pediu “não contatar” no atendimento, está inativo ou sem telefone não recebe.",
+  "A saída fica guardada pelo telefone e pelo e-mail: cadastro novo ou importado com um contato que já pediu para sair também não recebe.",
   "Tudo é conferido de novo no momento do envio: se algo mudou, a mensagem não sai e o motivo fica no histórico.",
 ];
 

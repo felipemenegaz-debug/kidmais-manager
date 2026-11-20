@@ -2,6 +2,7 @@ import { z } from "zod";
 import type { DbExecutor } from "../../db/contracts.ts";
 import { MarketingError } from "../erros.ts";
 import { suprimirPesquisas } from "../../satisfacao/supressao.ts";
+import { saidasDoCliente, type SaidaContato } from "../../guarda/saidas-contato.ts";
 
 /**
  * Descadastro e autorização de mensagens do Marketing (086, com a correção R1 de 15/10/2026).
@@ -16,6 +17,9 @@ import { suprimirPesquisas } from "../../satisfacao/supressao.ts";
  *   - reaproveitar cadastro sem o número informado (ex.: mesmo e-mail, outro telefone) NÃO prova o destino: a autorização
  *     fica PENDENTE até a equipe confirmar; o CRM não é alterado e o número fica guardado no contato e na autorização;
  *   - descadastro é do cliente inteiro, prevalece sobre tudo e revoga as autorizações vivas (histórico mantido);
+ *   - a saída também fica marcada pelo telefone/e-mail (127, guarda fase 1a): cadastro novo ou importado com um contato
+ *     marcado não recebe CAMPANHA (motivo SAIU_PELO_CONTATO) e o formulário do site não cria autorização para ele.
+ *     A pesquisa de satisfação não confere essa marca (decisão G2 de 19/11/2026);
  *   - o PARAR do atendimento WhatsApp também bloqueia: `nao_contatar` nos controles (082) OU em qualquer conversa (060) do
  *     número, de qualquer ambiente, lidos numa ÚNICA instrução (bloqueioWhatsappDoDestino, plano da pesquisa rev. 6 K1/K2);
  *   - tudo é revalidado imediatamente antes do envio. Não há autorização sem destino: nada é presumido.
@@ -77,11 +81,12 @@ export async function listarAutorizacoes(tx: DbExecutor, empresaId: string, clie
 }
 
 /** Compatibilidade de leitura para a tela: descadastro + autorizações. */
-export async function lerPreferencia(tx: DbExecutor, empresaId: string, clienteId: string) {
-  return { ...(await lerDescadastro(tx, empresaId, clienteId)), autorizacoes: await listarAutorizacoes(tx, empresaId, clienteId) };
+export async function lerPreferencia(tx: DbExecutor, empresaId: string, clienteId: string): Promise<Descadastro & { autorizacoes: Autorizacao[]; saidas: SaidaContato[] }> {
+  return { ...(await lerDescadastro(tx, empresaId, clienteId)), autorizacoes: await listarAutorizacoes(tx, empresaId, clienteId),
+    saidas: await saidasDoCliente(tx, empresaId, clienteId) };
 }
 
-export type ResultadoFormulario = "CONFIRMADA" | "PENDENTE" | "JA_EXISTENTE" | "IGNORADA_DESCADASTRO" | "SEM_DESTINO" | "NAO_INSTALADA";
+export type ResultadoFormulario = "CONFIRMADA" | "PENDENTE" | "JA_EXISTENTE" | "IGNORADA_DESCADASTRO" | "IGNORADA_SAIDA_CONTATO" | "SEM_DESTINO" | "NAO_INSTALADA";
 
 /**
  * Trava a linha do cliente (da empresa) até o fim da transação e devolve os números ATUAIS do cadastro. Primeira leitura
@@ -98,7 +103,9 @@ export async function travarCadastroDoCliente(tx: DbExecutor, empresaId: string,
  * Caixa "aceito receber mensagens" marcada no formulário do site, com o número informado no pedido.
  *   - o número é o do cliente vinculado (cliente novo criado com ele, ou cadastro que já tem esse número) → CONFIRMADA;
  *   - cadastro reaproveitado sem esse número (ex.: pelo e-mail) → PENDENTE (não autoriza nenhum número do cadastro);
- *   - cliente descadastrado → nada é registrado (o formulário nunca desfaz descadastro).
+ *   - cliente descadastrado → nada é registrado (o formulário nunca desfaz descadastro);
+ *   - número informado ou contato do cadastro com marca de saída viva (127) → nada é registrado (o formulário nunca desfaz
+ *     a saída; voltar é com a equipe, pelo "Reativar", com novo pedido da pessoa).
  */
 export async function registrarAutorizacaoDoFormulario(
   tx: DbExecutor, empresaId: string, clienteId: string, contatoId: string, telefoneInformado: string,
@@ -110,6 +117,7 @@ export async function registrarAutorizacaoDoFormulario(
   // espera, e o gatilho de saída do número passa a enxergar esta autorização.
   const cadastro = await travarCadastroDoCliente(tx, empresaId, clienteId);
   if ((await lerDescadastro(tx, empresaId, clienteId)).descadastradoEm) return "IGNORADA_DESCADASTRO";
+  if ((await saidasDoCliente(tx, empresaId, clienteId, destino)).length > 0) return "IGNORADA_SAIDA_CONTATO";
   const doCadastro = cadastro ? destinosDoCadastro(cadastro) : [];
   const comprovado = doCadastro.includes(destino);
   const r = await tx.query<{ id: string }>(
@@ -160,10 +168,26 @@ export async function alterarPreferencia(tx: DbExecutor, empresaId: string, usua
     // Pesquisa de satisfação (110): o descadastro geral alcança também as pesquisas, nos dois canais (M3).
     await suprimirPesquisas(tx, empresaId, input.clienteId, { canal: "TODOS", motivo: "DESCADASTRADO" });
   } else if (input.operacao === "reativar") {
-    if (!descadastro.descadastradoEm) throw new MarketingError("MARKETING_NAO_DESCADASTRADO", "O cliente não está descadastrado.", 409);
+    const marcas = await saidasDoCliente(tx, empresaId, input.clienteId);
+    if (!descadastro.descadastradoEm && marcas.length === 0) throw new MarketingError("MARKETING_NAO_DESCADASTRADO", "O cliente não está descadastrado.", 409);
+    if (!descadastro.descadastradoEm) {
+      // Só a marca por contato (127): grava o descadastro e tira na mesma transação; o gatilho encerra as marcas dos
+      // contatos atuais e o histórico (086) registra os dois passos com o pedido da pessoa.
+      await tx.query(
+        `INSERT INTO marketing_contato_preferencias (empresa_id, cliente_id, descadastrado_em, descadastro_origem, observacao, atualizado_por)
+         VALUES ($1::uuid, $2::uuid, clock_timestamp(), 'EQUIPE', $4, $3::uuid)
+         ON CONFLICT (empresa_id, cliente_id) DO UPDATE SET descadastrado_em = clock_timestamp(), descadastro_origem = 'EQUIPE',
+           observacao = $4, atualizado_por = $3::uuid, atualizado_em = clock_timestamp()`,
+        [empresaId, input.clienteId, usuarioId, ("REATIVACAO_PELA_MARCA: " + input.confirmacao).slice(0, 300)]);
+    }
     await tx.query(
       `UPDATE marketing_contato_preferencias SET descadastrado_em = NULL, descadastro_origem = NULL, observacao = $4, atualizado_por = $3::uuid,
          atualizado_em = clock_timestamp() WHERE empresa_id = $1::uuid AND cliente_id = $2::uuid`, [empresaId, input.clienteId, usuarioId, input.confirmacao]);
+    // O gatilho mantém a marca de contato que outro pedido ainda segura (outro cliente descadastrado ou "não contatar"
+    // no atendimento). Reativar pela metade enganaria a equipe: recusa e a transação desfaz tudo.
+    if (marcas.length > 0 && (await saidasDoCliente(tx, empresaId, input.clienteId)).length > 0) {
+      throw new MarketingError("MARKETING_SAIDA_COMPARTILHADA", "Este telefone ou e-mail ainda tem outro pedido de saída (outro cadastro descadastrado ou “não contatar” no atendimento). Resolva aquele pedido primeiro.", 409);
+    }
   } else {
     if (descadastro.descadastradoEm && input.operacao !== "revogar") {
       throw new MarketingError("MARKETING_DESCADASTRADO", "Cliente descadastrado. Use “Reativar” somente com novo pedido da própria pessoa.", 409);
@@ -172,6 +196,9 @@ export async function alterarPreferencia(tx: DbExecutor, empresaId: string, usua
       const destino = normalizarDestino(input.destino);
       if (!destino || !destinosDoCadastro(cliente.rows[0]).includes(destino)) {
         throw new MarketingError("MARKETING_DESTINO_FORA_DO_CADASTRO", "Autorize só um número que está no cadastro do cliente. Para outro número, atualize o cadastro antes.", 400);
+      }
+      if ((await saidasDoCliente(tx, empresaId, input.clienteId, destino)).length > 0) {
+        throw new MarketingError("MARKETING_SAIU_PELO_CONTATO", "Este telefone ou e-mail pediu para sair das campanhas. Use “Reativar” somente com novo pedido da própria pessoa.", 409);
       }
       const pendente = await tx.query<{ id: string }>(
         `SELECT id::text FROM marketing_contato_autorizacoes WHERE empresa_id = $1::uuid AND cliente_id = $2::uuid AND canal = 'WHATSAPP' AND destino = $3 AND estado = 'PENDENTE' FOR UPDATE`,
@@ -194,7 +221,7 @@ export async function alterarPreferencia(tx: DbExecutor, empresaId: string, usua
       if (!r.rows[0]) throw new MarketingError("MARKETING_NAO_ENCONTRADO", "Autorização não encontrada ou já revogada.", 404);
       // Pesquisa (110, M3): só o WhatsApp, e só se o cliente ficou sem destino elegível (o e-mail não é afetado).
       await suprimirPesquisas(tx, empresaId, input.clienteId, { canal: "WHATSAPP", motivo: "AUTORIZACAO_REVOGADA",
-        aindaElegivel: async () => (await elegivelParaMensagem(tx, empresaId, input.clienteId)).ok });
+        aindaElegivel: async () => (await elegivelParaMensagem(tx, empresaId, input.clienteId, "PESQUISA")).ok });
     }
   }
   return { preferencia: await lerPreferencia(tx, empresaId, input.clienteId), canceladas };
@@ -228,7 +255,9 @@ export async function suprimirAgendadasDoCliente(tx: DbExecutor, empresaId: stri
   return r.rows.length;
 }
 
-export type MotivoInelegivel = "SEM_AUTORIZACAO" | "SEM_AUTORIZACAO_DESTINO" | "DESCADASTRADO" | "SEM_TELEFONE" | "NAO_CONTATAR_ATENDIMENTO" | "CLIENTE_INATIVO";
+export type MotivoInelegivel = "SEM_AUTORIZACAO" | "SEM_AUTORIZACAO_DESTINO" | "DESCADASTRADO" | "SAIU_PELO_CONTATO" | "SEM_TELEFONE" | "NAO_CONTATAR_ATENDIMENTO" | "CLIENTE_INATIVO";
+/** CAMPANHA (padrão): motor do Marketing, confere a marca de saída por contato. PESQUISA: satisfação, não confere (G2). */
+export type Finalidade = "CAMPANHA" | "PESQUISA";
 export type Elegibilidade = { ok: true; telefone: string; autorizacaoId: string } | { ok: false; motivo: MotivoInelegivel };
 
 /**
@@ -236,12 +265,14 @@ export type Elegibilidade = { ok: true; telefone: string; autorizacaoId: string 
  * (WhatsApp, depois telefone) que tem autorização CONFIRMADA. Autorização de número que saiu do cadastro não vale (e é
  * revogada pelo banco na mesma transação da alteração, então não volta a valer se o número retornar); pendente não vale.
  */
-export async function elegivelParaMensagem(tx: DbExecutor, empresaId: string, clienteId: string): Promise<Elegibilidade> {
+export async function elegivelParaMensagem(tx: DbExecutor, empresaId: string, clienteId: string, finalidade: Finalidade = "CAMPANHA"): Promise<Elegibilidade> {
   const c = await tx.query<{ status: string; whatsapp: string | null; telefone: string | null }>(
     `SELECT status, whatsapp, telefone FROM clientes WHERE id = $1::uuid AND empresa_id = $2::uuid`, [clienteId, empresaId]);
   const cliente = c.rows[0];
   if (!cliente || cliente.status !== "ATIVO") return { ok: false, motivo: "CLIENTE_INATIVO" };
   if ((await lerDescadastro(tx, empresaId, clienteId)).descadastradoEm) return { ok: false, motivo: "DESCADASTRADO" };
+  // Qualquer contato do cadastro (WhatsApp, telefone ou e-mail) marcado bloqueia a campanha inteira do cliente.
+  if (finalidade === "CAMPANHA" && (await saidasDoCliente(tx, empresaId, clienteId)).length > 0) return { ok: false, motivo: "SAIU_PELO_CONTATO" };
   const destinos = destinosDoCadastro(cliente);
   if (destinos.length === 0) return { ok: false, motivo: "SEM_TELEFONE" };
   const confirmadas = await tx.query<{ id: string; destino: string }>(
