@@ -51,6 +51,7 @@ const RETRATO_COM_GATILHOS = "retrato do catálogo (funções/gatilhos de fecham
 // Liberar agenda com mais de um salão (F5): as suítes funcionais da agenda por salão no modelo 108/109 rodam também no
 // 114 (gatilhos da 019 com a verificação da trava da configuração); o classificador dos combinados quebrava só lá.
 const ESTADO_POSTGRES = {
+  "lib/oportunidades/recusar-pedido.postgres.test.ts": { descartavel: "122" },
   "lib/oportunidades/funil.postgres.test.ts": { descartavel: "122" },
     "lib/oportunidades/atribuicao.postgres.test.ts": { descartavel: "122" },
   // Postcheck da 122 reprova os CHECKs de perda ausentes, NOT VALID ou trocados (Astra, 15/11/2026, P2).

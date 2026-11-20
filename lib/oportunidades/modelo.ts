@@ -13,7 +13,8 @@ export function etapaDoEstado(status: string, contato = false): typeof ETAPAS[nu
 export const alvoSchema = z.object({ tipo: z.enum(['CONTATO', 'FECHAMENTO']), id: z.string().uuid() }).strict();
 const data = z.iso.date();
 export const proximaSchema = z.object({ tipo: z.enum(TIPOS_ACAO), data, observacao: z.string().trim().max(1000).optional(), responsavelId: z.string().uuid() }).strict();
-export const perdaSchema = z.object({ motivo: z.enum(MOTIVOS_PERDA), observacao: z.string().trim().max(1000).optional() }).strict();
+export const perdaSchema = z.object({ motivo: z.enum(MOTIVOS_PERDA), observacao: z.string().trim().max(1000).optional() }).strict()
+  .refine(p => p.motivo !== "Outro" || Boolean(p.observacao), { path: ["observacao"], message: "Explique o motivo Outro." });
 export const comandoSchema = z.discriminatedUnion('acao', [
   z.object({ acao: z.literal('agendar'), alvo: alvoSchema, esperada: z.string().uuid().nullable(), proxima: proximaSchema }).strict(),
   z.object({ acao: z.literal('concluir'), alvo: alvoSchema, esperada: z.string().uuid(), proxima: proximaSchema }).strict(),
