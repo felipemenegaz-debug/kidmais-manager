@@ -398,6 +398,8 @@ export const FORA_DO_ESCOPO: Readonly<Record<string, string>> = {
     ia_credito_franquia_pendencias: 'Fila técnica de reconhecimento da franquia após a troca de plano (a franquia útil está em creditos/franquias).',
     ia_credito_notificacoes: 'Fila técnica de e-mails dos créditos (controle de entrega; a situação útil está no pedido e na devolução).',
     documentos_publicos: 'Textos legais publicados (iguais para todas as empresas).',
+    // 128 (dados fora do disco, 20/11/2026): antes era data/disponibilidade.json no disco do web, também fora do pacote.
+    disponibilidade_config_legada: 'Regras e descontos legados da agenda pública da instalação (linha única, sem empresa_id); só a empresa dona os usa.',
     adicional_categorias: 'Categorias de referência globais (iguais para todas as empresas).',
     marketing_dns_simulado: 'Simulação técnica local de DNS.',
     oportunidades_resumos: 'Controle técnico de idempotência de e-mail diário; conteúdo já representado nas ações exportadas.',
