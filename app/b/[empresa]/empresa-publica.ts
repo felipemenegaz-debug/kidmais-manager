@@ -1,5 +1,6 @@
 import { notFound } from "next/navigation";
 import type { Metadata } from "next";
+import { marcaDoBuffet } from "@/lib/convites/logo-buffet";
 import { db } from "@/lib/db/postgres";
 import { escopoCotacaoPublica } from "@/lib/comercial/cotacao-publica";
 import { lerRegrasPagamento, REGRAS_LEGADAS, type RegrasPagamento } from "@/lib/comercial/regras-pagamento";
@@ -42,5 +43,10 @@ export async function exigirEmpresaPublica(params: Promise<{ empresa: string }>)
     notFound();
   }
   const contato = await contatoPublicoDaEmpresa(db(), empresaId);
-  return { codigo: empresa, nome, pagamento: { ...pagamento }, contato };
+
+  return { id: empresaId, codigo: empresa, nome, pagamento: { ...pagamento }, contato };
+}
+
+export function logoDoAssistente(empresaId: string) {
+  return marcaDoBuffet(db(), empresaId).then(marca => marca.logoDataUrl).catch(() => null);
 }

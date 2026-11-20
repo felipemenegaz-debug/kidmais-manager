@@ -4,6 +4,9 @@ import { faltaEscolha, fraseEscolhas } from '@/lib/comercial/limites-escolhas';
 import AdicionaisPizzaConsulta from './AdicionaisPizzaConsulta';
 import PacotesPdf from './PacotesPdf';
 import FestaDecoracao from './FestaDecoracao';
+import FundoFesta from "@/components/site/FundoFesta";
+import { fonteTexto, fonteTitulo } from "@/components/site/fonte";
+import { PausaGlobal } from "@/components/site/PausaGlobal";
 import { motivoPacoteNoPeriodo } from '@/lib/comercial/venda-periodo';
 import EscolhaPacote from './EscolhaPacote';
 import ContatoEmpresa from './ContatoEmpresa';
@@ -284,7 +287,7 @@ async function lerErroApi(resposta: Response, fallback: string) {
 }
 
 
-export default function FechamentoWizard({ empresa = null }: { empresa?: string | null } = {}) {
+export default function FechamentoWizard({ empresa = null, logo = null }: { empresa?: string | null; logo?: string | null } = {}) {
   const marca = useMarcaPublica();
   // Endereço por empresa: regras entregues pela página (servidor). Endereço atual: regras da empresa configurada,
   // lidas em /api/fechamentos/pacotes; até chegarem (ou antes da 077), o legado — o mesmo que o servidor aplica.
@@ -1557,10 +1560,13 @@ export default function FechamentoWizard({ empresa = null }: { empresa?: string 
     }
   }
 
+  const classePagina = origemInterna ? styles.page : `${styles.page} ${styles.publico} ${fonteTexto.variable} ${fonteTitulo.variable}`;
+  const fundo = origemInterna ? <FestaDecoracao /> : <FundoFesta />;
+
   if (!entradaResolvida) {
     return (
-      <main className={styles.page}>
-        <FestaDecoracao />
+      <main className={classePagina} data-site-venda={origemInterna ? undefined : true}>
+        {fundo}
         <section className={styles.successCard}>
           <p className={styles.eyebrow}>Validando disponibilidade</p>
           <h1>Confirmando sua data e horário.</h1>
@@ -1574,8 +1580,8 @@ export default function FechamentoWizard({ empresa = null }: { empresa?: string 
 
   if (entradaPublicaInvalida && !origemInterna) {
     return (
-      <main className={styles.page}>
-        <FestaDecoracao />
+      <main className={classePagina} data-site-venda={origemInterna ? undefined : true}>
+        {fundo}
         <section className={styles.successCard}>
           <p className={styles.eyebrow}>Disponibilidade alterada</p>
           <h1>Precisamos escolher outro horário.</h1>
@@ -1592,10 +1598,10 @@ export default function FechamentoWizard({ empresa = null }: { empresa?: string 
 
   if (concluido) {
     return (
-      <main className={styles.page}>
-        <FestaDecoracao />
+      <main className={classePagina} data-site-venda={origemInterna ? undefined : true}>
+        {fundo}
         <section className={styles.successCard}>
-          <div className={styles.confirmationBrand}><MarcaPublicaCabecalho /></div>
+          <div className={styles.confirmationBrand}><MarcaPublicaCabecalho logo={logo} /></div>
           <div className={styles.successIcon}>✓</div>
           <p className={styles.eyebrow}>Solicitação recebida</p>
           <h1>Agora {marca.a} confere os últimos detalhes.</h1>
@@ -1659,16 +1665,14 @@ export default function FechamentoWizard({ empresa = null }: { empresa?: string 
   }
 
   return (
-    <main className={styles.page}>
-      <FestaDecoracao />
+    <main className={classePagina} data-site-venda={origemInterna ? undefined : true}>
+      {fundo}
 
       <div className={styles.shell}>
         <header className={styles.header}>
-          <MarcaPublicaCabecalho subtitle="Fechamento da sua festa" />
+          <MarcaPublicaCabecalho logo={logo} subtitle="Fechamento da sua festa" />
 
-          <div className={styles.secureBadge}>
-            <span>●</span> Ambiente seguro
-          </div>
+          {origemInterna ? <div className={styles.secureBadge}><span>●</span> Ambiente seguro</div> : <PausaGlobal classe={styles.pause} />}
         </header>
 
         <section className={styles.hero}>
