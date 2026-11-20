@@ -4,6 +4,7 @@ import { listarContratacoes } from '../../../fechamentos/contratacoes.ts';
 import { dadoSensivel, ocultarDadosPessoais } from '../core.ts';
 import { direitoAtendimentoWhatsApp } from '../multiempresa.ts';
 import { entendimentoSoRegras, modoEntendimento, type ModoEntendimento } from '../configuracao.ts';
+import { motivoSeguro } from '../motivo-falha.ts';
 import { resolverLinkFechamento } from '../prontas-link.ts';
 import type { PortaWallE } from '../worker.ts';
 import { lerContexto } from './contexto.ts';
@@ -66,9 +67,14 @@ export function criarPortaWallE(entender: EntenderWallE | null, opcoes: { sinais
     // para a equipe pelo próprio resolvedor).
     // Astra r3 (P2-2): sem direito comercial ao atendimento, nada de modelo (a piloto também).
     const modelo = entender && !entendimentoSoRegras() && !dadoSensivel(e.texto) && (!opcoes.direitoModelo || await opcoes.direitoModelo(e.empresa)) ? entender : null;
-    const entendimento = modelo
-      ? revalidarEntendimento(await modelo(e.empresa, e.texto, contexto, catalogos), e.texto, catalogos, contexto)
-      : entenderPorRegras(e.texto, catalogos, contexto);
+    // 20/11: falha do modelo (orçamento, chave, provedor, alerta do roteador, resposta inválida) não derruba o
+    // atendimento: registra o motivo (código, nunca o texto do cliente) e segue pelas regras, como no modo regras.
+    let entendimento: ReturnType<typeof entenderPorRegras> | null = null;
+    if (modelo) {
+      try { entendimento = revalidarEntendimento(await modelo(e.empresa, e.texto, contexto, catalogos), e.texto, catalogos, contexto); }
+      catch (erro) { console.warn('[Atendimento WhatsApp] Wall-e: modelo falhou (%s); seguindo pelas regras.', motivoSeguro(erro)); }
+    }
+    entendimento ??= entenderPorRegras(e.texto, catalogos, contexto);
     // Sinais locais (regras) + triagem do JEV: basta uma origem para valer.
     if (opcoes.sinais) entendimento.sinais = juntarSinais(entendimento.sinais, opcoes.sinais(e.texto), e.texto);
     const linkContratoProprio = async () => {
