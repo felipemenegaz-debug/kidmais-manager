@@ -1,6 +1,4 @@
 import { NextRequest, NextResponse } from "next/server";
-import { promises as fs } from "fs";
-import path from "path";
 import { z } from "zod";
 import type { DbExecutor } from "@/lib/db/contracts";
 import {
@@ -43,6 +41,7 @@ import {
 import { apiErrorResponse } from "@/lib/http/api-response";
 import { telaDoClienteGlobal } from "@/lib/enderecos/roteamento";
 import { ehDonaDaConfigLegada, exigirDonaDaConfigLegada } from "@/lib/disponibilidade/config-legada";
+import { lerConfigLegada, salvarConfigLegada, type ConfigLegada } from "@/lib/disponibilidade/config-legada-armazem";
 import {
   contextoCrmDaRequest,
   exigirApiAdminCrmDisponivel,
@@ -50,8 +49,6 @@ import {
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
-
-const arquivo = path.join(process.cwd(), "data", "disponibilidade.json");
 
 const pacoteSchema = z.enum([
   "pocket",
@@ -126,34 +123,9 @@ const operacaoSchema = z.discriminatedUnion("tipo", [
   }),
 ]);
 
-type ConfigLegada = {
-  pacoteOverrides: Array<Record<string, unknown>>;
-  descontos: Array<Record<string, unknown>>;
-};
-
 function horaParaMinutos(hora: string) {
   const [h, m] = hora.split(":").map(Number);
   return h * 60 + m;
-}
-
-async function lerComercial(): Promise<ConfigLegada> {
-  try {
-    const conteudo = await fs.readFile(arquivo, "utf8");
-    const config = JSON.parse(conteudo) as Partial<ConfigLegada>;
-    return {
-      pacoteOverrides: config.pacoteOverrides ?? [],
-      descontos: config.descontos ?? [],
-    };
-  } catch {
-    const inicial: ConfigLegada = { pacoteOverrides: [], descontos: [] };
-    await fs.mkdir(path.dirname(arquivo), { recursive: true });
-    await fs.writeFile(arquivo, JSON.stringify(inicial, null, 2), "utf8");
-    return inicial;
-  }
-}
-
-async function salvarComercial(config: ConfigLegada) {
-  await fs.writeFile(arquivo, JSON.stringify(config, null, 2), "utf8");
 }
 
 /**
@@ -168,7 +140,7 @@ async function escopoDoPedido(tx: DbExecutor, empresaId: string, unidadeId: stri
 async function montarConfigAdmin(tx: DbExecutor, escopo: EscopoAgenda, empresaComprovada: string) {
   // E2: o arquivo é da instalação (agenda pública); só a empresa dona o vê. As demais recebem listas vazias.
   const configuracaoComercial = await ehDonaDaConfigLegada(tx, empresaComprovada);
-  const comercial: ConfigLegada = configuracaoComercial ? await lerComercial() : { pacoteOverrides: [], descontos: [] };
+  const comercial: ConfigLegada = configuracaoComercial ? await lerConfigLegada(tx) : { pacoteOverrides: [], descontos: [] };
   const bloqueios = await listarTodosBloqueiosAtivos(tx, escopo);
   const porEscopo = await agendaPorEscopoInstalada(tx);
   const unidades = porEscopo && escopo.empresaId ? await unidadesDaEmpresa(tx, escopo.empresaId) : [];
@@ -452,7 +424,8 @@ export async function POST(request: NextRequest) {
         }
       } else {
         await exigirDonaDaConfigLegada(tx, tenant.empresaComprovada);
-        const config = await lerComercial();
+        // 128: trava a linha até o COMMIT; duas gravações seguidas não se perdem.
+        const config = await lerConfigLegada(tx, { travar: true });
 
         if (op.tipo === "pacote") {
           config.pacoteOverrides = config.pacoteOverrides.filter(
@@ -504,7 +477,7 @@ export async function POST(request: NextRequest) {
           );
         }
 
-        await salvarComercial(config);
+        await salvarConfigLegada(tx, config);
       }
 
       return NextResponse.json({ ok: true, config: await montarConfigAdmin(tx, escopo, tenant.empresaComprovada) });

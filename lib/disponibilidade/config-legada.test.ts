@@ -38,12 +38,20 @@ test('exigir: empresa que não é a dona recebe 403 AGENDA_CONFIG_DA_INSTALACAO;
 test('rota da agenda: leitura vazia e gravação recusada fora da dona, antes de abrir o arquivo; tela esconde os controles', () => {
     const rota = readFileSync('app/api/admin/disponibilidade/route.ts', 'utf8');
     assert.match(rota, /const configuracaoComercial = await ehDonaDaConfigLegada\(tx, empresaComprovada\);/);
-    assert.match(rota, /configuracaoComercial \? await lerComercial\(\) : \{ pacoteOverrides: \[\], descontos: \[\] \}/);
+    assert.match(rota, /configuracaoComercial \? await lerConfigLegada\(tx\) : \{ pacoteOverrides: \[\], descontos: \[\] \}/);
     const posGravacao = rota.indexOf('await exigirDonaDaConfigLegada(tx, tenant.empresaComprovada);');
-    assert.ok(posGravacao > 0 && posGravacao < rota.indexOf('const config = await lerComercial();'), 'checagem antes de ler/gravar o arquivo');
+    assert.ok(posGravacao > 0 && posGravacao < rota.indexOf('const config = await lerConfigLegada(tx, { travar: true });'), 'checagem antes de ler/gravar a config (arquivo ou banco)');
     assert.equal((rota.match(/montarConfigAdmin\(tx, escopo, tenant\.empresaComprovada\)/g) ?? []).length, 2);
     const tela = readFileSync('components/admin/AdminDisponibilidade.tsx', 'utf8');
     assert.match(tela, /configuracaoComercial: admin\.configuracaoComercial !== false/);
     assert.match(tela, /\{configuracaoComercial \? \(<>/);
     assert.match(tela, /não estão disponíveis para esta empresa/);
+});
+
+test('rota pública: erro do banco ao ler as regras legadas sobe para o GET (não vira agenda sem regras)', () => {
+    const rota = readFileSync('app/api/disponibilidade/route.ts', 'utf8');
+    const ini = rota.indexOf('async function lerComercialPublico()');
+    const corpo = rota.slice(ini, rota.indexOf('export async function GET'));
+    assert.ok(ini > 0 && corpo.includes('await lerConfigLegada(db())'));
+    assert.doesNotMatch(corpo, /catch/, 'nenhum catch engole o erro do banco');
 });

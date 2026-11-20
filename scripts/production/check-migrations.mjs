@@ -257,6 +257,9 @@ const approvedFiles = [
   // 127: marca de saída das campanhas por telefone/e-mail (guarda dos clientes, fase 1a, LOCAL 19/11/2026, vault
   // "Guarda e anonimizacao dos clientes 20261119"). Tabela nova + gatilhos + carga inicial; 127 conferida livre. Exige 086 e 060.
   '20261119_127_marketing_saidas_contato.sql',
+  // 128: dados do disco persistente no banco (regras legadas da agenda e bytes do PDF da tabela de pacotes), LOCAL 20/11/2026,
+  // vault "Convites geracao sobrevive ao deploy 20261120". Tabela nova + coluna opcional; 128 conferida livre. Exige 021.
+  '20261120_128_dados_fora_do_disco.sql',
 ];
 // From 013 on each migration has database/checks/<date>_<id>_precheck.sql and _postcheck.sql,
 // except these explicit, reviewed shapes (anything else falls back to the default and fails closed):
@@ -285,7 +288,7 @@ const checkFiles = {
   '081': ['20261011_081_postcheck.sql'],
   '082': ['20261011_082_postcheck.sql'],
 };
-const requiresExplicitAuthorization = ['055a', '055b', '055c', '055d', '056', '057', '058', '059', '060', '061', '062', '063', '064', '065', '066', '067', '068', '069', '070', '071', '072', '073', '074', '074a', '075', '076', '077', '078', '079', '080', '081', '082', '083', '084', '085', '086', '087', '088', '089', '090', '091', '092', '093', '094', '095', '096', '097', '098', '099', '100', '102', '103', '104', '105', '106', '107', '108', '109', '112', '114', '116', '117', '118', '120', '121', '110', '111', '115', '123', '122', '124', '125', '126', '127'];
+const requiresExplicitAuthorization = ['055a', '055b', '055c', '055d', '056', '057', '058', '059', '060', '061', '062', '063', '064', '065', '066', '067', '068', '069', '070', '071', '072', '073', '074', '074a', '075', '076', '077', '078', '079', '080', '081', '082', '083', '084', '085', '086', '087', '088', '089', '090', '091', '092', '093', '094', '095', '096', '097', '098', '099', '100', '102', '103', '104', '105', '106', '107', '108', '109', '112', '114', '116', '117', '118', '120', '121', '110', '111', '115', '123', '122', '124', '125', '126', '127', '128'];
 const idLabel = id => /^\d+$/.test(id) ? String(Number(id)) : id.replace(/^0+/, '');
 const requiredChecks = file => {
   const id = file.split('_')[1];
@@ -333,7 +336,7 @@ function inspectInventory(entries, hasCheck) {
   r.pending.push('073_NOT_APPLIED_REQUIRES_EXPLICIT_AUTHORIZATION');
   for (const id of ['074', '074A', '075', '076', '077', '078']) r.pending.push(id + '_NOT_APPLIED_REQUIRES_EXPLICIT_AUTHORIZATION');
   r.pending.push('079_NOT_APPLIED_REQUIRES_EXPLICIT_AUTHORIZATION');
-  for (const id of ['080', '081', '082', '083', '084', '085', '086', '087', '088', '089', '090', '091', '092', '093', '094', '095', '096', '097', '098', '099', '100', '102', '103', '104', '105', '106', '107', '108', '109', '112', '114', '110', '111', '115', '123', '124', '125', '126', '127']) r.pending.push(id + '_NOT_APPLIED_REQUIRES_EXPLICIT_AUTHORIZATION');
+  for (const id of ['080', '081', '082', '083', '084', '085', '086', '087', '088', '089', '090', '091', '092', '093', '094', '095', '096', '097', '098', '099', '100', '102', '103', '104', '105', '106', '107', '108', '109', '112', '114', '110', '111', '115', '123', '124', '125', '126', '127', '128']) r.pending.push(id + '_NOT_APPLIED_REQUIRES_EXPLICIT_AUTHORIZATION');
   return r;
 }
 async function check(env, options = {}) {

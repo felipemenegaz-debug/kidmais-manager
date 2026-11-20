@@ -7,6 +7,7 @@
  */
 const EXCECOES = [
   {arquivo:'scripts/migration-122-comum.cjs',funcao:'conferirCliente',motivo:'Aplicador 122: SQL fixado por SHA-256 do precheck/postcheck e identidade do adaptador de ambiente; conferência somente em READ ONLY.'},
+  {arquivo:'scripts/disco-para-banco-128.cjs',funcao:'provarIdentidade',motivo:'Cópia do disco para o banco (128): o SQL é a consulta de identidade fixa do adaptador de ambiente (conexao-staging/conexao-production), lida de amb.sqlIdentidade; não escreve salão.'},
   {arquivo:'scripts/migration-122-comum.cjs',funcao:'principal',motivo:'Aplicador 122: SQL da migration revisado por SHA-256, corpo sem BEGIN/COMMIT, executado em transação única com postcheck antes do COMMIT.'},
   {
     arquivo: "scripts/conferidor-g-vazio.cjs", funcao: "lerBanco",
