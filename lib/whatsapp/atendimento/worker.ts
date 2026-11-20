@@ -3,6 +3,7 @@ import { ambienteAtendimento, atendimentoAtivo, contatoPermitido, empresaPiloto,
 import { MENSAGEM_ENCAMINHAMENTO, dadoSensivel, entradaFaseB, comandoDireto, passagemSemRespostaAutomatica, pausaPedidaNaRecepcao, semAutomatico, dataDeInteresse, hojeOperacao, janelaAberta, responder, type ConfiguracaoAtendimento, type Interpretacao, type OrigemMarcaPausa } from './core.ts';
 import { configuracao, correlacionarStatus, limparStatusExpirados, recuperarTrabalhosInterrompidos, registroDaPausa, suprimirPesquisasDoContato, tem082, temControlesPrivacidade, tratarSaidaQueFalhou, type Conversa, type Mensagem, type SaidaQueFalhou } from './service.ts';
 import { conteudoDaMensagem, type ConteudoSaida } from './transporte.ts';
+import { motivoSeguro } from './motivo-falha.ts';
 import { ARQUIVO_DISPONIVEL_SQL, urlPublicaArquivo } from './arquivos.ts';
 import type { Passagem, ResultadoWallE } from './walle/tipos.ts';
 import type { DbExecutor } from '../../db/contracts.ts';
@@ -262,7 +263,7 @@ async function executarTarefa(deps: DependenciasWorker, { mensagem, conversa, co
       if (!comando && deps.direitoModelo && !(await deps.direitoModelo(empresa))) return await encaminharSemModelo(mensagem, 'PROCESSADA', opera);
       let plano: Interpretacao;
       try { plano = comando ?? await deps.interpretar!(empresa, entradaFaseB(historico.map(m => m.texto), atual, conversa.interesse), vigente); }
-      catch { return await encaminharSemModelo(mensagem, 'FALHOU', opera); }
+      catch (erro) { console.warn('[Atendimento WhatsApp] interpretação falhou (%s); entrada encaminhada à equipe.', motivoSeguro(erro)); return await encaminharSemModelo(mensagem, 'FALHOU', opera); }
       const hoje = hojeOperacao();
       // Data passada ou inexistente não substitui nem conserva interesse: uma data anterior já vencida também é descartada.
       const interesse = { data: dataDeInteresse(plano.data, hoje) ?? dataDeInteresse(conversa.interesse.data, hoje), convidados: plano.convidados ?? conversa.interesse.convidados };
@@ -555,11 +556,15 @@ async function responderWallE(porta: PortaWallE, mensagem: Mensagem, conversa: C
   // F5: `config` é a VIGENTE lida pelo portão completo logo antes (ativo e Wall-e ligados), nunca a capturada na reserva.
   try {
     resultado = await porta.responder({ empresa, ambiente, contato: conversa.contato, texto, historico, contexto: conversa.contexto ?? {}, config, hoje, agora: new Date().toISOString() });
-  } catch { return await encaminharSemModelo(mensagem, 'FALHOU', opera); }
+  } catch (erro) {
+    // 20/11: sem log, a falha em production ficou invisível. Só o código do motivo, nunca o texto do cliente.
+    console.warn('[Atendimento WhatsApp] Wall-e falhou (%s); entrada encaminhada à equipe.', motivoSeguro(erro));
+    return await encaminharSemModelo(mensagem, 'FALHOU', opera);
+  }
   // Pedido de parar entendido pelo Wall-e (paráfrase que a recepção não bloqueou, com o trecho validado sem modelo).
   if (resultado.parar) return await bloquearPorPedido(mensagem, conversa.contato, resultado.passagem);
   if (resultado.silencio && resultado.passagem) return await passarEmSilencio(mensagem, resultado.passagem, 'WALLE');
-  if (!resultado.saidas.length) return await encaminharSemModelo(mensagem, 'FALHOU', opera);
+  if (!resultado.saidas.length) { console.warn('[Atendimento WhatsApp] Wall-e falhou (%s); entrada encaminhada à equipe.', 'WALLE_SEM_SAIDAS'); return await encaminharSemModelo(mensagem, 'FALHOU', opera); }
   await withTransaction(async tx => {
     const empresaAtiva = await empresaAtivaPortao(tx, empresa);
     const atual = (await tx.query<Conversa>('SELECT * FROM whatsapp_atendimento_conversas WHERE id=$1 AND empresa_id=$2 AND ambiente=$3 FOR UPDATE', [conversa.id, empresa, ambiente])).rows[0];

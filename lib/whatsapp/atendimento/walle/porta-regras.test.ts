@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { carregarComponente } from '../../../../components/admin/teste-componente.ts';
+import { motivoSeguro } from '../motivo-falha.ts';
 
 /**
  * Proteção final: em modo regras (WHATSAPP_ATENDIMENTO_WALLE_ENTENDIMENTO=regras) a porta do Wall-e NUNCA chama o modelo,
@@ -16,6 +17,7 @@ function carregarPorta(regras: () => boolean) {
     '../core.ts': { ocultarDadosPessoais: (t: string) => t, dadoSensivel: (t: string) => /alergia/.test(t) },
     '../configuracao.ts': { entendimentoSoRegras: regras },
     '../multiempresa.ts': { direitoAtendimentoWhatsApp: async () => { throw new Error('banco proibido no teste'); } },
+    '../motivo-falha.ts': { motivoSeguro },
     '../prontas-link.ts': { resolverLinkFechamento: async () => ({ ok: false }) },
     './contexto.ts': { lerContexto: (c: unknown) => (c ?? {}) },
     './entendimento.ts': {
@@ -78,4 +80,31 @@ test('Astra r3 (R-5, P2-2): sem direito comercial (inclusive a piloto) a porta n
 test('Astra r3 (R-5, P2-2): direitoModeloAtendimento nega o modelo quando a leitura comercial falha', async () => {
   const { modulo } = carregarPorta(() => false);
   assert.equal(await modulo.direitoModeloAtendimento('e'), false);
+});
+
+test('20/11: falha do modelo não derruba o Wall-e: registra só o código do motivo e segue pelas regras', async () => {
+  const { modulo, registro } = carregarPorta(() => false);
+  const avisos: unknown[][] = [];
+  const original = console.warn;
+  console.warn = (...args: unknown[]) => { avisos.push(args); };
+  try {
+    const porta = modulo.criarPortaWallE(async () => { throw new Error('ATENDIMENTO_MODELO_INDISPONIVEL:SEM_CHAVE'); });
+    await porta.responder(entrada);
+    // Erro com texto livre (poderia trazer trecho do cliente): só o tipo do erro vai ao log.
+    const porta2 = modulo.criarPortaWallE(async () => { throw new TypeError('falhou ao ler quanto custa? 61 99999-0000'); });
+    await porta2.responder(entrada);
+  } finally { console.warn = original; }
+  assert.deepEqual(registro.origem, ['regras', 'regras'], 'as duas mensagens seguiram pelas regras');
+  assert.equal(avisos.length, 2);
+  assert.equal(avisos[0][1], 'ATENDIMENTO_MODELO_INDISPONIVEL:SEM_CHAVE');
+  assert.equal(avisos[1][1], 'ERRO_TypeError');
+  assert.ok(!JSON.stringify(avisos).includes('quanto custa'), 'o texto do cliente nunca vai ao log');
+});
+
+test('motivoSeguro: códigos passam; texto livre vira o tipo do erro', () => {
+  assert.equal(motivoSeguro(new Error('ATENDIMENTO_ORCAMENTO_SEM_TETO_EMPRESA')), 'ATENDIMENTO_ORCAMENTO_SEM_TETO_EMPRESA');
+  assert.equal(motivoSeguro(new Error('ATENDIMENTO_MODELO_INDISPONIVEL:USO_NAO_REGISTRADO')), 'ATENDIMENTO_MODELO_INDISPONIVEL:USO_NAO_REGISTRADO');
+  assert.equal(motivoSeguro(new SyntaxError('Unexpected token q in JSON: quero festa')), 'ERRO_SyntaxError');
+  assert.equal(motivoSeguro('texto solto'), 'ERRO_string');
+  assert.equal(motivoSeguro(undefined), 'ERRO_undefined');
 });
