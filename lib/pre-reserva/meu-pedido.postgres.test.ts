@@ -10,8 +10,9 @@ import {
 } from '../../scripts/integracao-importados-test-support.ts';
 import { travarConfiguracaoAgenda } from '../agenda/trava-configuracao.ts';
 import { conectarDescartavel, encerrarDescartavel } from '../comercial/postgres-descartavel.ts';
+import type { DbExecutor } from '../db/contracts.ts';
 import { apiPublica } from '../fechamentos/rota-publica.ts';
-import { carregarComBanco, cliente, comercial, executor, fechamento, porTransacao } from '../marketing/harness-postgres.ts';
+import { carregarComBanco, cliente, comercial, executor, fechamento, porSavepoint, porTransacao } from '../marketing/harness-postgres.ts';
 import type { SessaoMeuPedido } from './acesso-pedido.ts';
 
 const ORIGEM = 'https://familia.example.test';
@@ -103,23 +104,39 @@ test('Meu pedido: CPF e código, escopo, oferta, Pix, desistência, auditoria e 
     const desistir = () => porTransacao(a)(db => servico.desistirMeuPedido(db, empresa, sess, pedido));
 
     const entregues: string[] = [];
+    let cookieTitular = '';
+    let emTransacao = false;
+    let sondagens = 0;
+    const bancoHttp: DbExecutor = { query(sql, params) {
+      if (sql.includes("to_regclass('public.pre_reserva_configuracoes')")) sondagens++;
+      return tx.query(sql, params);
+    } };
+    const transacao = porTransacao(a);
+    const savepoint = porSavepoint(a);
     const cache = new Map();
     const carregarRota = (arquivo: string) => carregarComBanco(arquivo, a, () => null, {
-      'db/postgres': { db: () => tx, withTransaction: porTransacao(a) },
+      'db/postgres': { db: () => bancoHttp, withTransaction: <T>(work: (db: DbExecutor) => Promise<T>) =>
+        (emTransacao ? savepoint : transacao)(work) },
       'identidade/delivery/index': { enviarOtpComAmbiente: async ({ codigo }: { codigo: string }) => { entregues.push(codigo); } },
     }, cache);
     const rotaInicio = carregarRota('app/api/meu-pedido/entrada/iniciar/route.ts') as typeof import('../../app/api/meu-pedido/entrada/iniciar/route.ts');
     const rotaConfirmacao = carregarRota('app/api/meu-pedido/entrada/confirmar/route.ts') as typeof import('../../app/api/meu-pedido/entrada/confirmar/route.ts');
     const rotaLeitura = carregarRota('app/api/meu-pedido/route.ts') as typeof import('../../app/api/meu-pedido/route.ts');
     const rotaDesistencia = carregarRota('app/api/meu-pedido/[pedidoId]/desistencia/route.ts') as typeof import('../../app/api/meu-pedido/[pedidoId]/desistencia/route.ts');
+    const rotaAceite = carregarRota('app/api/meu-pedido/[pedidoId]/aceite/route.ts') as typeof import('../../app/api/meu-pedido/[pedidoId]/aceite/route.ts');
+    const rotaPix = carregarRota('app/api/meu-pedido/[pedidoId]/pix/route.ts') as typeof import('../../app/api/meu-pedido/[pedidoId]/pix/route.ts');
     const acesso = carregarComBanco('lib/pre-reserva/acesso-pedido.ts', a, () => null) as typeof import('./acesso-pedido.ts');
-    const requisicao = (path: string, corpo?: unknown, cookie?: string) => new NextRequest(ORIGEM + path, {
+    const requisicao = (path: string, corpo?: unknown, cookie?: string, headers?: Record<string, string>) => new NextRequest(ORIGEM + path, {
       method: corpo === undefined ? 'GET' : 'POST',
-      headers: { origin: ORIGEM, 'content-type': 'application/json', ...(cookie ? { cookie } : {}) },
+      headers: { origin: ORIGEM, 'content-type': 'application/json', ...(cookie ? { cookie } : {}), ...headers },
       body: corpo === undefined ? undefined : JSON.stringify(corpo),
     });
     const ambiente = { AGENDA_PUBLICA_EMPRESA_ID: empresa, AGENDA_PUBLICA_UNIDADE_ID: '', AREA_FAMILIA_PUBLIC_ORIGIN: ORIGEM,
-      IDENTIDADE_OTP_PEPPER: PEPPER, COTACAO_PUBLICA_POR_EMPRESA: 'true', KIDMAIS_DEPLOY_ENV: 'local' };
+      IDENTIDADE_OTP_PEPPER: PEPPER, COTACAO_PUBLICA_POR_EMPRESA: 'true', KIDMAIS_DEPLOY_ENV: 'local',
+      ASSINATURA_SOMENTE_LEITURA_DIAS: '60' };
+    const codigoEmpresa = (await a.query<{ codigo: string }>('SELECT codigo FROM empresas WHERE id=$1', [empresa])).rows[0].codigo;
+    const ctx = { params: Promise.resolve({ pedidoId: pedido }) };
+    const porCodigo = (sufixo = '') => apiPublica(BASE + sufixo, codigoEmpresa);
     for (const [nome, valor] of Object.entries(ambiente)) {
       const anterior = process.env[nome];
       process.env[nome] = valor;
@@ -151,7 +168,8 @@ test('Meu pedido: CPF e código, escopo, oferta, Pix, desistência, auditoria e 
         for (const atributo of ['HttpOnly', 'Secure', 'SameSite=lax', 'Path=/api/meu-pedido', 'Max-Age=900'])
           assert.ok(cookie.toLowerCase().includes(atributo.toLowerCase()), atributo);
         const token = cookie.split(';')[0].split('=')[1];
-        assert.equal(acesso.lerSessaoMeuPedido(empresa, token, PEPPER)?.clienteId, esperado);
+        assert.equal((await acesso.lerSessaoMeuPedido(tx, empresa, token, PEPPER))?.clienteId, esperado);
+        if (i === 0) cookieTitular = cookie.split(';')[0];
         const leitura = await rotaLeitura.GET(requisicao(BASE, undefined, cookie.split(';')[0]));
         assert.equal(leitura.status, 200);
         assert.deepEqual((await leitura.json()).data.pedidos.map((p: { id: string }) => p.id), i === 0 ? [pedido] : []);
@@ -160,11 +178,36 @@ test('Meu pedido: CPF e código, escopo, oferta, Pix, desistência, auditoria e 
       assert.equal((await confirmar(2, '000000')).status, 401);
     });
 
-    await t.test('a sessão expira e identificadores de outro titular/empresa recebem a mesma recusa', async () => {
-      const expirado = acesso.emitirSessaoMeuPedido(empresa, titular, PEPPER, Date.now() - 901_000);
-      assert.equal(acesso.lerSessaoMeuPedido(empresa, expirado, PEPPER), null);
-      const cookie = acesso.nomeCookiePedido(empresa) + '=' + expirado;
-      assert.equal((await rotaLeitura.GET(requisicao(BASE, undefined, cookie))).status, 401);
+    await t.test('troca do contato invalida código enviado e sessão emitida', async () => {
+      const novoDesafio = async () => {
+        const r = await rotaInicio.POST(requisicao(porCodigo('/entrada/iniciar'), { cpf }));
+        assert.equal(r.status, 202);
+        return { desafio: (await r.json()).data.desafio, codigo: entregues.at(-1) };
+      };
+      const confirmar = (dados: Awaited<ReturnType<typeof novoDesafio>>) =>
+        rotaConfirmacao.POST(requisicao(porCodigo('/entrada/confirmar'), dados));
+      const anterior = await novoDesafio();
+      await a.query("UPDATE clientes SET whatsapp='11988887777' WHERE id=$1", [titular]);
+      const negada = await confirmar(anterior);
+      assert.equal(negada.status, 401);
+      assert.equal(negada.headers.get('set-cookie'), null);
+      assert.equal((await rotaLeitura.GET(requisicao(porCodigo(), undefined, cookieTitular))).status, 401);
+
+      await a.query("UPDATE clientes SET whatsapp='11999998888' WHERE id=$1", [titular]);
+      assert.equal((await rotaLeitura.GET(requisicao(porCodigo(), undefined, cookieTitular))).status, 401);
+
+      const autorizada = await confirmar(await novoDesafio());
+      assert.equal(autorizada.status, 200);
+      cookieTitular = autorizada.headers.get('set-cookie')!.split(';')[0];
+      assert.equal((await rotaLeitura.GET(requisicao(porCodigo(), undefined, cookieTitular))).status, 200);
+    });
+
+    await t.test('a sessão expira e identificadores de outro titular/empresa recebem a mesma recusa', async subt => {
+      const depoisDaExpiracao = Date.now() + 901_000;
+      const relogio = subt.mock.method(Date, 'now', () => depoisDaExpiracao);
+      try {
+        assert.equal((await rotaLeitura.GET(requisicao(BASE, undefined, cookieTitular))).status, 401);
+      } finally { relogio.mock.restore(); }
       assert.deepEqual((await listar()).map(p => p.id), [pedido]);
       assert.deepEqual((await listar(sessao(empresa, outro))).map(p => p.id), [pedidoOutro]);
       await assert.rejects(listar(sessao(externo, titular)), { code: 'SESSAO_ENCERRADA' });
@@ -207,12 +250,121 @@ test('Meu pedido: CPF e código, escopo, oferta, Pix, desistência, auditoria e 
       assert.deepEqual(await pix(), original);
       assert.equal((await aceitar(corpoAceite(await oferta()))).sequencia, 2);
       assert.match((await pix()).copiaECola, /novo@example\.test/);
+
+      await porTransacao(a)(async db => {
+        await db.query('UPDATE pre_reserva_configuracoes SET sinal_centavos=10000 WHERE empresa_id=$1', [empresa]);
+        await db.query('UPDATE empresa_pix_recebimento SET chave=$2 WHERE empresa_id=$1', [empresa, PIX_ANTIGO]);
+        const novamente = (await servico.listarMeuPedido(db, empresa, sess, PEPPER))[0].oferta;
+        assert.ok(novamente.disponivel);
+        assert.notEqual(novamente.versaoOferta, dados.versaoOferta);
+        await assert.rejects(servico.aceitarOfertaMeuPedido(db, empresa, sess, pedido, dados, PEPPER), { code: 'OFERTA_DESATUALIZADA' });
+        assert.equal((await aud(a, pedido, 'PRE_RESERVA_ACEITE')).length, 2);
+        await db.query('UPDATE pre_reserva_configuracoes SET sinal_centavos=12000 WHERE empresa_id=$1', [empresa]);
+        await db.query('UPDATE empresa_pix_recebimento SET chave=$2 WHERE empresa_id=$1', [empresa, PIX_NOVO]);
+      });
       const [evento] = await aud(a, pedido, 'PRE_RESERVA_ACEITE');
       assert.equal(evento.ator_tipo, 'CLIENTE');
       assert.equal(evento.cliente_id, titular);
       const instante = evento.dados_depois.instante;
       assert.ok(Number.isFinite(Date.parse(instante)));
       assert.deepEqual(evento.dados_depois, { empresaId: empresa, fechamentoId: pedido, movimento: '1', instante });
+    });
+
+    await t.test('mudança de data cancela o Pix do retrato anterior até novo aceite explícito', async () => {
+      const dados = corpoAceite(await oferta());
+      await a.query('BEGIN');
+      try {
+        await travarConfiguracaoAgenda(tx, empresa, { modo: 'COMPARTILHADA', linha: 'KEY_SHARE' });
+        await tx.query('UPDATE fechamentos SET data_evento=data_evento+1 WHERE id=$1', [pedido]);
+        await assert.rejects(servico.pixMeuPedido(tx, empresa, sess, pedido), { code: 'DESTINO_MUDOU' });
+        await assert.rejects(servico.aceitarOfertaMeuPedido(tx, empresa, sess, pedido, dados, PEPPER), { code: 'OFERTA_DESATUALIZADA' });
+        const [atual] = await servico.listarMeuPedido(tx, empresa, sess, PEPPER);
+        assert.equal(atual.preReserva.aceite, null);
+        assert.equal(atual.preReserva.novoAceiteNecessario, true);
+        assert.equal(atual.preReserva.aguardandoConferencia, false);
+        assert.ok(atual.oferta.disponivel);
+        const novo = await servico.aceitarOfertaMeuPedido(tx, empresa, sess, pedido, corpoAceite(atual.oferta), PEPPER);
+        assert.equal(novo.sequencia, 3);
+        assert.equal((await servico.pixMeuPedido(tx, empresa, sess, pedido)).aceiteSequencia, 3);
+      } finally { await a.query('ROLLBACK'); }
+    });
+
+    await t.test('Pix de valor divergente fica a devolver e o QR do valor correto continua disponível', async () => {
+      const original = await pix();
+      const resultado = await porTransacao(a)(async db => {
+        await a.query('SELECT 1 FROM empresas WHERE id=$1 FOR UPDATE', [empresa]);
+        return gestao.confirmarSinal(db, gestor, pedido, {
+          referencia: 'E1234567820261120123400011223345', valorCentavos: 11000, aceiteSequencia: 2,
+          acao: 'REGISTRAR_DIVERGENTE_A_DEVOLVER',
+        });
+      });
+      assert.deepEqual(resultado, { garantiaAte: null, motivo: 'VALOR_DIVERGENTE' });
+      const [atual] = await listar();
+      assert.ok(atual.oferta.disponivel);
+      assert.equal(atual.preReserva.aguardandoConferencia, true);
+      assert.equal(atual.preReserva.dinheiro[0].situacao, 'A_DEVOLVER');
+      assert.equal((await aceitar(corpoAceite(atual.oferta))).sequencia, 2);
+      const r = await rotaPix.GET(requisicao(porCodigo('/' + pedido + '/pix'), undefined, cookieTitular), ctx);
+      assert.equal(r.status, 200);
+      assert.deepEqual((await r.json()).data, original);
+    });
+
+    await t.test('endereço por código separa acesso ao pedido de escrita comercial e orçamento online', async () => {
+      const dados = corpoAceite(await oferta());
+      const leitura = async () => {
+        const r = await rotaLeitura.GET(requisicao(porCodigo(), undefined, cookieTitular));
+        assert.equal(r.status, 200);
+        return (await r.json()).data.pedidos[0];
+      };
+      const confirmarGarantia = async () => {
+        await tx.query('SELECT 1 FROM empresas WHERE id=$1 FOR UPDATE', [empresa]);
+        const r = await gestao.confirmarSinal(tx, gestor, pedido, {
+          referencia: 'E1234567820261120123400011223346', valorCentavos: 12000, aceiteSequencia: 2,
+        });
+        assert.ok(r.garantiaAte);
+      };
+      for (const garantidaAntesDaTroca of [false, true]) {
+        await a.query('BEGIN');
+        emTransacao = true;
+        try {
+          if (garantidaAntesDaTroca) await confirmarGarantia();
+          await tx.query(`INSERT INTO empresa_assinaturas(empresa_id,situacao,teste_inicio,teste_fim)
+            VALUES($1,'TESTE',now()-interval '40 days',now()-interval '10 days')`, [empresa]);
+          if (!garantidaAntesDaTroca) {
+            assert.deepEqual((await leitura()).oferta, { disponivel: false, motivo: 'ACESSO_COMERCIAL_RESTRITO' });
+            const aceiteRestrito = await rotaAceite.POST(requisicao(porCodigo('/' + pedido + '/aceite'), dados, cookieTitular), ctx);
+            assert.equal(aceiteRestrito.status, 409);
+            assert.equal((await aceiteRestrito.json()).codigo, 'ACESSO_COMERCIAL_RESTRITO');
+            assert.equal((await aud(a, pedido, 'PRE_RESERVA_ACEITE')).length, 2);
+          }
+          const plano = await id(a, `INSERT INTO assinatura_contratacoes
+            (empresa_id,chave_idempotencia,plano,ciclo,catalogo_versao,valor_regular_centavos,valor_final_centavos,criada_por)
+            VALUES($1,gen_random_uuid(),'ESSENCIAL','MENSAL','teste-meu-pedido',10000,10000,$2) RETURNING id`, [empresa, gestor.usuarioId]);
+          const assinatura = 'sub_' + plano;
+          await tx.query(`UPDATE assinatura_contratacoes SET estado='CONFIRMADA',confirmada_em=clock_timestamp(),
+            pagamento_confirmacao_id=$2,provedor_assinatura_id=$3 WHERE id=$1`, [plano, 'pay_' + plano, assinatura]);
+          await tx.query(`UPDATE empresa_assinaturas SET plano='ESSENCIAL',situacao='ATIVA',ciclo='MENSAL',provedor='ASAAS',
+            periodo_atual_fim=now()+interval '30 days',contratacao_atual_id=$2,provedor_assinatura_id=$3 WHERE empresa_id=$1`, [empresa, plano, assinatura]);
+
+          if (!garantidaAntesDaTroca) {
+            assert.deepEqual((await leitura()).oferta, { disponivel: false, motivo: 'ORCAMENTO_ONLINE_INDISPONIVEL' });
+            const pendente = await rotaPix.GET(requisicao(porCodigo('/' + pedido + '/pix'), undefined, cookieTitular), ctx);
+            assert.equal(pendente.status, 200);
+            assert.equal((await pendente.json()).data.aceiteSequencia, 2);
+            await confirmarGarantia();
+          }
+          assert.equal((await leitura()).preReserva.garantia.situacao, 'ATIVA');
+          const desistencia = await rotaDesistencia.POST(requisicao(porCodigo('/' + pedido + '/desistencia'),
+            { confirmarLiberacao: true }, cookieTitular), ctx);
+          assert.equal(desistencia.status, 200);
+          assert.equal((await desistencia.json()).data.preReserva.garantia.situacao, 'DESISTENCIA');
+          assert.ok((await leitura()).preReserva.dinheiro.some((s: { valorCentavos: number; situacao: string }) =>
+            s.valorCentavos === 12000 && s.situacao === 'A_DEVOLVER'));
+        } finally {
+          emTransacao = false;
+          await a.query('ROLLBACK');
+        }
+      }
     });
 
     await t.test('piloto desligado preserva leitura, Pix pendente e desistência; garantia existente impede aceite', async () => {
@@ -230,9 +382,7 @@ test('Meu pedido: CPF e código, escopo, oferta, Pix, desistência, auditoria e 
       });
       await assert.rejects(aceitar(dados), { code: 'GARANTIA_EXISTENTE' });
       await assert.rejects(pix(), { code: 'PIX_NAO_PENDENTE' });
-      const ctx = { params: Promise.resolve({ pedidoId: pedido }) };
-      const cookie = acesso.nomeCookiePedido(empresa) + '=' + acesso.emitirSessaoMeuPedido(empresa, titular, PEPPER);
-      const r = await rotaDesistencia.POST(requisicao(BASE + '/' + pedido + '/desistencia', { confirmarLiberacao: false }, cookie), ctx);
+      const r = await rotaDesistencia.POST(requisicao(BASE + '/' + pedido + '/desistencia', { confirmarLiberacao: false }, cookieTitular), ctx);
       assert.equal((await r.json()).codigo, 'CONFIRMACAO_NECESSARIA');
       assert.equal((await listar())[0].preReserva.garantia?.situacao, 'ATIVA');
       await assert.rejects(porTransacao(a)(async db => {
@@ -254,15 +404,13 @@ test('Meu pedido: CPF e código, escopo, oferta, Pix, desistência, auditoria e 
     });
 
     await t.test('schema incompleto ou ausente dá 503 em todas as rotas antes de efeitos', async () => {
-      const aceite = carregarRota('app/api/meu-pedido/[pedidoId]/aceite/route.ts') as typeof import('../../app/api/meu-pedido/[pedidoId]/aceite/route.ts');
-      const pixApi = carregarRota('app/api/meu-pedido/[pedidoId]/pix/route.ts') as typeof import('../../app/api/meu-pedido/[pedidoId]/pix/route.ts');
-      const ctx = { params: Promise.resolve({ pedidoId: pedido }) };
+      const entreguesAntes = entregues.length;
       const confere = async () => {
         const respostas = await Promise.all([
           rotaInicio.POST(requisicao(BASE + '/entrada/iniciar', { cpf })),
           rotaConfirmacao.POST(requisicao(BASE + '/entrada/confirmar', {})),
-          rotaLeitura.GET(requisicao(BASE)), aceite.POST(requisicao(BASE + '/aceite', {}), ctx),
-          pixApi.GET(requisicao(BASE + '/pix'), ctx), rotaDesistencia.POST(requisicao(BASE + '/desistencia', {}), ctx),
+          rotaLeitura.GET(requisicao(BASE)), rotaAceite.POST(requisicao(BASE + '/aceite', {}), ctx),
+          rotaPix.GET(requisicao(BASE + '/pix'), ctx), rotaDesistencia.POST(requisicao(BASE + '/desistencia', {}), ctx),
         ]);
         for (const r of respostas) {
           assert.equal(r.status, 503);
@@ -272,10 +420,33 @@ test('Meu pedido: CPF e código, escopo, oferta, Pix, desistência, auditoria e 
       await a.query('BEGIN');
       try {
         await a.query('ALTER TABLE pre_reserva_aceites DISABLE TRIGGER a131_config_antes_do_aceite');
+        const antesDaOrigem = sondagens;
+        const origemRecusada = await rotaInicio.POST(requisicao(BASE + '/entrada/iniciar', { cpf }, undefined,
+          { origin: 'https://outra.example.test' }));
+        assert.equal(origemRecusada.status, 403);
+        assert.equal((await origemRecusada.json()).codigo, 'ORIGEM_RECUSADA');
+        assert.equal(sondagens, antesDaOrigem);
         await confere();
         await a.query('ALTER VIEW pre_reserva_situacoes RENAME TO teste_pre_reserva_situacoes_ausente');
         await confere();
-        assert.equal(entregues.length, 2);
+        const { RENDER, ORIGEM_CLIENTE_BORDA } = process.env;
+        process.env.RENDER = 'true';
+        process.env.ORIGEM_CLIENTE_BORDA = 'render-cloudflare-sobrescreve';
+        try {
+          const iniciar = () => rotaInicio.POST(requisicao(BASE + '/entrada/iniciar', { cpf }, undefined, {
+            'x-forwarded-for': '1.2.3.4, 5.6.7.8', 'cf-connecting-ip': '1.2.3.4',
+          }));
+          for (let i = 0; i < 20; i++) assert.equal((await iniciar()).status, 503);
+          const antesDoLimite = sondagens;
+          const limitada = await iniciar();
+          assert.equal(limitada.status, 429);
+          assert.equal((await limitada.json()).codigo, 'LIMITE_REQUISICOES');
+          assert.equal(sondagens, antesDoLimite);
+        } finally {
+          if (RENDER === undefined) delete process.env.RENDER; else process.env.RENDER = RENDER;
+          if (ORIGEM_CLIENTE_BORDA === undefined) delete process.env.ORIGEM_CLIENTE_BORDA; else process.env.ORIGEM_CLIENTE_BORDA = ORIGEM_CLIENTE_BORDA;
+        }
+        assert.equal(entregues.length, entreguesAntes);
         await travarConfiguracaoAgenda(tx, empresa, { modo: 'COMPARTILHADA', linha: 'KEY_SHARE' });
         const comum = await fechamento(a, empresa, base, titular, { data: dia(93), status: 'AGUARDANDO_CONTRATO' });
         assert.equal((await a.query('SELECT status FROM fechamentos WHERE id=$1', [comum])).rows[0].status, 'AGUARDANDO_CONTRATO');

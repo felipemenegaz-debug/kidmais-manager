@@ -1,13 +1,16 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { avaliarOferta, montarPixDoAceite, apresentarSituacao, retratoDoRecebedor, type AceiteDoPedido, type SituacaoDoSinal } from './apresentacao-familia.ts';
+import {
+  avaliarOferta, destinoDoAceiteConfere, montarPixDoAceite, apresentarSituacao, retratoDoRecebedor,
+  type AceiteDoPedido, type SituacaoDoSinal,
+} from './apresentacao-familia.ts';
 import { crc16 } from '../pagamentos/pix/brcode.ts';
 import { POLITICA_PRE_RESERVA } from './politica.ts';
 import { TERMOS_PRE_RESERVA, TEXTO_CONFERENCIA_PIX, VERSAO_TERMOS_PRE_RESERVA } from './termos.ts';
 
 const recebedor = { nome: 'Buffet Teste', cidade: 'Sao Paulo', chave: 'pix@example.test' };
 const base = {
-  status: 'AGUARDANDO_CONTRATO', temGarantia: false, habilitada: true, orcamentoOnline: true, recebedor,
+  status: 'AGUARDANDO_CONTRATO', temGarantia: false, habilitada: true, orcamentoOnline: true, escritaPermitida: true, recebedor,
   sinalConfigurado: 10000, precoCentavos: 6000, agora: new Date('2026-11-21T12:00:00Z'), inicioEvento: '2026-11-22T12:00:00Z',
 };
 
@@ -18,6 +21,7 @@ test('oferta exige pedido elegível, piloto, orçamento online, Pix, piso, 24 ho
     [{ temGarantia: true }, 'GARANTIA_EXISTENTE'],
     [{ habilitada: false }, 'PILOTO_DESLIGADO'],
     [{ orcamentoOnline: false }, 'ORCAMENTO_ONLINE_INDISPONIVEL'],
+    [{ escritaPermitida: false }, 'ACESSO_COMERCIAL_RESTRITO'],
     [{ recebedor: null }, 'PRE_RESERVA_SEM_PIX'],
     [{ precoCentavos: 999 }, 'SINAL_INDISPONIVEL'],
     [{ sinalConfigurado: 50001 }, 'SINAL_INDISPONIVEL'],
@@ -61,7 +65,7 @@ test('apresentação separa conferência, garantia e dinheiro e seleciona os cam
   assert.deepEqual(pendente.aceite?.recebedor, { nome: recebedor.nome, cidade: recebedor.cidade });
   const sinais = ['A_DEVOLVER', 'EM_DEVOLUCAO', 'DEVOLVIDO', 'CREDITO_CONTRATO'].map((dinheiro, i): SituacaoDoSinal => ({
     garantia: i === 3 ? 'FORMALIZACAO' : 'SEM_GARANTIA', garantiaAte: i === 3 ? base.agora : null,
-    dinheiro, valorCentavos: '6000', devolverDesde: i === 3 ? null : base.agora, aceiteSequencia: 1,
+    dinheiro, valorCentavos: '6000', devolverDesde: i === 3 ? null : base.agora, aceiteSequencia: 1, motivoSemGarantia: null,
   }));
   const atual = apresentarSituacao('CONFIRMADO', aceite, sinais);
   assert.deepEqual(apresentarSituacao(base.status, aceite, sinais.slice(0, 1)).garantia, { situacao: 'SEM_GARANTIA', ate: null });
@@ -69,4 +73,26 @@ test('apresentação separa conferência, garantia e dinheiro e seleciona os cam
   assert.deepEqual(atual.garantia, { situacao: 'FORMALIZACAO', ate: base.agora });
   assert.deepEqual(atual.dinheiro.map(s => s.situacao), sinais.map(s => s.dinheiro));
   assert.doesNotMatch(JSON.stringify(atual), /chave|pix@example|endToEnd|devolvidoPor/i);
+});
+
+test('mudança de destino deixa de apresentar o aceite como pendente, preservando a devolução', () => {
+  assert.ok(destinoDoAceiteConfere(aceite, aceite, false));
+  for (const destino of [
+    { inicioEvento: '2026-11-23T12:00:00Z' }, { fimEvento: '2026-11-22T15:00:00Z' }, { estabelecimentoId: 'outra-unidade' },
+  ]) assert.equal(destinoDoAceiteConfere({ ...aceite, ...destino }, aceite, false), false);
+  const aceitePorSalao = { ...aceite, salaoId: 'salao-1' };
+  assert.ok(destinoDoAceiteConfere(aceite, aceitePorSalao, true));
+  assert.equal(destinoDoAceiteConfere({ ...aceite, salaoId: 'salao-2' }, aceitePorSalao, true), false);
+  assert.equal(destinoDoAceiteConfere(aceite, aceitePorSalao, false), false);
+
+  const divergente: SituacaoDoSinal = {
+    garantia: 'SEM_GARANTIA', garantiaAte: null, dinheiro: 'A_DEVOLVER', devolverDesde: base.agora,
+    valorCentavos: '5000', aceiteSequencia: aceite.sequencia, motivoSemGarantia: 'VALOR_DIVERGENTE',
+  };
+  assert.equal(apresentarSituacao(base.status, aceite, [divergente]).aguardandoConferencia, true);
+  const mudanca = apresentarSituacao(base.status, aceite, [divergente], true);
+  assert.equal(mudanca.aceite, null);
+  assert.equal(mudanca.novoAceiteNecessario, true);
+  assert.equal(mudanca.aguardandoConferencia, false);
+  assert.equal(mudanca.dinheiro[0].valorCentavos, 5000);
 });

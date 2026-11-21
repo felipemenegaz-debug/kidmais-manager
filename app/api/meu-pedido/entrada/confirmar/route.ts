@@ -3,7 +3,7 @@ import { z } from 'zod';
 import { responderArea } from '@/lib/area-familia/http';
 import { db } from '@/lib/db/postgres';
 import { confirmarEntradaMeuPedido, cookieMeuPedido } from '@/lib/pre-reserva/acesso-pedido';
-import { corpoMeuPedido, limitarConfirmacaoMeuPedido, rotaMeuPedido } from '@/lib/pre-reserva/http-familia';
+import { corpoMeuPedido, rotaMeuPedido } from '@/lib/pre-reserva/http-familia';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -15,13 +15,11 @@ const entrada = z.object({
 
 export async function POST(request: NextRequest) {
   return rotaMeuPedido(request, async ({ empresaId, pepper }) => {
-    const limite = await limitarConfirmacaoMeuPedido(request);
-    if (limite) return limite;
     const { desafio, codigo } = await corpoMeuPedido(request, entrada);
     const token = await confirmarEntradaMeuPedido(db(), empresaId, desafio, codigo, pepper);
     if (!token) return responderArea({ ok: false, codigo: 'CODIGO_NAO_CONFIRMADO', erro: 'Código inválido ou expirado. Confira o código ou inicie uma nova entrada.' }, 401);
     const resposta = responderArea({ ok: true });
     resposta.cookies.set(cookieMeuPedido(empresaId, token));
     return resposta;
-  });
+  }, 'CONFIRMAR_IDENTIDADE');
 }

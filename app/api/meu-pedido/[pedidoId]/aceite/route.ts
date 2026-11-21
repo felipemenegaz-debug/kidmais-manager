@@ -15,7 +15,7 @@ const entrada = z.object({
 
 export async function POST(request: NextRequest, rota: { params: Promise<{ pedidoId: string }> }) {
   return rotaMeuPedido(request, async (contexto) => {
-    const sessao = lerSessaoDaRequisicao(request, contexto);
+    const sessao = await lerSessaoDaRequisicao(request, contexto);
     const pedido = idDoPedido((await rota.params).pedidoId);
     const dados = await corpoMeuPedido(request, entrada);
     const data = await withTransaction(tx => aceitarOfertaMeuPedido(tx, contexto.empresaId, sessao, pedido, dados, contexto.pepper));

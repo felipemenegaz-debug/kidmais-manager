@@ -10,6 +10,7 @@ type Elegibilidade = {
   temGarantia: boolean;
   habilitada: boolean;
   orcamentoOnline: boolean;
+  escritaPermitida: boolean;
   recebedor: RecebedorDaOferta | null;
   sinalConfigurado: number;
   precoCentavos: number;
@@ -22,6 +23,7 @@ export function avaliarOferta(dados: Elegibilidade) {
   if (dados.status !== 'AGUARDANDO_CONTRATO') return { motivo: 'PEDIDO_INELEGIVEL' } as const;
   if (!dados.habilitada) return { motivo: 'PILOTO_DESLIGADO' } as const;
   if (!dados.orcamentoOnline) return { motivo: 'ORCAMENTO_ONLINE_INDISPONIVEL' } as const;
+  if (!dados.escritaPermitida) return { motivo: 'ACESSO_COMERCIAL_RESTRITO' } as const;
   if (!dados.recebedor) return { motivo: 'PRE_RESERVA_SEM_PIX' } as const;
   const sinalCentavos = sinalDaOferta(dados.habilitada, dados.orcamentoOnline, dados.sinalConfigurado, dados.precoCentavos);
   if (sinalCentavos === null) return { motivo: 'SINAL_INDISPONIVEL' } as const;
@@ -54,7 +56,21 @@ export type SituacaoDoSinal = {
   valorCentavos: string;
   devolverDesde: Date | null;
   aceiteSequencia: number;
+  motivoSemGarantia: string | null;
 };
+
+export function sinalJaConferido(aceite: AceiteDoPedido, sinais: SituacaoDoSinal[]) {
+  return sinais.some(s => s.aceiteSequencia === aceite.sequencia && s.motivoSemGarantia !== 'VALOR_DIVERGENTE');
+}
+
+type DestinoDoAceite = Pick<AceiteDoPedido, 'estabelecimentoId' | 'inicioEvento' | 'fimEvento' | 'salaoId'>;
+
+export function destinoDoAceiteConfere(atual: DestinoDoAceite, aceite: AceiteDoPedido, porSalao: boolean) {
+  return atual.estabelecimentoId === aceite.estabelecimentoId && atual.inicioEvento === aceite.inicioEvento &&
+    atual.fimEvento === aceite.fimEvento && (porSalao
+      ? aceite.salaoId !== null && (atual.salaoId === null || atual.salaoId === aceite.salaoId)
+      : aceite.salaoId === null);
+}
 
 // Os dois campos do BR Code são normalizados sem o separador. O retrato continua legível na revisão da Gestão.
 const SEPARADOR_RECEBEDOR = ' · ';
@@ -76,12 +92,14 @@ export function apresentarAceite(a: AceiteDoPedido) {
   };
 }
 
-export function apresentarSituacao(status: string, aceite: AceiteDoPedido | null, sinais: SituacaoDoSinal[]) {
-  const aguardandoConferencia = status === 'AGUARDANDO_CONTRATO' && aceite !== null &&
-    !sinais.some(s => s.aceiteSequencia === aceite.sequencia);
+export function apresentarSituacao(status: string, aceite: AceiteDoPedido | null, sinais: SituacaoDoSinal[], destinoMudou = false) {
+  const vigente = destinoMudou ? null : aceite;
+  const aguardandoConferencia = status === 'AGUARDANDO_CONTRATO' && vigente !== null &&
+    !sinais.some(s => s.garantiaAte !== null) && !sinalJaConferido(vigente, sinais);
   const garantia = sinais.find(s => s.garantiaAte !== null) ?? sinais.find(s => s.aceiteSequencia === aceite?.sequencia);
   return {
-    aceite: aceite && apresentarAceite(aceite),
+    aceite: vigente && apresentarAceite(vigente),
+    novoAceiteNecessario: destinoMudou,
     aguardandoConferencia,
     mensagemConferencia: aguardandoConferencia ? TEXTO_CONFERENCIA_PIX : null,
     garantia: garantia ? { situacao: garantia.garantia, ate: garantia.garantiaAte } : null,
@@ -92,7 +110,7 @@ export function apresentarSituacao(status: string, aceite: AceiteDoPedido | null
 }
 
 export function assinaturaDaOferta(pepper: string, dados: readonly unknown[]) {
-  return createHmac('sha256', pepper).update('meu-pedido:oferta:v1|').update(JSON.stringify(dados)).digest('base64url');
+  return createHmac('sha256', pepper).update('meu-pedido:oferta:v2|').update(JSON.stringify(dados)).digest('base64url');
 }
 
 export function montarPixDoAceite(pedidoId: string, a: AceiteDoPedido) {

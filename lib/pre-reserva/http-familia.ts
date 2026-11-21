@@ -15,15 +15,20 @@ import { exigirSchemaMeuPedido } from './meu-pedido.ts';
 
 type Contexto = { empresaId: string; pepper: string };
 
-export async function rotaMeuPedido(request: NextRequest, executar: (contexto: Contexto) => Promise<Response>, grupo: GrupoLimite = 'LEITURA') {
+export async function rotaMeuPedido(request: NextRequest, executar: (contexto: Contexto) => Promise<Response>,
+  grupo: GrupoLimite | 'CONFIRMAR_IDENTIDADE' = 'LEITURA') {
   try {
-    await exigirSchemaMeuPedido(db());
     const leitura = request.method === 'GET';
     if (!(leitura ? leituraPermitida(request) : origemPublicaValida(request)))
       throw new PacoteAdminError('ORIGEM_RECUSADA', 'Origem recusada.', 403);
-    const limite = await limitarPublico(request, grupo);
+    const limite = await limitarPublico(request, grupo === 'CONFIRMAR_IDENTIDADE' ? 'LEITURA' : grupo);
     if (limite) return limite;
-    const { empresaId } = await escopoCotacaoPublica(db, codigoEmpresaDoPedido(request.nextUrl));
+    if (grupo === 'CONFIRMAR_IDENTIDADE') {
+      const recusa = await limitarRotaPublicaNoBanco(request, LIMITES.IDENTIDADE_CONFIRMAR_ORIGEM, 'identidade:confirmar');
+      if (recusa) return recusa;
+    }
+    await exigirSchemaMeuPedido(db());
+    const { empresaId } = await escopoCotacaoPublica(db, codigoEmpresaDoPedido(request.nextUrl), { acompanharPedido: true });
     const pepper = pepperIdentidade();
     if (!pepper) throw new PacoteAdminError('PRE_RESERVA_INDISPONIVEL', 'Meu pedido está indisponível no momento.', 503);
     return await executar({ empresaId, pepper });
@@ -39,13 +44,9 @@ export async function rotaMeuPedido(request: NextRequest, executar: (contexto: C
   }
 }
 
-export function lerSessaoDaRequisicao(request: NextRequest, { empresaId, pepper }: Contexto) {
+export async function lerSessaoDaRequisicao(request: NextRequest, { empresaId, pepper }: Contexto) {
   const token = request.cookies.get(nomeCookiePedido(empresaId))?.value;
-  return exigirSessaoMeuPedido(lerSessaoMeuPedido(empresaId, token, pepper), empresaId);
-}
-
-export function limitarConfirmacaoMeuPedido(request: NextRequest) {
-  return limitarRotaPublicaNoBanco(request, LIMITES.IDENTIDADE_CONFIRMAR_ORIGEM, 'identidade:confirmar');
+  return exigirSessaoMeuPedido(await lerSessaoMeuPedido(db(), empresaId, token, pepper), empresaId);
 }
 
 export async function corpoMeuPedido<T>(request: NextRequest, schema: z.ZodType<T>) {

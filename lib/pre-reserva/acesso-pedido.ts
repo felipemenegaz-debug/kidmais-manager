@@ -11,8 +11,13 @@ export const CAMINHO_API_MEU_PEDIDO = '/api/meu-pedido';
 const TTL_DESAFIO_MS = 10 * 60_000;
 export const TTL_SESSAO_PEDIDO_MS = 15 * 60_000;
 
-const dadosToken = z.object({ empresaId: z.uuid(), id: z.uuid(), expiraEm: z.number().int() });
+const canalToken = z.enum(['w', 'e']);
+const dadosToken = z.object({
+  empresaId: z.uuid(), id: z.uuid(), expiraEm: z.number().int(),
+  canal: canalToken, contato: z.string().regex(/^[A-Za-z0-9_-]{43}$/),
+});
 type DadosToken = z.infer<typeof dadosToken>;
+type Vinculo = Pick<DadosToken, 'canal' | 'contato'>;
 type TipoToken = 'desafio' | 'sessao';
 
 function chaveToken(pepper: string, tipo: TipoToken) {
@@ -41,16 +46,33 @@ function abrirToken(pepper: string, tipo: TipoToken, empresaId: string, token: s
 }
 
 export type SessaoMeuPedido = { empresaId: string; clienteId: string; expiraEm: number };
-type Identidade = Pick<ReturnType<typeof criarIdentityServiceComAmbiente>, 'iniciarDesafio' | 'confirmarCodigo' | 'resolverClientePorProva'>;
-const identidadePadrao = () => criarIdentityServiceComAmbiente(enviarOtpComAmbiente, { otpTtlMs: TTL_DESAFIO_MS });
 
-export function emitirSessaoMeuPedido(empresaId: string, clienteId: string, pepper: string, agora = Date.now()) {
-  return selarToken(pepper, 'sessao', { empresaId, id: clienteId, expiraEm: agora + TTL_SESSAO_PEDIDO_MS });
+async function lerContato(tx: DbExecutor, empresaId: string, id: string, canal: Vinculo['canal'], por: 'cliente' | 'validacao') {
+  const { rows: [cliente] } = await tx.query<{ id: string; destino: string | null; alteradoEm: string }>(`SELECT
+    id, CASE WHEN $3 = 'w' THEN whatsapp ELSE email END AS destino,
+    to_char(atualizado_em AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS "alteradoEm"
+    FROM clientes WHERE empresa_id=$1 AND status <> 'MESCLADO'
+      AND id=${por === 'cliente' ? '$2' : '(SELECT cliente_id FROM validacoes_identidade_cliente WHERE id=$2)'}`,
+    [empresaId, id, canal]);
+  return cliente;
 }
 
-export function lerSessaoMeuPedido(empresaId: string, token: string | undefined, pepper: string, agora = Date.now()): SessaoMeuPedido | null {
-  const dados = abrirToken(pepper, 'sessao', empresaId, token, agora);
-  return dados && { empresaId, clienteId: dados.id, expiraEm: dados.expiraEm };
+function assinaturaDoContato(pepper: string, empresaId: string, canal: Vinculo['canal'],
+  cliente: NonNullable<Awaited<ReturnType<typeof lerContato>>>) {
+  // A revisão do cadastro evita revalidar um token antigo se o contato for trocado e depois restaurado.
+  return createHmac('sha256', pepper).update('meu-pedido:contato:v1|')
+    .update(JSON.stringify([empresaId, cliente.id, canal, cliente.destino?.trim(), cliente.alteradoEm])).digest('base64url');
+}
+
+async function contatoConfere(tx: DbExecutor, empresaId: string, clienteId: string, vinculo: Vinculo, pepper: string) {
+  const cliente = await lerContato(tx, empresaId, clienteId, vinculo.canal, 'cliente');
+  return !!cliente?.destino && assinaturaDoContato(pepper, empresaId, vinculo.canal, cliente) === vinculo.contato;
+}
+
+export async function lerSessaoMeuPedido(tx: DbExecutor, empresaId: string, token: string | undefined, pepper: string): Promise<SessaoMeuPedido | null> {
+  const dados = abrirToken(pepper, 'sessao', empresaId, token, Date.now());
+  if (!dados || !await contatoConfere(tx, empresaId, dados.id, dados, pepper)) return null;
+  return { empresaId, clienteId: dados.id, expiraEm: dados.expiraEm };
 }
 
 export function exigirSessaoMeuPedido(sessao: SessaoMeuPedido | null, empresaId: string) {
@@ -71,30 +93,50 @@ export function cookieMeuPedido(empresaId: string, token: string) {
 }
 
 export async function iniciarEntradaMeuPedido(tx: DbExecutor, empresaId: string, cpf: string, canal: 'WHATSAPP' | 'EMAIL',
-  pepper: string, identidade: Identidade = identidadePadrao()) {
+  pepper: string) {
   let id: string = randomUUID();
+  let vinculo: Vinculo = { canal: canal === 'WHATSAPP' ? 'w' : 'e', contato: randomBytes(32).toString('base64url') };
+  const entregas = new Map<string, Vinculo>();
   const expiraEm = Date.now() + TTL_DESAFIO_MS;
   try {
+    const identidade = criarIdentityServiceComAmbiente(async entrega => {
+      const canalEntregue = entrega.canal === 'WHATSAPP' ? 'w' : 'e';
+      const cliente = await lerContato(tx, empresaId, entrega.validacaoId, canalEntregue, 'validacao');
+      if (!cliente?.destino || cliente.destino.trim() !== entrega.destino.trim())
+        throw new Error('Contato do cadastro alterado antes do envio.');
+      const enviado = await enviarOtpComAmbiente(entrega);
+      entregas.set(entrega.validacaoId, {
+        canal: canalEntregue, contato: assinaturaDoContato(pepper, empresaId, canalEntregue, cliente),
+      });
+      return enviado;
+    }, { otpTtlMs: TTL_DESAFIO_MS });
     const desafio = await identidade.iniciarDesafio({
       cpf, canal, escopo: { empresaId, incluirLegadoSemEmpresa: false },
     }, tx);
+    const entrega = entregas.get(desafio.validacaoId);
+    if (!entrega) throw new Error('Desafio sem vínculo de entrega.');
     id = desafio.validacaoId;
+    vinculo = entrega;
   } catch (error) {
     if (!isIdentityServiceError(error) || !['CLIENTE_NAO_ENCONTRADO', 'CANAL_INDISPONIVEL', 'FALHA_ENVIO_OTP', 'LIMITE_ENVIOS_OTP'].includes(error.code)) throw error;
   }
   // Não consulta se há pedidos. O ticket fictício tem o mesmo formato e a mesma expiração do real.
-  return { desafio: selarToken(pepper, 'desafio', { empresaId, id, expiraEm }), expiraEm: new Date(expiraEm) };
+  return { desafio: selarToken(pepper, 'desafio', { empresaId, id, expiraEm, ...vinculo }), expiraEm: new Date(expiraEm) };
 }
 
 export async function confirmarEntradaMeuPedido(tx: DbExecutor, empresaId: string, desafio: string, codigo: string,
-  pepper: string, identidade: Identidade = identidadePadrao()) {
+  pepper: string) {
   const dados = abrirToken(pepper, 'desafio', empresaId, desafio, Date.now());
   if (!dados) return null;
   try {
+    const identidade = criarIdentityServiceComAmbiente(enviarOtpComAmbiente, { otpTtlMs: TTL_DESAFIO_MS });
     // A prova fica no servidor. O ticket opaco também protege o id do desafio da confirmação genérica.
     const prova = await identidade.confirmarCodigo({ validacaoId: dados.id, codigo }, tx);
     const titular = await identidade.resolverClientePorProva(prova.provaToken, tx);
-    return emitirSessaoMeuPedido(empresaId, titular.clienteId, pepper);
+    if (!await contatoConfere(tx, empresaId, titular.clienteId, dados, pepper)) return null;
+    return selarToken(pepper, 'sessao', {
+      empresaId, id: titular.clienteId, expiraEm: Date.now() + TTL_SESSAO_PEDIDO_MS, canal: dados.canal, contato: dados.contato,
+    });
   } catch (error) {
     if (isIdentityServiceError(error) && error.httpStatus < 500) return null;
     throw error;

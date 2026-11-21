@@ -12,7 +12,7 @@ const entrada = z.object({ confirmarLiberacao: z.boolean() }).strict();
 
 export async function POST(request: NextRequest, rota: { params: Promise<{ pedidoId: string }> }) {
   return rotaMeuPedido(request, async (contexto) => {
-    const sessao = lerSessaoDaRequisicao(request, contexto);
+    const sessao = await lerSessaoDaRequisicao(request, contexto);
     const pedido = idDoPedido((await rota.params).pedidoId);
     const { confirmarLiberacao } = await corpoMeuPedido(request, entrada);
     if (!confirmarLiberacao)
