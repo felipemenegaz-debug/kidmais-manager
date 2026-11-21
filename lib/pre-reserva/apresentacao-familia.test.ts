@@ -90,9 +90,12 @@ test('mudança de destino deixa de apresentar o aceite como pendente, preservand
     valorCentavos: '5000', aceiteSequencia: aceite.sequencia, motivoSemGarantia: 'VALOR_DIVERGENTE',
   };
   assert.equal(apresentarSituacao(base.status, aceite, [divergente]).aguardandoConferencia, true);
-  const mudanca = apresentarSituacao(base.status, aceite, [divergente], true);
+  const mudanca = apresentarSituacao(base.status, aceite, [divergente], { destinoMudou: true, ofertaDisponivel: true });
   assert.equal(mudanca.aceite, null);
   assert.equal(mudanca.novoAceiteNecessario, true);
   assert.equal(mudanca.aguardandoConferencia, false);
   assert.equal(mudanca.dinheiro[0].valorCentavos, 5000);
+  const semOferta = apresentarSituacao(base.status, aceite, [divergente], { destinoMudou: true, ofertaDisponivel: false });
+  assert.equal(semOferta.novoAceiteNecessario, false);
+  assert.deepEqual(semOferta.dinheiro, mudanca.dinheiro);
 });

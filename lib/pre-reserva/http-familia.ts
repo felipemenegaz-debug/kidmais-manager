@@ -6,12 +6,11 @@ import {
 import { LIMITES } from '../area-familia/limites.ts';
 import { codigoEmpresaDoPedido, escopoCotacaoPublica } from '../comercial/cotacao-publica.ts';
 import { PacoteAdminError } from '../comercial/pacotes-admin.ts';
-import type { DbExecutor } from '../db/contracts.ts';
 import { db } from '../db/postgres.ts';
 import { isAvailabilityServiceError } from '../disponibilidade/services/errors.ts';
 import { limitarPublico, respostaRecusaPublica, type GrupoLimite } from '../http/limite-publico.ts';
 import { isIdentityServiceError } from '../identidade/services/errors.ts';
-import { abrirSessaoMeuPedido, exigirSessaoMeuPedido, lerSessaoMeuPedido, nomeCookiePedido } from './acesso-pedido.ts';
+import { abrirSessaoMeuPedido, exigirSessaoMeuPedido, nomeCookiePedido } from './acesso-pedido.ts';
 import { exigirSchemaMeuPedido } from './meu-pedido.ts';
 
 type Contexto = { empresaId: string; pepper: string };
@@ -43,11 +42,6 @@ export async function rotaMeuPedido(request: NextRequest, executar: (contexto: C
     console.error('[Meu pedido] falha na rota pública:', error instanceof Error ? error.name : 'erro');
     return responderArea({ ok: false, codigo: 'PRE_RESERVA_INDISPONIVEL', erro: 'Meu pedido está indisponível no momento.' }, 503);
   }
-}
-
-export async function lerSessaoDaRequisicao(request: NextRequest, { empresaId, pepper }: Contexto, tx: DbExecutor = db()) {
-  const token = request.cookies.get(nomeCookiePedido(empresaId))?.value;
-  return exigirSessaoMeuPedido(await lerSessaoMeuPedido(tx, empresaId, token, pepper), empresaId);
 }
 
 export function abrirSessaoDaRequisicao(request: NextRequest, { empresaId, pepper }: Contexto) {

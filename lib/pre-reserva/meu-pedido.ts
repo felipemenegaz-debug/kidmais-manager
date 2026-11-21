@@ -65,8 +65,8 @@ async function lerPedidosDoTitular(tx: DbExecutor, sessao: SessaoMeuPedido, pedi
   return rows;
 }
 
-async function lerPedidoDoTitular(tx: DbExecutor, sessao: SessaoMeuPedido, pedido: string, trava?: 'SHARE') {
-  const [alvo] = await lerPedidosDoTitular(tx, sessao, pedido, trava);
+async function lerPedidoDoTitular(tx: DbExecutor, sessao: SessaoMeuPedido, pedido: string) {
+  const [alvo] = await lerPedidosDoTitular(tx, sessao, pedido);
   exigirSessaoMeuPedido(sessao, sessao.empresaId);
   if (!alvo) throw new PacoteAdminError('PEDIDO_INDISPONIVEL', 'Pedido não encontrado.', 404);
   return alvo;
@@ -134,12 +134,12 @@ function precoAceitoDoPedido(pedido: Pedido) {
 }
 
 function sinaisConferidos(sinais: SituacaoDoSinal[], sequencia: number) {
+  // Receber um valor divergente não encerra o Pix do valor aceito.
   return sinais.filter(s => s.aceiteSequencia === sequencia && s.motivoSemGarantia !== 'VALOR_DIVERGENTE');
 }
 
-function podeRenovarOferta(sinais: SituacaoDoSinal[], sequencia: number) {
-  const conferidos = sinaisConferidos(sinais, sequencia);
-  return conferidos.length > 0 && conferidos.every(s => s.motivoSemGarantia === 'HORARIO_INDISPONIVEL' && s.dinheiro === 'DEVOLVIDO');
+function podeRenovarOferta(conferidos: SituacaoDoSinal[]) {
+  return conferidos.length > 0 && conferidos.every(s => s.garantiaAte === null && s.dinheiro === 'DEVOLVIDO');
 }
 
 async function prepararOferta(tx: DbExecutor, sessao: SessaoMeuPedido, pedido: Pedido, aceite: AceiteDoPedido | null, sinais: SituacaoDoSinal[],
@@ -177,24 +177,23 @@ async function prepararOferta(tx: DbExecutor, sessao: SessaoMeuPedido, pedido: P
     termosVersao: VERSAO_TERMOS_PRE_RESERVA, termosAceitos: TERMOS_PRE_RESERVA,
   };
   const sequencia = aceite?.sequencia ?? 0;
-  // A baixa muda a versão mesmo quando o valor, o recebedor e o destino continuam iguais.
-  const assinatura = (a: typeof retrato, base: number) =>
-    assinaturaDaOferta(pepper, [empresaId, sessao.clienteId, pedido.id, base, ...fotografiaDoAceite(a),
-      ...(podeRenovarOferta(sinais, base) ? ['DEVOLVIDO_POR_HORARIO_INDISPONIVEL'] : [])]);
-  const versaoOferta = assinatura(retrato, sequencia);
   const conferidos = sinaisConferidos(sinais, sequencia);
-  const mesmoRetrato = aceite && assinatura(aceite, sequencia) === versaoOferta;
-  if (!podeRenovarOferta(sinais, sequencia) &&
-    (conferidos.some(s => s.motivoSemGarantia === 'HORARIO_INDISPONIVEL') || (mesmoRetrato && conferidos.length > 0)))
+  const renovar = podeRenovarOferta(conferidos);
+  if (conferidos.length > 0 && !renovar)
     return { disponivel: false, motivo: 'PIX_NAO_PENDENTE' } as const;
-  const mesmoAceite = mesmoRetrato && conferidos.length === 0 ? aceite : null;
+  // A baixa muda a versão mesmo quando o valor, o recebedor e o destino continuam iguais.
+  const assinatura = (a: typeof retrato, base: number, devolvido: boolean) =>
+    assinaturaDaOferta(pepper, [empresaId, sessao.clienteId, pedido.id, base, ...fotografiaDoAceite(a),
+      ...(devolvido ? ['DEVOLVIDO_SEM_GARANTIA'] : [])]);
+  const versaoOferta = assinatura(retrato, sequencia, renovar);
+  const mesmoAceite = aceite && !renovar && assinatura(aceite, sequencia, false) === versaoOferta ? aceite : null;
   const oferta = {
     disponivel: true, sinalCentavos, recebedor: { nome: recebedor.nome, cidade: recebedor.cidade },
     versaoOferta, termos: { versao: VERSAO_TERMOS_PRE_RESERVA, texto: TERMOS_PRE_RESERVA },
     salao: salao && { id: salao.id, nome: salao.nome },
   } as const;
   // Só o POST que gerou o aceite vigente pode ser repetido com a sequência imediatamente anterior.
-  const versaoRepeticao = mesmoAceite ? assinatura(retrato, sequencia - 1) : null;
+  const versaoRepeticao = mesmoAceite ? assinatura(retrato, sequencia - 1, podeRenovarOferta(sinaisConferidos(sinais, sequencia - 1))) : null;
   return { disponivel: true, oferta, retrato, mesmoAceite, versaoRepeticao } as const;
 }
 
@@ -210,13 +209,16 @@ async function destinoMudou(tx: DbExecutor, empresaId: string, pedido: Pedido, a
 export async function listarMeuPedido(tx: DbExecutor, empresaId: string, acesso: SessaoMeuPedido, pepper: string) {
   const sessao = exigirSessaoMeuPedido(acesso, empresaId);
   await travarConfiguracaoAgenda(tx, empresaId, { modo: 'COMPARTILHADA', linha: 'SO_LEITURA' });
+  await travarContatoDaSessao(tx, sessao, pepper);
   const pedidos = await lerPedidosDoTitular(tx, sessao, null);
   const config = await configuracaoDaOferta(tx, empresaId, false);
   const saida = [];
   for (const pedido of pedidos) {
     const { aceite, sinais } = await lerAceiteESinais(tx, sessao, pedido.id);
     const atual = await prepararOferta(tx, sessao, pedido, aceite, sinais, config, pepper, false);
-    const preReserva = apresentarSituacao(pedido.status, aceite, sinais, await destinoMudou(tx, empresaId, pedido, aceite));
+    const preReserva = apresentarSituacao(pedido.status, aceite, sinais, {
+      destinoMudou: await destinoMudou(tx, empresaId, pedido, aceite), ofertaDisponivel: atual.disponivel,
+    });
     saida.push({
       id: pedido.id, protocolo: 'KM-' + pedido.id.slice(0, 8).toUpperCase(), status: pedido.status,
       data: pedido.data, inicio: pedido.inicio, fim: pedido.fim, unidade: pedido.unidadeNome,
@@ -241,7 +243,7 @@ export async function aceitarOfertaMeuPedido(tx: DbExecutor, empresaId: string, 
   await travarContatoDaSessao(tx, sessao, pepper);
   if (!pedido) throw new PacoteAdminError('PEDIDO_INDISPONIVEL', 'Pedido não encontrado.', 404);
   if (dados.termosVersao !== VERSAO_TERMOS_PRE_RESERVA)
-    throw new PacoteAdminError('TERMOS_DESATUALIZADOS', 'Leia a versão atual dos termos antes de aceitar.', 409);
+    throw new PacoteAdminError('TERMOS_DESATUALIZADOS', 'A versão dos termos mudou.', 409);
   const { aceite, sinais } = await lerAceiteESinais(tx, sessao, pedidoId);
   const config = await configuracaoDaOferta(tx, empresaId, true);
   const atual = await prepararOferta(tx, sessao, pedido, aceite, sinais, config, pepper, true);
@@ -261,19 +263,21 @@ export async function aceitarOfertaMeuPedido(tx: DbExecutor, empresaId: string, 
   return apresentarAceite({ ...novo, salaoNome: atual.oferta.salao?.nome });
 }
 
-export async function pixMeuPedido(tx: DbExecutor, empresaId: string, acesso: SessaoMeuPedido, pedidoId: string) {
+export async function pixMeuPedido(tx: DbExecutor, empresaId: string, acesso: SessaoMeuPedido, pedidoId: string, pepper: string) {
   const sessao = exigirSessaoMeuPedido(acesso, empresaId);
   await travarConfiguracaoAgenda(tx, empresaId, { modo: 'COMPARTILHADA', linha: 'SO_LEITURA' });
-  const pedido = await lerPedidoDoTitular(tx, sessao, pedidoId, 'SHARE');
+  const [pedido] = await lerPedidosDoTitular(tx, sessao, pedidoId, 'SHARE');
+  await travarContatoDaSessao(tx, sessao, pepper);
+  if (!pedido) throw new PacoteAdminError('PEDIDO_INDISPONIVEL', 'Pedido não encontrado.', 404);
   const { aceite, sinais } = await lerAceiteESinais(tx, sessao, pedidoId);
   exigirSessaoMeuPedido(sessao, empresaId);
-  if (!aceite) throw new PacoteAdminError('ACEITE_NECESSARIO', 'Aceite a oferta antes de acessar o Pix.', 409);
   if (pedido.status !== 'AGUARDANDO_CONTRATO' || sinais.some(s => s.garantiaAte !== null))
     throw new PacoteAdminError('PIX_NAO_PENDENTE', 'O Pix desse aceite já foi conferido ou o pedido mudou de situação.', 409);
-  if (await destinoMudou(tx, empresaId, pedido, aceite))
-    throw new PacoteAdminError('DESTINO_MUDOU', 'Confira o novo horário ou local e aceite a oferta atual para acessar o Pix.', 409);
+  if (!aceite) throw new PacoteAdminError('ACEITE_NECESSARIO', 'Este pedido ainda não tem aceite de pré-reserva.', 409);
   if (sinalJaConferido(aceite, sinais))
     throw new PacoteAdminError('PIX_NAO_PENDENTE', 'O Pix desse aceite já foi conferido.', 409);
+  if (await destinoMudou(tx, empresaId, pedido, aceite))
+    throw new PacoteAdminError('DESTINO_MUDOU', 'O horário ou local do aceite mudou. O Pix desse aceite está indisponível.', 409);
   exigirSessaoMeuPedido(sessao, empresaId);
   const pix = montarPixDoAceite(pedidoId, aceite);
   if (!pix) throw new PacoteAdminError('PIX_INDISPONIVEL', 'O Pix desse aceite está indisponível.', 409);
@@ -284,6 +288,8 @@ export async function desistirMeuPedido(tx: DbExecutor, empresaId: string, acess
   await desistirDaGarantia(tx, empresaId, pedidoId, { sessao: acesso, pepper });
   const pedido = await lerPedidoDoTitular(tx, acesso, pedidoId);
   const { aceite, sinais } = await lerAceiteESinais(tx, acesso, pedidoId);
-  return { status: pedido.status, preReserva: apresentarSituacao(pedido.status, aceite, sinais,
-    await destinoMudou(tx, empresaId, pedido, aceite)) };
+  const mudou = await destinoMudou(tx, empresaId, pedido, aceite);
+  const ofertaDisponivel = mudou && !sinais.some(s => s.garantiaAte !== null) &&
+    (await prepararOferta(tx, acesso, pedido, aceite, sinais, await configuracaoDaOferta(tx, empresaId, false), pepper, false)).disponivel;
+  return { status: pedido.status, preReserva: apresentarSituacao(pedido.status, aceite, sinais, { destinoMudou: mudou, ofertaDisponivel }) };
 }

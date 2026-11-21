@@ -88,8 +88,11 @@ export function exigirSessaoMeuPedido(sessao: SessaoMeuPedido | null, empresaId:
 }
 
 export async function travarContatoDaSessao(tx: DbExecutor, sessao: SessaoMeuPedido, pepper: string) {
-  // Depois da trava do pedido, lê a revisão atual do contato e impede alterações até o commit.
-  const valido = await contatoConfere(tx, sessao.empresaId, sessao.clienteId, sessao, pepper, true);
+  // No snapshot da listagem, uma edição concorrente do cadastro impede a trava com SQLSTATE 40001.
+  const valido = await contatoConfere(tx, sessao.empresaId, sessao.clienteId, sessao, pepper, true).catch((erro: unknown) => {
+    if (erro instanceof Error && 'code' in erro && erro.code === '40001') return false;
+    throw erro;
+  });
   exigirSessaoMeuPedido(valido ? sessao : null, sessao.empresaId);
 }
 

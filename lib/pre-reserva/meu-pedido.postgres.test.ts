@@ -100,11 +100,12 @@ test('Meu pedido: CPF e código, escopo, oferta, Pix, desistência, auditoria e 
     };
     const aceitar = (dados: ReturnType<typeof corpoAceite>, acesso = sess, p = pedido) =>
       porTransacao(a)(db => servico.aceitarOfertaMeuPedido(db, empresa, acesso, p, dados, PEPPER));
-    const pix = (p = pedido) => porTransacao(a)(db => servico.pixMeuPedido(db, empresa, sess, p));
+    const pix = (p = pedido) => porTransacao(a)(db => servico.pixMeuPedido(db, empresa, sess, p, PEPPER));
     const desistir = () => porTransacao(a)(db => servico.desistirMeuPedido(db, empresa, sess, pedido, PEPPER));
 
     const entregues: string[] = [];
     let cookieTitular = '';
+    let cookieSemPedido = '';
     let emTransacao = false;
     let clienteHttp = a;
     let aposLerPedidos: (() => Promise<void>) | undefined;
@@ -183,7 +184,7 @@ test('Meu pedido: CPF e código, escopo, oferta, Pix, desistência, auditoria e 
           assert.ok(entrada);
           sess = entrada;
           cookieTitular = cookie.split(';')[0];
-        }
+        } else cookieSemPedido = cookie.split(';')[0];
         const leitura = await rotaLeitura.GET(requisicao(BASE, undefined, cookie.split(';')[0]));
         assert.equal(leitura.status, 200);
         assert.deepEqual((await leitura.json()).data.pedidos.map((p: { id: string }) => p.id), i === 0 ? [pedido] : []);
@@ -226,7 +227,7 @@ test('Meu pedido: CPF e código, escopo, oferta, Pix, desistência, auditoria e 
         assert.equal((await rotaLeitura.GET(requisicao(BASE, undefined, cookieTitular))).status, 401);
       } finally { relogio.mock.restore(); }
       assert.deepEqual((await listar()).map(p => p.id), [pedido]);
-      assert.deepEqual((await listar({ ...sess, clienteId: outro })).map(p => p.id), [pedidoOutro]);
+      await assert.rejects(listar({ ...sess, clienteId: outro }), { code: 'SESSAO_ENCERRADA' });
       await assert.rejects(listar({ ...sess, empresaId: externo }), { code: 'SESSAO_ENCERRADA' });
       const dados = corpoAceite(await oferta());
       for (const p of [pedidoOutro, pedidoExterno, randomUUID()]) {
@@ -293,16 +294,25 @@ test('Meu pedido: CPF e código, escopo, oferta, Pix, desistência, auditoria e 
       try {
         await travarConfiguracaoAgenda(tx, empresa, { modo: 'COMPARTILHADA', linha: 'KEY_SHARE' });
         await tx.query('UPDATE fechamentos SET data_evento=data_evento+1 WHERE id=$1', [pedido]);
-        await assert.rejects(servico.pixMeuPedido(tx, empresa, sess, pedido), { code: 'DESTINO_MUDOU' });
+        await assert.rejects(servico.pixMeuPedido(tx, empresa, sess, pedido, PEPPER), { code: 'DESTINO_MUDOU' });
         await assert.rejects(servico.aceitarOfertaMeuPedido(tx, empresa, sess, pedido, dados, PEPPER), { code: 'OFERTA_DESATUALIZADA' });
         const [atual] = await servico.listarMeuPedido(tx, empresa, sess, PEPPER);
         assert.equal(atual.preReserva.aceite, null);
         assert.equal(atual.preReserva.novoAceiteNecessario, true);
         assert.equal(atual.preReserva.aguardandoConferencia, false);
         assert.ok(atual.oferta.disponivel);
+        await tx.query('UPDATE pre_reserva_configuracoes SET habilitada=false WHERE empresa_id=$1', [empresa]);
+        const [semOferta] = await servico.listarMeuPedido(tx, empresa, sess, PEPPER);
+        assert.deepEqual(semOferta.oferta, { disponivel: false, motivo: 'PILOTO_DESLIGADO' });
+        assert.equal(semOferta.preReserva.novoAceiteNecessario, false);
+        assert.equal((await servico.desistirMeuPedido(tx, empresa, sess, pedido, PEPPER)).preReserva.novoAceiteNecessario, false);
+        await assert.rejects(servico.pixMeuPedido(tx, empresa, sess, pedido, PEPPER), {
+          code: 'DESTINO_MUDOU', message: 'O horário ou local do aceite mudou. O Pix desse aceite está indisponível.',
+        });
+        await tx.query('UPDATE pre_reserva_configuracoes SET habilitada=true WHERE empresa_id=$1', [empresa]);
         const novo = await servico.aceitarOfertaMeuPedido(tx, empresa, sess, pedido, corpoAceite(atual.oferta), PEPPER);
         assert.equal(novo.sequencia, 3);
-        assert.equal((await servico.pixMeuPedido(tx, empresa, sess, pedido)).aceiteSequencia, 3);
+        assert.equal((await servico.pixMeuPedido(tx, empresa, sess, pedido, PEPPER)).aceiteSequencia, 3);
       } finally { await a.query('ROLLBACK'); }
     });
 
@@ -347,7 +357,7 @@ test('Meu pedido: CPF e código, escopo, oferta, Pix, desistência, auditoria e 
         const pendente = await leitura();
         assert.equal(pendente.salao, 'Salão A');
         assert.equal(pendente.preReserva.novoAceiteNecessario, false);
-        assert.equal((await servico.pixMeuPedido(tx, empresa, sess, pedido)).aceiteSequencia, aceito.sequencia);
+        assert.equal((await servico.pixMeuPedido(tx, empresa, sess, pedido, PEPPER)).aceiteSequencia, aceito.sequencia);
 
         await tx.query('DELETE FROM pacote_saloes WHERE pacote_id=$1 AND salao_id=$2', [base.pacote, salaA]);
         await permitirSala(salaB);
@@ -357,7 +367,7 @@ test('Meu pedido: CPF e código, escopo, oferta, Pix, desistência, auditoria e 
         assert.equal(atual.preReserva.aceite, null);
         assert.equal(atual.preReserva.novoAceiteNecessario, true);
         assert.equal(atual.preReserva.aguardandoConferencia, false);
-        await assert.rejects(servico.pixMeuPedido(tx, empresa, sess, pedido), { code: 'DESTINO_MUDOU' });
+        await assert.rejects(servico.pixMeuPedido(tx, empresa, sess, pedido, PEPPER), { code: 'DESTINO_MUDOU' });
       } finally { await a.query('ROLLBACK'); }
     });
 
@@ -392,16 +402,100 @@ test('Meu pedido: CPF e código, escopo, oferta, Pix, desistência, auditoria e 
         const atual = await leitura();
         assert.ok(atual.oferta.disponivel);
         assert.ok(atual.preReserva.dinheiro.some(s => s.valorCentavos === 12000 && s.situacao === 'DEVOLVIDO'));
-        await assert.rejects(servico.pixMeuPedido(tx, empresa, sess, pedido), { code: 'PIX_NAO_PENDENTE' });
+        await assert.rejects(servico.pixMeuPedido(tx, empresa, sess, pedido, PEPPER), { code: 'PIX_NAO_PENDENTE' });
         await assert.rejects(aceitarNaTransacao(dadosAntigos), { code: 'OFERTA_DESATUALIZADA' });
         const dadosNovos = corpoAceite(atual.oferta);
         const novo = await aceitarNaTransacao(dadosNovos);
         assert.equal(novo.sequencia, 3);
-        assert.equal((await servico.pixMeuPedido(tx, empresa, sess, pedido)).aceiteSequencia, 3);
+        assert.equal((await servico.pixMeuPedido(tx, empresa, sess, pedido, PEPPER)).aceiteSequencia, 3);
         assert.deepEqual(await aceitarNaTransacao(dadosNovos), novo);
         await assert.rejects(aceitarNaTransacao(dadosAntigos), { code: 'OFERTA_DESATUALIZADA' });
         assert.equal((await aud(a, pedido, 'PRE_RESERVA_ACEITE')).length, 3);
       } finally { await a.query('ROLLBACK'); }
+    });
+
+    await t.test('Pix sem garantia por destino mudado reabre a oferta após devolução ao voltar à data original', async () => {
+      const dadosAntigos = corpoAceite(await oferta());
+      const referencia = 'E1234567820261120123400011223354';
+      const devolucao = carregarComBanco('lib/pre-reserva/devolucao.ts', a, () => null) as typeof import('./devolucao.ts');
+      await a.query('BEGIN');
+      try {
+        await tx.query('SELECT 1 FROM empresas WHERE id=$1 FOR UPDATE', [empresa]);
+        await travarConfiguracaoAgenda(tx, empresa, { modo: 'COMPARTILHADA', linha: 'JA_TRAVADA' });
+        await tx.query('UPDATE fechamentos SET data_evento=$2 WHERE id=$1', [pedido, dia(91)]);
+        assert.deepEqual(await gestao.confirmarSinal(tx, gestor, pedido, {
+          referencia, valorCentavos: 12000, aceiteSequencia: 2,
+        }), { garantiaAte: null, motivo: 'DESTINO_MUDOU' });
+        const leitura = async () => (await servico.listarMeuPedido(tx, empresa, sess, PEPPER))[0];
+        const aceitarNaTransacao = (dados: ReturnType<typeof corpoAceite>) => servico.aceitarOfertaMeuPedido(tx, empresa, sess, pedido, dados, PEPPER);
+        assert.deepEqual((await leitura()).oferta, { disponivel: false, motivo: 'PIX_NAO_PENDENTE' });
+        assert.equal((await leitura()).preReserva.novoAceiteNecessario, false);
+        await assert.rejects(servico.pixMeuPedido(tx, empresa, sess, pedido, PEPPER), { code: 'PIX_NAO_PENDENTE' });
+        await tx.query('UPDATE fechamentos SET data_evento=$2 WHERE id=$1', [pedido, dia(90)]);
+        await devolucao.assumirDevolucao(tx, gestor, referencia);
+        await assert.rejects(aceitarNaTransacao(dadosAntigos), { code: 'PIX_NAO_PENDENTE' });
+        const { rows: [agora] } = await tx.query<{ instante: string }>(
+          `SELECT to_char(clock_timestamp() AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS instante`);
+        await devolucao.confirmarDevolucao(tx, gestor, referencia, {
+          referencia: 'saida-r5-destino', valorCentavos: 12000, devolvidoEm: agora.instante, extratoConferido: true,
+        });
+        const atual = await leitura();
+        assert.ok(atual.oferta.disponivel);
+        assert.equal(atual.preReserva.aguardandoConferencia, false);
+        assert.ok(atual.preReserva.dinheiro.some(s => s.valorCentavos === 12000 && s.situacao === 'DEVOLVIDO'));
+        await assert.rejects(servico.pixMeuPedido(tx, empresa, sess, pedido, PEPPER), { code: 'PIX_NAO_PENDENTE' });
+        await assert.rejects(aceitarNaTransacao(dadosAntigos), { code: 'OFERTA_DESATUALIZADA' });
+        const dadosNovos = corpoAceite(atual.oferta);
+        assert.deepEqual(await aceitarNaTransacao(dadosNovos), await aceitarNaTransacao(dadosNovos));
+        assert.equal((await servico.pixMeuPedido(tx, empresa, sess, pedido, PEPPER)).aceiteSequencia, 3);
+        await assert.rejects(aceitarNaTransacao(dadosAntigos), { code: 'OFERTA_DESATUALIZADA' });
+      } finally { await a.query('ROLLBACK'); }
+    });
+
+    await t.test('garantia encerrada e salão ocupado por outro pedido mantêm a devolução sem pedir novo aceite', async () => {
+      await a.query('BEGIN');
+      emTransacao = true;
+      try {
+        await tx.query('SELECT 1 FROM empresas WHERE id=$1 FOR UPDATE', [empresa]);
+        await travarConfiguracaoAgenda(tx, empresa, { modo: 'EXCLUSIVA', linha: 'JA_TRAVADA' });
+        await tx.query(`INSERT INTO agenda_escopo_config(empresa_id,modo,capacidade_tipo,intervalo_minimo_minutos,configurado_por)
+          VALUES($1,'FIXO','POR_SALAO',0,$2)`, [empresa, gestor.usuarioId]);
+        const sala = await id(a, "INSERT INTO agenda_saloes(empresa_id,nome) VALUES($1,'Salão único') RETURNING id", [empresa]);
+        const [atual] = await servico.listarMeuPedido(tx, empresa, sess, PEPPER);
+        assert.ok(atual.oferta.disponivel);
+        assert.equal(atual.oferta.salao?.id, sala);
+        const dados = corpoAceite(atual.oferta);
+        const aceito = await servico.aceitarOfertaMeuPedido(tx, empresa, sess, pedido, dados, PEPPER);
+        assert.ok((await gestao.confirmarSinal(tx, gestor, pedido, {
+          referencia: 'E1234567820261120123400011223355', valorCentavos: aceito.sinalCentavos, aceiteSequencia: aceito.sequencia,
+        })).garantiaAte);
+        await servico.desistirMeuPedido(tx, empresa, sess, pedido, PEPPER);
+
+        const rival = await fechamento(a, empresa, base, outro, { data: dia(90), status: 'AGUARDANDO_CONTRATO' });
+        await tx.query(`INSERT INTO pre_reserva_aceites (empresa_id,fechamento_id,cliente_id,salao_id,inicio_evento,fim_evento,
+            preco_aceito_centavos,sinal_centavos,recebedor,chave_pix,termos_versao,termos_aceitos)
+          SELECT empresa_id,$3,$4,salao_id,inicio_evento,fim_evento,preco_aceito_centavos,sinal_centavos,recebedor,chave_pix,termos_versao,termos_aceitos
+          FROM pre_reserva_aceites WHERE fechamento_id=$1 AND sequencia=$2`, [pedido, aceito.sequencia, rival, outro]);
+        assert.ok((await gestao.confirmarSinal(tx, gestor, rival, {
+          referencia: 'E1234567820261120123400011223356', valorCentavos: aceito.sinalCentavos, aceiteSequencia: 1,
+        })).garantiaAte);
+
+        const r = await rotaLeitura.GET(requisicao(BASE, undefined, cookieTitular));
+        assert.equal(r.status, 200);
+        const [lido] = (await r.json()).data.pedidos;
+        assert.equal(lido.status, 'AGUARDANDO_CONTRATO');
+        assert.deepEqual(lido.oferta, { disponivel: false, motivo: 'GARANTIA_EXISTENTE' });
+        assert.equal(lido.preReserva.novoAceiteNecessario, false);
+        assert.equal(lido.preReserva.garantia.situacao, 'DESISTENCIA');
+        assert.ok(lido.preReserva.dinheiro.some((s: { valorCentavos: number; situacao: string }) =>
+          s.valorCentavos === aceito.sinalCentavos && s.situacao === 'A_DEVOLVER'));
+        const repeticao = await servico.desistirMeuPedido(tx, empresa, sess, pedido, PEPPER);
+        assert.equal(repeticao.preReserva.novoAceiteNecessario, false);
+        await assert.rejects(servico.aceitarOfertaMeuPedido(tx, empresa, sess, pedido, dados, PEPPER), { code: 'GARANTIA_EXISTENTE' });
+      } finally {
+        emTransacao = false;
+        await a.query('ROLLBACK');
+      }
     });
 
     await t.test('endereço por código separa acesso ao pedido de escrita comercial e orçamento online', async () => {
@@ -589,9 +683,9 @@ test('Meu pedido: CPF e código, escopo, oferta, Pix, desistência, auditoria e 
       }
     });
 
-    const criarPedidoExtra = (data: string) => porTransacao(a)(async db => {
+    const criarPedidoExtra = (data: string, clienteId = titular) => porTransacao(a)(async db => {
       await travarConfiguracaoAgenda(db, empresa, { modo: 'COMPARTILHADA', linha: 'KEY_SHARE' });
-      return fechamento(a, empresa, base, titular, { data, status: 'AGUARDANDO_CONTRATO' });
+      return fechamento(a, empresa, base, clienteId, { data, status: 'AGUARDANDO_CONTRATO' });
     });
     const dadosDoPedido = async (id: string) => {
       const p = (await listar()).find(lido => lido.id === id);
@@ -632,6 +726,62 @@ test('Meu pedido: CPF e código, escopo, oferta, Pix, desistência, auditoria e 
       assert.equal(depois.status, 'CANCELADO');
       assert.equal(depois.preReserva.garantia.situacao, 'RECUSA');
       assert.equal(depois.preReserva.dinheiro[0].situacao, 'A_DEVOLVER');
+    });
+
+    await t.test('GET do Pix e da listagem recusam a sessão quando o contato muda durante a espera', async () => {
+      const extra = await criarPedidoExtra(dia(98), semPedido);
+      const sessao = await acesso.lerSessaoMeuPedido(tx, empresa, cookieSemPedido.split('=')[1], PEPPER);
+      assert.ok(sessao);
+      const [{ oferta }] = await listar(sessao);
+      assert.ok(oferta.disponivel);
+      const contexto = { params: Promise.resolve({ pedidoId: extra }) };
+      const getPix = (cookie: string) => rotaPix.GET(requisicao(BASE + '/' + extra + '/pix', undefined, cookie), contexto);
+      const pid = (await b.query<{ pid: number }>('SELECT pg_backend_pid() AS pid')).rows[0].pid;
+      const lerDuranteAtualizacao = async (preparar: () => Promise<unknown>, ler: () => Promise<Response>,
+        salvar: () => Promise<unknown>) => {
+        await a.query('BEGIN');
+        let resposta: Promise<Response> | undefined;
+        try {
+          await preparar();
+          clienteHttp = b;
+          resposta = ler();
+          await esperarBloqueio(a, pid);
+          await salvar();
+          await a.query('COMMIT');
+          const r = await resposta;
+          assert.equal(r.status, 401);
+          const json = await r.json();
+          assert.equal(json.codigo, 'SESSAO_ENCERRADA');
+          assert.equal(json.data, undefined);
+        } finally {
+          await a.query('ROLLBACK');
+          await resposta;
+          clienteHttp = a;
+        }
+      };
+
+      await lerDuranteAtualizacao(
+        () => a.query('SELECT 1 FROM fechamentos WHERE id=$1 FOR UPDATE', [extra]),
+        () => getPix(cookieSemPedido),
+        async () => {
+          await servico.aceitarOfertaMeuPedido(tx, empresa, sessao, extra, corpoAceite(oferta), PEPPER);
+          await a.query("UPDATE clientes SET whatsapp='11988887333' WHERE id=$1", [semPedido]);
+        },
+      );
+      const inicio = await rotaInicio.POST(requisicao(BASE + '/entrada/iniciar', { cpf: cpfSemPedido }));
+      assert.equal(inicio.status, 202);
+      const { desafio } = (await inicio.json()).data;
+      const confirmacao = await rotaConfirmacao.POST(requisicao(BASE + '/entrada/confirmar', { desafio, codigo: entregues.at(-1) }));
+      assert.equal(confirmacao.status, 200);
+      const cookieAtual = confirmacao.headers.get('set-cookie')!.split(';')[0];
+      const pixAtual = await getPix(cookieAtual);
+      assert.equal(pixAtual.status, 200);
+      assert.match((await pixAtual.json()).data.qrSvg, /^<svg\b/);
+      await lerDuranteAtualizacao(
+        () => a.query("UPDATE clientes SET whatsapp='11988887444' WHERE id=$1", [semPedido]),
+        () => rotaLeitura.GET(requisicao(BASE, undefined, cookieAtual)),
+        async () => {},
+      );
     });
 
     await t.test('troca de contato confirmada enquanto o POST espera o pedido impede aceite e desistência sem auditoria', async () => {
