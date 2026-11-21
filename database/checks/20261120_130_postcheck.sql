@@ -3,6 +3,14 @@ DECLARE
   divergente record;
 BEGIN
   SET LOCAL search_path = public, pg_catalog;
+  IF NOT EXISTS (SELECT FROM pg_proc WHERE oid=to_regprocedure('public.pre_reserva_preservar_movimento()')
+    AND encode(sha256(convert_to(replace(prosrc,chr(13),''),'UTF8')),'hex')='499f25f90731ff09b7b41d46e03d5c903a52c0b4c85edaa8adf80903ad5c85ed') THEN
+    RAISE EXCEPTION '130: peça ausente ou divergente pre_reserva_preservar_movimento';
+  END IF;
+  IF NOT EXISTS (SELECT FROM pg_attribute WHERE attrelid=to_regclass('public.pre_reserva_recebimentos')
+    AND attname='credito_revertido_em' AND atttypid='timestamptz'::regtype AND NOT attnotnull AND NOT atthasdef AND NOT attisdropped) THEN
+    RAISE EXCEPTION '130: peça ausente ou divergente credito_revertido_em';
+  END IF;
   -- Definições canônicas do PG18. Uma peça ausente, desativada ou alterada deve reprovar.
   WITH esperado(tabela,nome,definicao) AS (VALUES
       ('contratos', 'pre_reserva_contrato_pedido', 'CREATE UNIQUE INDEX pre_reserva_contrato_pedido ON public.contratos USING btree (fechamento_id, id)'),
@@ -25,7 +33,7 @@ BEGIN
       ('pre_reserva_configuracoes', 'pre_reserva_configuracoes_sinal_centavos_check', 'CHECK (((sinal_centavos >= 1000) AND (sinal_centavos <= 50000)))'),
       ('pre_reserva_configuracoes', 'pre_reserva_configuracoes_versao_check', 'CHECK ((versao > 0))'),
       ('pre_reserva_recebimentos', 'pre_reserva_movimento_historico', 'CREATE TRIGGER pre_reserva_movimento_historico BEFORE INSERT OR DELETE OR UPDATE ON public.pre_reserva_recebimentos FOR EACH ROW EXECUTE FUNCTION pre_reserva_preservar_movimento()'),
-      ('pre_reserva_recebimentos', 'pre_reserva_pendencias_por_empresa', 'CREATE INDEX pre_reserva_pendencias_por_empresa ON public.pre_reserva_recebimentos USING btree (empresa_id, confirmado_em) WHERE ((devolvido_em IS NULL) AND (contrato_id IS NULL))'),
+      ('pre_reserva_recebimentos', 'pre_reserva_pendencias_por_empresa', 'CREATE INDEX pre_reserva_pendencias_por_empresa ON public.pre_reserva_recebimentos USING btree (empresa_id, confirmado_em) WHERE ((devolvido_em IS NULL) AND ((contrato_id IS NULL) OR (credito_revertido_em IS NOT NULL)))'),
       ('pre_reserva_recebimentos', 'pre_reserva_recebimentos_check', 'CHECK (((garantia_ate IS NULL) = (sinal_garantido_centavos IS NULL)))'),
       ('pre_reserva_recebimentos', 'pre_reserva_recebimentos_check1', 'CHECK ((garantia_ate > confirmado_em))'),
       ('pre_reserva_recebimentos', 'pre_reserva_recebimentos_check10', 'CHECK (((devolvido_em IS NULL) OR ((devolucao_assumida_em IS NOT NULL) AND (devolvido_em >= devolucao_assumida_em))))'),
@@ -33,7 +41,8 @@ BEGIN
       ('pre_reserva_recebimentos', 'pre_reserva_recebimentos_check3', 'CHECK (((encerramento IS NULL) = (encerrado_em IS NULL)))'),
       ('pre_reserva_recebimentos', 'pre_reserva_recebimentos_check4', 'CHECK (((encerramento IS NULL) OR ((sinal_garantido_centavos IS NOT NULL) AND (encerrado_em >= confirmado_em))))'),
       ('pre_reserva_recebimentos', 'pre_reserva_recebimentos_check5', 'CHECK (((contrato_id IS NOT NULL) = (NOT (encerramento IS DISTINCT FROM ''FORMALIZACAO''::text))))'),
-      ('pre_reserva_recebimentos', 'pre_reserva_recebimentos_check6', 'CHECK (((contrato_id IS NULL) OR ((encerrado_em < garantia_ate) AND (devolucao_assumida_em IS NULL))))'),
+      ('pre_reserva_recebimentos', 'pre_reserva_recebimentos_check6', 'CHECK (((contrato_id IS NULL) OR (devolucao_assumida_em IS NULL) OR ((credito_revertido_em IS NOT NULL) AND (devolucao_assumida_em >= credito_revertido_em))))'),
+      ('pre_reserva_recebimentos', 'pre_reserva_reversao_formalizada', 'CHECK (((credito_revertido_em IS NULL) OR ((contrato_id IS NOT NULL) AND (credito_revertido_em >= encerrado_em))))'),
       ('pre_reserva_recebimentos', 'pre_reserva_recebimentos_check7', 'CHECK (((devolucao_assumida_por IS NULL) = (devolucao_assumida_em IS NULL)))'),
       ('pre_reserva_recebimentos', 'pre_reserva_recebimentos_check8', 'CHECK (((devolucao_assumida_em IS NULL) OR ((devolucao_assumida_em >= confirmado_em) AND (((sinal_garantido_centavos IS NULL) OR (encerrado_em <= devolucao_assumida_em) OR (devolucao_assumida_em >= garantia_ate)) IS TRUE))))'),
       ('pre_reserva_recebimentos', 'pre_reserva_recebimentos_check9', 'CHECK (((devolvido_em IS NULL) = (referencia_devolucao IS NULL)))'),
@@ -42,7 +51,7 @@ BEGIN
       ('pre_reserva_recebimentos', 'pre_reserva_recebimentos_empresa_id_fechamento_id_aceite__fkey1', 'FOREIGN KEY (empresa_id, fechamento_id, aceite_sequencia, sinal_garantido_centavos) REFERENCES pre_reserva_aceites(empresa_id, fechamento_id, sequencia, sinal_centavos)'),
       ('pre_reserva_recebimentos', 'pre_reserva_recebimentos_empresa_id_fechamento_id_aceite_s_fkey', 'FOREIGN KEY (empresa_id, fechamento_id, aceite_sequencia) REFERENCES pre_reserva_aceites(empresa_id, fechamento_id, sequencia)'),
       ('pre_reserva_recebimentos', 'pre_reserva_recebimentos_empresa_id_referencia_devolucao_key', 'UNIQUE (empresa_id, referencia_devolucao)'),
-      ('pre_reserva_recebimentos', 'pre_reserva_recebimentos_encerramento_check', 'CHECK ((encerramento = ANY (ARRAY[''DESISTENCIA''::text, ''RECUSA''::text, ''FORMALIZACAO''::text])))'),
+      ('pre_reserva_recebimentos', 'pre_reserva_recebimentos_encerramento_check', 'CHECK ((encerramento = ANY (ARRAY[''DESISTENCIA''::text, ''RECUSA''::text, ''FORMALIZACAO''::text, ''FORMALIZACAO_SEM_CREDITO''::text])))'),
       ('pre_reserva_recebimentos', 'pre_reserva_recebimentos_end_to_end_id_check', 'CHECK ((end_to_end_id ~ ''^E[0-9]{20}[A-Za-z0-9]{11}$''::text))'),
       ('pre_reserva_recebimentos', 'pre_reserva_recebimentos_fechamento_id_contrato_id_fkey', 'FOREIGN KEY (fechamento_id, contrato_id) REFERENCES contratos(fechamento_id, id)'),
       ('pre_reserva_recebimentos', 'pre_reserva_recebimentos_pkey', 'PRIMARY KEY (empresa_id, end_to_end_id)'),
@@ -61,13 +70,14 @@ BEGIN
             ELSE ''ATIVA''::text
         END AS garantia,
         CASE
+            WHEN credito_revertido_em IS NOT NULL THEN credito_revertido_em
             WHEN contrato_id IS NOT NULL THEN NULL::timestamp with time zone
             WHEN sinal_garantido_centavos IS NULL THEN confirmado_em
             WHEN encerrado_em IS NOT NULL OR garantia_ate <= statement_timestamp() THEN LEAST(encerrado_em, garantia_ate)
             ELSE NULL::timestamp with time zone
         END AS devolver_desde,
         CASE
-            WHEN contrato_id IS NOT NULL THEN ''CREDITO_CONTRATO''::text
+            WHEN contrato_id IS NOT NULL AND credito_revertido_em IS NULL THEN ''CREDITO_CONTRATO''::text
             WHEN devolvido_em IS NOT NULL THEN ''DEVOLVIDO''::text
             WHEN devolucao_assumida_em IS NOT NULL THEN ''EM_DEVOLUCAO''::text
             WHEN sinal_garantido_centavos IS NULL OR encerramento IS NOT NULL OR garantia_ate <= statement_timestamp() THEN ''A_DEVOLVER''::text
