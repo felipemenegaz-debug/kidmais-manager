@@ -1,7 +1,13 @@
 import assert from 'node:assert/strict';
-import test from 'node:test';
-import { CORPO_NAO_LIDO, registroRecusaMeta, trocarCodigoEValidarAtivos } from './meta-client.ts';
+import test, { after } from 'node:test';
+import { CORPO_NAO_LIDO, registroRecusaMeta, trocarCodigoEValidarAtivos, validadeDoToken } from './meta-client.ts';
 import { exigirConfiguracaoWhatsappPrivada } from './configuracao.ts';
+
+// O relógio de AbortSignal.timeout é unref. No servidor o event loop está sempre vivo; no Node 22 do CI, um teste que só
+// espera o prazo esvaziava o loop antes do abort ("Promise resolution is still pending", CI da PR #493). Este intervalo
+// faz o papel do servidor durante os testes.
+const manterLoopVivo = setInterval(() => {}, 1_000);
+after(() => clearInterval(manterLoopVivo));
 
 const config = exigirConfiguracaoWhatsappPrivada({
   KIDMAIS_DEPLOY_ENV: 'staging', META_APP_ID: '1', META_APP_SECRET: 'segredo-sintetico-valido',
@@ -26,7 +32,7 @@ const donoOk = { id: '20', owner_business_info: { id: '10', name: 'Negócio sint
 const numeroOk = { id: '30', display_phone_number: '+55 11 0000-0000', verified_name: 'Demo', is_on_biz_app: true };
 
 type Etapa = 'oauth' | 'debug' | 'dono' | 'numeros' | 'inscricao';
-type Respostas = { debug?: unknown; dono?: unknown; numeros?: unknown; inscricao?: unknown; inscricaoRede?: boolean; inscricaoPrazo?: boolean; status?: Partial<Record<Etapa, number>> };
+type Respostas = { oauth?: unknown; debug?: unknown; dono?: unknown; numeros?: unknown; inscricao?: unknown; inscricaoRede?: boolean; inscricaoPrazo?: boolean; status?: Partial<Record<Etapa, number>> };
 function metaSimulada(r: Respostas = {}) {
   const etapas: Etapa[] = [];
   const urls: string[] = [];
@@ -45,7 +51,7 @@ function metaSimulada(r: Respostas = {}) {
       return new Response(typeof corpo === 'string' ? corpo : JSON.stringify(corpo), { status: r.status?.inscricao || 200 });
     }
     if (url.includes('owned_whatsapp_business_accounts')) throw new Error('a conexão não pode depender da aresta que exige business_management');
-    const [etapa, body]: [Etapa, unknown] = url.includes('/oauth/access_token') ? ['oauth', { access_token: 'token-sintetico', token_type: 'bearer', expires_in: 3600 }]
+    const [etapa, body]: [Etapa, unknown] = url.includes('/oauth/access_token') ? ['oauth', r.oauth ?? { access_token: 'token-sintetico', token_type: 'bearer', expires_in: 3600 }]
       : url.includes('/debug_token') ? ['debug', r.debug ?? { data: { is_valid: true, app_id: '1', scopes: escopos, granular_scopes: granularOk } }]
         : url.includes('fields=id,owner_business_info') ? ['dono', 'dono' in r ? r.dono : donoOk]
           : ['numeros', r.numeros ?? { data: [numeroOk] }];
@@ -55,6 +61,25 @@ function metaSimulada(r: Respostas = {}) {
   return { etapas, urls, tokens, metodos, sinais, fetch: fetchMock as typeof fetch };
 }
 const debugCom = (granular: unknown, scopes: string[] = escopos) => ({ data: { is_valid: true, app_id: '1', scopes, granular_scopes: granular } });
+
+test('IDs adjacentes acima da precisão do JSON numérico não autorizam envio pela WABA conectada', async () => {
+  const wabaId = '9007199254740992';
+  // Corpo bruto: JSON.stringify de um literal numérico já perderia a distinção antes do teste.
+  const debug = `{"data":{"is_valid":true,"app_id":1,"scopes":${JSON.stringify(escopos)},"granular_scopes":[
+    {"scope":"whatsapp_business_management","target_ids":["${wabaId}"]},
+    {"scope":"whatsapp_business_messaging","target_ids":[9007199254740993]}
+  ]}}`;
+  const meta = metaSimulada({ debug, dono: { ...donoOk, id: wabaId } });
+  await assert.rejects(trocarCodigoEValidarAtivos({ ...entrada, wabaId }, config, meta.fetch), { code: 'META_AUTORIZACAO_INVALIDA' });
+  assert.deepEqual(meta.etapas, ['oauth', 'debug']);
+
+  const idsValidos = metaSimulada({ debug: debugCom([
+    { scope: 'whatsapp_business_management', target_ids: [20, wabaId] },
+    { scope: 'whatsapp_business_messaging', target_ids: [wabaId] },
+  ]), dono: { id: wabaId, owner_business_info: { id: 10 } }, numeros: { data: [{ ...numeroOk, id: 30 }] } });
+  await trocarCodigoEValidarAtivos({ ...entrada, wabaId }, config, idsValidos.fetch);
+  assert.equal(idsValidos.etapas.at(-1), 'inscricao');
+});
 
 test('combinação comprovada: WABA autorizada, dono lido no servidor = negócio informado, número da WABA, coexistência', async () => {
   const meta = metaSimulada();
@@ -91,10 +116,100 @@ test('autorização: WABA fora dos ativos autorizados por este token é recusada
   assert.deepEqual(wabaNao.etapas, ['oauth', 'debug']);
 });
 
+test('envio: gestão autorizada para a WABA, mas envio restrito a OUTRA → recusa antes de ler o dono e sem nenhuma escrita', async () => {
+  const envioAlheio = metaSimulada({ debug: debugCom([{ scope: 'whatsapp_business_management', target_ids: ['20'] }, { scope: 'whatsapp_business_messaging', target_ids: ['77'] }]) });
+  await assert.rejects(trocarCodigoEValidarAtivos(entrada, config, envioAlheio.fetch), { code: 'META_ENVIO_NAO_AUTORIZADO', httpStatus: 409 });
+  assert.deepEqual(envioAlheio.etapas, ['oauth', 'debug']);
+  assert.equal(envioAlheio.metodos.includes('POST'), false, 'nenhuma inscrição');
+  // Envio sem target_ids: vale a concessão geral (já exigida em scopes) e a validação segue até a inscrição.
+  const envioGeral = metaSimulada({ debug: debugCom([{ scope: 'whatsapp_business_management', target_ids: ['20'] }, { scope: 'whatsapp_business_messaging' }]) });
+  const r = await trocarCodigoEValidarAtivos(entrada, config, envioGeral.fetch);
+  assert.equal(r.webhookInscrito, true);
+});
+
 test('escopo sem alvos explícitos não prova a autorização do ativo (fail-closed)', async () => {
   const semAlvoWaba = metaSimulada({ debug: debugCom([{ scope: 'whatsapp_business_management' }]) });
   await assert.rejects(trocarCodigoEValidarAtivos(entrada, config, semAlvoWaba.fetch), { code: 'META_WABA_DIVERGENTE' });
   assert.deepEqual(semAlvoWaba.etapas, ['oauth', 'debug']);
+});
+
+test('target_ids presente com formato inválido: recusa antes de ler o dono e sem inscrição (não vale como concessão geral)', async () => {
+  const formatos: [string, unknown][] = [['texto', '30'], ['objeto', { id: '30' }], ['nulo', null], ['item não numérico', ['20', 'abc']], ['item objeto', [{ id: '20' }]], ['item vazio', ['']], ['item nulo', [null]]];
+  for (const escopo of ['whatsapp_business_management', 'whatsapp_business_messaging']) {
+    for (const [rotulo, alvos] of formatos) {
+      const granular = [{ scope: 'whatsapp_business_management', target_ids: ['20'] }, { scope: 'whatsapp_business_messaging', target_ids: ['20'] }]
+        .map((g) => g.scope === escopo ? { scope: escopo, target_ids: alvos } : g);
+      const meta = metaSimulada({ debug: debugCom(granular) });
+      await assert.rejects(trocarCodigoEValidarAtivos(entrada, config, meta.fetch), { code: 'META_AUTORIZACAO_INVALIDA', httpStatus: 409 }, escopo + ' ' + rotulo);
+      assert.deepEqual(meta.etapas, ['oauth', 'debug'], escopo + ' ' + rotulo);
+      assert.equal(meta.metodos.includes('POST'), false, escopo + ' ' + rotulo);
+    }
+  }
+  // Ids numéricos (texto ou número) seguem válidos.
+  const numericos = metaSimulada({ debug: debugCom([{ scope: 'whatsapp_business_management', target_ids: [20] }, { scope: 'whatsapp_business_messaging', target_ids: ['20'] }]) });
+  assert.equal((await trocarCodigoEValidarAtivos(entrada, config, numericos.fetch)).webhookInscrito, true);
+});
+
+test('leitura na Meta sem resposta no prazo: META_SEM_RESPOSTA, nenhuma inscrição; a inscrição mantém o próprio prazo', async () => {
+  for (const etapaPresa of ['oauth', 'debug', 'dono', 'numeros'] as const) {
+    const base = metaSimulada();
+    const metodos: string[] = [];
+    const sinais: (AbortSignal | null | undefined)[] = [];
+    const presa = (async (input: string | URL | Request, init?: RequestInit) => {
+      const url = String(input);
+      metodos.push(init?.method ?? 'GET');
+      const etapa = url.includes('/oauth/access_token') ? 'oauth' : url.includes('/debug_token') ? 'debug' : url.includes('fields=id,owner_business_info') ? 'dono' : url.endsWith('/subscribed_apps') ? 'inscricao' : 'numeros';
+      if (etapa !== 'inscricao') sinais.push(init?.signal);
+      if (etapa === etapaPresa) {
+        return new Promise<Response>((_, reject) => { init?.signal?.addEventListener('abort', () => reject(init.signal?.reason)); });
+      }
+      return base.fetch(input, init);
+    }) as typeof fetch;
+    await assert.rejects(trocarCodigoEValidarAtivos(entrada, config, presa, { prazoLeituraMs: 20 }), { code: 'META_SEM_RESPOSTA', httpStatus: 504 }, etapaPresa);
+    assert.equal(metodos.includes('POST'), false, etapaPresa + ': nenhuma inscrição');
+    assert.ok(sinais.length > 0 && sinais.every((sinal) => sinal instanceof AbortSignal), etapaPresa + ': toda leitura leva prazo');
+  }
+  const ok = metaSimulada();
+  await trocarCodigoEValidarAtivos(entrada, config, ok.fetch);
+  assert.equal(ok.sinais.length, 1);
+  assert.ok(ok.sinais[0] instanceof AbortSignal, 'a inscrição usa o próprio prazo');
+});
+
+test('escopo repetido em granular_scopes é ambíguo: recusa antes de ler o dono e sem inscrição', async () => {
+  const casos: [string, unknown[]][] = [
+    ['envio sem alvos + envio com alvo ruim', [{ scope: 'whatsapp_business_management', target_ids: ['20'] }, { scope: 'whatsapp_business_messaging' }, { scope: 'whatsapp_business_messaging', target_ids: ['abc'] }]],
+    ['envio duas vezes válido', [{ scope: 'whatsapp_business_management', target_ids: ['20'] }, { scope: 'whatsapp_business_messaging', target_ids: ['20'] }, { scope: 'whatsapp_business_messaging', target_ids: ['20'] }]],
+    ['gestão duas vezes', [{ scope: 'whatsapp_business_management', target_ids: ['20'] }, { scope: 'whatsapp_business_management', target_ids: ['99'] }, { scope: 'whatsapp_business_messaging', target_ids: ['20'] }]],
+  ];
+  for (const [rotulo, granular] of casos) {
+    const meta = metaSimulada({ debug: debugCom(granular) });
+    await assert.rejects(trocarCodigoEValidarAtivos(entrada, config, meta.fetch), { code: 'META_AUTORIZACAO_INVALIDA', httpStatus: 409 }, rotulo);
+    assert.deepEqual(meta.etapas, ['oauth', 'debug'], rotulo);
+    assert.equal(meta.metodos.includes('POST'), false, rotulo);
+  }
+});
+
+test('corpo que para no meio depois dos cabeçalhos: META_SEM_RESPOSTA (504) nas quatro leituras, sem inscrição', async () => {
+  for (const etapaPresa of ['oauth', 'debug', 'dono', 'numeros'] as const) {
+    const base = metaSimulada();
+    const metodos: string[] = [];
+    const presa = (async (input: string | URL | Request, init?: RequestInit) => {
+      const url = String(input);
+      metodos.push(init?.method ?? 'GET');
+      const etapa = url.includes('/oauth/access_token') ? 'oauth' : url.includes('/debug_token') ? 'debug' : url.includes('fields=id,owner_business_info') ? 'dono' : url.endsWith('/subscribed_apps') ? 'inscricao' : 'numeros';
+      if (etapa !== etapaPresa) return base.fetch(input, init);
+      const sinal = init?.signal;
+      const corpo = new ReadableStream<Uint8Array>({
+        start(controller) {
+          controller.enqueue(new TextEncoder().encode('{"data":'));
+          sinal?.addEventListener('abort', () => controller.error(sinal.reason));
+        },
+      });
+      return new Response(corpo, { status: 200, headers: { 'content-type': 'application/json' } });
+    }) as typeof fetch;
+    await assert.rejects(trocarCodigoEValidarAtivos(entrada, config, presa, { prazoLeituraMs: 20 }), { code: 'META_SEM_RESPOSTA', httpStatus: 504 }, etapaPresa);
+    assert.equal(metodos.includes('POST'), false, etapaPresa + ': nenhuma inscrição');
+  }
 });
 
 test('dono ausente, de outra WABA ou não confirmado: recusa segura, sem consultar números', async () => {
@@ -121,6 +236,72 @@ test('dono ausente, de outra WABA ou não confirmado: recusa segura, sem consult
 test('número de outra WABA é recusado', async () => {
   const meta = metaSimulada({ numeros: { data: [{ ...numeroOk, id: '31' }] } });
   await assert.rejects(trocarCodigoEValidarAtivos(entrada, config, meta.fetch), { code: 'META_NUMERO_DIVERGENTE', httpStatus: 409 });
+});
+
+test('Phone ID conhecido na segunda página: mesmo endpoint, cursor codificado e prazo compartilhado', async () => {
+  const cursor = 'cursor+/=&?';
+  const base = metaSimulada({ numeros: { data: [{ ...numeroOk, id: '31' }], paging: {
+    next: 'https://example.invalid/outra-aresta?access_token=sintetico', cursors: { after: cursor },
+  } } });
+  const sinais: (AbortSignal | null | undefined)[] = [];
+  const fetchMock: typeof fetch = async (input, init) => {
+    const url = new URL(String(input));
+    if (url.pathname.endsWith('/phone_numbers')) {
+      sinais.push(init?.signal);
+      assert.equal(url.origin + url.pathname, 'https://graph.facebook.com/v24.0/20/phone_numbers');
+      assert.equal(url.searchParams.get('limit'), '100');
+      if (url.searchParams.has('after')) {
+        assert.equal(url.searchParams.get('after'), cursor);
+        assert.equal(url.searchParams.has('access_token'), false);
+        return Response.json({ data: [numeroOk] });
+      }
+    }
+    return base.fetch(input, init);
+  };
+  assert.equal((await trocarCodigoEValidarAtivos(entrada, config, fetchMock)).phoneNumberId, '30');
+  assert.equal(sinais.length, 2);
+  assert.ok(sinais[0]);
+  assert.equal(sinais[0], sinais[1]);
+  assert.equal(base.etapas.at(-1), 'inscricao');
+});
+
+test('Phone ID ausente da lista paginada ou cursor repetido: recusa sem inscrição', async () => {
+  for (const repetir of [false, true]) {
+    const pagina = { data: [{ ...numeroOk, id: '31' }], paging: { next: 'pagina-seguinte', cursors: { after: 'cursor' } } };
+    const base = metaSimulada({ numeros: pagina });
+    let segunda = 0;
+    const fetchMock: typeof fetch = async (input, init) => {
+      if (new URL(String(input)).searchParams.get('after') === 'cursor') {
+        segunda++;
+        if (segunda > 1) throw new Error('cursor repetido');
+        return Response.json(repetir ? pagina : { data: [] });
+      }
+      return base.fetch(input, init);
+    };
+    await assert.rejects(trocarCodigoEValidarAtivos(entrada, config, fetchMock), { code: 'META_NUMERO_DIVERGENTE' });
+    assert.equal(segunda, 1);
+    assert.equal(base.etapas.includes('inscricao'), false);
+  }
+});
+
+test('prazo da paginação também cobre o corpo da segunda página', async () => {
+  const base = metaSimulada({ numeros: { data: [], paging: { next: 'pagina-seguinte', cursors: { after: 'cursor' } } } });
+  let chegouNaSegunda = false;
+  const fetchMock: typeof fetch = async (input, init) => {
+    if (new URL(String(input)).searchParams.get('after') !== 'cursor') return base.fetch(input, init);
+    chegouNaSegunda = true;
+    return new Response(new ReadableStream({
+      start(controller) {
+        init?.signal?.addEventListener('abort', () => controller.error(init.signal?.reason), { once: true });
+      },
+    }));
+  };
+  const manterProcesso = setTimeout(() => {}, 1000);
+  try {
+    await assert.rejects(trocarCodigoEValidarAtivos(entrada, config, fetchMock, { prazoLeituraMs: 50 }), { code: 'META_SEM_RESPOSTA' });
+    assert.equal(chegouNaSegunda, true);
+    assert.equal(base.etapas.includes('inscricao'), false);
+  } finally { clearTimeout(manterProcesso); }
 });
 
 test('resposta incompleta: sem granular_scopes, sem identificação do número ou sem escopo obrigatório', async () => {
@@ -344,17 +525,22 @@ test('HTTP 200 com error e corpo ilegível também registram, nas quatro etapas'
   }
 });
 
-test('dono 5xx: recusa pelo status, sem esperar o corpo (que pode nunca terminar)', async (t) => {
+test('5xx nas quatro leituras (troca, debug, números, dono): recusa pelo status, sem esperar o corpo (que pode nunca terminar)', async (t) => {
   const avisos = t.mock.method(console, 'warn', () => {});
-  const pendente = () => new Response(new ReadableStream({ start() { /* nunca envia nem fecha */ } }), { status: 503 });
-  let relogio: ReturnType<typeof setTimeout> | undefined;
-  const prazo = new Promise((_, rejeitar) => { relogio = setTimeout(() => rejeitar(new Error('esperou o corpo do 5xx')), 2000); });
-  try {
-    const r = await umRegistro(avisos, Promise.race([trocarCodigoEValidarAtivos(entrada, config, metaRecusando('dono', pendente)), prazo]), 'META_API_RECUSOU', 'dono 503 pendente');
-    assert.deepEqual(r, { etapa: 'dono_waba', http: 503, corpo: 'nao_lido', codigo: null, subcodigo: null, tipo: null });
-  } finally { clearTimeout(relogio); }
-  const comErro = await umRegistro(avisos, trocarCodigoEValidarAtivos(entrada, config, metaRecusando('dono', json(erroMeta, 500))), 'META_API_RECUSOU', 'dono 500');
-  assert.equal(comErro.corpo, 'nao_lido', 'nem o corpo pronto do 5xx é lido');
+  for (const falha of ['oauth', 'debug', 'numeros', 'dono'] as const) {
+    let cancelado = false;
+    const pendente = () => new Response(new ReadableStream({ start() { /* nunca envia nem fecha */ }, cancel() { cancelado = true; } }), { status: 503 });
+    let relogio: ReturnType<typeof setTimeout> | undefined;
+    const prazo = new Promise((_, rejeitar) => { relogio = setTimeout(() => rejeitar(new Error(falha + ': esperou o corpo do 5xx')), 2000); });
+    try {
+      const r = await umRegistro(avisos, Promise.race([trocarCodigoEValidarAtivos(entrada, config, metaRecusando(falha, pendente)), prazo]), 'META_API_RECUSOU', falha + ' 503 pendente');
+      assert.deepEqual(r, { etapa: ETAPA[falha], http: 503, corpo: 'nao_lido', codigo: null, subcodigo: null, tipo: null });
+    } finally { clearTimeout(relogio); }
+    await new Promise((resolve) => setImmediate(resolve));
+    assert.equal(cancelado, true, falha + ': o corpo pendente é cancelado');
+    const comErro = await umRegistro(avisos, trocarCodigoEValidarAtivos(entrada, config, metaRecusando(falha, json(erroMeta, 500))), 'META_API_RECUSOU', falha + ' 500');
+    assert.equal(comErro.corpo, 'nao_lido', falha + ': nem o corpo pronto do 5xx é lido');
+  }
 });
 
 test('sucesso e recusas locais (sem erro da Meta) não registram recusa da Meta', async (t) => {
@@ -385,4 +571,62 @@ test('registroRecusaMeta: tipo só da lista fechada; inteiros com limites; fbtra
   assert.equal(r({ error: 'texto' }).codigo, null);
   assert.equal(r(CORPO_NAO_LIDO, 503).corpo, 'nao_lido');
   assert.ok(!('fbtrace' in r(erroMeta)), 'fbtrace não faz parte do registro');
+});
+
+test('validade do token: a mais cedo entre expires_in e debug_token.expires_at; 0 ou ausente = sem validade', () => {
+  const agora = Date.UTC(2026, 10, 20);
+  assert.equal(validadeDoToken(null, 0, agora), null, 'configuração "Nunca": sem expires_in e expires_at 0');
+  assert.equal(validadeDoToken(null, undefined, agora), null);
+  assert.equal(validadeDoToken(3600, 0, agora)?.getTime(), agora + 3_600_000);
+  const sessentaDias = agora / 1000 + 60 * 86400;
+  assert.equal(validadeDoToken(null, sessentaDias, agora)?.getTime(), sessentaDias * 1000, 'troca sem expires_in não vira "não vence"');
+  assert.equal(validadeDoToken(86400, sessentaDias, agora)?.getTime(), agora + 86_400_000, 'a mais cedo vence');
+  assert.equal(validadeDoToken(-1, '123', agora), null, 'valores fora do contrato são ignorados');
+});
+
+test('validação devolve EXATAMENTE a validade do debug_token quando a troca não traz expires_in', async () => {
+  const vence = Math.floor(Date.now() / 1000) + 60 * 86400;
+  const semExpiresIn = { access_token: 'token-sintetico', token_type: 'bearer' };
+  const r = await trocarCodigoEValidarAtivos(entrada, config, metaSimulada({ oauth: semExpiresIn,
+    debug: { data: { is_valid: true, app_id: '1', scopes: escopos, granular_scopes: granularOk, expires_at: vence } } }).fetch);
+  assert.equal(r.expiresAt?.getTime(), vence * 1000, 'sem expires_in, vale o expires_at do debug_token (nunca "não vence")');
+  const nunca = await trocarCodigoEValidarAtivos(entrada, config, metaSimulada({ oauth: semExpiresIn,
+    debug: { data: { is_valid: true, app_id: '1', scopes: escopos, granular_scopes: granularOk, expires_at: 0 } } }).fetch);
+  assert.equal(nunca.expiresAt, null, 'sem expires_in e expires_at 0: sem validade');
+  const comAmbos = await trocarCodigoEValidarAtivos(entrada, config, metaSimulada({
+    debug: { data: { is_valid: true, app_id: '1', scopes: escopos, granular_scopes: granularOk, expires_at: vence } } }).fetch);
+  assert.ok(comAmbos.expiresAt && comAmbos.expiresAt.getTime() < vence * 1000, 'expires_in 3600 da troca é a mais cedo');
+});
+
+test('expires_in conta desde a troca e a menor validade é conferida antes e depois da inscrição', async (t) => {
+  const troca = Date.UTC(2026, 10, 21);
+  const relogio = t.mock.method(Date, 'now', () => troca);
+  for (const { debugAte, numerosAte, inscricaoAte, venceEm } of [
+    { debugAte: 0, numerosAte: 2000, inscricaoAte: 3000, venceEm: 4000 },
+    { debugAte: 3, numerosAte: 2000, inscricaoAte: 2000, venceEm: 3000 },
+    { debugAte: 0, numerosAte: 2000, inscricaoAte: 4000, venceEm: null },
+    { debugAte: 3, numerosAte: 3000, inscricaoAte: 3000, venceEm: null },
+  ]) {
+    relogio.mock.mockImplementation(() => troca);
+    const debug = debugCom(granularOk);
+    const meta = metaSimulada({
+      oauth: { access_token: 'token-sintetico', expires_in: 4 },
+      debug: { data: { ...debug.data, expires_at: debugAte && troca / 1000 + debugAte } },
+    });
+    const fetchComAtraso: typeof fetch = async (input, init) => {
+      const resposta = await meta.fetch(input, init);
+      const etapa = meta.etapas.at(-1);
+      if (etapa === 'oauth') relogio.mock.mockImplementation(() => troca + 1000);
+      if (etapa === 'numeros') relogio.mock.mockImplementation(() => troca + numerosAte);
+      if (etapa === 'inscricao') relogio.mock.mockImplementation(() => troca + inscricaoAte);
+      return resposta;
+    };
+    const validacao = trocarCodigoEValidarAtivos(entrada, config, fetchComAtraso);
+    if (venceEm === null) {
+      await assert.rejects(validacao, { code: 'META_TOKEN_EXPIRADO' });
+      assert.equal(meta.etapas.includes('inscricao'), numerosAte < 3000);
+    } else {
+      assert.equal((await validacao).expiresAt?.getTime(), troca + venceEm);
+    }
+  }
 });
