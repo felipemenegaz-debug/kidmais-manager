@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // Confere /api/endereco-atual em A e N contra o modo esperado (plano D4). Obrigatório depois de todo deploy ou reinício
 // com modo diferente de DESLIGADO. Só leitura; enxerga só o ambiente do web. Código de saída 1 = reprovado.
-//   node scripts/enderecos-conferir.cjs --antiga <origem> --nova <origem> --modo <MODO> --mcp-sha256 <hash|AUSENTE> [--sem-nova] [--exige-tolerancia]
+//   node scripts/enderecos-conferir.cjs --antiga <origem> --nova <origem> --modo <MODO> --mcp-sha256 <hash|AUSENTE> [--sem-nova] [--exige-tolerancia] [--midia A|N]
 const ORIGEM_ATIVA = { DESLIGADO: 'INDETERMINADA', PREPARACAO: 'A', ATIVA: 'N', REVERSAO: 'A' };
 
 /** Lista de reprovações de uma leitura. `host` é 'A' ou 'N'. Função pura. */
@@ -22,17 +22,20 @@ function avaliar(host, leitura, esperado) {
         for (const item of ['convites', 'site', 'agenda', 'midia', 'mcp']) if (coerencia) exige(coerencia[item] === true, `COERENCIA_${item.toUpperCase()}`);
     }
     exige(leitura.mcpRecursoSha256 === esperado.mcpSha256, 'MCP_DIVERGENTE');
+    // F4/M1: só com --midia; sem ele, a coerência acima já aceita A ou N escrito na variável.
+    if (esperado.midia) exige(leitura.midiaEm === esperado.midia, 'MIDIA_DIVERGENTE');
     return erros;
 }
 
 function argumentos(argv) {
     const lidos = { semNova: argv.includes('--sem-nova'), exigeTolerancia: argv.includes('--exige-tolerancia') };
     const valor = (nome) => { const i = argv.indexOf(nome); return i >= 0 ? argv[i + 1] : undefined; };
-    Object.assign(lidos, { antiga: valor('--antiga'), nova: valor('--nova'), modo: valor('--modo'), mcpSha256: valor('--mcp-sha256') });
+    Object.assign(lidos, { antiga: valor('--antiga'), nova: valor('--nova'), modo: valor('--modo'), mcpSha256: valor('--mcp-sha256'), midia: valor('--midia') });
     const httpsExato = (v) => { try { const u = new URL(v); return u.protocol === 'https:' && u.origin === v; } catch { return false; } };
     if (!httpsExato(lidos.antiga) || (!lidos.semNova && !httpsExato(lidos.nova))) throw Error('ORIGEM_INVALIDA');
     if (!Object.hasOwn(ORIGEM_ATIVA, lidos.modo ?? '')) throw Error('MODO_INVALIDO');
     if (!/^([a-f0-9]{64}|AUSENTE)$/.test(lidos.mcpSha256 ?? '')) throw Error('MCP_SHA256_INVALIDO');
+    if (argv.includes('--midia') && !['A', 'N'].includes(lidos.midia ?? '')) throw Error('MIDIA_INVALIDA');
     return lidos;
 }
 

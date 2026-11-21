@@ -71,7 +71,7 @@ test('coerência: cada origem errada derruba só o seu item, sem mudar o modo', 
     [{ WHATSAPP_ATENDIMENTO_MIDIA_ORIGEM: undefined }, 'midia'],
     [{ WHATSAPP_ATENDIMENTO_MIDIA_ORIGEM: '' }, 'midia'],
     [{ WHATSAPP_ATENDIMENTO_MIDIA_ORIGEM: 'não é url' }, 'midia'],
-    [{ WHATSAPP_ATENDIMENTO_MIDIA_ORIGEM: N }, 'midia'],
+    [{ WHATSAPP_ATENDIMENTO_MIDIA_ORIGEM: 'https://outro.example' }, 'midia'],
     [{ MCP_PUBLIC_URL: `${N}/api/mcp` }, 'mcp'],
     [{ MCP_PUBLIC_URL: 'não é url' }, 'mcp'],
   ];
@@ -81,6 +81,25 @@ test('coerência: cada origem errada derruba só o seu item, sem mudar o modo', 
     const falsos = Object.entries(d.coerencia!).filter(([, v]) => !v).map(([k]) => k);
     assert.deepEqual(falsos, [item], JSON.stringify(mudanca));
   }
+});
+
+test('mídia (F4/M1): N escrita na variável é coerente em qualquer modo; N herdado do painel não', () => {
+  const emN = diag(hA, { ...ATIVA, WHATSAPP_ATENDIMENTO_MIDIA_ORIGEM: N });
+  assert.equal(emN.coerencia!.midia, true);
+  assert.equal(emN.midiaEm, 'N');
+  assert.equal(diag(hA, { ...ATIVA, WHATSAPP_ATENDIMENTO_MIDIA_ORIGEM: `${N}/` }).coerencia!.midia, true, 'compara a origem');
+  assert.equal(diag(hA, { ...REVERSAO, WHATSAPP_ATENDIMENTO_MIDIA_ORIGEM: N }).coerencia!.midia, true, '/api livre em N também na reversão');
+  assert.equal(diag(hA, { ...REVERSAO, WHATSAPP_ATENDIMENTO_MIDIA_ORIGEM: N }).midiaEm, 'N');
+  // Ausente ou vazia em ATIVA cai em ADMIN_AUTH_ORIGIN = N sem decisão: H25 segue alertando.
+  for (const v of [undefined, '']) {
+    const d = diag(hA, { ...ATIVA, WHATSAPP_ATENDIMENTO_MIDIA_ORIGEM: v });
+    assert.equal(d.midiaEm, 'N');
+    assert.equal(d.coerencia!.midia, false);
+  }
+  assert.equal(diag(hA, ATIVA).midiaEm, 'A');
+  assert.equal(diag(hA, { ...ATIVA, WHATSAPP_ATENDIMENTO_MIDIA_ORIGEM: 'https://outro.example' }).midiaEm, 'INDETERMINADA');
+  assert.equal(diag(hA, { ...ATIVA, WHATSAPP_ATENDIMENTO_MIDIA_ORIGEM: 'não é url' }).midiaEm, 'INDETERMINADA');
+  assert.equal(diag(hA, { ADMIN_AUTH_ORIGIN: A }).midiaEm, null, 'sem modo válido');
 });
 
 test('coerência segue o fallback dos consumidores: ausente ou vazia cai em ADMIN_AUTH_ORIGIN', () => {

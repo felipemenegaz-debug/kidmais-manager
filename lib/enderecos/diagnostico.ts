@@ -27,6 +27,8 @@ export type DiagnosticoEndereco = {
   tolerancia: EstadoTolerancia;
   /** Nula sem modo válido em uso: não há origem esperada para comparar. */
   coerencia: CoerenciaEnderecos | null;
+  /** Origem efetiva dos links novos de mídia do WhatsApp (F4/M1). Nula sem modo válido em uso. */
+  midiaEm: 'A' | 'N' | 'INDETERMINADA' | null;
   mcpRecursoSha256: string;
 };
 
@@ -59,13 +61,18 @@ export function diagnosticarEndereco(host: string | null, env: AmbienteDiagnosti
   const origemAtiva = cfg.antiga && cfg.painel === cfg.antiga ? 'A' : cfg.nova && cfg.painel === cfg.nova ? 'N' : 'INDETERMINADA';
   const admin = env.ADMIN_AUTH_ORIGIN;
   let coerencia: CoerenciaEnderecos | null = null;
+  let midiaEm: DiagnosticoEndereco['midiaEm'] = null;
   if (cfg.antiga && cfg.painel) {
     const a = cfg.antiga;
+    const midiaEfetiva = env.WHATSAPP_ATENDIMENTO_MIDIA_ORIGEM || admin;
+    midiaEm = origemIgual(midiaEfetiva, a) ? 'A' : cfg.nova && origemIgual(midiaEfetiva, cfg.nova) ? 'N' : 'INDETERMINADA';
     coerencia = {
       convites: origemIgual(env.CONVITES_PUBLIC_ORIGIN || admin, cfg.painel),
       site: origemIgual(env.SITE_URL || admin, cfg.painel),
       agenda: origemIgual(env.AGENDA_PUBLICA_ORIGEM?.trim() || admin, a, true),
-      midia: origemIgual(env.WHATSAPP_ATENDIMENTO_MIDIA_ORIGEM || admin, a),
+      // A, ou N só quando escrita na própria variável (F4/M1): /api nunca é redirecionado, então N serve o arquivo em
+      // todos os modos. N herdado de ADMIN_AUTH_ORIGIN, com a variável ausente, segue incoerente (H25: troca sem decisão).
+      midia: midiaEm === 'A' || (midiaEm === 'N' && Boolean(env.WHATSAPP_ATENDIMENTO_MIDIA_ORIGEM)),
       mcp: !env.MCP_PUBLIC_URL || origemIgual(env.MCP_PUBLIC_URL, a),
     };
   }
@@ -78,12 +85,13 @@ export function diagnosticarEndereco(host: string | null, env: AmbienteDiagnosti
     toleranciaAtiva: tolerancia === 'VALIDA',
     tolerancia,
     coerencia,
+    midiaEm,
     mcpRecursoSha256: env.MCP_PUBLIC_URL ? createHash('sha256').update(env.MCP_PUBLIC_URL).digest('hex') : 'AUSENTE',
   };
 }
 
 /** Linha de log, sem valores: os mesmos campos do diagnóstico, menos o que depende do pedido. */
 export function linhaDeLogDoEndereco(env: AmbienteDiagnostico, agora = Date.now()) {
-  const { modoSolicitado, modoEfetivo, codigo, origemAtiva, toleranciaAtiva, tolerancia, coerencia, mcpRecursoSha256 } = diagnosticarEndereco(null, env, agora);
-  return `[Enderecos] ${JSON.stringify({ modoSolicitado, modoEfetivo, codigo, origemAtiva, toleranciaAtiva, tolerancia, coerencia, mcpRecursoSha256 })}`;
+  const { modoSolicitado, modoEfetivo, codigo, origemAtiva, toleranciaAtiva, tolerancia, coerencia, midiaEm, mcpRecursoSha256 } = diagnosticarEndereco(null, env, agora);
+  return `[Enderecos] ${JSON.stringify({ modoSolicitado, modoEfetivo, codigo, origemAtiva, toleranciaAtiva, tolerancia, coerencia, midiaEm, mcpRecursoSha256 })}`;
 }

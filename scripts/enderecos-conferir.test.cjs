@@ -47,6 +47,18 @@ test('DESLIGADO não exige coerência', () => {
     assert.deepEqual(avaliar('A', leitura({ modoEfetivo: 'DESLIGADO', origemAtiva: 'INDETERMINADA', painelNesteHost: true, coerencia: null, mcpRecursoSha256: 'AUSENTE' }), d), []);
 });
 
+test('--midia (F4/M1): exige a origem efetiva da mídia; sem a opção, não confere', () => {
+    assert.deepEqual(avaliar('A', leitura({ midiaEm: 'N' }), { ...esperado, midia: 'N' }), []);
+    assert.deepEqual(avaliar('A', leitura({ midiaEm: 'A' }), { ...esperado, midia: 'N' }), ['A:MIDIA_DIVERGENTE']);
+    assert.deepEqual(avaliar('A', leitura(), { ...esperado, midia: 'A' }), ['A:MIDIA_DIVERGENTE'], 'campo ausente (web antigo) reprova');
+    assert.deepEqual(avaliar('A', leitura({ midiaEm: 'INDETERMINADA' }), esperado), []);
+    const base = ['--antiga', A, '--nova', N, '--modo', 'ATIVA', '--mcp-sha256', HASH];
+    assert.equal(argumentos([...base, '--midia', 'N']).midia, 'N');
+    assert.equal(argumentos(base).midia, undefined);
+    assert.throws(() => argumentos([...base, '--midia', 'X']), /MIDIA_INVALIDA/);
+    assert.throws(() => argumentos([...base, '--midia']), /MIDIA_INVALIDA/);
+});
+
 test('argumentos: origem exata, modo conhecido, hash formatado', () => {
     const base = ['--antiga', A, '--nova', N, '--modo', 'ATIVA', '--mcp-sha256', HASH];
     assert.equal(argumentos(base).modo, 'ATIVA');
