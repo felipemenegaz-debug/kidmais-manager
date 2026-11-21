@@ -540,6 +540,7 @@ export async function adquirirLockConfirmacaoAgenda(
  */
 export async function verificarConflitoAgendaParaConfirmacao(
   input: {
+    salaoDoAceite?: string | null;
     fechamentoId: string;
     data: string;
     horarioInicio: string;
@@ -556,7 +557,7 @@ export async function verificarConflitoAgendaParaConfirmacao(
   }>(
     v094
       ? `WITH alvo AS (
-         SELECT empresa_id AS e, estabelecimento_id AS u, configuracao_agenda_id AS c, salao_id AS s FROM fechamentos WHERE id = $1::uuid
+         SELECT empresa_id AS e, estabelecimento_id AS u, configuracao_agenda_id AS c, ${input.salaoDoAceite === undefined ? 'salao_id' : '$5::uuid'} AS s FROM fechamentos WHERE id = $1::uuid
        )
        SELECT
        EXISTS (
@@ -623,7 +624,8 @@ export async function verificarConflitoAgendaParaConfirmacao(
             AND f.horario_inicio < $4::time
             AND f.horario_fim > $3::time
        ) AS fechamento_confirmado`,
-    [input.fechamentoId, input.data, input.horarioInicio, input.horarioFim],
+    [input.fechamentoId, input.data, input.horarioInicio, input.horarioFim,
+      ...(v094 && input.salaoDoAceite !== undefined ? [input.salaoDoAceite] : [])],
   );
 
   return {

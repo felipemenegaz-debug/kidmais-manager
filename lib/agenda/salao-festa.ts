@@ -258,12 +258,24 @@ export async function escolherSalaoParaEmissao(
   const mesmoDestino = !proposta || (proposta.data === f.data && proposta.inicio.slice(0, 5) === f.inicio.slice(0, 5)
     && proposta.fim.slice(0, 5) === f.fim.slice(0, 5) && proposta.configuracaoId === f.cfg);
   const equipe = mesmoDestino ? f.salao_id : null;
+  let salaGarantida: string | null = null;
+  if (mesmoDestino && !equipe && !preferido) {
+    const agendaSinal = await tx.query<{ instalada: boolean }>(
+      "SELECT to_regprocedure('public.pre_reserva_exigir_configuracao()') IS NOT NULL AS instalada",
+    );
+    if (agendaSinal.rows[0]?.instalada) {
+      salaGarantida = (await tx.query<{ salao_id: string | null }>(
+        "SELECT salao_id FROM kidmais094_ocupacoes($1::date,$1::date) WHERE fechamento_id=$2 AND origem='PRE_RESERVA'",
+        [f.data, fechamentoId],
+      )).rows[0]?.salao_id ?? null;
+    }
+  }
   const alvo = proposta
     ? { fechamentoId, ...proposta, empresaId: f.empresa, estabelecimentoId: f.unidade }
     : { fechamentoId, data: f.data, inicio: f.inicio, fim: f.fim, configuracaoId: f.cfg, pacoteId: f.pacote,
       empresaId: f.empresa, estabelecimentoId: f.unidade, convidados: f.convidados };
-  const servem = await saloesQueServem(tx, alvo, equipe);
-  if (equipe) return servem[0] ? { porSalao: true, salao: servem[0] } : { porSalao: true, salao: null, motivo: 'ESCOLHIDO_NAO_SERVE' };
+  const servem = await saloesQueServem(tx, alvo, equipe ?? salaGarantida);
+  if (equipe || salaGarantida) return servem[0] ? { porSalao: true, salao: servem[0] } : { porSalao: true, salao: null, motivo: 'ESCOLHIDO_NAO_SERVE' };
   // Preferência do cliente para o MESMO destino da criação: serve ou a emissão é recusada (nunca troca em silêncio; a
   // equipe escolhe outro salão de forma explícita e o cliente vê esse salão no contrato antes de assinar).
   if (preferido && mesmoDestino) {

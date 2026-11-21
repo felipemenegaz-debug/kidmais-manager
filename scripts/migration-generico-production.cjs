@@ -1,6 +1,6 @@
 /* eslint-disable @typescript-eslint/no-require-imports */
 // Aplicador GENÉRICO de PRODUÇÃO para as migrations da promoção de 12/11/2026 que não têm aplicador próprio: 120, 121, 110,
-// 111, 115, 123, 124, 125, 126, 127, 128 e 130 (nessa ordem, a do inventário; scripts/promocao-production-ordem.cjs). SOMENTE no PostgreSQL do web de produção,
+// 111, 115, 123, 124, 125, 126, 127, 128, 130 e 131 (nessa ordem, a do inventário; scripts/promocao-production-ordem.cjs). SOMENTE no PostgreSQL do web de produção,
 // no Web Shell do srv-dak77m2d0e5s73b8rkkg, DEPOIS do deploy de uma árvore que traga este arquivo e os SQL.
 //   - LISTA FECHADA neste arquivo: para cada id, o sha256 (LF) fixado do precheck, da migration e do postcheck, e as
 //     SENTINELAS do estado — os mesmos objetos que o precheck da própria migration usa para dizer "já presente" (o teste
@@ -152,9 +152,15 @@ const MIGRATIONS = Object.freeze({
       ['postcheck', 'database/checks/20261120_130_postcheck.sql', '092ad985592358cb5b41b9b424bc126007df00d526672d82d7c0c550b58a0251']],
     criados: ['pre_reserva_configuracoes','pre_reserva_aceites','pre_reserva_recebimentos','pre_reserva_situacoes','pre_reserva_fechamento_titular','pre_reserva_contrato_pedido','pre_reserva_um_sinal_por_pedido','pre_reserva_pendencias_por_empresa'].map(tabela),
     privilegios: {criaNoSchema: true, alteradas: ['fechamentos','contratos'], funcoes: [], referenciadas: ['empresas','memberships','fechamentos','estabelecimentos','agenda_saloes','contratos']}}),
+  '131': congelar({escopo: 'agenda da pré-reserva: ocupação temporária e proteção do destino pago; exige a 130',
+    arquivos: [['precheck', 'database/checks/20261120_131_precheck.sql', '127326b37ee9cac39ccb9cc856f707fc51079d90bbf6cdce47ccfa3138d37e38'],
+      ['migration', 'database/migrations/20261120_131_pre_reserva_agenda.sql', '3b67b7867477858cea290de95b951686eea030e515c275899d81cef696d7c27e'],
+      ['postcheck', 'database/checks/20261120_131_postcheck.sql', '41122734e0cc753fc56568c515f62d354ab599332a807e58dbe14409dce78e9d']],
+    criados: [funcao('pre_reserva_exigir_configuracao()'), funcao('pre_reserva_preservar_destino()')],
+    privilegios: {criaNoSchema: true, alteradas: ['fechamentos','pre_reserva_recebimentos','pre_reserva_aceites'], funcoes: ['kidmais094_ocupacoes(date,date)','kidmais062_ocupacoes_escopo(date,date)'], referenciadas: []}}),
 });
-/** Ordem do inventário (scripts/production/check-migrations.mjs, approvedFiles): 120, 121, 110, 111, 115, 123, 124, 125, 126, 127, 128, 130. */
-const IDS = Object.freeze(['120', '121', '110', '111', '115', '123', '124', '125', '126', '127', '128', '130']);
+/** Ordem do inventário (scripts/production/check-migrations.mjs, approvedFiles): 120, 121, 110, 111, 115, 123, 124, 125, 126, 127, 128, 130, 131. */
+const IDS = Object.freeze(['120', '121', '110', '111', '115', '123', '124', '125', '126', '127', '128', '130', '131']);
 const definicao = id => { assert.ok(typeof id === 'string' && Object.hasOwn(MIGRATIONS, id), 'MIGRATION_FORA_DA_LISTA'); return MIGRATIONS[id]; };
 const marcadorDe = id => `migration-${id}.json`;
 const curta = e => String(e?.message ?? e).replace(/postgres(?:ql)?:\/\/\S+/gi, '<url>').slice(0, 300);

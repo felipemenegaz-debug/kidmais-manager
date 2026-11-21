@@ -1,7 +1,20 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { garantiaAte, POLITICA_PRE_RESERVA, referenciaTransferencia, sinalDaOferta } from './politica.ts';
+import { vencimentoDaGarantia, garantiaAte, POLITICA_PRE_RESERVA, referenciaTransferencia, sinalDaOferta } from './politica.ts';
 import { carregarModulo } from '../acessos/teste-carregador.ts';
+
+test('garantia pelos limites exatos de 24 e 48 horas', () => {
+  const instante = new Date('2026-11-21T01:30:00Z');
+  for (const horas of [24, 48]) {
+    for (const delta of [-1, 0, 1]) {
+      const distancia = horas * 3_600_000 + delta;
+      const inicio = new Date(instante.getTime() + distancia);
+      const resultado = vencimentoDaGarantia(instante, inicio);
+      assert.equal(resultado?.getTime() ?? null, distancia < 86_400_000 ? null :
+        Math.min(inicio.getTime(), instante.getTime() + 172_800_000));
+    }
+  }
+});
 
 test('oferta depende de adesão, orçamento online, centavos e preço aceito', () => {
   assert.equal(sinalDaOferta(true,true,10000,8000),8000);
