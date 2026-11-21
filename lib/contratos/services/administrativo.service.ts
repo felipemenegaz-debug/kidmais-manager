@@ -30,6 +30,7 @@ import { diferencasContratuais } from './alteracoes';
 import { exigirVersaoEditavel, fonteDaRevisaoInicial, prepararEdicaoInicial, type RevisaoInicial } from './revisao-inicial';
 import { travarConfiguracaoAgenda } from '../../agenda/trava-configuracao';
 import { perdaSchema } from '../../oportunidades/modelo';
+import { encerrarGarantia } from '../../pre-reserva/destinacao.ts';
 import { gravarPerda } from '../../oportunidades/perda';
 const uuid=z.string().uuid().transform(value=>value.toLowerCase());
 export const acaoContratoSchema = z.discriminatedUnion('acao', [
@@ -220,6 +221,7 @@ export async function operarContrato(versaoId: string, input: z.infer<typeof aca
             if(aberta && ['EM_ELABORACAO','CONGELADA'].includes(aberta.estado))await cancelarPreparacao(tx,aberta,rc,input.motivo);
             await tx.query("UPDATE contratos SET status='CANCELADO',cancelado_em=clock_timestamp() WHERE id=$1",[c.id]);
             await tx.query("UPDATE fechamentos SET status='CANCELADO' WHERE id=$1",[c.fechamento_id]);
+            await encerrarGarantia(tx, empresaAutorizada, c.fechamento_id, 'RECUSA');
             await gravarPerda(tx,empresaAutorizada,s.usuario_id,{tipo:'FECHAMENTO',id:c.fechamento_id},v.snapshot.contratante.clienteId,perda);
             await evento(tx,v,s,'CONTRATO_CANCELADO_ANTES_DA_FORMALIZACAO',{contratoId:c.id,motivo:input.motivo,...context});
             return {cancelada:true};

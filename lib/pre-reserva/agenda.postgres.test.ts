@@ -237,6 +237,7 @@ test('pré-reserva e agenda em duas conexões PostgreSQL', {timeout:120000}, asy
       const p=await porTransacao(a)(()=>novo('2028-08-18',A)), q=await porTransacao(a)(()=>novo('2028-08-19',B));
       const [antes]=await corrida(()=>confirmar(a,p,8),()=>recusar(b,p));
       assert.ok(antes.garantiaAte);
+      assert.deepEqual((await a.query('SELECT garantia,dinheiro FROM pre_reserva_situacoes WHERE fechamento_id=$1',[p])).rows,[{garantia:'RECUSA',dinheiro:'A_DEVOLVER'}]);
       const [,depois]=await corrida(()=>recusar(a,q),()=>confirmar(b,q,9));
       assert.equal(depois.garantiaAte,null);
       assert.deepEqual(await ocupacoes('2028-08-18'),[]);

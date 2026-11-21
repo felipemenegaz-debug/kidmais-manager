@@ -28,6 +28,10 @@ test('migration A sobre a 128, isolamento, transferência concorrente e expiraç
       {nome:'definição da visão',ddl:'CREATE OR REPLACE VIEW pre_reserva_situacoes AS '+
         (await db.query("SELECT pg_get_viewdef('pre_reserva_situacoes'::regclass) AS def")).rows[0].def.replace("'ATIVA'","'EXPIRADA'")},
       {nome:'CHECK trocado',ddl:'ALTER TABLE pre_reserva_configuracoes DROP CONSTRAINT pre_reserva_configuracoes_versao_check, ADD CONSTRAINT pre_reserva_configuracoes_versao_check CHECK (versao >= 0)'},
+      {nome:'lista antiga de encerramentos',ddl:"ALTER TABLE pre_reserva_recebimentos DROP CONSTRAINT pre_reserva_recebimentos_encerramento_check, ADD CONSTRAINT pre_reserva_recebimentos_encerramento_check CHECK (encerramento IN ('DESISTENCIA','RECUSA','FORMALIZACAO'))"},
+      {nome:'crédito limitado à vigência',ddl:"ALTER TABLE pre_reserva_recebimentos DROP CONSTRAINT pre_reserva_recebimentos_check6, ADD CONSTRAINT pre_reserva_recebimentos_check6 CHECK (contrato_id IS NULL OR (encerrado_em < garantia_ate AND devolucao_assumida_em IS NULL))"},
+      {nome:'corpo do gatilho sem proteção',ddl:"CREATE OR REPLACE FUNCTION pre_reserva_preservar_movimento() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RETURN NEW; END $$"},
+      {nome:'coluna de reversão com default',ddl:'ALTER TABLE pre_reserva_recebimentos ALTER COLUMN credito_revertido_em SET DEFAULT now()'},
       {nome:'gatilho desligado',ddl:'ALTER TABLE pre_reserva_recebimentos DISABLE TRIGGER pre_reserva_movimento_historico'},
       {nome:'índice com predicado trocado',ddl:'DROP INDEX pre_reserva_um_sinal_por_pedido; CREATE UNIQUE INDEX pre_reserva_um_sinal_por_pedido ON pre_reserva_recebimentos(empresa_id,fechamento_id) WHERE sinal_garantido_centavos IS NULL'});
     for (const {nome,ddl} of pecas) {

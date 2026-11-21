@@ -79,9 +79,10 @@ CREATE TABLE pre_reserva_recebimentos (
   aceite_sequencia integer NOT NULL,
   garantia_ate timestamptz,
   sinal_garantido_centavos integer,
-  encerramento text CHECK (encerramento IN ('DESISTENCIA','RECUSA','FORMALIZACAO')),
+  encerramento text CHECK (encerramento IN ('DESISTENCIA','RECUSA','FORMALIZACAO','FORMALIZACAO_SEM_CREDITO')),
   encerrado_em timestamptz,
   contrato_id uuid,
+  credito_revertido_em timestamptz,
   devolucao_assumida_por uuid,
   devolucao_assumida_em timestamptz,
   devolvido_em timestamptz,
@@ -98,7 +99,10 @@ CREATE TABLE pre_reserva_recebimentos (
   CHECK ((encerramento IS NULL) = (encerrado_em IS NULL)),
   CHECK (encerramento IS NULL OR (sinal_garantido_centavos IS NOT NULL AND encerrado_em >= confirmado_em)),
   CHECK ((contrato_id IS NOT NULL) = (encerramento IS NOT DISTINCT FROM 'FORMALIZACAO')),
-  CHECK (contrato_id IS NULL OR (encerrado_em < garantia_ate AND devolucao_assumida_em IS NULL)),
+  CHECK (contrato_id IS NULL OR devolucao_assumida_em IS NULL OR
+    (credito_revertido_em IS NOT NULL AND devolucao_assumida_em >= credito_revertido_em)),
+  CONSTRAINT pre_reserva_reversao_formalizada CHECK (credito_revertido_em IS NULL OR
+    (contrato_id IS NOT NULL AND credito_revertido_em >= encerrado_em)),
   CHECK ((devolucao_assumida_por IS NULL) = (devolucao_assumida_em IS NULL)),
   CHECK (devolucao_assumida_em IS NULL OR (devolucao_assumida_em >= confirmado_em AND
     (sinal_garantido_centavos IS NULL OR encerrado_em <= devolucao_assumida_em OR
@@ -110,7 +114,7 @@ CREATE TABLE pre_reserva_recebimentos (
 CREATE UNIQUE INDEX pre_reserva_um_sinal_por_pedido ON pre_reserva_recebimentos(empresa_id, fechamento_id)
   WHERE sinal_garantido_centavos IS NOT NULL;
 CREATE INDEX pre_reserva_pendencias_por_empresa ON pre_reserva_recebimentos(empresa_id, confirmado_em)
-  WHERE devolvido_em IS NULL AND contrato_id IS NULL;
+  WHERE devolvido_em IS NULL AND (contrato_id IS NULL OR credito_revertido_em IS NOT NULL);
 
 -- Um movimento do extrato não pode ser reapontado ou apagado para reutilizar a referência.
 CREATE FUNCTION pre_reserva_preservar_movimento() RETURNS trigger LANGUAGE plpgsql AS $$
@@ -120,6 +124,9 @@ BEGIN
       RAISE EXCEPTION 'Confirmação requer READ COMMITTED' USING ERRCODE='25000';
     END IF;
     PERFORM 1 FROM fechamentos WHERE empresa_id=NEW.empresa_id AND id=NEW.fechamento_id FOR UPDATE;
+    IF NEW.credito_revertido_em IS NOT NULL THEN
+      RAISE EXCEPTION 'Reversão exige formalização anterior' USING ERRCODE='23514';
+    END IF;
     SELECT max(sequencia) INTO NEW.aceite_sequencia FROM pre_reserva_aceites
       WHERE empresa_id=NEW.empresa_id AND fechamento_id=NEW.fechamento_id;
     RETURN NEW;
@@ -128,9 +135,20 @@ BEGIN
   IF ROW(NEW.empresa_id,NEW.fechamento_id,NEW.end_to_end_id,NEW.valor_centavos,NEW.confirmado_por,NEW.confirmado_em,NEW.sinal_garantido_centavos,NEW.garantia_ate,NEW.aceite_sequencia)
      IS DISTINCT FROM ROW(OLD.empresa_id,OLD.fechamento_id,OLD.end_to_end_id,OLD.valor_centavos,OLD.confirmado_por,OLD.confirmado_em,OLD.sinal_garantido_centavos,OLD.garantia_ate,OLD.aceite_sequencia)
      OR (OLD.encerramento IS NOT NULL AND ROW(NEW.encerramento,NEW.encerrado_em,NEW.contrato_id) IS DISTINCT FROM ROW(OLD.encerramento,OLD.encerrado_em,OLD.contrato_id))
+     OR (OLD.credito_revertido_em IS NOT NULL AND NEW.credito_revertido_em IS DISTINCT FROM OLD.credito_revertido_em)
      OR (OLD.devolucao_assumida_em IS NOT NULL AND ROW(NEW.devolucao_assumida_por,NEW.devolucao_assumida_em) IS DISTINCT FROM ROW(OLD.devolucao_assumida_por,OLD.devolucao_assumida_em))
      OR (OLD.devolvido_em IS NOT NULL AND ROW(NEW.devolvido_em,NEW.referencia_devolucao) IS DISTINCT FROM ROW(OLD.devolvido_em,OLD.referencia_devolucao))
   THEN RAISE EXCEPTION 'O lançamento e as baixas confirmadas são históricos' USING ERRCODE='23514'; END IF;
+  IF NEW.credito_revertido_em IS NOT NULL AND OLD.credito_revertido_em IS NULL THEN
+    IF OLD.contrato_id IS NULL OR NOT EXISTS (
+      SELECT FROM contratos c WHERE c.id=OLD.contrato_id AND c.status='CANCELADO'
+        AND c.cancelado_em=NEW.credito_revertido_em
+    ) OR EXISTS (
+      SELECT FROM pagamento_recebimentos r JOIN pagamentos p ON p.id=r.pagamento_id
+      JOIN contrato_versoes v ON v.id=p.contrato_versao_id
+      WHERE v.contrato_id=OLD.contrato_id AND r.chave_idempotencia='PRE_RESERVA:' || OLD.contrato_id::text
+    ) THEN RAISE EXCEPTION 'Crédito indisponível para reversão' USING ERRCODE='23514'; END IF;
+  END IF;
   RETURN NEW;
 END $$;
 CREATE TRIGGER pre_reserva_movimento_historico BEFORE INSERT OR UPDATE OR DELETE ON pre_reserva_recebimentos
@@ -145,11 +163,12 @@ SELECT empresa_id, fechamento_id, end_to_end_id, valor_centavos,
        WHEN encerramento IS NOT NULL THEN encerramento
        WHEN garantia_ate <= statement_timestamp() THEN 'EXPIRADA'
        ELSE 'ATIVA' END AS garantia,
-  CASE WHEN contrato_id IS NOT NULL THEN NULL
+  CASE WHEN credito_revertido_em IS NOT NULL THEN credito_revertido_em
+       WHEN contrato_id IS NOT NULL THEN NULL
        WHEN sinal_garantido_centavos IS NULL THEN confirmado_em
        WHEN encerrado_em IS NOT NULL OR garantia_ate <= statement_timestamp()
          THEN least(encerrado_em, garantia_ate) END AS devolver_desde,
-  CASE WHEN contrato_id IS NOT NULL THEN 'CREDITO_CONTRATO'
+  CASE WHEN contrato_id IS NOT NULL AND credito_revertido_em IS NULL THEN 'CREDITO_CONTRATO'
        WHEN devolvido_em IS NOT NULL THEN 'DEVOLVIDO'
        WHEN devolucao_assumida_em IS NOT NULL THEN 'EM_DEVOLUCAO'
        WHEN sinal_garantido_centavos IS NULL OR encerramento IS NOT NULL

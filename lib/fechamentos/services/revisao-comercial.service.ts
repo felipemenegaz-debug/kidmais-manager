@@ -1,3 +1,4 @@
+import { encerrarGarantia } from '../../pre-reserva/destinacao.ts';
 import { createHash } from "node:crypto";
 import { calcularCondicaoComercial, centavosComerciais, validarPretensaoPix,
   type PretensaoPixInput, type CondicaoPagamento } from "../../comercial/condicao-pagamento";
@@ -108,6 +109,7 @@ export async function revisarComercial(id: string, empresaId: string, input: Rev
       condicaoPagamento: { ...condicao, solicitacaoId: input.solicitacaoId.toLowerCase(), decisaoHash,
         ...(aprovada ? { valores: calcularCondicaoComercial(base, condicao.forma, condicao.descontoPercentual) } : {}) },
     }, tx);
+    if (!aprovada) await encerrarGarantia(tx, empresaId, id, 'RECUSA');
     const fechamento = await registrarDecisaoNoFechamento(f, { aprovada, valorBase: aprovada ? base : null, condicao }, tx);
     await registrarAuditoria({ entidadeTipo: "FECHAMENTO", entidadeId: id,
       atorTipo: context.usuarioId ? "USUARIO" : "SISTEMA", clienteId: f.clienteId,
