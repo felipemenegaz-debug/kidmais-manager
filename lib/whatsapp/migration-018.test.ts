@@ -7,6 +7,8 @@ const rollback = readFileSync('database/rollback/20260912_018_whatsapp_onboardin
 const routes = [
   'app/api/admin/configuracoes/whatsapp/onboarding/iniciar/route.ts',
   'app/api/admin/configuracoes/whatsapp/onboarding/concluir/route.ts',
+  'app/api/admin/configuracoes/whatsapp/renovacao/iniciar/route.ts',
+  'app/api/admin/configuracoes/whatsapp/renovacao/concluir/route.ts',
 ].map((path) => readFileSync(path, 'utf8')).join('\n');
 
 test('migration cria somente as duas tabelas e não persiste código ou token em texto', () => {
@@ -19,6 +21,6 @@ test('migration cria somente as duas tabelas e não persiste código ou token em
 
 test('rollback é protegido por dados e rotas administrativas preservam guarda comum', () => {
   assert.match(rollback, /Rollback 018 recusado: existem dados/);
-  assert.equal((routes.match(/exigirApiAdminCrmDisponivel\(request\)/g) ?? []).length, 2);
-  assert.equal((routes.match(/export async function POST/g) ?? []).length, 2);
+  assert.equal((routes.match(/exigirApiAdminCrmDisponivel\(request\)/g) ?? []).length, 4);
+  assert.equal((routes.match(/export async function POST/g) ?? []).length, 4);
 });
