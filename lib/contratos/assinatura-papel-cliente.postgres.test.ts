@@ -602,7 +602,7 @@ async function esperaPor(alvo: number, por: number) {
 }
 
 /** Cenário AGUARDANDO_CLIENTE commitado (a conexão principal volta ao autocommit). */
-async function aguardandoCommitado(forma?: 'PIX_AVISTA'): Promise<Aguardando> {
+async function aguardandoCommitado(forma?: 'PIX_AVISTA' | 'PIX_PARCELADO'): Promise<Aguardando> {
   await a.query("BEGIN");
   const restaurar = poolNaTransacao(a);
   try { const x = await aguardandoCliente(130,forma); await a.query("COMMIT"); return x; }
@@ -742,18 +742,24 @@ for (const caso of [
   { total: 99.99, primeiro: 'plano' },
   { total: 100, primeiro: null },
   { total: 100.01, primeiro: null },
+  { total: 0, primeiro: null, descontoIntegral: true },
 ]) test(`4a: aditivo de ${caso.total} sobre crédito de 100 (${caso.primeiro ?? 'só aditivo'})`,
   { skip: !opt(), timeout: 120000 }, async t => {
     if (!(await a.query("SELECT to_regprocedure('pre_reserva_exigir_configuracao()') IS NOT NULL AS ok")).rows[0].ok) return t.skip('modelo sem a 131');
     const restaurar = ambienteAssinatura(), pool = poolRoteado(), fim = portao();
     const pendentes: Promise<unknown>[] = [];
     try {
-      const x = await aguardandoCommitado('PIX_AVISTA');
+      const x = await aguardandoCommitado(caso.descontoIntegral ? 'PIX_PARCELADO' : 'PIX_AVISTA');
       await a.query('BEGIN');
       await travarConfiguracaoAgenda(executor(a),x.c.empresa,{modo:'COMPARTILHADA',linha:'KEY_SHARE'});
       const { pedido, ref } = await inserirSinal(x,10000,false);
       await a.query('COMMIT');
       await registrar(x,{dataDeclarada:await hojeSp()});
+      if (caso.descontoIntegral) {
+        await a.query(`INSERT INTO empresa_regras_pagamento
+          (empresa_id,pix_avista_percentual,pix_parcelado_percentual,cartao_rotulo,desconto_dia_util,motivo)
+          VALUES($1,100,0,'Cartão',false,'Desconto integral sintético')`, [x.c.empresa]);
+      }
       const { versaoId: v2 } = await operar(x.versaoId, {
         acao: 'nova_versao', tipo: 'NOVA_VERSAO', motivo: 'Alteração comercial sintética', chaveCriacao: randomUUID(),
       }, x.c.token, x.c.empresa) as { versaoId: string };
@@ -769,7 +775,7 @@ for (const caso of [
         adicionais: fonte.adicionais, idadeAniversarianteEvento: f.idadeAniversarianteEvento,
         temaFesta: '', buffetStatus: 'PENDENTE', buffetSalgados: '', buffetBebidas: '', buffetDoces: '',
         buffetBolo: '', buffetOutros: '', observacoesEquipe: '',
-        comercial: { confirmarAprovacao: true, forma: 'PIX_AVISTA', condicaoPix: null, baseNegociada: caso.total },
+        comercial: { confirmarAprovacao: true, forma: 'PIX_AVISTA', condicaoPix: null, baseNegociada: caso.descontoIntegral ? 100 : caso.total },
       }, x.nativo.tokenRepresentante, x.c.empresa);
       await congelarEAssinarKidmais(a, adm().operarContrato as unknown as Operar, v2, x.c.empresa, x.c.token, x.nativo.tokenRepresentante);
       const state = async () => (await a.query(`SELECT garantia,dinheiro,credito_reversao_motivo,valor_centavos::int
@@ -809,13 +815,13 @@ for (const caso of [
         await Promise.all(pendentes);
       } else {
         await cliente.assinar();
-        await assert.rejects(criar(caso.total - 1), { code: 'PLANO_PAGAMENTO_INVALIDO' });
+        if (!caso.descontoIntegral) await assert.rejects(criar(caso.total - 1), { code: 'PLANO_PAGAMENTO_INVALIDO' });
       }
       const vigente = (await a.query(`SELECT v.id, v.snapshot #>> '{comercial,valorFinalContrato}' AS total
         FROM contrato_fluxos f JOIN contrato_versoes v ON v.id=f.versao_vigente_id WHERE f.contrato_id=$1`, [x.contratoId])).rows[0];
       assert.equal(vigente.id,v2);
       assert.equal(Number(vigente.total),caso.total);
-      const reverteu = caso.primeiro === 'aditivo';
+      const reverteu = caso.primeiro === 'aditivo' || caso.descontoIntegral === true;
       const motivo = 'ADITIVO_ABAIXO_DO_CREDITO';
       assert.deepEqual(await state(), {
         garantia: 'FORMALIZACAO', dinheiro: reverteu ? 'A_DEVOLVER' : 'CREDITO_CONTRATO',
@@ -841,7 +847,8 @@ for (const caso of [
         await assert.rejects(a.query("UPDATE pre_reserva_recebimentos SET credito_reversao_motivo='CANCELAMENTO_FESTA_SEM_BAIXA' WHERE contrato_id=$1",[x.contratoId]), { code: '23514' });
       }
       if (caso.total === 100) {
-        for (const expressao of ["snapshot #- '{comercial,valorFinalContrato}'", `jsonb_set(snapshot,'{comercial,valorFinalContrato}','"100"')`]) {
+        for (const expressao of ["snapshot #- '{comercial,valorFinalContrato}'", `jsonb_set(snapshot,'{comercial,valorFinalContrato}','"100"')`,
+          "jsonb_set(snapshot,'{comercial,valorFinalContrato}','-0.01')"]) {
           await a.query('BEGIN');
           try {
             // Corrompe somente a fixture para provar a defesa da 130 contra formatos que o fluxo nativo não emite.

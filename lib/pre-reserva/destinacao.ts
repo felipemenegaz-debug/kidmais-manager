@@ -64,7 +64,7 @@ export async function reverterCreditoPorAditivo(tx: DbExecutor, contrato: string
   if (!await recebimentosInstalados(tx)) return;
   const { rows: [credito] } = await tx.query<{ empresa_id: string; end_to_end_id: string; abaixo: boolean | null }>(`
     SELECT r.empresa_id, r.end_to_end_id,
-      CASE WHEN total BETWEEN 0.01 AND 9999999999.99 AND total=trunc(total,2) THEN total*100<r.valor_centavos END AS abaixo
+      CASE WHEN total BETWEEN 0 AND 9999999999.99 AND total=trunc(total,2) THEN total*100<r.valor_centavos END AS abaixo
     FROM pre_reserva_recebimentos r
     JOIN contrato_fluxos f ON f.contrato_id=r.contrato_id AND f.versao_vigente_id=$2
     JOIN contrato_versoes v ON v.id=f.versao_vigente_id AND v.contrato_id=f.contrato_id

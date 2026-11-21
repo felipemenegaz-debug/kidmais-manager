@@ -6,7 +6,7 @@ BEGIN
   IF NOT EXISTS (SELECT FROM pg_proc WHERE oid=to_regprocedure('public.pre_reserva_preservar_movimento()')
     AND prorettype='trigger'::regtype AND prolang=(SELECT oid FROM pg_language WHERE lanname='plpgsql')
     AND NOT prosecdef AND provolatile='v' AND proconfig IS NULL
-    AND encode(sha256(convert_to(replace(prosrc,chr(13),''),'UTF8')),'hex')='444ef64e1c8b1b820f2a03b8cb592e84032bb9d26b5b25ce66fe72afa98257ee') THEN
+    AND encode(sha256(convert_to(replace(prosrc,chr(13),''),'UTF8')),'hex')='3deb562af3aac86592ffe7b15c306afb2ea9ca48aea8dfafb4e8c6bfef5a17db') THEN
     RAISE EXCEPTION '130: peça ausente ou divergente pre_reserva_preservar_movimento';
   END IF;
   SELECT e.nome INTO divergente

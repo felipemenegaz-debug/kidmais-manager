@@ -148,8 +148,8 @@ const MIGRATIONS = Object.freeze({
     privilegios: {criaNoSchema: true, alteradas: ['documentos_publicos'], funcoes: [], referenciadas: []}}),
   '130': congelar({escopo: 'pré-reserva manual: configuração, aceites e recebimentos; os índices únicos bloqueiam escritas em fechamentos e contratos durante a instalação',
     arquivos: [['precheck', 'database/checks/20261120_130_precheck.sql', '53f95ec68a5ce4aeaebda793dc5de0400851c578191541da7a8b8a39b9356c4b'],
-      ['migration', 'database/migrations/20261120_130_pre_reserva_manual.sql', '42b53fb5cd5b8b3825c7c4a0f723701314ad107efd81615094f90473e6f1271e'],
-      ['postcheck', 'database/checks/20261120_130_postcheck.sql', 'ec9f1bf2bf68e7aed679c5f97bb627e2cdaa32fe21826b2baca65ac98cac6669']],
+      ['migration', 'database/migrations/20261120_130_pre_reserva_manual.sql', 'f1333015ac9ac692f24e04d6a6fd381fba0c0b8432674863e56a97c918141411'],
+      ['postcheck', 'database/checks/20261120_130_postcheck.sql', '0379143e198e88b9e599bdf5ce0908b6670063d17f17a668a67c666fefb1e250']],
     criados: ['pre_reserva_configuracoes','pre_reserva_aceites','pre_reserva_recebimentos','pre_reserva_situacoes','pre_reserva_fechamento_titular','pre_reserva_contrato_pedido','pre_reserva_um_sinal_por_pedido','pre_reserva_pendencias_por_empresa'].map(tabela),
     // Runtime do gatilho: fechamentos e contratos (SELECT/FOR UPDATE), pre_reserva_aceites,
     // contrato_fluxos, contrato_versoes, pagamentos e pagamento_recebimentos (SELECT).

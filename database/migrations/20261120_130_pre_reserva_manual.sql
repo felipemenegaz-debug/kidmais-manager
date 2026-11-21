@@ -180,7 +180,7 @@ BEGIN
         RAISE EXCEPTION 'Valor final ausente ou inválido no snapshot do aditivo vigente' USING ERRCODE='23514';
       END IF;
       total_reais := valor_final::numeric;
-      IF total_reais NOT BETWEEN 0.01 AND 9999999999.99 OR trunc(total_reais,2) <> total_reais THEN
+      IF total_reais NOT BETWEEN 0 AND 9999999999.99 OR trunc(total_reais,2) <> total_reais THEN
         RAISE EXCEPTION 'Valor final ausente ou inválido no snapshot do aditivo vigente' USING ERRCODE='23514';
       END IF;
       IF total_reais * 100 >= OLD.valor_centavos THEN

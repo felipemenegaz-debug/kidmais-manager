@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { setTimeout as aguardar } from 'node:timers/promises';
 import { conectarDescartavel, encerrarDescartavel } from '../comercial/postgres-descartavel.ts';
-import { carregarComBanco, cliente, comercial, executor, fechamento, porTransacao } from '../marketing/harness-postgres.ts';
+import { carregarComBanco, cliente, comercial, executor, fechamento, pedido as pedidoHttp, porTransacao, type Resposta } from '../marketing/harness-postgres.ts';
 import { cenario, representante } from '../../scripts/integracao-importados-test-support.ts';
 import { travarConfiguracaoAgenda } from '../agenda/trava-configuracao.ts';
 
@@ -75,6 +75,18 @@ test('4a: Gestão, dois autores, instantes da baixa e auditoria transacional', a
     const antesQueArredonda = antes.replace('-03:00', '9-03:00');
     for (const invalida of [limite.slice(0,10), limite.slice(0,-1), antesQueArredonda]) {
       await assert.rejects(porTransacao(a)(tx => dev.confirmarDevolucao(tx, segundo, ref, baixa(invalida))), { code: 'BAIXA_INVALIDA' });
+    }
+    const rota = '/api/admin/pre-reserva/devolucoes/baixar';
+    const { POST } = carregarComBanco(`app${rota}/route.ts`, a, () => ({ usuario_id: segundo.usuarioId, papel: 'ADMINISTRATIVO' })) as {
+      POST: (request: ReturnType<typeof pedidoHttp>) => Promise<Resposta>;
+    };
+    const filaAssumida = await lista();
+    assert.equal(filaAssumida[0].situacao, 'EM_DEVOLUCAO');
+    for (const invalida of [baixa('0000-01-01T12:00:00Z'), { ...baixa(limite), referencia: 'SAIDA\0SINTETICA' }]) {
+      const resposta = await porTransacao(a)(() => POST(pedidoHttp(`http://127.0.0.1:3000${rota}`, { original: ref, ...invalida })));
+      assert.equal(resposta.status, 400);
+      assert.equal((await resposta.json()).codigo, 'BAIXA_INVALIDA');
+      assert.deepEqual(await lista(), filaAssumida);
     }
     for (const fora of [antes, futuro]) {
       await assert.rejects(porTransacao(a)(tx => dev.confirmarDevolucao(tx, segundo, ref, baixa(fora))), erros.indisponivel);

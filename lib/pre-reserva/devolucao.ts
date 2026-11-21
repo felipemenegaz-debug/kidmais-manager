@@ -10,7 +10,8 @@ import { recebimentosInstalados } from './destinacao.ts';
 const instanteComOffset = z.union([
   z.iso.datetime({ offset: true }),
   z.iso.datetime({ offset: true, precision: -1 }),
-]).refine(valor => !/\.\d{7}/.test(valor) && (valor.endsWith('Z') || Number(valor.slice(-5, -3)) < 16));
+]).refine(valor => !valor.startsWith('0000-') && !/\.\d{7}/.test(valor) &&
+  (valor.endsWith('Z') || Number(valor.slice(-5, -3)) < 16));
 type Movimento = { fechamento_id: string; instante: string };
 
 async function exigirRecebimentos(tx: DbExecutor) {
@@ -63,14 +64,16 @@ export async function assumirDevolucao(tx: DbExecutor, tenant: TenantComprovado,
 export async function confirmarDevolucao(tx: DbExecutor, tenant: TenantComprovado, original: string,
   baixa: { referencia: string; valorCentavos: number; devolvidoEm: string; extratoConferido: boolean }) {
   exigirGestaoNoTenant(tenant, 'Somente a Gestão confirma a devolução.');
-  if (!baixa.extratoConferido || !baixa.referencia.trim() || !Number.isSafeInteger(baixa.valorCentavos) || baixa.valorCentavos <= 0 ||
+  const referenciaSaida = baixa.referencia.trim();
+  if (!baixa.extratoConferido || !referenciaSaida || referenciaSaida.includes('\0') ||
+      !Number.isSafeInteger(baixa.valorCentavos) || baixa.valorCentavos <= 0 ||
       !instanteComOffset.safeParse(baixa.devolvidoEm).success) {
     throw new PacoteAdminError('BAIXA_INVALIDA','Confira a saída integral e informe a data com hora e offset.',400);
   }
   await exigirRecebimentos(tx);
   const referencia = referenciaTransferencia(original);
   const parametros = [tenant.empresaComprovada, referencia, tenant.usuarioId,
-    baixa.devolvidoEm, baixa.referencia.trim(), baixa.valorCentavos];
+    baixa.devolvidoEm, referenciaSaida, baixa.valorCentavos];
   const { rows: [movimento] } = await tx.query<Movimento>(`UPDATE pre_reserva_recebimentos
     SET devolvido_por=$3,devolvido_em=$4,referencia_devolucao=$5
     WHERE empresa_id=$1 AND end_to_end_id=$2 AND devolucao_assumida_em IS NOT NULL AND valor_centavos=$6
