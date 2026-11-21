@@ -5,6 +5,7 @@ import { createRequire } from 'node:module';
 import ts from 'typescript';
 import { hashSnapshotContrato } from './snapshot-core.ts';
 import * as travaConfiguracao from '../../agenda/trava-configuracao.ts';
+import * as destinacao from '../../pre-reserva/destinacao.ts';
 import { perdaSchema } from '../../oportunidades/modelo.ts';
 
 const require = createRequire(import.meta.url);
@@ -34,6 +35,7 @@ function caso(options: { status?: string; clienteAssinou?: boolean; temFinanceir
         return { rows };
     } };
     const operar = carregar({
+        '../../pre-reserva/destinacao.ts': destinacao,
         '../../oportunidades/modelo': {perdaSchema},
         '../../oportunidades/perda': {gravarPerda:async()=>{}},
         '../../db/postgres': { withTransaction: async (fn: (tx: unknown) => unknown) => fn(tx) },

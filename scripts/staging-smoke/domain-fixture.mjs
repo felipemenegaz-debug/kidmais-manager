@@ -22,6 +22,7 @@ export function fixture(root, env, smokeId) {
   const tx = { query: async (sql, values = []) => {
     const q = sql.replace(/\s+/g, ' ').trim(); let rows = [];
     if (q.startsWith('SELECT * FROM contrato_fluxos') || q.startsWith('SELECT versao_vigente_id FROM contrato_fluxos')) rows = [{ ...state.flow }];
+    else if (q === "SELECT to_regclass('public.pre_reserva_recebimentos') IS NOT NULL AS instalada") rows = [{ instalada: false }];
     else if (q.startsWith('SELECT status FROM contratos')) rows = [{ status: state.contract.status }];
     else if (q.startsWith('INSERT INTO contrato_assinaturas')) { state.calls.push('signature-repository'); state.signatures.push({ parte: 'CLIENTE', snapshot: values[4], pdf: values[5] }); }
     else if (q.startsWith('UPDATE contrato_edicoes')) state.edition.estado = 'CONCLUIDA';

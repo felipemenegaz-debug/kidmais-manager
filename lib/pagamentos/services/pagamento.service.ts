@@ -3,6 +3,7 @@ import { referenciaParaCaminho } from '../../contratos/services/salao-contrato';
 import { escolherSalao } from "../../agenda/salao-festa.ts";
 import type { DbExecutor } from "../../db/contracts";
 import { hashSnapshotContrato } from '../../contratos/services/snapshot-core';
+import { creditoDoContrato } from '../../pre-reserva/destinacao.ts';
 import { db, withTransaction } from "../../db/postgres";
 import { posicaoDoPagamento, possuiCronograma, validarCapacidadeConsolidada, eventoMovimento, validarEstornoComDevolucoes, consolidarCronogramaDoEstorno } from './movimentos-consolidados';
 import {
@@ -380,7 +381,7 @@ export async function criarPagamentoDoFechamento(
       },
       tx,
     );
-    await criarPlanoEParcelas(pagamento, 1, planoValidado, context, tx);
+    const { parcelas } = await criarPlanoEParcelas(pagamento, 1, planoValidado, context, tx);
 
     // Histórico revisado: a reserva já está confirmada desde a conferência; o fechamento continua CONFIRMADO.
     if (fluxo === "HISTORICO_REVISADO") await marcarReservaPagamento(pagamento.id, "CONFIRMADA", tx);
@@ -440,6 +441,23 @@ export async function criarPagamentoDoFechamento(
       tx,
     );
 
+    const credito = empresa && await creditoDoContrato(tx, contrato.id, empresa);
+    if (credito) {
+      let restante = credito.valor;
+      const alocacoes = [];
+      for (const parcela of [...parcelas].sort((a, b) => a.numero - b.numero)) {
+        const centavos = Math.min(restante, dinheiroParaCentavos(parcela.valorPrevisto));
+        if (centavos > 0) alocacoes.push({ parcelaId: parcela.id, valor: centavos / 100 });
+        restante -= centavos;
+      }
+      if (restante !== 0) throw new PagamentoServiceError('VALOR_EXCEDE_SALDO', 'O sinal excede o plano de pagamento.', 409);
+      const baixa = await registrarRecebimentoPagamento({
+        pagamentoId: pagamento.id, meioPagamento: 'PIX', valorBruto: credito.valor / 100,
+        recebidoEm: credito.recebido.toISOString(), chaveIdempotencia: 'PRE_RESERVA:' + contrato.id,
+        metadataProvedor: { origem: 'PRE_RESERVA', endToEndId: credito.referencia }, alocacoes,
+      }, { ...context, executor: tx });
+      return { detalhe: baixa.detalhe, reutilizado: false };
+    }
     return { detalhe: await detalhePagamento(pagamento, tx), reutilizado: false };
   });
 }

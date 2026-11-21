@@ -1,3 +1,4 @@
+import { destinarSinalFormalizado } from '../pre-reserva/destinacao.ts';
 import { createHash, randomUUID } from 'node:crypto';
 import type { DbExecutor } from '../db/contracts';
 import { FestaError } from './domain.ts';
@@ -89,5 +90,6 @@ export async function garantirFestaFormalizada(
         CASE WHEN $4 THEN 'Festa criada automaticamente após as assinaturas do buffet e do cliente (papel)' ELSE 'Festa criada automaticamente após as duas assinaturas' END,$3::jsonb
         FROM public.contratos c JOIN public.fechamentos f ON f.id=c.fechamento_id WHERE c.id=$1`,
     [contratoId, f.id, JSON.stringify(causa), papelClienteId !== null]);
+    await destinarSinalFormalizado(tx, contratoId, versaoId);
     return { festaId: f.id, reutilizado: false };
 }

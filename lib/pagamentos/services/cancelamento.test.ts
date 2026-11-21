@@ -83,6 +83,7 @@ function ambiente(recebimentos: Row[] = [], consolidado = false, falha = '') {
     '../../clientes/repositories/auditoria.repository': audit, '../../clientes/repositories/historico.repository': history,
   });
   const contrato = carregar('lib/contratos/services/cancelamento.service.ts', {
+    '../../pre-reserva/destinacao.ts': { reverterCreditoSemBaixa: async () => undefined },
     '../../pagamentos/services/cancelamento.service': financeiro,
     '../../fechamentos/repositories/revisao.repository': {}, '../../fechamentos/services/revisao-operacional.service': {},
     '../../clientes/repositories/auditoria.repository': audit, '../../clientes/repositories/historico.repository': history,

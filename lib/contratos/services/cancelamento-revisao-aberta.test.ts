@@ -25,6 +25,7 @@ function caso(op: { revisaoAberta?: number | null } = {}) {
         return { rows, rowCount: rows.length };
     } };
     const cancelar = carregar({
+        '../../pre-reserva/destinacao.ts': { reverterCreditoSemBaixa: async () => undefined },
         '../../festas/domain': { exigir },
         '../../clientes/repositories/historico.repository': { registrarEventoHistorico: async () => undefined },
         '../../clientes/repositories/auditoria.repository': { registrarAuditoria: async () => undefined },
