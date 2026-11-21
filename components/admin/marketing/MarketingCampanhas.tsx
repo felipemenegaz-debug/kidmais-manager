@@ -1,4 +1,5 @@
 'use client';
+import { dialogo } from '@/components/JanelaConfirmacao';
 import type { LinhaPainel } from '@/lib/marketing/metricas';
 import { useEffect, useRef, useState } from 'react';
 import { hojeSaoPaulo } from '@/lib/marketing/utm';
@@ -36,10 +37,11 @@ function novoFormulario(dados: Dados, dataLivre?: string): Formulario {
 
 export default function MarketingCampanhas({ dataInicial }: { dataInicial?: string } = {}) {
   const [arquivadas, setArquivadas] = useState(false);
-  const { dados, falha, carregando, recarregar } = useMarketing<Dados>(`/api/admin/marketing/campanhas${arquivadas ? '?arquivadas=1' : ''}`);
+  const { dados, falha, carregando, recarregar, setDados } = useMarketing<Dados>(`/api/admin/marketing/campanhas${arquivadas ? '?arquivadas=1' : ''}`);
   const [form, setForm] = useState<Formulario | null>(null);
   const [aviso, setAviso] = useState('');
   const [enviando, setEnviando] = useState(false);
+  const [arquivando, setArquivando] = useState<string | null>(null);
   const [copiado, setCopiado] = useState<string | null>(null);
   const podeEditar = dados?.capacidades.includes('MARKETING_CAMPANHAS_EDITAR') ?? false;
   const atalhoConsumido = useRef(false);
@@ -87,10 +89,27 @@ export default function MarketingCampanhas({ dataInicial }: { dataInicial?: stri
   }
 
   async function mudarEstado(c: Campanha, acao: 'pausar' | 'reativar' | 'arquivar') {
-    if (acao === 'arquivar' && !window.confirm(`Arquivar “${c.nome}”? O link continua levando ao site, mas não atribui novos contatos; a campanha não poderá ser editada.`)) return;
     setAviso('');
-    try { await enviarMarketing('/api/admin/marketing/campanhas', { acao, id: c.id, versao: c.versao }); recarregar(); }
+    try {
+      const { campanha } = await enviarMarketing<{ campanha: Campanha }>('/api/admin/marketing/campanhas', { acao, id: c.id, versao: c.versao });
+      if (acao === 'arquivar') {
+        setDados(atual => ({
+          ...atual,
+          campanhas: atual.campanhas.flatMap(linha => linha.id !== c.id ? [linha] : arquivadas ? [campanha] : []),
+        }));
+      }
+      recarregar();
+    }
     catch (e) { setAviso(e instanceof Error ? e.message : 'Não foi possível concluir.'); }
+  }
+
+  async function arquivar(c: Campanha, gatilho: HTMLButtonElement) {
+    if (arquivando === c.id) return;
+    await dialogo.confirmar('Arquivar campanha', `Arquivar “${c.nome}”? O link continua levando ao site, mas não atribui novos contatos; a campanha não poderá ser editada.`, async () => {
+      setArquivando(c.id);
+      try { await mudarEstado(c, 'arquivar'); }
+      finally { setArquivando(null); }
+    }, gatilho);
   }
 
   async function copiar(texto: string, id: string) {
@@ -119,10 +138,10 @@ export default function MarketingCampanhas({ dataInicial }: { dataInicial?: stri
                   {c.orcamentoCentavos !== null ? ` · orçamento informado ${reais(c.orcamentoCentavos)}` : ''}{c.unidadeId ? ` · ${dados.unidades.find((u) => u.id === c.unidadeId)?.nome ?? 'unidade'}` : ''}</p>
                 {c.objetivo && <p>{c.objetivo}</p>}</div>
               {podeEditar && c.status !== 'ARQUIVADA' && <div className={`${styles.acoes} ${styles.acoesCampanha}`}>
-                <button type="button" className={styles.secundario} onClick={() => editar(c)}>Editar</button>
-                {c.status === 'ATIVA' ? <button type="button" className={styles.secundario} onClick={() => void mudarEstado(c, 'pausar')}>Pausar</button>
-                  : <button type="button" className={styles.secundario} onClick={() => void mudarEstado(c, 'reativar')}>Reativar</button>}
-                <button type="button" className={styles.fantasma} onClick={() => void mudarEstado(c, 'arquivar')}>Arquivar</button>
+                <button type="button" className={styles.secundario} disabled={arquivando === c.id} onClick={() => editar(c)}>Editar</button>
+                {c.status === 'ATIVA' ? <button type="button" className={styles.secundario} disabled={arquivando === c.id} onClick={() => void mudarEstado(c, 'pausar')}>Pausar</button>
+                  : <button type="button" className={styles.secundario} disabled={arquivando === c.id} onClick={() => void mudarEstado(c, 'reativar')}>Reativar</button>}
+                <button type="button" className={styles.fantasma} disabled={arquivando === c.id} onClick={(evento) => void arquivar(c, evento.currentTarget)}>Arquivar</button>
               </div>}
             </div>
             <p>{resultado?.contatos ?? 0} pedidos · {resultado?.contratos ?? 0} contratos · Receita: {resultado ? receitaContratadaTexto(resultado) : reais(0)}</p><p className={styles.muted}>Resultados acumulados até hoje.</p>

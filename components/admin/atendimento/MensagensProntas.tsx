@@ -1,4 +1,5 @@
 'use client';
+import { dialogo } from '@/components/JanelaConfirmacao';
 import { useCallback, useEffect, useId, useMemo, useRef, useState, type RefObject } from 'react';
 import { adminFetch } from '@/lib/http/admin-fetch';
 import { CARDAPIO_DA_CONVERSA, comporRascunho, LIMITE_RASCUNHO, type OpcaoCardapio, type RascunhoPronta } from '@/lib/whatsapp/atendimento/prontas';
@@ -244,8 +245,8 @@ export function GerenciarMensagensProntas({ pagina = false }: { pagina?: boolean
     try { await chamar({ acao: 'salvar', pronta }); await carregar(); fechar(); setAviso('Mensagem pronta salva.'); }
     catch (e) { setErro(e instanceof Error ? e.message : 'Confira os campos.'); } finally { setOcupado(false); }
   }
-  async function arquivar(p: Pronta) {
-    if (ocupado || !window.confirm(`${r082 ? 'Arquivar' : 'Remover'} “${p.titulo}”? Novos usos ficam bloqueados; conversas já enviadas não mudam.`)) return;
+  async function arquivar(p: Pronta, gatilho: HTMLButtonElement) {
+    if (ocupado || !await dialogo.confirmar(r082 ? 'Arquivar mensagem' : 'Remover mensagem', `${r082 ? 'Arquivar' : 'Remover'} “${p.titulo}”? Novos usos ficam bloqueados; conversas já enviadas não mudam.`, undefined, gatilho)) return;
     setOcupado(true); setErro(''); setAviso('');
     try { await chamar({ acao: 'arquivar', id: p.id, versao: p.versao }); await carregar(); focoPendente.current = { alvo: 'nova' }; setAviso(r082 ? 'Mensagem arquivada.' : 'Mensagem removida da biblioteca.'); }
     catch (e) { setErro(e instanceof Error ? e.message : 'Não foi possível remover.'); } finally { setOcupado(false); }
@@ -355,7 +356,7 @@ export function GerenciarMensagensProntas({ pagina = false }: { pagina?: boolean
       <span className={styles.itemPronta}><strong>{p.titulo}</strong><span>{p.categoria} · {NOME_TIPO[p.tipo]}{p.atalho ? ' · atalho ' + NOME_ATALHO[p.atalho] : ''}{r082 ? ` · ${NOME_ESTADO_PRONTA[estado]} · versão ${p.versao}` : ''}{p.envio_automatico && p.finalidade ? ` · Wall-e envia: ${NOME_FINALIDADE[p.finalidade]}` : p.finalidade ? ` · ${NOME_FINALIDADE[p.finalidade]}` : ''}{p.arquivo ? ` · ${p.arquivo.nome} (${tamanho(p.arquivo.tamanho)})` : ''}</span></span>
       {dados.podeGerenciar && estado !== 'ARQUIVADA' && <span className={styles.acoes}><button ref={el => { if (el) botoesEditar.current.set(p.id, el); else botoesEditar.current.delete(p.id); }} type="button" onClick={() => editar(p)}>Editar<span className={styles.oculto}> {p.titulo}</span></button>
         {r082 && <button type="button" onClick={() => void publicar(p, estado === 'RASCUNHO')}>{estado === 'RASCUNHO' ? 'Publicar' : 'Voltar para rascunho'}<span className={styles.oculto}> {p.titulo}</span></button>}
-        <button type="button" onClick={() => void arquivar(p)}>{r082 ? 'Arquivar' : 'Remover'}<span className={styles.oculto}> {p.titulo}</span></button></span>}
+        <button type="button" onClick={(evento) => void arquivar(p, evento.currentTarget)}>{r082 ? 'Arquivar' : 'Remover'}<span className={styles.oculto}> {p.titulo}</span></button></span>}
     </li>; })}</ul>}
     {dados && !lista.length && <p>{dados.prontas.length ? 'Nenhuma mensagem com esse filtro.' : 'Nenhuma mensagem pronta cadastrada.'}</p>}
   </>;

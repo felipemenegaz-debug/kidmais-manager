@@ -1,4 +1,5 @@
 'use client';
+import { dialogo } from '@/components/JanelaConfirmacao';
 import {useCallback,useEffect,useRef,useState} from 'react';
 import Link from 'next/link';
 import {useRouter} from 'next/navigation';
@@ -64,7 +65,7 @@ export default function FestaConsole({festaId,convitesEnabled=false}:{festaId?:s
   if(mode==='convidados'||mode==='corrigir_convidados')body={...body,total:Number(draft.total),observadoEm:new Date().toISOString(),...(before?{corrigeId:before.id}:{})};
   if(mode==='hora'||mode==='adicional')body={...body,tipo:mode==='hora'?'HORA_EXTRA':'ADICIONAL',descricao:mode==='hora'?`Hora extra registrada: ${draft.minutos} minutos`:`Adicional registrado: ${draft.quantidade} × ${draft.item}`,conteudoSolicitado:mode==='hora'?{minutos:Number(draft.minutos)}:{item:draft.item,quantidade:Number(draft.quantidade),observacao:text(draft.observacao)},necessitaContrato:true,necessitaFinanceiro:true};
   if(mode==='cancelar_solicitacao')body={...body,id:before?.id};
-  if(mode==='cancelar_contratacao'&&!window.confirm('Cancelar este contrato? O histórico e os pagamentos serão preservados. Confirma o cancelamento?'))return;
+  if(mode==='cancelar_contratacao'&&!await dialogo.confirmar("Cancelar contrato", 'Cancelar este contrato? O histórico e os pagamentos serão preservados. Confirma o cancelamento?',undefined,(e.nativeEvent as SubmitEvent | undefined)?.submitter))return;
   if(await enviar(body)){setMode('');if(mode==='invalidar'&&!enderecoFinal())router.push('/admin/festas');}
  }
  const select=(key:string,label:string,values:string[])=> <label>{label}<select aria-label={label} value={text(draft[key])||values[0]} onChange={e=>campo(key,e.target.value)}>{values.map(v=><option key={v} value={v}>{amigavel(v)}</option>)}</select></label>;

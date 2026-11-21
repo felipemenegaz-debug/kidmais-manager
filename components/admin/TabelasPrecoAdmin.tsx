@@ -1,4 +1,5 @@
 'use client';
+import { dialogo } from '@/components/JanelaConfirmacao';
 
 import { useEffect, useState, type FormEvent } from 'react';
 import { adminFetch } from '@/lib/http/admin-fetch';
@@ -294,7 +295,7 @@ export default function TabelasPrecoAdmin() {
           <label htmlFor="nova-tabela-fim">Fim da vigência (opcional)<input id="nova-tabela-fim" type="date" value={novaTabela.fim} onChange={e => setNovaTabela({ ...novaTabela,fim:e.target.value })} /></label>
         </div><AdminPrimaryButton type="submit" disabled={carregando}>Criar vigência</AdminPrimaryButton>
       </form></details>
-      <form className={workspace.card} onSubmit={(event) => { if (window.confirm('Publicar esta tabela? Fechamentos já gravados não serão recalculados.')) void enviar(event, { acao: 'publicar', tabelaId }); else event.preventDefault(); }}>
+      <form className={workspace.card} onSubmit={async (event) => { event.preventDefault(); if (await dialogo.confirmar("Publicar tabela", 'Publicar esta tabela? Fechamentos já gravados não serão recalculados.', undefined, (event.nativeEvent as SubmitEvent).submitter)) void enviar(event, { acao: 'publicar', tabelaId }); }}>
         <AdminPrimaryButton type="submit" disabled={carregando || !atual?.completo || !atual.tabela || atual.tabela.publicada}>Publicar versão</AdminPrimaryButton>
       </form>
       </div>

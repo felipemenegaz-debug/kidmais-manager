@@ -36,6 +36,11 @@ export function abrirGeracao(): (() => void) | null {
   };
 }
 
+/** "pid=… ppid=…" para o log: mostra no Render qual processo recebeu (ou não) o sinal na troca de instância. */
+export function identificarProcesso(processo: { pid?: number; ppid?: number } = process) {
+  return `pid=${processo.pid ?? '?'} ppid=${processo.ppid ?? '?'}`;
+}
+
 export function geracoesAbertas() { return estado().abertas; }
 export function desligando() { return estado().desligando; }
 
@@ -52,7 +57,7 @@ export function esperarGeracoes(prazoMs = PRAZO_DESLIGAMENTO_MS): Promise<{ resu
   });
 }
 
-type Processo = Pick<NodeJS.Process, 'on' | 'exit'>;
+type Processo = Pick<NodeJS.Process, 'on' | 'exit'> & { pid?: number; ppid?: number };
 const CODIGO_SAIDA = { SIGTERM: 143, SIGINT: 130 } as const;
 
 /**
@@ -69,7 +74,7 @@ export function instalarDesligamento(env: Record<string, string | undefined> = p
     processo.on(sinal, () => {
       if (saindo) { log(`[convites] ${sinal} repetido; a espera continua.`); return; }
       saindo = true;
-      log(`[convites] ${sinal}: recusando gerações novas; ${geracoesAbertas()} em curso.`);
+      log(`[convites] ${sinal} recebido (${identificarProcesso(processo)}): recusando gerações novas; ${geracoesAbertas()} em curso.`);
       void esperarGeracoes(prazoMs).then(r => {
         if (r.resultado === 'prazo') {
           log(`[convites] Prazo de ${Math.round(prazoMs / 1000)} s vencido com ${r.abertas} geração(ões) aberta(s); encerrando.`);

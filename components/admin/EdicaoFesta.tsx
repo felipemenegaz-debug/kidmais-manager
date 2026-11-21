@@ -1,4 +1,5 @@
 'use client';
+import { dialogo } from '@/components/JanelaConfirmacao';
 import { useEffect, useState } from 'react';
 import { adminFetch } from '@/lib/http/admin-fetch';
 import type { EdicaoFestaInput } from '@/lib/fechamentos/services/edicao-administrativa-schema';
@@ -92,7 +93,7 @@ export default function EdicaoFesta({ versaoId, revisao, onSave, onClose, server
     return <section className={styles.card} id="editar-festa"><h2>Editar festa</h2><p>Atualize os dados e confira o preço. Esta edição mantém a mesma versão em elaboração e exige nova revisão do documento. Complete os campos ausentes antes de salvar. Para contratos importados, uma correção cadastral mantém o valor histórico.</p>
   <form onSubmit={async (e) => {
             e.preventDefault();
-            if (comercial && !window.confirm('Confirmo a aprovação comercial desta edição, incluindo a base negociada e a condição de pagamento informadas.'))
+            if (comercial && !await dialogo.confirmar("Aprovar edição", 'Confirmo a aprovação comercial desta edição, incluindo a base negociada e a condição de pagamento informadas.', undefined, (e.nativeEvent as SubmitEvent | undefined)?.submitter))
                 return;
             setBusy(true);
             try {

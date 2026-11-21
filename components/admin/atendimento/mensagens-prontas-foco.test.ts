@@ -31,6 +31,7 @@ function montarBiblioteca() {
     return new Promise(res => pendentes.push({ conversaId: b.conversaId, liberar: d => res(responder(d)) }));
   };
   const h = carregarComponente('components/admin/atendimento/MensagensProntas.tsx', {
+    '@/components/JanelaConfirmacao': { dialogo: { confirmar: async () => true } },
     '@/lib/http/admin-fetch': { adminFetch }, '@/lib/whatsapp/atendimento/prontas': prontas, './atendimento.module.css': cssFalso,
   });
   const focos: string[] = [];
@@ -44,7 +45,7 @@ function montarBiblioteca() {
   };
   return { h, pendentes, focos, render };
 }
-const clicar = async (e: Elemento) => { (e.props.onClick as () => unknown)(); await tique(); };
+const clicar = async (e: Elemento) => { (e.props.onClick as (evento: { currentTarget: Elemento }) => unknown)({ currentTarget: e }); await tique(); };
 
 test('preparar prévia: botão não é desabilitado durante o pedido e a prévia recebe o foco ao chegar', async () => {
   globalThis.window = globalThis as never;
@@ -113,6 +114,7 @@ function montarCadastro() {
     return responder(null);
   };
   const h = carregarComponente('components/admin/atendimento/MensagensProntas.tsx', {
+    '@/components/JanelaConfirmacao': { dialogo: { confirmar: async () => true } },
     '@/lib/http/admin-fetch': { adminFetch }, '@/lib/whatsapp/atendimento/prontas': prontas, './atendimento.module.css': cssFalso,
   });
   const focos: string[] = [];
@@ -128,7 +130,6 @@ const titulo = (focos: string[]) => focos.at(-1) === 'input:';
 
 test('cadastro: Nova → Título; Cancelar → Nova; Editar → Título; Salvar → Editar do item; Remover → Nova', async () => {
   globalThis.window = globalThis as never;
-  (globalThis as { confirm?: () => boolean }).confirm = () => true;
   const m = montarCadastro();
   let t = await m.render();
   (achar(t, 'details').props.onToggle as (e: unknown) => void)({ target: { open: true } });

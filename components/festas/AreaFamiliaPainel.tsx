@@ -1,4 +1,5 @@
 'use client';
+import { dialogo } from '@/components/JanelaConfirmacao';
 import { useCallback, useEffect, useState } from 'react';
 import type { ResumoAcoesPainel } from '@/lib/area-familia/admin';
 import { adminFetch } from '@/lib/http/admin-fetch';
@@ -107,7 +108,7 @@ export default function AreaFamiliaPainel({ festaId, gestao }: { festaId: string
             <p>{p.linkAtivoAte ? `Link enviado, vale até ${dia(p.linkAtivoAte)}.` : 'Nenhum link válido.'}</p>
             {gestao && dados.aberta && <div className={styles.actions}>
               <button type="button" disabled={busy} onClick={() => gerar(p.papel)}>{p.linkAtivoAte ? 'Gerar link novo' : 'Gerar link'}</button>
-              {p.papel === 'SEGUNDO_RESPONSAVEL' && <button type="button" disabled={busy} onClick={() => { if (window.confirm('Remover o segundo responsável? Os aparelhos dele serão desconectados.')) void acao({ acao: 'REMOVER_SEGUNDO', pessoaId: p.id }); }}>Remover</button>}
+              {p.papel === 'SEGUNDO_RESPONSAVEL' && <button type="button" disabled={busy} onClick={async (evento) => { if (await dialogo.confirmar("Remover responsável", 'Remover o segundo responsável? Os aparelhos dele serão desconectados.', undefined, evento.currentTarget)) void acao({ acao: 'REMOVER_SEGUNDO', pessoaId: p.id }); }}>Remover</button>}
             </div>}
           </article>
         ))}
@@ -142,7 +143,7 @@ export default function AreaFamiliaPainel({ festaId, gestao }: { festaId: string
           <p key={a.id}>{rotulo(a.papel)} • {a.aparelho ?? 'Aparelho'} • entrou em {momento(a.entrouEm)} • último uso {momento(a.ultimoUsoEm)}{a.lembrar ? ' • lembrado' : ''}</p>
         ))}
         {gestao && dados.aparelhos.length > 0 && <div className={styles.actions}>
-          <button type="button" disabled={busy} onClick={() => { if (window.confirm('Desconectar todos os aparelhos desta festa?')) void acao({ acao: 'DESCONECTAR_TODOS' }); }}>Desconectar todos</button>
+          <button type="button" disabled={busy} onClick={async (evento) => { if (await dialogo.confirmar("Desconectar todos", 'Desconectar todos os aparelhos desta festa?', undefined, evento.currentTarget)) void acao({ acao: 'DESCONECTAR_TODOS' }); }}>Desconectar todos</button>
         </div>}
       </>}
     </section>

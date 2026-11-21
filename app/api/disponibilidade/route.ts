@@ -9,6 +9,7 @@ import {
 } from "@/lib/disponibilidade/services";
 import { escopoPublico } from "@/lib/disponibilidade/escopo";
 import { codigoEmpresaDoPedido, escopoCotacaoPublica } from "@/lib/comercial/cotacao-publica";
+import type { DbExecutor, DbQueryResult } from "@/lib/db/contracts";
 import { db } from "@/lib/db/postgres";
 import { limitarPublico } from "@/lib/http/limite-publico";
 import { convidadosDaConsulta } from "@/lib/fechamentos/convidados-consulta";
@@ -19,6 +20,32 @@ import { lerConfigLegada } from "@/lib/disponibilidade/config-legada-armazem";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+
+// Apenas sondagens de catálogo sem parâmetros, repetidas na resolução do escopo público ou na agenda.
+const consultasDeCatalogo = [
+  /^SELECT to_regprocedure\('public\.kidmais062_ocupacoes_escopo\(date,date\)'\) IS NOT NULL AS instalada$/,
+  /^SELECT to_regprocedure\('public\.kidmais094_conflito_ocupacao\([^']+\)'\) IS NOT NULL AS ok$/,
+  /^SELECT \(SELECT count\(\*\)::int FROM \(VALUES .* AS e\(nome, h\) JOIN pg_proc[\s\S]* AS marcador114$/,
+  /^SELECT to_regclass\('public\.assinatura_contratacoes'\) IS NOT NULL\s+AND to_regclass\('public\.assinatura_isencoes'\) IS NOT NULL\s+AND to_regclass\('public\.assinatura_fundadores'\) IS NOT NULL AS instalado074$/,
+];
+
+function conexaoDaConsulta(): () => DbExecutor {
+  const executor = db();
+  const catalogo = new Map<string, Promise<DbQueryResult<object>>>();
+  const leitura: DbExecutor = {
+    query<Row extends object>(sql: string, params?: readonly unknown[]) {
+      if (params?.length || !consultasDeCatalogo.some(padrao => padrao.test(sql))) {
+        return executor.query<Row>(sql, params);
+      }
+      const lida = catalogo.get(sql);
+      if (lida) return lida as Promise<DbQueryResult<Row>>;
+      const consulta = executor.query<Row>(sql, params);
+      catalogo.set(sql, consulta);
+      return consulta;
+    },
+  };
+  return () => leitura;
+}
 
 type ComercialLegado = {
   pacoteOverrides?: Array<{
@@ -77,12 +104,14 @@ export async function GET(request: NextRequest) {
         { status: 400 },
       );
     }
+    const db = conexaoDaConsulta();
     // 2c-2: duração da festa (minutos) para os inícios do horário livre; sem ela, 4 horas.
     // E2b: o combinado conta como opção só com combinadosPublicos; desligado, as opções de antes (sem o campo).
     const saloesLivres = new Map<HorarioCandidatoPublico, string[]>();
     const opcoes = {
       duracaoMinutos: duracaoAceita(searchParams.get("duracao")), ...(convidados ? { convidados, saloesLivres } : {}),
       ...((await combinadosPublicos(db())) ? { incluirCombinados: true } : {}),
+      executorComSondagensReutilizadas: db(),
     };
     // Endereço da empresa (/b/<código>): mesma regra da cotação pública; sem código, só a configuração do servidor.
     const codigo = codigoEmpresaDoPedido(request.nextUrl);

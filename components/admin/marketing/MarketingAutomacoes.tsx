@@ -1,7 +1,8 @@
 'use client';
+import { dialogo } from '@/components/JanelaConfirmacao';
 import Link from 'next/link';
 import {linkChamar} from '@/lib/marketing/acoes-ui';
-import { useState, type ReactNode } from 'react';
+import { useRef, useState, type ReactNode } from 'react';
 import type { Regra, TipoRegra } from '@/lib/marketing/automacoes/regras';
 import type { SugestaoDatas } from '@/lib/marketing/sugestoes';
 import { LIMITE_SIMULACAO } from '@/lib/marketing/automacoes/alvos';
@@ -92,7 +93,7 @@ export default function MarketingAutomacoes() {
         : 'Processamento desligado neste servidor (MARKETING_AUTOMACOES_ENABLED): regras podem ser configuradas e simuladas, mas nada é executado.'}</span>
       {pode && <div className={styles.acoes}>
         {dados.ambiente.processamentoLigado && <AdminPrimaryButton type="button" carregando={ocupado} onClick={() => void acao({ acao: 'processar' }, (r) => `Ciclo concluído: ${String((r.planejamento as { criadas?: number })?.criadas ?? 0)} execução(ões) agendada(s), ${String(r.processadas ?? 0)} processada(s). Veja o histórico abaixo.`)}>Processar agora (um ciclo)</AdminPrimaryButton>}
-        <button type="button" className={styles.perigo} disabled={ocupado} onClick={() => { if (window.confirm('Parar todas as automações desta empresa? Regras ativas são pausadas e o que estava agendado é cancelado.')) void acao({ acao: 'parar-tudo' }, (r) => `${String(r.regrasPausadas)} regra(s) pausada(s); ${String(r.canceladas)} execução(ões) cancelada(s).`); }}>Parar tudo</button>
+        <button type="button" className={styles.perigo} disabled={ocupado} onClick={async (evento) => { if (await dialogo.confirmar("Parar tudo", 'Parar todas as automações desta empresa? Regras ativas são pausadas e o que estava agendado é cancelado.', undefined, evento.currentTarget)) void acao({ acao: 'parar-tudo' }, (r) => `${String(r.regrasPausadas)} regra(s) pausada(s); ${String(r.canceladas)} execução(ões) cancelada(s).`); }}>Parar tudo</button>
       </div>}
     </div>}
       <Historico execucoes={dados.execucoes} catalogo={dados.catalogo} pode={pode} ocupado={ocupado} acao={acao} />
@@ -134,7 +135,7 @@ function Historico({ execucoes, catalogo, pode, ocupado, acao }: {
         <td><span className={seloEstado(e.estado)}>{ROTULO_ESTADO[e.estado] ?? e.estado}</span></td>
         <td className={styles.muted}>{e.estado === 'AGENDADA' ? `para ${dataHoraBr(e.agendada_para)}` : motivoLegivel(e.motivo)}{e.tentativas ? ` · ${e.tentativas} tentativa(s)` : ''}</td>
         <td>{pode && e.estado === 'FALHOU' && <button type="button" className={styles.fantasma} disabled={ocupado} onClick={() => void acao({ acao: 'execucao', execucaoId: e.id, operacao: 'tentar-novamente' }, (r) => `Situação: ${String(r.estado)}.`)}>Tentar de novo</button>}
-          {pode && ['FALHOU', 'INCERTA'].includes(e.estado) && <button type="button" className={styles.fantasma} disabled={ocupado} onClick={() => { if (window.confirm('Encerrar sem reenviar? Use depois de conferir com o cliente.')) void acao({ acao: 'execucao', execucaoId: e.id, operacao: 'encerrar' }, () => 'Encerrada.'); }}>Encerrar</button>}</td>
+          {pode && ['FALHOU', 'INCERTA'].includes(e.estado) && <button type="button" className={styles.fantasma} disabled={ocupado} onClick={async (evento) => { if (await dialogo.confirmar("Encerrar", 'Encerrar sem reenviar? Use depois de conferir com o cliente.', undefined, evento.currentTarget)) void acao({ acao: 'execucao', execucaoId: e.id, operacao: 'encerrar' }, () => 'Encerrada.'); }}>Encerrar</button>}</td>
       </tr>)}</tbody>
     </table></div>}
   </section>;
@@ -285,10 +286,10 @@ function CartaoRegra({ regra, catalogo, pode, unidadeId, pesquisa, datasVagas, r
           <button type="button" className={styles.fantasma} disabled={ocupado || !regra.id || sujo} title={!regra.id ? 'Salve a regra primeiro' : sujo ? 'A simulação usa a versão salva: salve antes' : undefined}
             onClick={() => void enviar({ acao: 'simular', regraId: regra.id }, '')}>Simular agora</button>
           {regra.id && regraComWhatsapp && !regra.templateRevisadoEm && !sujo && <button type="button" className={styles.secundario} disabled={ocupado}
-            onClick={() => { if (window.confirm(`Aprovar ${regra.acao === 'PESQUISA_SATISFACAO' ? 'estes textos' : 'este texto'} para mensagens automáticas?\n\n${regra.templateTexto ?? ''}${regra.acao === 'PESQUISA_SATISFACAO' ? `\n\nLembrete:\n${regra.templateLembreteTexto ?? ''}` : ''}`)) void enviar({ acao: 'revisar', regraId: regra.id, versao: regra.versao }, 'Texto revisado e aprovado.'); }}>Revisar e aprovar texto</button>}
+            onClick={async (evento) => { if (await dialogo.confirmar("Aprovar texto", `Aprovar ${regra.acao === 'PESQUISA_SATISFACAO' ? 'estes textos' : 'este texto'} para mensagens automáticas?\n\n${regra.templateTexto ?? ''}${regra.acao === 'PESQUISA_SATISFACAO' ? `\n\nLembrete:\n${regra.templateLembreteTexto ?? ''}` : ''}`, undefined, evento.currentTarget)) void enviar({ acao: 'revisar', regraId: regra.id, versao: regra.versao }, 'Texto revisado e aprovado.'); }}>Revisar e aprovar texto</button>}
           {regra.id && regra.status !== 'ATIVA' && <AdminPrimaryButton type="button" carregando={ocupado} disabled={sujo} title={sujo ? 'Salve antes de ativar' : undefined}
             onClick={() => void enviar({ acao: 'ativar', regraId: regra.id, versao: regra.versao }, 'Regra ativada. Ela age nos próximos ciclos de processamento.')}>Ativar</AdminPrimaryButton>}
-          {regra.id && regra.status === 'ATIVA' && <button type="button" className={styles.fantasma} disabled={ocupado} onClick={() => { if (window.confirm('Pausar a regra? O que estava agendado é cancelado.')) void enviar({ acao: 'pausar', regraId: regra.id }, 'Regra pausada; agendadas canceladas.'); }}>Pausar</button>}
+          {regra.id && regra.status === 'ATIVA' && <button type="button" className={styles.fantasma} disabled={ocupado} onClick={async (evento) => { if (await dialogo.confirmar("Pausar regra", 'Pausar a regra? O que estava agendado é cancelado.', undefined, evento.currentTarget)) void enviar({ acao: 'pausar', regraId: regra.id }, 'Regra pausada; agendadas canceladas.'); }}>Pausar</button>}
         </div> : <p className={styles.muted}>Somente visualização.</p>}
         {!regra.id && <p className={styles.muted}>Ainda não configurada: salve para poder simular e ativar.</p>}
         {retorno && <p className={retorno.tipo === 'alerta' ? styles.aviso : styles.info} role="status">{retorno.texto}</p>}
@@ -316,6 +317,9 @@ function Preferencias({ pode }: { pode: boolean }) {
   const [resultados, setResultados] = useState<Array<{ id: string; nome: string }>>([]);
   const [selecionado, setSelecionado] = useState<PreferenciaUi | null>(null);
   const [erro, setErro] = useState('');
+  const [alterando, setAlterando] = useState(false);
+  const [abrindo, setAbrindo] = useState(false);
+  const operacaoPendente = useRef(false);
   async function buscar() {
     if (busca.trim().length < 2) return;
     const corpo = await (await adminFetch(`/api/admin/clientes?q=${encodeURIComponent(busca.trim())}&limit=10`)).json().catch(() => null);
@@ -326,13 +330,28 @@ function Preferencias({ pode }: { pode: boolean }) {
     const corpo = await (await adminFetch(`/api/admin/marketing/automacoes?clienteId=${id}`)).json().catch(() => null);
     if (corpo?.ok) setSelecionado(corpo.data); else setErro(corpo?.erro ?? 'Não foi possível abrir.');
   }
-  async function alterar(corpo: Record<string, unknown>, pergunta: string) {
-    if (!selecionado) return;
-    const confirmacao = window.prompt(pergunta);
-    if (!confirmacao || confirmacao.trim().length < 3) return;
-    try { await enviarMarketing('/api/admin/marketing/automacoes', { acao: 'preferencia', clienteId: selecionado.cliente.id, confirmacao, ...corpo }); await abrir(selecionado.cliente.id); }
-    catch (e) { setErro(e instanceof Error ? e.message : 'Não foi possível concluir.'); }
+  async function selecionar(id: string) {
+    if (operacaoPendente.current) return;
+    operacaoPendente.current = true;
+    setAbrindo(true);
+    try { await abrir(id); }
+    catch (e) { setErro(e instanceof Error ? e.message : 'Não foi possível abrir.'); }
+    finally { operacaoPendente.current = false; setAbrindo(false); }
   }
+  async function alterar(titulo: string, corpo: Record<string, unknown>, pergunta: string, gatilho: HTMLButtonElement) {
+    if (!selecionado || operacaoPendente.current) return;
+    operacaoPendente.current = true;
+    try {
+      const confirmacao = await dialogo.perguntar(titulo, pergunta, '', gatilho);
+      if (!confirmacao || confirmacao.trim().length < 3) return;
+      setAlterando(true);
+      await enviarMarketing('/api/admin/marketing/automacoes', { acao: 'preferencia', clienteId: selecionado.cliente.id, confirmacao, ...corpo });
+      await abrir(selecionado.cliente.id);
+    }
+    catch (e) { setErro(e instanceof Error ? e.message : 'Não foi possível concluir.'); }
+    finally { operacaoPendente.current = false; setAlterando(false); }
+  }
+  const ocupado = abrindo || alterando;
   const p = selecionado?.preferencia;
   const vivas = p?.autorizacoes.filter((a) => a.estado !== 'REVOGADA') ?? [];
   const autorizados = new Set(vivas.map((a) => a.destino));
@@ -344,7 +363,7 @@ function Preferencias({ pode }: { pode: boolean }) {
     <p className={styles.muted}>A autorização vale para um número específico. Só sai mensagem para um número do cadastro com autorização confirmada; trocar o número no cadastro não leva a autorização junto. Pedido do site com número fora do cadastro fica pendente até a equipe confirmar. Descadastro vale para o cliente inteiro, na hora, e fica guardado pelo telefone e e-mail: cadastro novo com o mesmo contato também não recebe.</p>
     <div className={styles.acoes}><input className={styles.link} aria-label="Buscar cliente" placeholder="Buscar cliente" value={busca} onChange={(e) => setBusca(e.target.value)} />
       <button type="button" className={styles.secundario} onClick={() => void buscar()}>Buscar</button>
-      {resultados.map((r) => <button key={r.id} type="button" className={styles.fantasma} onClick={() => void abrir(r.id)}>{r.nome}</button>)}</div>
+      {resultados.map((r) => <button key={r.id} type="button" className={styles.fantasma} disabled={ocupado} onClick={() => void selecionar(r.id)}>{r.nome}</button>)}</div>
     {selecionado && p && <div style={{ marginTop: 12 }}>
       <p><strong>{selecionado.cliente.nome}</strong>{p.descadastradoEm ? ` — descadastrado em ${dataHoraBr(p.descadastradoEm)}` : ''}</p>
       {saidas.length > 0 && <ul className={styles.historico}>{saidas.map((s) => <li key={`${s.tipo}-${s.valor}`}><span className={styles.seloAlerta}>
@@ -356,16 +375,16 @@ function Preferencias({ pode }: { pode: boolean }) {
           {' '}({a.origem === 'FORMULARIO_SITE' ? 'formulário do site' : 'equipe'}, {dataHoraBr(a.criadoEm)})
           {!selecionado.cliente.destinos.includes(a.destino) && a.estado !== 'REVOGADA' && <>{' '}<span className={styles.seloAlerta}>número fora do cadastro atual</span></>}
           {a.motivoRevogacao ? ` · ${a.motivoRevogacao}` : ''}
-          {pode && a.estado === 'PENDENTE' && !bloqueado && <> <button type="button" className={styles.fantasma} onClick={() => void alterar({ operacao: 'confirmar', autorizacaoId: a.id }, 'Como a equipe confirmou que este número é da pessoa e que ela autorizou?')}>Confirmar</button></>}
-          {pode && a.estado !== 'REVOGADA' && <> <button type="button" className={styles.fantasma} onClick={() => void alterar({ operacao: 'revogar', autorizacaoId: a.id }, 'Motivo da revogação:')}>Revogar</button></>}
+          {pode && a.estado === 'PENDENTE' && !bloqueado && <> <button type="button" className={styles.fantasma} disabled={ocupado} onClick={(evento) => void alterar('Confirmar', { operacao: 'confirmar', autorizacaoId: a.id }, 'Como a equipe confirmou que este número é da pessoa e que ela autorizou?', evento.currentTarget)}>Confirmar</button></>}
+          {pode && a.estado !== 'REVOGADA' && <> <button type="button" className={styles.fantasma} disabled={ocupado} onClick={(evento) => void alterar('Revogar', { operacao: 'revogar', autorizacaoId: a.id }, 'Motivo da revogação:', evento.currentTarget)}>Revogar</button></>}
         </li>)}
       </ul>
       {pode && !bloqueado && <div className={styles.acoes} style={{ marginTop: 8 }}>
         {selecionado.cliente.destinos.filter((d) => !autorizados.has(d)).map((d) => <button key={d} type="button" className={styles.secundario}
-          onClick={() => void alterar({ operacao: 'autorizar', destino: d }, `Registre como a pessoa autorizou mensagens no número ${finalDoNumero(d)}:`)}>Autorizar {finalDoNumero(d)}</button>)}
-        <button type="button" className={styles.fantasma} onClick={() => void alterar({ operacao: 'descadastrar' }, 'Registre o pedido de descadastro (ex.: pediu por telefone em 14/10):')}>Descadastrar</button>
+          disabled={ocupado} onClick={(evento) => void alterar('Autorizar', { operacao: 'autorizar', destino: d }, `Registre como a pessoa autorizou mensagens no número ${finalDoNumero(d)}:`, evento.currentTarget)}>Autorizar {finalDoNumero(d)}</button>)}
+        <button type="button" className={styles.fantasma} disabled={ocupado} onClick={(evento) => void alterar('Descadastrar', { operacao: 'descadastrar' }, 'Registre o pedido de descadastro (ex.: pediu por telefone em 14/10):', evento.currentTarget)}>Descadastrar</button>
       </div>}
-      {pode && bloqueado && <div className={styles.acoes}><button type="button" className={styles.fantasma} onClick={() => void alterar({ operacao: 'reativar' }, 'Registre o novo pedido da própria pessoa:')}>Reativar (novo pedido da pessoa)</button></div>}
+      {pode && bloqueado && <div className={styles.acoes}><button type="button" className={styles.fantasma} disabled={ocupado} onClick={(evento) => void alterar('Reativar', { operacao: 'reativar' }, 'Registre o novo pedido da própria pessoa:', evento.currentTarget)}>Reativar (novo pedido da pessoa)</button></div>}
     </div>}
     {erro && <p className={styles.erro} role="alert">{erro}</p>}
   </section>;

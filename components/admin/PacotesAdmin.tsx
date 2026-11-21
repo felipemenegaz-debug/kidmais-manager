@@ -1,4 +1,5 @@
 'use client';
+import { dialogo } from '@/components/JanelaConfirmacao';
 
 import { useCallback, useEffect, useState, type FormEvent } from 'react';
 import { erroLimitesEscolhas, fraseEscolhas } from '@/lib/comercial/limites-escolhas';
@@ -373,8 +374,8 @@ export default function PacotesAdmin({ vitrine }: { vitrine?: VitrinePacotes }) 
     }
   }
 
-  async function situacao(id: string, acao: 'arquivar' | 'ativar' | 'desativar') {
-    if (acao === 'arquivar' && !window.confirm('Arquivar este pacote? Ele deixa de valer para festas novas e continua em Arquivados.')) return;
+  async function situacao(id: string, acao: 'arquivar' | 'ativar' | 'desativar', gatilho?: HTMLButtonElement) {
+    if (acao === 'arquivar' && !await dialogo.confirmar("Arquivar pacote", 'Arquivar este pacote? Ele deixa de valer para festas novas e continua em Arquivados.', undefined, gatilho)) return;
     setCarregando(true);
     setErro('');
     try {
@@ -394,8 +395,8 @@ export default function PacotesAdmin({ vitrine }: { vitrine?: VitrinePacotes }) 
     }
   }
 
-  async function excluir(id: string) {
-    if (!window.confirm('Excluir definitivamente este pacote?\n\nEsta ação não poderá ser desfeita.')) return;
+  async function excluir(id: string, gatilho: HTMLButtonElement) {
+    if (!await dialogo.confirmar("Excluir pacote", 'Excluir definitivamente este pacote?\n\nEsta ação não poderá ser desfeita.', undefined, gatilho)) return;
     setCarregando(true);
     setErro('');
     try {
@@ -593,9 +594,9 @@ export default function PacotesAdmin({ vitrine }: { vitrine?: VitrinePacotes }) 
               <details className={styles.menu}>
                 <summary aria-label={`Mais ações de ${pacote.nome}`}>...</summary>
                 <div>
-                  {!pacote.arquivadoEm && <button type="button" onClick={() => void situacao(pacote.id, 'arquivar')}>Arquivar</button>}
-                  {!pacote.arquivadoEm && <button type="button" onClick={() => void situacao(pacote.id, pacote.ativo ? 'desativar' : 'ativar')}>{pacote.ativo ? 'Desativar' : 'Ativar'}</button>}
-                  {pacote.arquivadoEm && <button className={styles.danger} type="button" onClick={() => void excluir(pacote.id)}>Excluir definitivamente</button>}
+                  {!pacote.arquivadoEm && <button type="button" disabled={carregando} onClick={(evento) => void situacao(pacote.id, 'arquivar', evento.currentTarget)}>Arquivar</button>}
+                  {!pacote.arquivadoEm && <button type="button" disabled={carregando} onClick={() => void situacao(pacote.id, pacote.ativo ? 'desativar' : 'ativar')}>{pacote.ativo ? 'Desativar' : 'Ativar'}</button>}
+                  {pacote.arquivadoEm && <button className={styles.danger} type="button" disabled={carregando} onClick={(evento) => void excluir(pacote.id, evento.currentTarget)}>Excluir definitivamente</button>}
                 </div>
               </details>
             </div>

@@ -98,7 +98,7 @@ const AVISO_ACEITE_REGISTRADO = "Seu aceite foi registrado. Para ver os document
 
 /** `aceiteGravado`: o aceite desta sessão já foi confirmado pelo servidor; qualquer recusa depois disso avisa que ele valeu. */
 /** `blobs`: URLs criadas pela sessão, publicadas ou não no estado; todas são revogadas quando a sessão termina. */
-type SessaoLeitura = { id: number; controle: AbortController | null; aceiteGravado: boolean; blobs: string[] };
+type SessaoLeitura = { id: number; controle: AbortController | null; aceitando: boolean; aceiteGravado: boolean; blobs: string[] };
 
 function dataBr(value: string) {
   const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(value);
@@ -141,14 +141,14 @@ export default function ContratoPublico({ contratoId }: { contratoId: string }) 
    * Sessão de leitura: começa ao enviar o código. Limpar a tela, trocar de contrato ou sair encerra a sessão,
    * cancela as requisições dela e faz as respostas que ainda chegarem serem descartadas antes de tocar no estado.
    */
-  const sessaoLeitura = useRef<SessaoLeitura>({ id: 0, controle: null, aceiteGravado: false, blobs: [] });
+  const sessaoLeitura = useRef<SessaoLeitura>({ id: 0, controle: null, aceitando: false, aceiteGravado: false, blobs: [] });
 
   function encerrarSessaoLeitura(nova: boolean) {
     const anterior = sessaoLeitura.current;
     anterior.controle?.abort();
     // Inclui URLs criadas que ainda não chegaram ao estado publicado (encerramento antes do commit do React).
     for (const url of anterior.blobs.splice(0)) URL.revokeObjectURL(url);
-    sessaoLeitura.current = { id: anterior.id + 1, controle: nova ? new AbortController() : null, aceiteGravado: false, blobs: [] };
+    sessaoLeitura.current = { id: anterior.id + 1, controle: nova ? new AbortController() : null, aceitando: false, aceiteGravado: false, blobs: [] };
     return sessaoLeitura.current;
   }
 
@@ -356,17 +356,21 @@ export default function ContratoPublico({ contratoId }: { contratoId: string }) 
     }
   }
 
+  const dadosAceite = !carregando && provaToken && acessoToken && contexto?.aceitePermitido &&
+    contexto.versao.contratoOficial.disponivel && contratoOficialVisualizado && aceiteMarcado &&
+    contexto.versao.documentoPdfHash ? {
+      provaToken,
+      acessoToken,
+      versaoId: contexto.versao.id,
+      snapshotHash: contexto.versao.snapshotHash,
+      documentoPdfHash: contexto.versao.documentoPdfHash,
+    } : null;
+
   async function aceitarContrato() {
-    if (
-      !provaToken ||
-      !acessoToken ||
-      !contexto ||
-      !aceiteMarcado ||
-      !contratoOficialVisualizado ||
-      !contexto.versao.documentoPdfHash
-    ) return;
+    if (!dadosAceite) return;
     const sessao = sessaoLeitura.current;
-    if (!sessaoViva(sessao)) return;
+    if (!sessaoViva(sessao) || sessao.aceitando || sessao.aceiteGravado) return;
+    sessao.aceitando = true;
     setErro(null);
     setCarregando(true);
     try {
@@ -374,20 +378,14 @@ export default function ContratoPublico({ contratoId }: { contratoId: string }) 
         method: "POST",
         headers: { "Content-Type": "application/json" },
         signal: sessao.controle?.signal,
-        body: JSON.stringify({
-          provaToken,
-          acessoToken,
-          versaoId: contexto.versao.id,
-          snapshotHash: contexto.versao.snapshotHash,
-          documentoPdfHash: contexto.versao.documentoPdfHash,
-        }),
+        body: JSON.stringify(dadosAceite),
       });
       const payload = await response.json();
       exigirSessaoViva(sessao);
       if (!response.ok) throw erroDaResposta(payload, "Não foi possível concluir o aceite.");
       sessao.aceiteGravado = true;
       setAssinaturaConcluida(true);
-      await carregarDocumento(provaToken, acessoToken, sessao);
+      await carregarDocumento(dadosAceite.provaToken, dadosAceite.acessoToken, sessao);
       exigirSessaoViva(sessao);
       setContexto((atual) => atual ? {
         ...atual,
@@ -404,6 +402,7 @@ export default function ContratoPublico({ contratoId }: { contratoId: string }) 
       const mensagem = error instanceof Error ? error.message : "Não foi possível concluir o aceite.";
       setErro(sessao.aceiteGravado ? `Seu aceite foi registrado, mas os documentos não foram atualizados: ${mensagem}` : mensagem);
     } finally {
+      sessao.aceitando = false;
       if (sessaoViva(sessao)) setCarregando(false);
     }
   }
@@ -455,7 +454,7 @@ export default function ContratoPublico({ contratoId }: { contratoId: string }) 
               className={styles.logo}
               priority
             />
-          ) : marca.nome ? <strong className={styles.nomeBuffet}>{marca.nome}</strong> : <span aria-hidden="true" />}
+          ) : marca.nome ? <strong className={styles.nomeBuffet}>{marca.nome}</strong> : <Image src="/site/iafest/logotipo.png" alt="iA.Fest" width={168} height={56} className={styles.logo} />}
           <div className={styles.secureBadge}>🔒 Validação de identidade</div>
         </header>
 
@@ -472,7 +471,10 @@ export default function ContratoPublico({ contratoId }: { contratoId: string }) 
           <div><i style={{ width: `${etapa * 25}%` }} /></div>
         </div>
 
-        {erro && <div className={styles.errorBox}>{erro}</div>}
+        {erro && <div role="alert" className={styles.errorBox}>
+          <strong>{erro}</strong>
+          <p>{etapa === 2 ? "Tente enviar o código novamente. Se o envio continuar indisponível, fale com o buffet." : etapa === 3 ? "Confira o código recebido. Se precisar de ajuda, fale com o buffet." : "Em caso de dúvida, fale com o buffet pelo canal de atendimento habitual."}</p>
+        </div>}
 
         {!contexto && (
           <section className={styles.card}>
@@ -632,13 +634,15 @@ export default function ContratoPublico({ contratoId }: { contratoId: string }) 
                 </label>
                 <button
                   className={styles.primary}
-                  disabled={!contexto.aceitePermitido || !aceiteMarcado || !contratoOficialVisualizado || carregando}
+                  disabled={!dadosAceite}
                   onClick={aceitarContrato}
                 >
                   {carregando ? "Registrando aceite..." : "Aceitar e assinar eletronicamente"}
                 </button>
                 {!contexto.versao.contratoOficial.disponivel ? (
                   <small>O Contrato Oficial deste pacote ainda não foi cadastrado. O aceite permanece bloqueado.</small>
+                ) : !contexto.versao.documentoPdfHash ? (
+                  <small>O aceite está bloqueado porque o PDF desta versão está sem o código de verificação.</small>
                 ) : !contratoOficialVisualizado ? (
                   <small>Abra a aba “Contrato Oficial” antes de liberar o aceite.</small>
                 ) : !contexto.aceitePermitido ? (
