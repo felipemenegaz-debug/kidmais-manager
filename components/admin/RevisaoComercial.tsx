@@ -7,9 +7,11 @@ import type { AprovacaoNegociacaoRecord, FechamentoRecord } from "@/lib/fechamen
 import { calcularCondicaoComercial, centavosComerciais } from "@/lib/comercial/condicao-pagamento";
 import { formatarMoeda, formatarCondicaoPix, formatarFormaPagamento } from "@/lib/contratos/documento/formatters";
 import { pedidoDaUrl } from "./contrato-url";
+import { RevisaoPreReserva } from "./RevisaoPreReserva";
+import type { RevisaoPreReserva as DadosPreReserva } from "@/lib/pre-reserva/apresentacao-admin";
 import styles from "./RevisaoComercial.module.css";
 
-type Dados = { recusa?: 'SEM_CONTRATO' | 'COM_PREPARACAO' | 'INDISPONIVEL'; fechamento: FechamentoRecord; aprovacoes: AprovacaoNegociacaoRecord[] };
+type Dados = { recusa?: 'SEM_CONTRATO' | 'COM_PREPARACAO' | 'INDISPONIVEL'; fechamento: FechamentoRecord; aprovacoes: AprovacaoNegociacaoRecord[]; preReserva?: DadosPreReserva };
 const listaContratos = "/admin/contratos";
 
 function urlDoContrato(id: unknown) {
@@ -69,7 +71,9 @@ export default function RevisaoComercial({ fechamentoId }: { fechamentoId: strin
     const r = await adminFetch(url, { cache: 'no-store' });
     const body = await r.json();
     if (!r.ok) throw new Error(body.erro);
-    setDados(body.data);
+    const revisao: Dados = body.data;
+    setDados(revisao);
+    return revisao.preReserva;
   }
   async function recusar() {
     if (enviando.current || !motivoPerda || (motivoPerda === 'Outro' && !observacao.trim())) return;
@@ -154,6 +158,8 @@ export default function RevisaoComercial({ fechamentoId }: { fechamentoId: strin
     </div>}
     {!f && !erro && <p>Carregando fechamento…</p>}
     {f && <>
+      {f.id === fechamentoId && dados.preReserva && <RevisaoPreReserva key={fechamentoId}
+        dados={dados.preReserva} fechamentoId={fechamentoId} atualizar={atualizar} />}
       <section className={styles.card}><h2>Cliente e festa</h2>{f.clienteId && <a href={`/clientes/${encodeURIComponent(f.clienteId)}`}>Conferir cadastro do cliente</a>}<p>{f.dataEvento.split('-').reverse().join('/')} · {f.horarioInicio.slice(0,5)}–{f.horarioFim.slice(0,5)} · {f.convidados} convidados</p>{f.temaFesta && <p>Tema: {f.temaFesta}</p>}</section>
       <section className={styles.card}>
         <h2>Condições comerciais e pagamento</h2><p>{formatarFormaPagamento(f.formaPagamentoPretendida)}</p>

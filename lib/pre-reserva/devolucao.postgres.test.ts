@@ -82,7 +82,10 @@ test('4a: Gestão, dois autores, instantes da baixa e auditoria transacional', a
     };
     const filaAssumida = await lista();
     assert.equal(filaAssumida[0].situacao, 'EM_DEVOLUCAO');
-    for (const invalida of [baixa('0000-01-01T12:00:00Z'), { ...baixa(limite), referencia: 'SAIDA\0SINTETICA' }]) {
+    for (const invalida of [
+      baixa('0000-01-01T12:00:00Z'), { ...baixa(limite), referencia: 'SAIDA\0SINTETICA' },
+      { ...baixa(limite), referencia: 'é'.repeat(71) },
+    ]) {
       const resposta = await porTransacao(a)(() => POST(pedidoHttp(`http://127.0.0.1:3000${rota}`, { original: ref, ...invalida })));
       assert.equal(resposta.status, 400);
       assert.equal((await resposta.json()).codigo, 'BAIXA_INVALIDA');
@@ -115,6 +118,10 @@ test('4a: Gestão, dois autores, instantes da baixa e auditoria transacional', a
     }
     await como(segundo.usuarioId, (tx, tenant) => dev.confirmarDevolucao(tx, tenant, ref, baixa(limite)));
     assert.deepEqual(await lista(), []);
+    const [historico] = await porTransacao(a)(tx => dev.filaDevolucao(tx, gestor, true));
+    assert.equal(historico.responsavel, gestor.usuarioId);
+    assert.equal(historico.devolvido_por, segundo.usuarioId);
+    assert.equal(historico.situacao, 'DEVOLVIDO');
     assert.deepEqual((await a.query(`SELECT r.devolucao_assumida_por,s.devolvido_por,s.dinheiro
       FROM pre_reserva_situacoes s JOIN pre_reserva_recebimentos r USING(empresa_id,end_to_end_id)
       WHERE s.fechamento_id=$1`, [pedido])).rows, [{

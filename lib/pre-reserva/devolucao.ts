@@ -20,7 +20,7 @@ async function exigirRecebimentos(tx: DbExecutor) {
   }
 }
 
-export async function filaDevolucao(tx: DbExecutor, tenant: TenantComprovado) {
+export async function filaDevolucao(tx: DbExecutor, tenant: TenantComprovado, historico = false) {
   exigirGestaoNoTenant(tenant, 'Somente a Gestão consulta a fila de devolução.');
   const { rows: [schema] } = await tx.query<{ instalada: boolean }>(
     "SELECT to_regprocedure('public.pre_reserva_exigir_configuracao()') IS NOT NULL AS instalada",
@@ -31,14 +31,20 @@ export async function filaDevolucao(tx: DbExecutor, tenant: TenantComprovado) {
   const { rows } = await tx.query<{
     fechamento_id: string; end_to_end_id: string; valor_centavos: string; devolver_desde: Date;
     motivo: string; situacao: string; responsavel: string | null; devolucao_assumida_em: string | null;
+    responsavel_nome: string | null; devolvido_por: string | null; devolvido_por_nome: string | null; devolvido_em: Date | null;
   }>(`SELECT s.fechamento_id,s.end_to_end_id,s.valor_centavos,s.devolver_desde,
     coalesce(s.credito_reversao_motivo,r.motivo_sem_garantia::text,s.garantia) AS motivo,s.dinheiro AS situacao,
-    r.devolucao_assumida_por AS responsavel,
+    r.devolucao_assumida_por AS responsavel, assumiu.nome AS responsavel_nome,
+    r.devolvido_por, baixou.nome AS devolvido_por_nome, r.devolvido_em,
     to_char(r.devolucao_assumida_em AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS devolucao_assumida_em
     FROM pre_reserva_situacoes s
     JOIN pre_reserva_recebimentos r USING (empresa_id,end_to_end_id)
-    WHERE s.empresa_id=$1 AND s.dinheiro IN ('A_DEVOLVER','EM_DEVOLUCAO')
-    ORDER BY s.devolver_desde,s.end_to_end_id`, [tenant.empresaComprovada]);
+    LEFT JOIN usuarios_administrativos assumiu ON assumiu.id=r.devolucao_assumida_por
+    LEFT JOIN usuarios_administrativos baixou ON baixou.id=r.devolvido_por
+    WHERE s.empresa_id=$1 AND (
+      ($2::boolean AND s.dinheiro='DEVOLVIDO') OR (NOT $2::boolean AND s.dinheiro IN ('A_DEVOLVER','EM_DEVOLUCAO'))
+    )
+    ORDER BY r.devolvido_em DESC NULLS LAST,s.devolver_desde,s.end_to_end_id`, [tenant.empresaComprovada, historico]);
   return rows.map(movimento => ({ ...movimento, prazo: POLITICA_PRE_RESERVA.prazoDevolucao }));
 }
 
@@ -65,6 +71,9 @@ export async function confirmarDevolucao(tx: DbExecutor, tenant: TenantComprovad
   baixa: { referencia: string; valorCentavos: number; devolvidoEm: string; extratoConferido: boolean }) {
   exigirGestaoNoTenant(tenant, 'Somente a Gestão confirma a devolução.');
   const referenciaSaida = baixa.referencia.trim();
+  if (Buffer.byteLength(referenciaSaida, 'utf8') > 140) {
+    throw new PacoteAdminError('BAIXA_INVALIDA', 'A referência da saída deve ter até 140 bytes.', 400);
+  }
   if (!baixa.extratoConferido || !referenciaSaida || referenciaSaida.includes('\0') ||
       !Number.isSafeInteger(baixa.valorCentavos) || baixa.valorCentavos <= 0 ||
       !instanteComOffset.safeParse(baixa.devolvidoEm).success) {

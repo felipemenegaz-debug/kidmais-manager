@@ -4,6 +4,7 @@ import { adminFetch } from "@/lib/http/admin-fetch";
 
 import { useEffect, useMemo, useState } from "react";
 import { SaloesDoDia } from "./SaloesDoDia";
+import { formatarInstanteSP, type OcupacaoPreReserva } from "@/lib/pre-reserva/apresentacao-admin";
 import { PACOTES } from "@/components/fechamento/data";
 import { HorarioBase, PacoteId } from "@/components/fechamento/types";
 import { horarioLegadoDoCodigo, rotuloPeriodo } from "@/components/fechamento/periodos";
@@ -61,6 +62,7 @@ function intervalosSobrepoem(
 }
 
 type AdminPayload = DisponibilidadeConfig & {
+  preReservas?: OcupacaoPreReserva[];
   bloqueios?: BloqueioAgendaRecord[];
   dias?: DisponibilidadeDataPublica[] | null;
   agendaPorEscopo?: boolean;
@@ -78,6 +80,8 @@ type AdminPayload = DisponibilidadeConfig & {
 };
 
 export default function AdminDisponibilidade() {
+  const [preReservas, setPreReservas] = useState<{ unidade: string; ocupacoes: OcupacaoPreReserva[] } | null>(null);
+  const [revisaoSaloes, setRevisaoSaloes] = useState(0);
   const hoje = new Date();
   const hojeIso = iso(hoje.getFullYear(), hoje.getMonth(), hoje.getDate());
   const [pacote, setPacote] = useState<PacoteId>("pocket");
@@ -177,7 +181,7 @@ export default function AdminDisponibilidade() {
     const inicio = iso(anoAlvo, mesAlvo, 1);
     const ultimoDia = new Date(Date.UTC(anoAlvo, mesAlvo + 1, 0)).getUTCDate();
     const fim = iso(anoAlvo, mesAlvo, ultimoDia);
-    const parametros = new URLSearchParams({ inicio, fim });
+    const parametros = new URLSearchParams({ inicio, fim, preReservas: "1" });
     if (unidadeAlvo) parametros.set("unidadeId", unidadeAlvo);
 
     // Agenda da empresa comprovada pela sessão (não a API pública, que não conhece o tenant).
@@ -190,6 +194,7 @@ export default function AdminDisponibilidade() {
     const dias: DisponibilidadeDataPublica[] = admin.dias ?? [];
 
     return {
+      preReservas: { unidade: unidadeAlvo, ocupacoes: admin.preReservas ?? [] },
       unidades: admin.unidades ?? [],
       agendaPorEscopo: admin.agendaPorEscopo === true,
       podeResolverLegado: admin.podeResolverLegado === true,
@@ -246,6 +251,8 @@ export default function AdminDisponibilidade() {
     try {
       const dados = await buscarDadosMes(ano, mes);
       setConfig(dados.config);
+      setPreReservas(dados.preReservas);
+      setRevisaoSaloes((anterior) => anterior + 1);
       setBloqueios(dados.bloqueios);
       setOperacionalPorData(dados.operacionalPorData);
       setUnidades(dados.unidades);
@@ -263,6 +270,7 @@ export default function AdminDisponibilidade() {
       );
     } catch {
       setConfig(CONFIG_SEM_RESPOSTA);
+      setPreReservas(null);
       setBloqueios([]);
       setOperacionalPorData({});
       setMensagem("Não foi possível carregar a disponibilidade agora.");
@@ -279,6 +287,7 @@ export default function AdminDisponibilidade() {
         const dados = await buscarDadosMes(ano, mes);
         if (cancelado) return;
         setConfig(dados.config);
+        setPreReservas(dados.preReservas);
         setBloqueios(dados.bloqueios);
         setOperacionalPorData(dados.operacionalPorData);
         setUnidades(dados.unidades);
@@ -292,6 +301,7 @@ export default function AdminDisponibilidade() {
       } catch {
         if (cancelado) return;
         setConfig(CONFIG_SEM_RESPOSTA);
+        setPreReservas(null);
         setBloqueios([]);
         setOperacionalPorData({});
         setMensagem("Não foi possível carregar a disponibilidade agora.");
@@ -752,7 +762,19 @@ export default function AdminDisponibilidade() {
                     </div>
                   )}
 
-                  <SaloesDoDia data={selecionada} unidadeId={unidadeId} classes={{
+                  {preReservas?.unidade === unidadeId && <div className={styles.candidateList}>
+                    {preReservas.ocupacoes.filter((item) => item.data === selecionada).map((item, indice) => {
+                      const rotulo = `Pré-reserva garantida até ${formatarInstanteSP(item.garantiaAte)}`;
+                      return <div key={item.fechamentoId ?? indice} className={styles.preReserva}>
+                        <span>{item.inicio}–{item.fim}{item.salao && ` · ${item.salao}`}</span>
+                        <b>{item.fechamentoId
+                          ? <a href={`/admin/fechamentos/${encodeURIComponent(item.fechamentoId)}/revisao`}>{rotulo}</a>
+                          : rotulo}</b>
+                      </div>;
+                    })}
+                  </div>}
+
+                  <SaloesDoDia key={revisaoSaloes} data={selecionada} unidadeId={unidadeId} classes={{
                     painel: styles.candidatePanel, lista: styles.candidateList,
                     livre: styles.candidateAvailable, ocupado: styles.candidateUnavailable,
                   }} />

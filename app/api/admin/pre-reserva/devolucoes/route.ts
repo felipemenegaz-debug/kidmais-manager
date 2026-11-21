@@ -10,7 +10,8 @@ export const dynamic = 'force-dynamic';
 export async function GET(request: NextRequest) {
   try {
     const sessao = await exigirApiAdminCrmDisponivel(request);
-    const data = await withTenantTransaction(sessao, null, filaDevolucao);
+    const historico = request.nextUrl.searchParams.get('historico') === '1';
+    const data = await withTenantTransaction(sessao, null, (tx, tenant) => filaDevolucao(tx, tenant, historico));
     return jsonNoStore({ ok: true, data });
   } catch (erro) {
     return apiErrorResponse(erro);
