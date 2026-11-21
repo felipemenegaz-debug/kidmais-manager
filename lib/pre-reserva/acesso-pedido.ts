@@ -45,14 +45,15 @@ function abrirToken(pepper: string, tipo: TipoToken, empresaId: string, token: s
   }
 }
 
-export type SessaoMeuPedido = { empresaId: string; clienteId: string; expiraEm: number };
+export type SessaoMeuPedido = { empresaId: string; clienteId: string; expiraEm: number } & Vinculo;
 
-async function lerContato(tx: DbExecutor, empresaId: string, id: string, canal: Vinculo['canal'], por: 'cliente' | 'validacao') {
+async function lerContato(tx: DbExecutor, empresaId: string, id: string, canal: Vinculo['canal'],
+  por: 'cliente' | 'validacao', travar = false) {
   const { rows: [cliente] } = await tx.query<{ id: string; destino: string | null; alteradoEm: string }>(`SELECT
     id, CASE WHEN $3 = 'w' THEN whatsapp ELSE email END AS destino,
     to_char(atualizado_em AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS "alteradoEm"
     FROM clientes WHERE empresa_id=$1 AND status <> 'MESCLADO'
-      AND id=${por === 'cliente' ? '$2' : '(SELECT cliente_id FROM validacoes_identidade_cliente WHERE id=$2)'}`,
+      AND id=${por === 'cliente' ? '$2' : '(SELECT cliente_id FROM validacoes_identidade_cliente WHERE id=$2)'}${travar ? ' FOR SHARE' : ''}`,
     [empresaId, id, canal]);
   return cliente;
 }
@@ -64,21 +65,32 @@ function assinaturaDoContato(pepper: string, empresaId: string, canal: Vinculo['
     .update(JSON.stringify([empresaId, cliente.id, canal, cliente.destino?.trim(), cliente.alteradoEm])).digest('base64url');
 }
 
-async function contatoConfere(tx: DbExecutor, empresaId: string, clienteId: string, vinculo: Vinculo, pepper: string) {
-  const cliente = await lerContato(tx, empresaId, clienteId, vinculo.canal, 'cliente');
+async function contatoConfere(tx: DbExecutor, empresaId: string, clienteId: string, vinculo: Vinculo, pepper: string, travar = false) {
+  const cliente = await lerContato(tx, empresaId, clienteId, vinculo.canal, 'cliente', travar);
   return !!cliente?.destino && assinaturaDoContato(pepper, empresaId, vinculo.canal, cliente) === vinculo.contato;
 }
 
-export async function lerSessaoMeuPedido(tx: DbExecutor, empresaId: string, token: string | undefined, pepper: string): Promise<SessaoMeuPedido | null> {
+export function abrirSessaoMeuPedido(empresaId: string, token: string | undefined, pepper: string): SessaoMeuPedido | null {
   const dados = abrirToken(pepper, 'sessao', empresaId, token, Date.now());
-  if (!dados || !await contatoConfere(tx, empresaId, dados.id, dados, pepper)) return null;
-  return { empresaId, clienteId: dados.id, expiraEm: dados.expiraEm };
+  return dados && { empresaId, clienteId: dados.id, expiraEm: dados.expiraEm, canal: dados.canal, contato: dados.contato };
+}
+
+export async function lerSessaoMeuPedido(tx: DbExecutor, empresaId: string, token: string | undefined, pepper: string): Promise<SessaoMeuPedido | null> {
+  const sessao = abrirSessaoMeuPedido(empresaId, token, pepper);
+  if (!sessao || !await contatoConfere(tx, empresaId, sessao.clienteId, sessao, pepper)) return null;
+  return sessao;
 }
 
 export function exigirSessaoMeuPedido(sessao: SessaoMeuPedido | null, empresaId: string) {
   if (!sessao || sessao.empresaId !== empresaId || sessao.expiraEm <= Date.now())
     throw new PacoteAdminError('SESSAO_ENCERRADA', 'Sua sessão terminou. Entre novamente.', 401);
   return sessao;
+}
+
+export async function travarContatoDaSessao(tx: DbExecutor, sessao: SessaoMeuPedido, pepper: string) {
+  // Depois da trava do pedido, lê a revisão atual do contato e impede alterações até o commit.
+  const valido = await contatoConfere(tx, sessao.empresaId, sessao.clienteId, sessao, pepper, true);
+  exigirSessaoMeuPedido(valido ? sessao : null, sessao.empresaId);
 }
 
 export function nomeCookiePedido(empresaId: string) {

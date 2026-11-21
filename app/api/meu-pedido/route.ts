@@ -9,8 +9,12 @@ export const dynamic = 'force-dynamic';
 
 export async function GET(request: NextRequest) {
   return rotaMeuPedido(request, async (contexto) => {
-    const sessao = await lerSessaoDaRequisicao(request, contexto);
-    const pedidos = await withTransaction(tx => listarMeuPedido(tx, contexto.empresaId, sessao, contexto.pepper));
-    return responderArea({ ok: true, data: { expiraEm: new Date(sessao.expiraEm), pedidos } });
+    const data = await withTransaction(async tx => {
+      await tx.query('SET TRANSACTION ISOLATION LEVEL REPEATABLE READ, READ ONLY');
+      const sessao = await lerSessaoDaRequisicao(request, contexto, tx);
+      const pedidos = await listarMeuPedido(tx, contexto.empresaId, sessao, contexto.pepper);
+      return { expiraEm: new Date(sessao.expiraEm), pedidos };
+    });
+    return responderArea({ ok: true, data });
   });
 }

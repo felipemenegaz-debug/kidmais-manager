@@ -5,17 +5,18 @@ import { travarConfiguracaoAgenda } from '../agenda/trava-configuracao.ts';
 import { PacoteAdminError } from '../comercial/pacotes-admin.ts';
 import { encerrarGarantia } from './destinacao.ts';
 import { auditarMovimentoPreReserva } from './auditoria.ts';
-import { exigirSessaoMeuPedido, type SessaoMeuPedido } from './acesso-pedido.ts';
+import { exigirSessaoMeuPedido, travarContatoDaSessao, type SessaoMeuPedido } from './acesso-pedido.ts';
 
-export async function desistirDaGarantia(tx: DbExecutor, empresa: string, pedido: string, acesso: SessaoMeuPedido | string) {
+export async function desistirDaGarantia(tx: DbExecutor, empresa: string, pedido: string,
+  acesso: { sessao: SessaoMeuPedido; pepper: string } | string) {
   const legado = typeof acesso === 'string';
   const identidade = legado ? criarIdentityServiceComAmbiente(enviarOtpComAmbiente) : null;
   const titular = legado ? await identidade!.resolverClientePorProva(acesso, tx, 'FECHAMENTO_PUBLICO')
-    : exigirSessaoMeuPedido(acesso, empresa);
+    : exigirSessaoMeuPedido(acesso.sessao, empresa);
   await travarConfiguracaoAgenda(tx, empresa, { modo: 'COMPARTILHADA', linha: 'KEY_SHARE' });
   const { rows: [alvo] } = await tx.query<{ status: string }>(`SELECT status FROM fechamentos
     WHERE empresa_id=$1 AND id=$2 AND cliente_id=$3 FOR UPDATE`, [empresa,pedido,titular.clienteId]);
-  if (!legado) exigirSessaoMeuPedido(acesso, empresa);
+  if (!legado) await travarContatoDaSessao(tx, acesso.sessao, acesso.pepper);
   if (!alvo || (legado && alvo.status !== 'AGUARDANDO_CONTRATO'))
     throw new PacoteAdminError('PEDIDO_INDISPONIVEL','Pedido indisponível para desistência.',404);
 

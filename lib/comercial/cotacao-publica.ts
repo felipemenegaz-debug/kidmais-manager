@@ -69,6 +69,10 @@ export async function escopoCotacaoPublica(
   deps: DependenciasCotacao = PADRAO,
 ): Promise<EscopoCotacaoPublica> {
   if (codigo === null) {
+    if (opcoes.acompanharPedido) {
+      const { empresaId } = await deps.escopoCatalogoPublico(conexao, { AGENDA_PUBLICA_EMPRESA_ID: env.AGENDA_PUBLICA_EMPRESA_ID });
+      return { empresaId, estabelecimentoId: null, porCodigo: false };
+    }
     const escopo = await deps.escopoCatalogoPublico(conexao, env);
     return { ...escopo, porCodigo: false };
   }

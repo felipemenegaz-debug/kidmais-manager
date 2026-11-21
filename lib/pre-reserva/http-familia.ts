@@ -6,11 +6,12 @@ import {
 import { LIMITES } from '../area-familia/limites.ts';
 import { codigoEmpresaDoPedido, escopoCotacaoPublica } from '../comercial/cotacao-publica.ts';
 import { PacoteAdminError } from '../comercial/pacotes-admin.ts';
+import type { DbExecutor } from '../db/contracts.ts';
 import { db } from '../db/postgres.ts';
 import { isAvailabilityServiceError } from '../disponibilidade/services/errors.ts';
 import { limitarPublico, respostaRecusaPublica, type GrupoLimite } from '../http/limite-publico.ts';
 import { isIdentityServiceError } from '../identidade/services/errors.ts';
-import { exigirSessaoMeuPedido, lerSessaoMeuPedido, nomeCookiePedido } from './acesso-pedido.ts';
+import { abrirSessaoMeuPedido, exigirSessaoMeuPedido, lerSessaoMeuPedido, nomeCookiePedido } from './acesso-pedido.ts';
 import { exigirSchemaMeuPedido } from './meu-pedido.ts';
 
 type Contexto = { empresaId: string; pepper: string };
@@ -44,9 +45,14 @@ export async function rotaMeuPedido(request: NextRequest, executar: (contexto: C
   }
 }
 
-export async function lerSessaoDaRequisicao(request: NextRequest, { empresaId, pepper }: Contexto) {
+export async function lerSessaoDaRequisicao(request: NextRequest, { empresaId, pepper }: Contexto, tx: DbExecutor = db()) {
   const token = request.cookies.get(nomeCookiePedido(empresaId))?.value;
-  return exigirSessaoMeuPedido(await lerSessaoMeuPedido(db(), empresaId, token, pepper), empresaId);
+  return exigirSessaoMeuPedido(await lerSessaoMeuPedido(tx, empresaId, token, pepper), empresaId);
+}
+
+export function abrirSessaoDaRequisicao(request: NextRequest, { empresaId, pepper }: Contexto) {
+  const token = request.cookies.get(nomeCookiePedido(empresaId))?.value;
+  return exigirSessaoMeuPedido(abrirSessaoMeuPedido(empresaId, token, pepper), empresaId);
 }
 
 export async function corpoMeuPedido<T>(request: NextRequest, schema: z.ZodType<T>) {

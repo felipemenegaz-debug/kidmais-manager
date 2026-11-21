@@ -9,7 +9,7 @@ import { valorFinalContrato } from '../contratos/services/snapshot-core.ts';
 import { adquirirLockConfirmacaoAgenda, verificarConflitoAgendaParaConfirmacao } from '../disponibilidade/repositories/disponibilidade.repository.ts';
 import { normalizarChavePix, textoBrCode, type TipoChavePix } from '../pagamentos/pix/brcode.ts';
 import { pixInstalado, recebedorDoPerfil } from '../pagamentos/pix/recebimento.ts';
-import { exigirSessaoMeuPedido, type SessaoMeuPedido } from './acesso-pedido.ts';
+import { exigirSessaoMeuPedido, travarContatoDaSessao, type SessaoMeuPedido } from './acesso-pedido.ts';
 import { auditarMovimentoPreReserva } from './auditoria.ts';
 import {
   assinaturaDaOferta, avaliarOferta, destinoDoAceiteConfere, montarPixDoAceite, apresentarAceite, apresentarSituacao,
@@ -65,7 +65,7 @@ async function lerPedidosDoTitular(tx: DbExecutor, sessao: SessaoMeuPedido, pedi
   return rows;
 }
 
-async function lerPedidoDoTitular(tx: DbExecutor, sessao: SessaoMeuPedido, pedido: string, trava?: 'UPDATE' | 'SHARE') {
+async function lerPedidoDoTitular(tx: DbExecutor, sessao: SessaoMeuPedido, pedido: string, trava?: 'SHARE') {
   const [alvo] = await lerPedidosDoTitular(tx, sessao, pedido, trava);
   exigirSessaoMeuPedido(sessao, sessao.empresaId);
   if (!alvo) throw new PacoteAdminError('PEDIDO_INDISPONIVEL', 'Pedido não encontrado.', 404);
@@ -133,6 +133,15 @@ function precoAceitoDoPedido(pedido: Pedido) {
   }
 }
 
+function sinaisConferidos(sinais: SituacaoDoSinal[], sequencia: number) {
+  return sinais.filter(s => s.aceiteSequencia === sequencia && s.motivoSemGarantia !== 'VALOR_DIVERGENTE');
+}
+
+function podeRenovarOferta(sinais: SituacaoDoSinal[], sequencia: number) {
+  const conferidos = sinaisConferidos(sinais, sequencia);
+  return conferidos.length > 0 && conferidos.every(s => s.motivoSemGarantia === 'HORARIO_INDISPONIVEL' && s.dinheiro === 'DEVOLVIDO');
+}
+
 async function prepararOferta(tx: DbExecutor, sessao: SessaoMeuPedido, pedido: Pedido, aceite: AceiteDoPedido | null, sinais: SituacaoDoSinal[],
   config: Awaited<ReturnType<typeof configuracaoDaOferta>>, pepper: string, travar: boolean) {
   const { empresaId } = sessao;
@@ -146,7 +155,7 @@ async function prepararOferta(tx: DbExecutor, sessao: SessaoMeuPedido, pedido: P
     await adquirirLockConfirmacaoAgenda(pedido.data, tx);
     if (pedido.estabelecimentoId) await tx.query('SELECT kidmais062_travar_habilitacao($1::uuid)', [pedido.estabelecimentoId]);
   }
-  const sala = await escolherSalaoParaEmissao(tx, pedido.id);
+  const sala = await escolherSalaoParaEmissao(tx, pedido.id, aceite?.salaoId);
   const salao = sala.porSalao ? sala.salao : null;
   const conflito = await verificarConflitoAgendaParaConfirmacao({
     fechamentoId: pedido.id, data: pedido.data, horarioInicio: pedido.inicio, horarioFim: pedido.fim, salaoDoAceite: salao?.id ?? null,
@@ -168,12 +177,17 @@ async function prepararOferta(tx: DbExecutor, sessao: SessaoMeuPedido, pedido: P
     termosVersao: VERSAO_TERMOS_PRE_RESERVA, termosAceitos: TERMOS_PRE_RESERVA,
   };
   const sequencia = aceite?.sequencia ?? 0;
+  // A baixa muda a versão mesmo quando o valor, o recebedor e o destino continuam iguais.
   const assinatura = (a: typeof retrato, base: number) =>
-    assinaturaDaOferta(pepper, [empresaId, sessao.clienteId, pedido.id, base, ...fotografiaDoAceite(a)]);
+    assinaturaDaOferta(pepper, [empresaId, sessao.clienteId, pedido.id, base, ...fotografiaDoAceite(a),
+      ...(podeRenovarOferta(sinais, base) ? ['DEVOLVIDO_POR_HORARIO_INDISPONIVEL'] : [])]);
   const versaoOferta = assinatura(retrato, sequencia);
-  const mesmoAceite = aceite && assinatura(aceite, sequencia) === versaoOferta ? aceite : null;
-  if (mesmoAceite && sinalJaConferido(mesmoAceite, sinais))
+  const conferidos = sinaisConferidos(sinais, sequencia);
+  const mesmoRetrato = aceite && assinatura(aceite, sequencia) === versaoOferta;
+  if (!podeRenovarOferta(sinais, sequencia) &&
+    (conferidos.some(s => s.motivoSemGarantia === 'HORARIO_INDISPONIVEL') || (mesmoRetrato && conferidos.length > 0)))
     return { disponivel: false, motivo: 'PIX_NAO_PENDENTE' } as const;
+  const mesmoAceite = mesmoRetrato && conferidos.length === 0 ? aceite : null;
   const oferta = {
     disponivel: true, sinalCentavos, recebedor: { nome: recebedor.nome, cidade: recebedor.cidade },
     versaoOferta, termos: { versao: VERSAO_TERMOS_PRE_RESERVA, texto: TERMOS_PRE_RESERVA },
@@ -187,7 +201,10 @@ async function prepararOferta(tx: DbExecutor, sessao: SessaoMeuPedido, pedido: P
 async function destinoMudou(tx: DbExecutor, empresaId: string, pedido: Pedido, aceite: AceiteDoPedido | null) {
   if (pedido.status !== 'AGUARDANDO_CONTRATO' || !aceite) return false;
   const porSalao = await escopoPorSalao(tx, empresaId, pedido.estabelecimentoId);
-  return !destinoDoAceiteConfere(pedido, aceite, porSalao);
+  if (!destinoDoAceiteConfere(pedido, aceite, porSalao)) return true;
+  if (!aceite.salaoId) return false;
+  const escolha = await escolherSalaoParaEmissao(tx, pedido.id, aceite.salaoId);
+  return !escolha.porSalao || escolha.salao?.id !== aceite.salaoId;
 }
 
 export async function listarMeuPedido(tx: DbExecutor, empresaId: string, acesso: SessaoMeuPedido, pepper: string) {
@@ -203,8 +220,8 @@ export async function listarMeuPedido(tx: DbExecutor, empresaId: string, acesso:
     saida.push({
       id: pedido.id, protocolo: 'KM-' + pedido.id.slice(0, 8).toUpperCase(), status: pedido.status,
       data: pedido.data, inicio: pedido.inicio, fim: pedido.fim, unidade: pedido.unidadeNome,
-      salao: pedido.salaoNome ?? (preReserva.garantia?.situacao === 'ATIVA' ? aceite?.salaoNome ?? null
-        : atual.disponivel ? atual.oferta.salao?.nome ?? null : null),
+      salao: (preReserva.aguardandoConferencia || preReserva.garantia?.situacao === 'ATIVA' ? aceite?.salaoNome : null)
+        ?? pedido.salaoNome ?? (atual.disponivel ? atual.oferta.salao?.nome ?? null : null),
       oferta: atual.disponivel ? atual.oferta : atual,
       preReserva,
     });
@@ -220,7 +237,9 @@ export async function aceitarOfertaMeuPedido(tx: DbExecutor, empresaId: string, 
   // A trava compartilhada da linha também serializa a aceitação com mudanças comerciais.
   await tx.query('SELECT 1 FROM empresas WHERE id=$1 FOR SHARE', [empresaId]);
   await travarConfiguracaoAgenda(tx, empresaId, { modo: 'COMPARTILHADA', linha: 'JA_TRAVADA' });
-  const pedido = await lerPedidoDoTitular(tx, sessao, pedidoId, 'UPDATE');
+  const [pedido] = await lerPedidosDoTitular(tx, sessao, pedidoId, 'UPDATE');
+  await travarContatoDaSessao(tx, sessao, pepper);
+  if (!pedido) throw new PacoteAdminError('PEDIDO_INDISPONIVEL', 'Pedido não encontrado.', 404);
   if (dados.termosVersao !== VERSAO_TERMOS_PRE_RESERVA)
     throw new PacoteAdminError('TERMOS_DESATUALIZADOS', 'Leia a versão atual dos termos antes de aceitar.', 409);
   const { aceite, sinais } = await lerAceiteESinais(tx, sessao, pedidoId);
@@ -261,8 +280,8 @@ export async function pixMeuPedido(tx: DbExecutor, empresaId: string, acesso: Se
   return { ...pix, aceiteSequencia: aceite.sequencia };
 }
 
-export async function desistirMeuPedido(tx: DbExecutor, empresaId: string, acesso: SessaoMeuPedido, pedidoId: string) {
-  await desistirDaGarantia(tx, empresaId, pedidoId, acesso);
+export async function desistirMeuPedido(tx: DbExecutor, empresaId: string, acesso: SessaoMeuPedido, pedidoId: string, pepper: string) {
+  await desistirDaGarantia(tx, empresaId, pedidoId, { sessao: acesso, pepper });
   const pedido = await lerPedidoDoTitular(tx, acesso, pedidoId);
   const { aceite, sinais } = await lerAceiteESinais(tx, acesso, pedidoId);
   return { status: pedido.status, preReserva: apresentarSituacao(pedido.status, aceite, sinais,
