@@ -71,7 +71,7 @@ const somar = (d: string, dias: number) => new Date(Date.parse(`${d}T12:00:00Z`)
 type Aguardando = { c: Cenario; nativo: Awaited<ReturnType<typeof catalogoNativo>>; contratoId: string; versaoId: string; cpf: string };
 
 /** Contrato nativo V1 assinado pelo buffet e liberado ao cliente (AGUARDANDO_CLIENTE); festa daqui a `diasAteFesta`. */
-async function aguardandoCliente(diasAteFesta = 130): Promise<Aguardando> {
+async function aguardandoCliente(diasAteFesta = 130, formaPagamento?: 'PIX_AVISTA' | 'PIX_PARCELADO'): Promise<Aguardando> {
   const c = await cenario(a, 0);
   const nativo = await catalogoNativo(a, c);
   await a.query(`INSERT INTO modelos_contrato_empresa (empresa_id, versao, conteudo, conteudo_sha256, aprovado_por) VALUES ($1::uuid, 1, $2::jsonb, $3, $4::uuid)`,
@@ -88,6 +88,7 @@ async function aguardandoCliente(diasAteFesta = 130): Promise<Aguardando> {
       SELECT $1::date, '10:00', '22:00', $2::uuid, $3::uuid, p.id, pp.tabela_preco_id, pp.id, 'PADRAO', 'PADRAO', 30, 30, 100, 100, 100, 'ATENDIMENTO_KIDMAIS', $5::uuid, $6::uuid, 'AGUARDANDO_CONTRATO'
         FROM pacotes p JOIN precos_pacote pp ON pp.pacote_id = p.id WHERE p.id = $4::uuid LIMIT 1 RETURNING fechamentos.id`,
     [dia(diasAteFesta), nativo.turno, c.empresa, c.pacote, clienteId, aniversariante]);
+  if (formaPagamento) await a.query("UPDATE fechamentos SET forma_pagamento_pretendida=$2 WHERE id=$1",[fechamento,formaPagamento]);
   const contratos = carregar<typeof import("./services/contrato.service.ts")>("lib/contratos/services/contrato.service.ts");
   const gerado = await contratos.gerarContrato({ fechamentoId: fechamento } as never, { usuarioId: c.usuario, origem: "SISTEMA", executor: executor(a) } as never) as { contrato: { id: string }; versao: { id: string } };
   const adm = carregar<typeof import("./services/administrativo.service.ts")>("lib/contratos/services/administrativo.service.ts");
@@ -99,6 +100,96 @@ async function aguardandoCliente(diasAteFesta = 130): Promise<Aguardando> {
 const registrar = (x: Aguardando, dados: { dataDeclarada: string; observacao?: string; chaveIdempotencia?: string }, arquivo: { bytes: Buffer; tipo: string } | null = null,
   token = x.nativo.tokenRepresentante, empresa: string | null = x.c.empresa) =>
   servico().registrarAssinaturaPapelCliente(x.versaoId, { chaveIdempotencia: randomUUID(), ...dados }, arquivo, token, ctx(), empresa);
+
+async function inserirSinal(x: Aguardando, sinal: number, vencido: boolean) {
+  const pedido = (await a.query('SELECT fechamento_id FROM contratos WHERE id=$1',[x.contratoId])).rows[0].fechamento_id;
+  const ref = 'E12345678202611201234Ab123456789';
+  await a.query(`INSERT INTO pre_reserva_aceites
+    (empresa_id,fechamento_id,cliente_id,inicio_evento,fim_evento,preco_aceito_centavos,sinal_centavos,recebedor,chave_pix,termos_versao,termos_aceitos)
+    SELECT empresa_id,id,cliente_id,(data_evento+horario_inicio) AT TIME ZONE 'America/Sao_Paulo',
+    (data_evento+horario_fim) AT TIME ZONE 'America/Sao_Paulo',20000,$2,'Teste','pix@example.test','1','Termos'
+    FROM fechamentos WHERE id=$1`, [pedido,sinal]);
+  await a.query(`INSERT INTO pre_reserva_recebimentos
+    (empresa_id,fechamento_id,end_to_end_id,valor_centavos,confirmado_por,sinal_garantido_centavos,confirmado_em,garantia_ate)
+    VALUES($1,$2,$3,$4::int,$5,$4::int,clock_timestamp()-interval '26 hours',
+    clock_timestamp()+ CASE WHEN $6 THEN interval '-1 hour' ELSE interval '22 hours' END)`,
+    [x.c.empresa,pedido,ref,sinal,x.nativo.representante.usuarioId,vencido]);
+  return { pedido, ref };
+}
+
+for (const caso of [
+  { sinal: 10100, encerramento: 'FORMALIZACAO_SEM_CREDITO', saldo: 10000 },
+  { sinal: 10000, encerramento: 'FORMALIZACAO', saldo: 0 },
+  { sinal: 2500, encerramento: 'FORMALIZACAO', saldo: 7500, parcelado: true },
+  { sinal: 2600, encerramento: 'FORMALIZACAO', saldo: 7400, vencido: true },
+  { sinal: 2700, encerramento: 'EXPIRADA', saldo: 10000, vencido: true, assumir: true },
+  { sinal: 2800, encerramento: 'DESISTENCIA', saldo: 10000, desistir: true },
+]) test('131: formalização e baixa do sinal de ' + caso.sinal + ' centavos', { skip: !opt() }, async t => {
+  if (!(await a.query("SELECT to_regprocedure('pre_reserva_exigir_configuracao()') IS NOT NULL AS ok")).rows[0].ok) return t.skip('modelo sem a 131');
+  await emTx(async () => {
+    const x = await aguardandoCliente(130, caso.parcelado ? 'PIX_PARCELADO' : 'PIX_AVISTA');
+    const { pedido, ref } = await inserirSinal(x, caso.sinal, !!caso.vencido);
+    const devolucao = carregar<typeof import('../pre-reserva/devolucao')>('lib/pre-reserva/devolucao.ts');
+    const tenant = x.nativo.representante;
+    if (caso.assumir) await devolucao.assumirDevolucao(executor(a), tenant, ref);
+    if (caso.desistir) {
+      const prova = randomUUID();
+      await a.query(`INSERT INTO validacoes_identidade_cliente (cliente_id, canal, status, confirmado_em, token_prova_hash, prova_expira_em)
+        SELECT cliente_id,'EMAIL','CONFIRMADA',now(),$2,now()+interval '10 minutes' FROM fechamentos WHERE id=$1`,
+        [pedido,createHash('sha256').update(prova).digest('hex')]);
+      const desistir = carregar<typeof import('../pre-reserva/desistencia')>('lib/pre-reserva/desistencia.ts').desistirDaGarantia;
+      await assert.rejects(desistir(executor(a),x.c.empresa,randomUUID(),prova),{code:'PEDIDO_INDISPONIVEL'});
+      await desistir(executor(a),x.c.empresa,pedido,prova);
+    }
+    const origens = async () => (await a.query(`SELECT origem FROM fechamentos f
+      CROSS JOIN LATERAL kidmais094_ocupacoes(f.data_evento,f.data_evento) o WHERE f.id=$1 AND o.fechamento_id=f.id`,[pedido])).rows;
+    assert.deepEqual(await origens(),caso.vencido || caso.desistir ? [] : [{ origem: 'PRE_RESERVA' }]);
+    await registrar(x, { dataDeclarada: await hojeSp() });
+    await validarAgora(a);
+    const semCredito = caso.encerramento !== 'FORMALIZACAO';
+    const estado = (await a.query(`SELECT s.garantia,s.dinheiro,r.contrato_id FROM pre_reserva_situacoes s
+      JOIN pre_reserva_recebimentos r USING (empresa_id,end_to_end_id) WHERE s.fechamento_id=$1`,[pedido])).rows;
+    assert.deepEqual(estado,[{ garantia: caso.encerramento, dinheiro: caso.assumir ? 'EM_DEVOLUCAO' : semCredito ? 'A_DEVOLVER' : 'CREDITO_CONTRATO',
+      contrato_id: semCredito ? null : x.contratoId }]);
+    assert.deepEqual(await origens(),[{ origem: 'CONFIRMADA' }]);
+    const pagamentos = carregar<typeof import('../pagamentos/services/pagamento.service')>('lib/pagamentos/services/pagamento.service.ts');
+    const parcelas = caso.parcelado
+      ? [{valor:10,vencimento:dia(1),confirmaReserva:true},{valor:90,vencimento:dia(15),confirmaReserva:false}]
+      : [{valor:100,vencimento:dia(1),confirmaReserva:true}];
+    const criar = () => pagamentos.criarPagamentoDoFechamento({ fechamentoId:pedido,
+      plano:{meioPagamento:'PIX',modalidade:caso.parcelado ? 'PARCELADO' : 'AVISTA',parcelas} },
+      { origem:'CRM_INTERNO', token:x.nativo.tokenRepresentante, requestId:randomUUID(), usuarioId:x.nativo.representante.usuarioId, executor:executor(a) });
+    await criar();
+    await criar();
+    const saldo = (await a.query(`SELECT ((p.valor_previsto-coalesce(sum(al.valor_alocado),0))*100)::int AS saldo,
+      count(al.id)::int AS baixas FROM pagamento_parcelas p JOIN pagamento_planos pl ON pl.id=p.plano_id
+      JOIN pagamentos pg ON pg.id=pl.pagamento_id LEFT JOIN pagamento_recebimento_alocacoes al ON al.parcela_id=p.id
+      WHERE pg.contrato_versao_id=$1 GROUP BY p.id ORDER BY p.numero`,[x.versaoId])).rows;
+    assert.deepEqual(saldo,caso.parcelado ? [{saldo:0,baixas:1},{saldo:7500,baixas:1}] : [{saldo:caso.saldo,baixas:semCredito ? 0 : 1}]);
+    const fila = await devolucao.filaDevolucao(executor(a),tenant);
+    assert.deepEqual(fila.map(r => r.motivo),semCredito ? [caso.encerramento] : []);
+    if (semCredito) {
+      if (!caso.assumir) await devolucao.assumirDevolucao(executor(a),tenant,ref);
+      const assuncao = async () => (await a.query(`SELECT devolucao_assumida_por, devolucao_assumida_em::text AS assumida_em
+        FROM pre_reserva_recebimentos WHERE empresa_id=$1 AND end_to_end_id=$2`, [x.c.empresa, ref])).rows[0];
+      const original = await assuncao();
+      assert.equal(original.devolucao_assumida_por, tenant.usuarioId);
+      assert.ok(original.assumida_em);
+      await devolucao.assumirDevolucao(executor(a),tenant,ref);
+      assert.deepEqual(await assuncao(), original);
+      const eventos = await a.query(`SELECT usuario_id FROM auditoria
+        WHERE origem='PRE_RESERVA' AND acao='PRE_RESERVA_DEVOLUCAO_ASSUMIDA' AND entidade_id=$1`, [pedido]);
+      assert.deepEqual(eventos.rows, [{ usuario_id: tenant.usuarioId }]);
+      const instante = (await a.query(`SELECT to_char(clock_timestamp() AT TIME ZONE 'UTC',
+        'YYYY-MM-DD"T"HH24:MI:SS.US"+00:00"') AS agora`)).rows[0].agora;
+      const baixa = {referencia:'DEV-TESTE',valorCentavos:caso.sinal,devolvidoEm:instante,extratoConferido:true};
+      await assert.rejects(devolucao.confirmarDevolucao(executor(a),tenant,ref,{...baixa,valorCentavos:1}),{code:'BAIXA_INDISPONIVEL'});
+      await devolucao.confirmarDevolucao(executor(a),tenant,ref,baixa);
+      assert.deepEqual(await devolucao.filaDevolucao(executor(a),tenant),[]);
+      assert.equal((await a.query('SELECT dinheiro FROM pre_reserva_situacoes WHERE fechamento_id=$1',[pedido])).rows[0].dinheiro,'DEVOLVIDO');
+    }
+  });
+});
 
 /** INSERT direto (SQL) de uma linha de papel com a Gestão real do cenário; `extra` sobrepõe colunas. */
 async function inserirDireto(x: Aguardando, extra: Record<string, unknown> = {}) {
@@ -511,10 +602,10 @@ async function esperaPor(alvo: number, por: number) {
 }
 
 /** Cenário AGUARDANDO_CLIENTE commitado (a conexão principal volta ao autocommit). */
-async function aguardandoCommitado(): Promise<Aguardando> {
+async function aguardandoCommitado(forma?: 'PIX_AVISTA' | 'PIX_PARCELADO'): Promise<Aguardando> {
   await a.query("BEGIN");
   const restaurar = poolNaTransacao(a);
-  try { const x = await aguardandoCliente(); await a.query("COMMIT"); return x; }
+  try { const x = await aguardandoCliente(130,forma); await a.query("COMMIT"); return x; }
   catch (e) { await a.query("ROLLBACK"); throw e; } finally { restaurar(); }
 }
 
@@ -535,6 +626,252 @@ async function clientePronto(x: Aguardando) {
       (async () => { throw new Error("nenhum OTP externo"); }) as never, { requestId: randomUUID() }),
   };
 }
+for (const primeiro of ['credito','devolucao'] as const) test('131: disputa entre assinatura OTP e devolução, primeiro ' + primeiro,
+  {skip:!opt(),timeout:60000}, async t => {
+    if (!(await a.query("SELECT to_regprocedure('pre_reserva_exigir_configuracao()') IS NOT NULL AS ok")).rows[0].ok) return t.skip('modelo sem a 131');
+    const { b: assinatura, c3: financeiro } = await conexoesExtras();
+    const pidAssinatura = await pidDe(assinatura), pidFinanceiro = await pidDe(financeiro);
+    const restaurar = ambienteAssinatura(), pool = poolRoteado(), fim = portao();
+    try {
+      const x = await aguardandoCommitado();
+      await a.query('BEGIN');
+      await travarConfiguracaoAgenda(executor(a),x.c.empresa,{modo:'COMPARTILHADA',linha:'KEY_SHARE'});
+      const { pedido,ref } = await inserirSinal(x,1000,true);
+      await a.query('COMMIT');
+      const cliente = await clientePronto(x);
+      const servico = carregar<typeof import('../pre-reserva/devolucao')>('lib/pre-reserva/devolucao.ts');
+      const assumir = () => servico.assumirDevolucao(executor(financeiro),x.nativo.representante,ref);
+      pool.rota({cliente:assinatura, noCommit:primeiro === 'credito' ? fim : undefined});
+      if (primeiro === 'credito') {
+        const assinando = cliente.assinar();
+        await Promise.race([fim.chegou, assinando]);
+        const recusa = assert.rejects(assumir(),{code:'DEVOLUCAO_INDISPONIVEL'});
+        try { await esperaPor(pidFinanceiro,pidAssinatura); } finally { fim.liberar(); }
+        await Promise.all([assinando,recusa]);
+      } else {
+        await financeiro.query('BEGIN');
+        await assumir();
+        const assinando = cliente.assinar();
+        try { await esperaPor(pidAssinatura,pidFinanceiro); } finally { await financeiro.query('COMMIT'); }
+        await assinando;
+      }
+      const {rows} = await a.query('SELECT dinheiro FROM pre_reserva_situacoes WHERE fechamento_id=$1',[pedido]);
+      assert.deepEqual(rows,[{dinheiro: primeiro === 'credito' ? 'CREDITO_CONTRATO' : 'EM_DEVOLUCAO'}]);
+    } finally {
+      fim.liberar(); await financeiro.query('ROLLBACK'); await a.query('ROLLBACK'); pool.restaurar(); restaurar();
+    }
+});
+
+for (const primeiro of ['cancelamento','plano'] as const) test('131: reversão do crédito, primeiro ' + primeiro,
+  {skip:!opt(),timeout:60000}, async t => {
+    if (!(await a.query("SELECT to_regprocedure('pre_reserva_exigir_configuracao()') IS NOT NULL AS ok")).rows[0].ok) return t.skip('modelo sem a 131');
+    const { b: vencedor, c3: concorrente } = await conexoesExtras();
+    const pidVencedor = await pidDe(vencedor), pidConcorrente = await pidDe(concorrente);
+    const restaurar = ambienteAssinatura(), pool = poolRoteado(), portaoCommit = portao();
+    try {
+      const x = await aguardandoCommitado('PIX_AVISTA');
+      await a.query('BEGIN');
+      await travarConfiguracaoAgenda(executor(a),x.c.empresa,{modo:'COMPARTILHADA',linha:'KEY_SHARE'});
+      const {pedido,ref} = await inserirSinal(x,10000,false);
+      await gestaoCorrigir(x);
+      await a.query('COMMIT');
+      await registrar(x,{dataDeclarada:await hojeSp()});
+      const historico = async () => (await a.query(`SELECT encerramento,encerrado_em::text,contrato_id
+        FROM pre_reserva_recebimentos WHERE empresa_id=$1 AND end_to_end_id=$2`,[x.c.empresa,ref])).rows[0];
+      const antes = await historico();
+      assert.equal(antes.encerramento,'FORMALIZACAO'); assert.equal(antes.contrato_id,x.contratoId);
+      const festa = (await a.query('SELECT id,revisao FROM festas WHERE contrato_id=$1',[x.contratoId])).rows[0];
+      const comando = {acao:'cancelar_contratacao',chave:randomUUID(),revisao:festa.revisao,versaoId:x.versaoId,motivo:'Teste sintético'};
+      const ctx = {token:x.nativo.tokenRepresentante,requestId:randomUUID(),userAgent:null,empresaSolicitada:x.c.empresa};
+      const festas = carregar<typeof import('../festas/service')>('lib/festas/service.ts');
+      const cancelar = () => festas.comandarFesta(festa.id,comando,ctx);
+      const pagamentos = carregar<typeof import('../pagamentos/services/pagamento.service')>('lib/pagamentos/services/pagamento.service.ts');
+      const criar = () => pagamentos.criarPagamentoDoFechamento({ fechamentoId:pedido,
+        plano:{meioPagamento:'PIX',modalidade:'AVISTA',parcelas:[{valor:100,vencimento:dia(1),confirmaReserva:true}]} },
+        {origem:'CRM_INTERNO',token:ctx.token,requestId:randomUUID(),usuarioId:x.nativo.representante.usuarioId});
+      const cancelarPrimeiro = primeiro === 'cancelamento';
+      if (cancelarPrimeiro) {
+        pool.rota({cliente:vencedor,falharNoCommit:true});
+        await assert.rejects(cancelar(),/falha injetada antes do COMMIT/);
+        const rollback = await a.query(`SELECT c.status,s.dinheiro,r.credito_revertido_em FROM contratos c
+          JOIN pre_reserva_recebimentos r ON r.contrato_id=c.id
+          JOIN pre_reserva_situacoes s USING (empresa_id,end_to_end_id) WHERE c.id=$1`,[x.contratoId]);
+        assert.deepEqual(rollback.rows,[{status:'ASSINADO',dinheiro:'CREDITO_CONTRATO',credito_revertido_em:null}]);
+      }
+      pool.rota({cliente:vencedor,noCommit:portaoCommit});
+      const inicial = cancelarPrimeiro ? cancelar() : criar();
+      await Promise.race([portaoCommit.chegou,inicial]);
+      pool.rota({cliente:concorrente});
+      const seguinte = cancelarPrimeiro ? assert.rejects(criar(),{code:'CONTRATO_NAO_ASSINADO'}) : cancelar();
+      try { await esperaPor(pidConcorrente,pidVencedor); } finally { portaoCommit.liberar(); }
+      await Promise.all([inicial,seguinte]);
+      await cancelar();
+      assert.deepEqual(await historico(),antes);
+      const baixas = (await a.query(`SELECT count(*)::int AS n FROM pagamento_recebimentos r
+        JOIN pagamentos p ON p.id=r.pagamento_id JOIN contrato_versoes v ON v.id=p.contrato_versao_id
+        WHERE v.contrato_id=$1 AND r.chave_idempotencia='PRE_RESERVA:'||v.contrato_id::text`,[x.contratoId])).rows[0].n;
+      const tenant = x.nativo.representante, tx = executor(a);
+      const dev = carregar<typeof import('../pre-reserva/devolucao')>('lib/pre-reserva/devolucao.ts');
+      const fila = () => dev.filaDevolucao(tx,tenant);
+      const situacao = async () => (await a.query('SELECT dinheiro FROM pre_reserva_situacoes WHERE empresa_id=$1 AND end_to_end_id=$2',[x.c.empresa,ref])).rows[0].dinheiro;
+      if (cancelarPrimeiro) {
+        assert.equal(baixas,0);
+        assert.equal(await situacao(),'A_DEVOLVER');
+        assert.deepEqual((await fila()).map(r=>[r.end_to_end_id,r.motivo,Number(r.valor_centavos)]),[[ref,'CANCELAMENTO_FESTA_SEM_BAIXA',10000]]);
+        await assert.rejects(a.query('UPDATE pre_reserva_recebimentos SET credito_revertido_em=NULL WHERE contrato_id=$1',[x.contratoId]),{code:'23514'});
+        await dev.assumirDevolucao(tx,tenant,ref);
+        assert.equal(await situacao(),'EM_DEVOLUCAO');
+        const instante = (await a.query(`SELECT to_char(clock_timestamp() AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS agora`)).rows[0].agora;
+        await dev.confirmarDevolucao(tx,tenant,ref,{referencia:'DEV-TESTE',valorCentavos:10000,devolvidoEm:instante,extratoConferido:true});
+        await cancelar();
+        assert.equal(await situacao(),'DEVOLVIDO');
+        assert.deepEqual(await fila(),[]);
+      } else {
+        await assert.rejects(a.query(`UPDATE pre_reserva_recebimentos r
+          SET credito_revertido_em=c.cancelado_em,credito_reversao_motivo='CANCELAMENTO_FESTA_SEM_BAIXA'
+          FROM contratos c WHERE r.contrato_id=c.id AND c.id=$1`,[x.contratoId]),{code:'23514'});
+        assert.equal(baixas,1); assert.equal(await situacao(),'CREDITO_CONTRATO');
+        assert.deepEqual(await fila(),[]);
+        await assert.rejects(dev.assumirDevolucao(tx,tenant,ref),{code:'DEVOLUCAO_INDISPONIVEL'});
+      }
+    } finally { portaoCommit.liberar(); await a.query('ROLLBACK'); pool.restaurar(); restaurar(); }
+  });
+
+for (const caso of [
+  { total: 99.99, primeiro: 'aditivo' },
+  { total: 99.99, primeiro: 'plano' },
+  { total: 100, primeiro: null },
+  { total: 100.01, primeiro: null },
+  { total: 0, primeiro: null, descontoIntegral: true },
+]) test(`4a: aditivo de ${caso.total} sobre crédito de 100 (${caso.primeiro ?? 'só aditivo'})`,
+  { skip: !opt(), timeout: 120000 }, async t => {
+    if (!(await a.query("SELECT to_regprocedure('pre_reserva_exigir_configuracao()') IS NOT NULL AS ok")).rows[0].ok) return t.skip('modelo sem a 131');
+    const restaurar = ambienteAssinatura(), pool = poolRoteado(), fim = portao();
+    const pendentes: Promise<unknown>[] = [];
+    try {
+      const x = await aguardandoCommitado(caso.descontoIntegral ? 'PIX_PARCELADO' : 'PIX_AVISTA');
+      await a.query('BEGIN');
+      await travarConfiguracaoAgenda(executor(a),x.c.empresa,{modo:'COMPARTILHADA',linha:'KEY_SHARE'});
+      const { pedido, ref } = await inserirSinal(x,10000,false);
+      await a.query('COMMIT');
+      await registrar(x,{dataDeclarada:await hojeSp()});
+      if (caso.descontoIntegral) {
+        await a.query(`INSERT INTO empresa_regras_pagamento
+          (empresa_id,pix_avista_percentual,pix_parcelado_percentual,cartao_rotulo,desconto_dia_util,motivo)
+          VALUES($1,100,0,'Cartão',false,'Desconto integral sintético')`, [x.c.empresa]);
+      }
+      const { versaoId: v2 } = await operar(x.versaoId, {
+        acao: 'nova_versao', tipo: 'NOVA_VERSAO', motivo: 'Alteração comercial sintética', chaveCriacao: randomUUID(),
+      }, x.c.token, x.c.empresa) as { versaoId: string };
+      const { fontesPreparacao } = carregar<typeof import('../fechamentos/services/revisao-operacional.service.ts')>(
+        'lib/fechamentos/services/revisao-operacional.service.ts',
+      );
+      const fonte = (await fontesPreparacao(v2, executor(a)))!;
+      const f = fonte.fechamento;
+      await operar(v2, {
+        acao: 'editar_festa', revisao: 1, fonteHash: fonte.fonteHash, motivo: 'Novo total contratado',
+        dataEvento: f.dataEvento, horarioInicio: f.horarioInicio, horarioFim: f.horarioFim,
+        pacoteId: f.pacoteId, convidados: f.convidados, configuracaoAgendaId: f.configuracaoAgendaId,
+        adicionais: fonte.adicionais, idadeAniversarianteEvento: f.idadeAniversarianteEvento,
+        temaFesta: '', buffetStatus: 'PENDENTE', buffetSalgados: '', buffetBebidas: '', buffetDoces: '',
+        buffetBolo: '', buffetOutros: '', observacoesEquipe: '',
+        comercial: { confirmarAprovacao: true, forma: 'PIX_AVISTA', condicaoPix: null, baseNegociada: caso.descontoIntegral ? 100 : caso.total },
+      }, x.nativo.tokenRepresentante, x.c.empresa);
+      await congelarEAssinarKidmais(a, adm().operarContrato as unknown as Operar, v2, x.c.empresa, x.c.token, x.nativo.tokenRepresentante);
+      const state = async () => (await a.query(`SELECT garantia,dinheiro,credito_reversao_motivo,valor_centavos::int
+        FROM pre_reserva_situacoes WHERE fechamento_id=$1`, [pedido])).rows[0];
+      const gravarReversaoDireta = () => a.query(`UPDATE pre_reserva_recebimentos
+        SET credito_revertido_em=clock_timestamp(),credito_reversao_motivo='ADITIVO_ABAIXO_DO_CREDITO'
+        WHERE contrato_id=$1`, [x.contratoId]);
+      assert.equal((await state()).dinheiro, 'CREDITO_CONTRATO');
+      await assert.rejects(gravarReversaoDireta(), /Valor do aditivo vigente não é inferior|Reversão exige aditivo assinado e vigente/);
+      const eventos = async () => (await a.query(`SELECT ator_tipo,cliente_id,dados_depois FROM auditoria
+        WHERE entidade_id=$1 AND acao='PRE_RESERVA_CREDITO_REVERTIDO'`, [pedido])).rows;
+      const cliente = await clientePronto(x);
+      const pagamentos = carregar<typeof import('../pagamentos/services/pagamento.service.ts')>('lib/pagamentos/services/pagamento.service.ts');
+      const criar = (valor: number) => pagamentos.criarPagamentoDoFechamento({ fechamentoId: pedido,
+        plano: { meioPagamento: 'PIX', modalidade: 'AVISTA', parcelas: [{ valor, vencimento: dia(1), confirmaReserva: true }] },
+      }, { origem: 'CRM_INTERNO', token: x.nativo.tokenRepresentante, requestId: randomUUID(), usuarioId: x.nativo.representante.usuarioId });
+      if (caso.primeiro === 'aditivo') {
+        pool.rota({ cliente: a, falharNoCommit: true });
+        await assert.rejects(cliente.assinar(), /falha injetada antes do COMMIT/);
+        assert.deepEqual(await eventos(), []);
+        assert.equal((await state()).dinheiro, 'CREDITO_CONTRATO');
+      }
+      if (caso.primeiro) {
+        const { b: vencedor, c3: concorrente } = await conexoesExtras();
+        const pidVencedor = await pidDe(vencedor), pidConcorrente = await pidDe(concorrente);
+        const antes = caso.primeiro === 'aditivo';
+        pool.rota({ cliente: vencedor, noCommit: fim });
+        const inicial = antes ? cliente.assinar() : criar(100);
+        pendentes.push(inicial);
+        await Promise.race([fim.chegou, inicial]);
+        pool.rota({ cliente: concorrente });
+        const seguinte = antes ? criar(caso.total) : cliente.assinar();
+        pendentes.push(seguinte);
+        void seguinte.catch(() => {});
+        await esperaPor(pidConcorrente, pidVencedor);
+        fim.liberar();
+        await Promise.all(pendentes);
+      } else {
+        await cliente.assinar();
+        if (!caso.descontoIntegral) await assert.rejects(criar(caso.total - 1), { code: 'PLANO_PAGAMENTO_INVALIDO' });
+      }
+      const vigente = (await a.query(`SELECT v.id, v.snapshot #>> '{comercial,valorFinalContrato}' AS total
+        FROM contrato_fluxos f JOIN contrato_versoes v ON v.id=f.versao_vigente_id WHERE f.contrato_id=$1`, [x.contratoId])).rows[0];
+      assert.equal(vigente.id,v2);
+      assert.equal(Number(vigente.total),caso.total);
+      const reverteu = caso.primeiro === 'aditivo' || caso.descontoIntegral === true;
+      const motivo = 'ADITIVO_ABAIXO_DO_CREDITO';
+      assert.deepEqual(await state(), {
+        garantia: 'FORMALIZACAO', dinheiro: reverteu ? 'A_DEVOLVER' : 'CREDITO_CONTRATO',
+        credito_reversao_motivo: reverteu ? motivo : null, valor_centavos: 10000,
+      });
+      const plano = (await a.query(`SELECT p.valor_total_contratado::numeric * 100 AS total, count(r.id)::int AS baixas
+        FROM pagamentos p JOIN contrato_versoes v ON v.id=p.contrato_versao_id
+        LEFT JOIN pagamento_recebimentos r ON r.pagamento_id=p.id AND r.chave_idempotencia='PRE_RESERVA:'||v.contrato_id::text
+        WHERE v.contrato_id=$1 GROUP BY p.id`, [x.contratoId])).rows;
+      assert.deepEqual(plano.map(p => [Number(p.total),p.baixas]), caso.primeiro ? [[reverteu ? 9999 : 10000,reverteu ? 0 : 1]] : []);
+      const dev = carregar<typeof import('../pre-reserva/devolucao.ts')>('lib/pre-reserva/devolucao.ts');
+      assert.deepEqual((await dev.filaDevolucao(executor(a), x.nativo.representante)).map(r => [r.end_to_end_id,r.motivo,Number(r.valor_centavos)]),
+        reverteu ? [[ref,motivo,10000]] : []);
+      await cliente.assinar();
+      const aud = await eventos();
+      assert.equal(aud.length, reverteu ? 1 : 0);
+      if (reverteu) {
+        const titular = (await a.query('SELECT cliente_id FROM fechamentos WHERE id=$1',[pedido])).rows[0].cliente_id;
+        assert.deepEqual(aud[0], { ator_tipo: 'CLIENTE', cliente_id: titular, dados_depois: {
+          empresaId: x.c.empresa, fechamentoId: pedido, movimento: ref, instante: aud[0].dados_depois.instante,
+          motivo, contratoId: x.contratoId, versaoId: v2,
+        } });
+        await assert.rejects(a.query("UPDATE pre_reserva_recebimentos SET credito_reversao_motivo='CANCELAMENTO_FESTA_SEM_BAIXA' WHERE contrato_id=$1",[x.contratoId]), { code: '23514' });
+      }
+      if (caso.total === 100) {
+        for (const expressao of ["snapshot #- '{comercial,valorFinalContrato}'", `jsonb_set(snapshot,'{comercial,valorFinalContrato}','"100"')`,
+          "jsonb_set(snapshot,'{comercial,valorFinalContrato}','-0.01')"]) {
+          await a.query('BEGIN');
+          try {
+            // Corrompe somente a fixture para provar a defesa da 130 contra formatos que o fluxo nativo não emite.
+            await a.query('SET LOCAL session_replication_role = replica');
+            await a.query(`UPDATE contrato_versoes SET snapshot=${expressao} WHERE id=$1`, [v2]);
+            await a.query('SET LOCAL session_replication_role = origin');
+            const { reverterCreditoPorAditivo } = carregar<typeof import('../pre-reserva/destinacao.ts')>('lib/pre-reserva/destinacao.ts');
+            const falha = /Valor final ausente ou inválido no snapshot do aditivo vigente/;
+            await a.query('SELECT 1 FROM contratos WHERE id=$1 FOR UPDATE',[x.contratoId]);
+            await assert.rejects(reverterCreditoPorAditivo(executor(a),x.contratoId,v2,{usuarioId:x.nativo.representante.usuarioId}),falha);
+            await assert.rejects(gravarReversaoDireta(),falha);
+          } finally { await a.query('ROLLBACK'); }
+        }
+      }
+    } finally {
+      fim.liberar();
+      await Promise.allSettled(pendentes);
+      await a.query('ROLLBACK');
+      pool.restaurar();
+      restaurar();
+    }
+  });
+
 const contagens = async (x: Aguardando) => (await a.query<Record<string, number | string>>(`SELECT
     (SELECT count(*)::int FROM contrato_assinaturas_papel WHERE contrato_versao_id = $1::uuid) AS papel,
     (SELECT count(*)::int FROM contrato_assinaturas WHERE contrato_versao_id = $1::uuid AND parte = 'CLIENTE') AS digital,
@@ -693,6 +1030,28 @@ async function postcheck124() {
 const gestaoCorrigir = (x: Aguardando, capacidade = "FESTA_CORRIGIR") => a.query(
   "INSERT INTO festa_membership_capacidades (empresa_id, membership_id, capacidade, concedido_por, motivo) VALUES ($1::uuid, $2::uuid, $4, $3::uuid, 'Gestão sintética 124')",
   [x.c.empresa, x.nativo.representante.membershipId, x.nativo.representante.usuarioId, capacidade]);
+test("131: cancelar contratação antes da assinatura encerra a garantia e permite assumir a devolução", {skip: !opt()}, async t => {
+  if (!(await a.query("SELECT to_regprocedure('pre_reserva_exigir_configuracao()') IS NOT NULL AS ok")).rows[0].ok) return t.skip('modelo sem a 131');
+  await emTx(async () => {
+    const x = await aguardandoCliente();
+    const {pedido, ref} = await inserirSinal(x,10000,false);
+    await gestaoCorrigir(x);
+    const ocupacoes = async () => (await a.query(`SELECT o.origem FROM fechamentos f CROSS JOIN LATERAL
+      kidmais094_ocupacoes(f.data_evento,f.data_evento) o WHERE f.id=$1 AND o.fechamento_id=f.id`,[pedido])).rows;
+    assert.deepEqual(await ocupacoes(),[{origem:'PRE_RESERVA'}]);
+    assert.equal((await a.query('SELECT status FROM contratos WHERE id=$1',[x.contratoId])).rows[0].status,'AGUARDANDO_ASSINATURA');
+    await operar(x.versaoId,{acao:'cancelar_contratacao',motivo:'Cancelamento sintético',perda:{motivo:'Preço'}},x.nativo.tokenRepresentante,x.c.empresa);
+    await validarAgora(a);
+    assert.deepEqual((await a.query(`SELECT f.status,s.garantia,s.dinheiro FROM fechamentos f JOIN pre_reserva_situacoes s
+      ON s.fechamento_id=f.id WHERE f.id=$1`,[pedido])).rows,[{status:'CANCELADO',garantia:'RECUSA',dinheiro:'A_DEVOLVER'}]);
+    assert.deepEqual(await ocupacoes(),[]);
+    const devolucao = carregar<typeof import('../pre-reserva/devolucao')>('lib/pre-reserva/devolucao.ts');
+    await devolucao.assumirDevolucao(executor(a),x.nativo.representante,ref);
+    const fila = await devolucao.filaDevolucao(executor(a),x.nativo.representante);
+    assert.deepEqual(fila.map(i=>[i.motivo,i.situacao,i.responsavel]),[['RECUSA','EM_DEVOLUCAO',x.nativo.representante.usuarioId]]);
+  });
+});
+
 const recusaPostcheck = (e: unknown) => /124 postcheck: versão PAPEL_CLIENTE sem registro, ou registro fora da regra/.test((e as Error).message);
 const nadaGravado = async (x: Aguardando) => {
   assert.equal((await a.query("SELECT count(*)::int AS n FROM contrato_assinaturas_papel WHERE contrato_id = $1::uuid", [x.contratoId])).rows[0].n, 0);

@@ -194,6 +194,7 @@ const ESTADO_POSTGRES = {
   // 16/10: WhatsApp por empresa (083): conexão, isolamento entre empresas, número único, desconexão, rollback.
   // Também no schema completo (084 de Convites + 085/086 do Marketing), desde a composição de 18/10/2026.
   "lib/whatsapp/conexao-empresa.postgres.test.ts": { descartavel: "083", tambem: ["086"] },
+  "lib/whatsapp/renovacao-credencial.postgres.test.ts": { descartavel: "083", tambem: ["086"] },
   // 16/10: Meta (Cloud API) como canal do atendimento: webhook assinado → empresa dona do número; status e envio.
   "lib/whatsapp/atendimento/meta-recepcao.postgres.test.ts": { descartavel: "083", tambem: ["086"] },
   // Recuperação manual de convites (079): valida schema e constraints após reconstruir a cadeia completa.
@@ -315,6 +316,7 @@ const ESTADO_POSTGRES = {
   "lib/guarda/saidas-contato.postgres.test.ts": { descartavel: "127" },
   // 20/11/2026 (LOCAL): dados fora do disco (128): travas, armazém, PDF pelo banco, script de cópia e ciclo up/down.
   "lib/pre-reserva/agenda.postgres.test.ts": { descartavel: "130" },
+  "lib/pre-reserva/devolucao.postgres.test.ts": { descartavel: "131" },
   "lib/pre-reserva/modelo.postgres.test.ts": { descartavel: "128" },
   "lib/disponibilidade/migration-128.postgres.test.ts": { descartavel: "128" },
   // 20/11/2026 (LOCAL): guarda fase 3, mapa dos dados pessoais (toda coluna de texto/bytea/JSON/inet classificada).
@@ -322,7 +324,7 @@ const ESTADO_POSTGRES = {
   // 20/11/2026 (LOCAL): guarda fase 3, simulação do lote (só leitura, só contagens).
   "lib/guarda/simulacao.postgres.test.ts": { descartavel: "127" },
   // 15/11/2026 (LOCAL): assinatura do cliente em papel (124): registro pela Gestão, travas do banco no COMMIT e down.
-  "lib/contratos/assinatura-papel-cliente.postgres.test.ts": { descartavel: "124", tambem: ["123"] },
+  "lib/contratos/assinatura-papel-cliente.postgres.test.ts": { descartavel: "124", tambem: ["123", "131"] },
   // 15/11/2026 (LOCAL): ciclo da 124 — precheck/postcheck, up repetido, down com COMMIT, up/down/up com o mesmo catálogo.
   "lib/contratos/migration-124.postgres.test.ts": { descartavel: "124" },
   // 16/11/2026 (logo do buffet no convite, etapa 3): sessões/ordem da logo, intercalação real com travas, rotas reais,
@@ -567,6 +569,7 @@ function estadoDaSuite(raiz, arquivo) {
 function arquivosDoCheckEstatico(raiz) {
   return [
     ...listarTestesEstaticos(raiz),
+    path.join(raiz, "components", "admin", "WhatsappConfiguracao.popup.test.mjs"),
     path.join(raiz, "scripts", "regressao-v1-estatica.test.cjs"),
     // Regressão do Wall-e com os casos dos holdouts já analisados (sem rede nem banco; usa a composition root da IA).
     path.join(raiz, "scripts", "walle-avaliacao", "regressao-holdouts.test.mjs"),

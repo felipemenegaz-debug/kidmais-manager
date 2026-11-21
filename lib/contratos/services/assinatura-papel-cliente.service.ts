@@ -148,7 +148,7 @@ export async function registrarAssinaturaPapelCliente(
           WHERE id=$1 AND status='ATIVA' RETURNING id`, [v.id, input.dataDeclarada, d.template_versao, d.pdf_hash])).rows[0];
       if (!atualizada) throw erro('STATUS_CONTRATO_NAO_PERMITE_ASSINATURA', 'A versão contratual não pôde ser marcada como assinada.');
       const versaoAssinada = (await buscarVersaoPorId(v.id, tx)) as ContratoVersaoRecord;
-      await promoverVigencia(tx, versaoAssinada, fluxo?.versao_vigente_id ?? null);
+      await promoverVigencia(tx, versaoAssinada, fluxo?.versao_vigente_id ?? null, s.usuario_id);
       const fechamentoAssinado = await marcarFechamentoContratoAssinado(fechamento.id, tx);
       if (!fechamentoAssinado) throw erro('STATUS_FECHAMENTO_NAO_PERMITE_CONTRATO', 'O Fechamento não pôde avançar para CONTRATO_ASSINADO.');
       try {

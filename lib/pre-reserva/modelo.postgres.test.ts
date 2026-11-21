@@ -28,6 +28,15 @@ test('migration A sobre a 128, isolamento, transferência concorrente e expiraç
       {nome:'definição da visão',ddl:'CREATE OR REPLACE VIEW pre_reserva_situacoes AS '+
         (await db.query("SELECT pg_get_viewdef('pre_reserva_situacoes'::regclass) AS def")).rows[0].def.replace("'ATIVA'","'EXPIRADA'")},
       {nome:'CHECK trocado',ddl:'ALTER TABLE pre_reserva_configuracoes DROP CONSTRAINT pre_reserva_configuracoes_versao_check, ADD CONSTRAINT pre_reserva_configuracoes_versao_check CHECK (versao >= 0)'},
+      {nome:'lista antiga de encerramentos',ddl:"ALTER TABLE pre_reserva_recebimentos DROP CONSTRAINT pre_reserva_recebimentos_encerramento_check, ADD CONSTRAINT pre_reserva_recebimentos_encerramento_check CHECK (encerramento IN ('DESISTENCIA','RECUSA','FORMALIZACAO'))"},
+      {nome:'crédito limitado à vigência',ddl:"ALTER TABLE pre_reserva_recebimentos DROP CONSTRAINT pre_reserva_recebimentos_check6, ADD CONSTRAINT pre_reserva_recebimentos_check6 CHECK (contrato_id IS NULL OR (encerrado_em < garantia_ate AND devolucao_assumida_em IS NULL))"},
+      {nome:'corpo do gatilho sem proteção',ddl:"CREATE OR REPLACE FUNCTION pre_reserva_preservar_movimento() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RETURN NEW; END $$"},
+      {nome:'coluna de reversão com default',ddl:'ALTER TABLE pre_reserva_recebimentos ALTER COLUMN credito_revertido_em SET DEFAULT now()'},
+      {nome:'motivo de reversão obrigatório antes da reversão',ddl:'ALTER TABLE pre_reserva_recebimentos ALTER COLUMN credito_reversao_motivo SET NOT NULL'},
+      {nome:'autor da baixa com default',ddl:'ALTER TABLE pre_reserva_recebimentos ALTER COLUMN devolvido_por SET DEFAULT gen_random_uuid()'},
+      {nome:'visão sem motivo e autor',ddl:'DROP VIEW pre_reserva_situacoes; CREATE VIEW pre_reserva_situacoes WITH (security_invoker=true) AS '+
+        (await db.query("SELECT pg_get_viewdef('pre_reserva_situacoes'::regclass,true) AS def")).rows[0].def.replace(',\n    credito_reversao_motivo,\n    devolvido_por','')},
+      {nome:'CHECK antigo da baixa',ddl:'ALTER TABLE pre_reserva_recebimentos DROP CONSTRAINT pre_reserva_recebimentos_check9, ADD CONSTRAINT pre_reserva_recebimentos_check9 CHECK ((devolvido_em IS NULL) = (referencia_devolucao IS NULL))'},
       {nome:'gatilho desligado',ddl:'ALTER TABLE pre_reserva_recebimentos DISABLE TRIGGER pre_reserva_movimento_historico'},
       {nome:'índice com predicado trocado',ddl:'DROP INDEX pre_reserva_um_sinal_por_pedido; CREATE UNIQUE INDEX pre_reserva_um_sinal_por_pedido ON pre_reserva_recebimentos(empresa_id,fechamento_id) WHERE sinal_garantido_centavos IS NULL'});
     for (const {nome,ddl} of pecas) {
@@ -109,7 +118,7 @@ test('migration A sobre a 128, isolamento, transferência concorrente e expiraç
     const fim = await db.query('SELECT garantia,dinheiro,status FROM pre_reserva_situacoes JOIN fechamentos ON id=fechamento_id WHERE end_to_end_id=$1',[vencida]);
     assert.deepEqual(fim.rows[0],{garantia:'EXPIRADA',dinheiro:'A_DEVOLVER',status:'AGUARDANDO_CONTRATO'});
     await db.query(assumir,[vencida,gestor.usuarioId]);
-    await db.query("UPDATE pre_reserva_recebimentos SET devolvido_em=clock_timestamp(),referencia_devolucao='devolucao-sintetica' WHERE end_to_end_id=$1",[vencida]);
+    await db.query("UPDATE pre_reserva_recebimentos SET devolvido_em=clock_timestamp(),devolvido_por=$2,referencia_devolucao='devolucao-sintetica' WHERE end_to_end_id=$1",[vencida,gestor.usuarioId]);
     assert.equal((await db.query('SELECT dinheiro FROM pre_reserva_situacoes WHERE end_to_end_id=$1',[vencida])).rows[0].dinheiro,'DEVOLVIDO');
   } finally {
     await encerrarDescartavel(segunda);

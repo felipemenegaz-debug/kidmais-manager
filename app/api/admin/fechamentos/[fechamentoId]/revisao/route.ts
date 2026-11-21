@@ -8,6 +8,8 @@ import { CondicaoPagamentoError } from "@/lib/comercial/condicao-pagamento";
 import { pretensaoPixSchema, valorComercialSchema } from "@/lib/http/condicao-pagamento-schema";
 import { PacoteAdminError } from "@/lib/comercial/pacotes-admin";
 import { withTenantTransaction } from "@/lib/saas/provar-tenant";
+import type { DbExecutor } from "@/lib/db/contracts";
+import type { RevisaoPreReserva } from "@/lib/pre-reserva/apresentacao-admin";
 
 import { resumoComercialDaEmpresa } from '@/lib/assinatura/paywall';
 import { situacaoRecusa } from '@/lib/oportunidades/service';
@@ -35,6 +37,29 @@ function erro(error: unknown) {
   console.error("[Revisão comercial]", error);
   return resposta({ ok: false, erro: "Não foi possível processar a revisão." }, 500);
 }
+
+async function lerPreReserva(tx: DbExecutor, empresa: string, pedido: string) {
+  const { rows: [schema] } = await tx.query<{ instalada: boolean }>(
+    "SELECT to_regclass('public.pre_reserva_situacoes') IS NOT NULL AS instalada",
+  );
+  if (!schema.instalada) return undefined;
+  const { rows: [aceite] } = await tx.query<RevisaoPreReserva>(`
+    SELECT a.sequencia, a.sinal_centavos AS "sinalCentavos", a.aceito_em AS "aceitoEm",
+           a.inicio_evento AS inicio, a.fim_evento AS fim, u.nome AS unidade, l.nome AS salao,
+           a.recebedor, g.garantia_ate AS "garantiaAte", g.garantia,
+           ARRAY(SELECT DISTINCT s.dinheiro FROM pre_reserva_situacoes s
+                 WHERE s.empresa_id=a.empresa_id AND s.fechamento_id=a.fechamento_id
+                 ORDER BY s.dinheiro) AS destinos
+    FROM pre_reserva_aceites a
+    LEFT JOIN estabelecimentos u ON (u.empresa_id,u.id)=(a.empresa_id,a.estabelecimento_id)
+    LEFT JOIN agenda_saloes l ON (l.empresa_id,l.id)=(a.empresa_id,a.salao_id)
+    LEFT JOIN pre_reserva_situacoes g ON (g.empresa_id,g.fechamento_id)=(a.empresa_id,a.fechamento_id)
+                                    AND g.garantia_ate IS NOT NULL
+    WHERE a.empresa_id=$1 AND a.fechamento_id=$2 ORDER BY a.sequencia DESC LIMIT 1
+  `, [empresa, pedido]);
+  return aceite;
+}
+
 export async function GET(request: NextRequest, context: Context) {
   try {
     const sessao = await exigirApiAdminCrmDisponivel(request);
@@ -42,7 +67,10 @@ export async function GET(request: NextRequest, context: Context) {
     // Tenant provado antes de ler; fechamento de outra empresa responde como inexistente.
     const data = await withTenantTransaction(sessao, request.nextUrl.searchParams.get("empresaId"),
       async (tx, tenant) => {
-        const dados = await obterRevisaoComercial(id, tenant.empresaComprovada, tx);
+        const revisao = await obterRevisaoComercial(id, tenant.empresaComprovada, tx);
+        const preReserva = tenant.papelAtual === 'REPRESENTANTE_AUTORIZADO'
+          ? await lerPreReserva(tx, tenant.empresaComprovada, id) : undefined;
+        const dados = preReserva ? { ...revisao, preReserva } : revisao;
         if (dados.fechamento.status !== 'AGUARDANDO_CONTRATO' || !dados.fechamento.clienteId ||
             tenant.papelAtual !== 'REPRESENTANTE_AUTORIZADO') return dados;
         const comercial = await resumoComercialDaEmpresa(tx, tenant.empresaComprovada);

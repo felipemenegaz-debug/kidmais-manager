@@ -50,6 +50,7 @@ function servico(existente = false, forma = 'PIX_PARCELADO') {
     '../../clientes/repositories': {
       registrarAuditoria: async () => escritas.push('auditoria'), registrarEventoHistorico: async () => escritas.push('historico'),
     },
+    '../../pre-reserva/destinacao.ts': { creditoDoContrato: async () => undefined },
     './movimentos-consolidados': { possuiCronograma: async () => false },
     '../repositories': {
       buscarPagamentoPorContratoVersaoId: async () => temPagamento ? pagamento : null,

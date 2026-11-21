@@ -51,6 +51,9 @@ const FINANCEIRO: ItemNavegacao[] = [
     { href: '/admin/financeiro/fluxo-caixa', rotulo: 'Fluxo de caixa', grupo: 'Financeiro' },
     { href: '/admin/financeiro/relatorios', rotulo: 'Relatórios', grupo: 'Financeiro' },
 ];
+const DEVOLUCOES_PRE_RESERVA: ItemNavegacao = {
+    href: '/admin/financeiro/devolucoes-pre-reserva', rotulo: 'Devoluções de pré-reserva', grupo: 'Financeiro',
+};
 
 /**
  * O grupo já se chama Configurações; a rota /admin/configuracoes continua existindo, sem item redundante.
@@ -61,6 +64,7 @@ const FINANCEIRO: ItemNavegacao[] = [
 const CONFIGURACAO: Array<ItemNavegacao & { autoridade: 'empresa' | 'plataforma' }> = [
     { href: '/admin/configuracoes/origens', rotulo: 'Opções de origem', grupo: 'Configurações', autoridade: 'empresa' },
     { href: '/admin/configuracoes/perfil-empresa', rotulo: 'Perfil da empresa', grupo: 'Configurações', autoridade: 'empresa' },
+    { href: '/admin/configuracoes/pre-reserva', rotulo: 'Pré-reserva', grupo: 'Configurações', autoridade: 'empresa' },
     // 093: a agenda da unidade. O assistente da primeira entrada é de qualquer usuário; a tela, de Gestão.
     { href: '/admin/configuracoes/agenda', rotulo: 'Agenda', grupo: 'Configurações', autoridade: 'empresa' },
     // 102: apresentação dos salões ao cliente (fotos, itens, declaração). Ler: membership; gravar: Gestão (sem exceção).
@@ -98,6 +102,7 @@ export function itensNavegacao(permissoes: boolean | PermissoesNavegacao): ItemN
         : FINANCEIRO;
     const operacao = OPERACAO.filter(item=>item.href!=='/admin/oportunidades'||p.marketing!==false);
     const base = [...PRINCIPAL, ...operacao, ...(p.marketing === false ? [] : MARKETING.map(i=>i.href==='/admin/marketing/origens'?{...i,contador:p.pedidosNovos??0}:i)), ...itensSatisfacao(p.satisfacao), ...financeiro];
+    if (p.gestaoEmpresa) base.push(DEVOLUCOES_PRE_RESERVA);
     const config = CONFIGURACAO
         .filter((item) => (item.autoridade === 'empresa' ? p.gestaoEmpresa : p.plataforma))
         .map(({ autoridade: _autoridade, ...item }) => { void _autoridade; return item; });

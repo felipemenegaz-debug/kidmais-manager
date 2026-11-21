@@ -6,6 +6,7 @@ import type { DbExecutor } from '../db/contracts.ts';
 import { PacoteAdminError } from '../comercial/pacotes-admin.ts';
 import { exigirGestaoNoTenant, type TenantComprovado } from '../saas/provar-tenant.ts';
 import { garantiaAte as limitePadrao, vencimentoDaGarantia, referenciaTransferencia } from './politica.ts';
+import { auditarMovimentoPreReserva } from './auditoria.ts';
 
 const entrada = z.object({
   acao: z.enum(['CONFIRMAR', 'REGISTRAR_DIVERGENTE_A_DEVOLVER']).default('CONFIRMAR'),
@@ -91,5 +92,6 @@ export async function confirmarSinal(tx: DbExecutor, tenant: TenantComprovado, p
   if (!insercao.rows.length) {
     throw new PacoteAdminError('PIX_JA_LANCADO', 'Transferência já lançada. Confira o extrato.', 409);
   }
+  await auditarMovimentoPreReserva(tx, tenant, 'PRE_RESERVA_SINAL_CONFIRMADO', empresa, pedido, referencia, agenda.agora);
   return { garantiaAte: insercao.rows[0].garantiaAte, motivo };
 }
