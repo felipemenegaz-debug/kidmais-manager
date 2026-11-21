@@ -55,51 +55,77 @@ async function main() {
         await page.getByRole('heading', { name: 'Contratos', exact: true }).waitFor();
         await require('./financeiro-ui-015.cjs')({page,url:url.toString()});
 
-        await page.getByLabel('Contrato',{exact:true}).selectOption(state.fixtures.b.cid);
-        await page.getByLabel('Versão contratual',{exact:true}).selectOption(state.fixtures.vb);
+        await page.goto(env.ADMIN_AUTH_ORIGIN + '/admin/contratos?contratoId=' + state.fixtures.b.cid + '#historico');
+        const historico = page.getByRole('tabpanel', {name:'Histórico',exact:true});
+        await historico.getByRole('listitem').filter({hasText:/V2 · Assinada · vale hoje/}).waitFor();
         assert.equal(await page.getByTestId('aviso-preparacao').count(),0,'V2 concluída não anuncia preparação');
-        const historica = await page.getByLabel('Versão contratual',{exact:true}).locator('option').evaluateAll(options=>options.find(o=>o.textContent.startsWith('V1 '))?.value);
-        assert(historica);await page.getByLabel('Versão contratual',{exact:true}).selectOption(historica);
-        await page.getByText('Esta é uma versão histórica. A versão vigente atual é V2.',{exact:true}).waitFor();
+        await historico.getByRole('listitem').filter({hasText:/V1 ·/}).getByRole('button',{name:'Ver esta versão',exact:true}).click();
+        const consulta = page.getByTestId('consulta-versao');
+        await consulta.getByRole('heading', {name:/Consultando V1/}).waitFor();
         assert.equal(await page.getByTestId('aviso-preparacao').count(),0,'V1 histórica não anuncia preparação');
-        await page.getByLabel('Versão contratual',{exact:true}).selectOption(state.fixtures.vb);
+        await consulta.getByRole('button',{name:'Fechar consulta',exact:true}).click();
+        await consulta.waitFor({state:'detached'});
         page.on('dialog',dialog=>dialog.type()==='prompt'?dialog.accept('Cancelamento validado no navegador'):dialog.accept());
-        await page.getByLabel('Motivo',{exact:true}).fill('Revisão operacional pelo navegador');
-        await page.getByRole('button',{name:'Iniciar elaboração',exact:true}).click();
-        await page.getByRole('button',{name:'Editar festa',exact:true}).waitFor();
-        await page.getByTestId('aviso-preparacao').filter({hasText:'está em elaboração'}).waitFor();
-        await page.getByRole('heading',{name:'Agenda da revisão',exact:true}).waitFor();
-        await page.getByText(/RESERVA CONFIRMADA/).waitFor();
-        await page.getByText(/RESERVA CONFIRMADA — data e horário mantidos/).waitFor();
-        assert.equal(await page.getByText(/HOLD DE REMARCAÇÃO/).count(),0);
+        await page.getByRole('button',{name:'Alterar contrato',exact:true}).click();
+        const novaRevisao = page.getByRole('region', {name:'Alterar contrato',exact:true});
+        await novaRevisao.getByLabel('Motivo',{exact:true}).fill('Revisão operacional pelo navegador');
+        await novaRevisao.getByRole('button',{name:'Criar revisão / retificação',exact:true}).click();
+        const preparacao = page.getByRole('region', {name:'Alteração em andamento',exact:true});
+        await preparacao.getByRole('heading',{name:/Em preparação/}).waitFor();
+        const reservaMantida = preparacao.locator('[data-reserva="MANTIDA"]');
+        const destinoProtegido = preparacao.locator('[data-reserva="PROTEGIDA"]');
+        await reservaMantida.waitFor();
+        assert.equal(await destinoProtegido.count(),0);
         await page.screenshot({path:'.tmp/revisao-mesmo-slot.png',fullPage:true});
-        async function abrir(){await page.getByRole('button',{name:'Editar festa',exact:true}).click();await page.getByLabel('Convidados pagantes',{exact:true}).waitFor();}
-        async function salvar(){await page.getByLabel('Motivo da alteração administrativa',{exact:true}).fill('Alteração operacional pelo navegador');await page.getByRole('button',{name:'Salvar alteração da festa',exact:true}).click();await page.locator('#editar-festa').waitFor({state:'detached'});}
+        const editar = preparacao.getByRole('button',{name:'Editar dados desta revisão',exact:true});
+        const convidadosPagantes = page.getByLabel('Convidados pagantes',{exact:true});
+        async function reabrir() {
+            await editar.click();
+            await convidadosPagantes.waitFor();
+        }
+        async function salvar(comercial = false) {
+            await page.getByLabel('Motivo da alteração administrativa',{exact:true}).fill('Alteração operacional pelo navegador');
+            await page.getByRole('button',{name:'Salvar alteração da festa',exact:true}).click();
+            if (comercial) await page.getByRole('dialog', {name:'Aprovar edição'}).getByRole('button',{name:'Aprovar edição',exact:true}).click();
+            await page.locator('#editar-festa').waitFor({state:'detached'});
+        }
         // Troca apenas de horário, na mesma data, continua sendo remarcação.
-        await abrir();await page.locator('summary').filter({hasText:'Dados da festa'}).click();
+        await convidadosPagantes.waitFor();
+        await page.locator('summary').filter({hasText:'Dados da festa'}).click();
         const horario=page.getByLabel('Horário',{exact:true}),original=await horario.inputValue();
         const outro=await horario.locator('option').evaluateAll((options,current)=>options.find(o=>!o.disabled&&o.value!==current&&o.textContent.includes('DISPONIVEL'))?.value,original);
         assert(outro,'Outro horário oficial disponível');await horario.selectOption(outro);await salvar();
-        await page.getByText(/HOLD DE REMARCAÇÃO/).waitFor();
-        await abrir();await page.locator('summary').filter({hasText:'Dados da festa'}).click();await page.getByLabel('Horário',{exact:true}).selectOption(original);await salvar();
-        await page.getByText(/RESERVA CONFIRMADA — data e horário mantidos/).waitFor();assert.equal(await page.getByText(/HOLD DE REMARCAÇÃO/).count(),0);
-        await abrir();
-        for(const n of [110,130,140]){await page.locator('#editar-festa').getByRole('button',{name:String(n),exact:true}).click();assert.equal(await page.getByLabel('Convidados pagantes',{exact:true}).inputValue(),String(n));await salvar();await page.getByText(new RegExp(n+' convidados')).first().waitFor();await abrir();}
+        await destinoProtegido.waitFor();
+        await reabrir();await page.locator('summary').filter({hasText:'Dados da festa'}).click();await page.getByLabel('Horário',{exact:true}).selectOption(original);await salvar();
+        await reservaMantida.waitFor();assert.equal(await destinoProtegido.count(),0);
+        await reabrir();
+        for(const n of [110,130,140]){await page.locator('#editar-festa').getByRole('button',{name:String(n),exact:true}).click();assert.equal(await page.getByLabel('Convidados pagantes',{exact:true}).inputValue(),String(n));await salvar();await reabrir();assert.equal(await page.getByLabel('Convidados pagantes',{exact:true}).inputValue(),String(n));}
         await page.getByLabel('Convidados pagantes',{exact:true}).fill('67');
         await page.locator('summary').filter({hasText:'Dados da festa'}).click();
         await page.getByLabel('Data da festa',{exact:true}).fill('2097-09-28');
-        await salvar();await page.getByText(/HOLD DE REMARCAÇÃO/).waitFor();
+        await salvar();await destinoProtegido.waitFor();
         await page.screenshot({path:'.tmp/revisao-painel-desktop.png',fullPage:true});
-        await abrir();await page.getByLabel('Pacote',{exact:true}).selectOption({label:'Festa Premium · DISPONIVEL'});await salvar();assert.equal(await page.getByText(/Este pacote ainda não possui modelo oficial/).count(),0);
-        await abrir();await page.getByLabel('Pacote',{exact:true}).selectOption({label:'Festa Completa · DISPONIVEL'});await salvar();
-        await abrir();await page.locator('summary').filter({hasText:'Escolhas do buffet'}).click();await page.getByLabel('Definição do buffet',{exact:true}).selectOption('DEFINIDO');await page.getByLabel('Bolo',{exact:true}).fill('Chocolate');
-        await page.locator('summary').filter({hasText:'Condições comerciais'}).click();await page.getByLabel('Revisar e aprovar condição comercial nesta edição').check();await page.getByLabel('Forma de pagamento',{exact:true}).selectOption('PIX_PARCELADO');await page.getByLabel('Base negociada (opcional)',{exact:true}).fill('9290');await page.getByLabel('Quantidade de parcelas acordada',{exact:true}).fill('3');await salvar();await page.getByText(/9.011,30/).first().waitFor();
-        await page.setViewportSize({width:390,height:844});await abrir();await page.locator('summary').filter({hasText:'Trocar vínculos da contratação'}).click();await page.getByLabel('Contratante proposto',{exact:true}).waitFor();await page.screenshot({path:'.tmp/revisao-editor-mobile.png',fullPage:true});assert(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1),'Sem overflow horizontal mobile');await page.getByRole('button',{name:'Cancelar edição',exact:true}).click();
-        await page.setViewportSize({width:1280,height:900});await page.getByRole('button',{name:/Gerar PDF da revisão/}).click();await page.getByRole('button',{name:'Confirmar revisão deste PDF',exact:true}).click();await page.getByLabel('Confirme sua senha',{exact:true}).fill(password);await page.getByRole('button',{name:'Aprovar e assinar pelo buffet',exact:true}).click();await page.getByRole('button',{name:'Liberar para o cliente',exact:true}).waitFor();
-        await page.getByTestId('aviso-preparacao').filter({hasText:'aguarda liberação para o cliente'}).waitFor();
+        await reabrir();await page.getByLabel('Pacote',{exact:true}).selectOption({label:'Festa Premium · DISPONIVEL'});await salvar();assert.equal(await page.getByText(/Este pacote ainda não possui modelo oficial/).count(),0);
+        await reabrir();await page.getByLabel('Pacote',{exact:true}).selectOption({label:'Festa Completa · DISPONIVEL'});await salvar();
+        await reabrir();await page.locator('summary').filter({hasText:'Escolhas do buffet'}).click();await page.getByLabel('Definição do buffet',{exact:true}).selectOption('DEFINIDO');await page.getByLabel('Bolo',{exact:true}).fill('Chocolate');
+        await page.locator('summary').filter({hasText:'Condições comerciais'}).click();await page.getByLabel('Revisar e aprovar condição comercial nesta edição').check();await page.getByLabel('Forma de pagamento',{exact:true}).selectOption('PIX_PARCELADO');await page.getByLabel('Base negociada (opcional)',{exact:true}).fill('9290');await page.getByLabel('Quantidade de parcelas acordada',{exact:true}).fill('3');await salvar(true);await page.getByText(/9.011,30/).first().waitFor();
+        await page.setViewportSize({width:390,height:844});await reabrir();await page.locator('summary').filter({hasText:'Trocar vínculos da contratação'}).click();await page.getByLabel('Contratante proposto',{exact:true}).waitFor();await page.screenshot({path:'.tmp/revisao-editor-mobile.png',fullPage:true});assert(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1),'Sem overflow horizontal mobile');await page.getByRole('button',{name:'Cancelar edição',exact:true}).click();
+        await page.setViewportSize({width:1280,height:900});await page.getByRole('tab',{name:'Documentos',exact:true}).click();await page.getByRole('button',{name:'Gerar PDF da revisão',exact:true}).click();await page.getByRole('button',{name:'Confirmar revisão do PDF',exact:true}).click();
+        await page.getByRole('dialog').getByRole('button', { name: 'Confirmar revisão do PDF', exact: true }).click();await page.getByLabel('Confirme sua senha',{exact:true}).fill(password);await page.getByRole('button',{name:'Aprovar e assinar pelo buffet',exact:true}).click();
+        await page.getByRole('dialog').getByRole('button', { name: 'Aprovar e assinar pelo buffet', exact: true }).click();await page.getByRole('button',{name:'Liberar para o cliente',exact:true}).waitFor();
+        await preparacao.getByRole('heading',{name:/Assinada pelo buffet/}).waitFor();
         await page.getByRole('button',{name:'Liberar para o cliente',exact:true}).click();
-        await page.getByTestId('aviso-preparacao').filter({hasText:'aguarda a assinatura do cliente'}).waitFor();
-        assert.equal(await page.getByRole('button',{name:'Editar festa',exact:true}).count(),0);await page.screenshot({path:'.tmp/revisao-congelada.png',fullPage:true});await page.getByRole('button',{name:'Cancelar revisão',exact:true}).click();await page.getByText('CANCELADA',{exact:true}).first().waitFor();assert.equal(await page.getByTestId('aviso-preparacao').count(),0);assert.equal(await page.getByText(/HOLD DE REMARCAÇÃO/).count(),0);await page.getByText(/Buffet:/).first().waitFor();
+        await preparacao.getByRole('heading',{name:/Aguardando o cliente/}).waitFor();
+        assert.equal(await editar.count(),0);await page.screenshot({path:'.tmp/revisao-congelada.png',fullPage:true});await page.getByRole('button',{name:'Descartar alteração',exact:true}).click();
+        await page.getByRole('dialog').getByRole('textbox').fill('Cancelamento validado no navegador');
+        await page.getByRole('dialog').getByRole('button', {name:'Informar motivo'}).click();
+        await page.getByRole('dialog').getByRole('button', {name:'Descartar alteração'}).click();
+        await preparacao.waitFor({state:'detached'});
+        await page.getByRole('tab',{name:'Histórico',exact:true}).click();
+        await historico.getByText(/V\d+ · Descartada/).waitFor();
+        assert.equal(await page.getByTestId('aviso-preparacao').count(),0);
+        assert.equal(await page.locator('[data-reserva="PROTEGIDA"]').count(),0);
+        await historico.getByText('Buffet assinou V2',{exact:true}).waitFor();
         const privacy=require('node:child_process').spawnSync(process.execPath,['-r','./scripts/pagamentos-test-support.cjs','-e',"require('./scripts/identidade-api-consultar-cpf.integration.ts')"],{env:{...env,KIDMAIS_TEST_BASE_URL:env.ADMIN_AUTH_ORIGIN},encoding:'utf8',timeout:30000});
         fs.writeFileSync('.tmp/identidade-http-014.log',(privacy.stdout||'')+(privacy.stderr||''));assert.equal(privacy.status,0,privacy.stdout+privacy.stderr);
         assert.deepEqual(errors,[]);

@@ -1,4 +1,5 @@
 'use client';
+import { dialogo } from '@/components/JanelaConfirmacao';
 import { analisarRevisao } from '@/lib/contratos/services/alteracoes';
 import { MOTIVOS_PERDA } from '@/lib/oportunidades/modelo';
 import { TEXTO_ASSINADO_EM_PAPEL, dataCivilBr, versaoConferenciaImportada } from '@/lib/contratos/assinatura-papel';
@@ -108,6 +109,16 @@ function avisoFonteDocumento(base: BaseDocumentoContrato | undefined, pacoteCodi
 }
 
 const TELA_BUSCA = 'contratos';
+
+function resumoRevisao(v: Versao) {
+    return [
+        `Cliente: ${v.snapshot.contratante.nomeCompleto}`,
+        `Data: ${dataPorExtenso(v.snapshot.evento.data)}`,
+        `Pacote: ${v.snapshot.evento.pacote.nome}`,
+        `Valor final: ${formatarMoeda(v.snapshot.comercial.valorFinalContrato)}`,
+        `Versão ${v.numero_versao} · Revisão ${v.revisao}`,
+    ].join("\n");
+}
 
 export default function ContratoAdmin() {
     const [editando,setEditando]=useState(false);
@@ -256,28 +267,28 @@ export default function ContratoAdmin() {
         // Só a resposta explícita da revalidação confirma; resposta de outro contexto ou de antes de uma edição é descartada.
         if(r.ok&&(r.data as {revalidado?:boolean}|undefined)?.revalidado===true&&chaveAtual.current===chave&&geracaoAtual.current===inicio)setConferido({chave,em:new Date()});
     }
-    async function cancelarContratacao(){
+    async function cancelarContratacao({ currentTarget: gatilho }: React.MouseEvent<HTMLButtonElement>){
         if(!v||!data)return;
-        const escolha=window.prompt('Motivo da perda (digite o número):\n'+MOTIVOS_PERDA.map((m,i)=>`${i+1}. ${m}`).join('\n'));
+        const escolha=await dialogo.perguntar('Escolher motivo', 'Motivo da perda (digite o número):\n'+MOTIVOS_PERDA.map((m,i)=>`${i+1}. ${m}`).join('\n'), '', gatilho);
         const perdaMotivo=MOTIVOS_PERDA[Number(escolha)-1];
         if(!perdaMotivo)return;
-        const observacao=window.prompt(perdaMotivo === 'Outro' ? 'Explique o motivo da perda (obrigatório).' : 'Observação (opcional). O histórico e os documentos serão preservados.');
+        const observacao=await dialogo.perguntar('Continuar', perdaMotivo === 'Outro' ? 'Explique o motivo da perda (obrigatório).' : 'Observação (opcional). O histórico e os documentos serão preservados.', '', gatilho);
         if(observacao===null)return;
-        if(perdaMotivo==='Outro' && !observacao.trim()){window.alert('Explique o motivo Outro.');return;}
-        if(observacao.trim().length>1000){window.alert('Use até 1.000 caracteres na observação.');return;}
+        if(perdaMotivo==='Outro' && !observacao.trim()){await dialogo.avisar('Explique o motivo Outro.', gatilho);return;}
+        if(observacao.trim().length>1000){await dialogo.avisar('Use até 1.000 caracteres na observação.', gatilho);return;}
         const motivo=observacao.trim().length >= 3 && observacao.trim().length <= 500 ? observacao.trim() : perdaMotivo;
-        if(!window.confirm(`Cancelar a contratação de ${v.snapshot.contratante.nomeCompleto}? A festa sairá das listas ativas.`))return;
+        if(!await dialogo.confirmar("Cancelar contratação", `Cancelar a contratação de ${v.snapshot.contratante.nomeCompleto}? A festa sairá das listas ativas.`, undefined, gatilho))return;
         if(await action({acao:'cancelar_contratacao',motivo:motivo.trim(),perda:{motivo:perdaMotivo,observacao:observacao.trim()}})){
             if(enderecoFinal())return;
             setCid('');setData(null);
             router.replace(urlDaSelecao(pathname, params, ''), { scroll: false });
         }
     }
-    async function cancelarRevisao(){
+    async function cancelarRevisao(gatilho: HTMLButtonElement){
         if(!v)return;
-        const motivo=window.prompt('Por que esta alteração será descartada? O contrato assinado, o histórico e os documentos serão preservados.');
+        const motivo=await dialogo.perguntar('Informar motivo', 'Por que esta alteração será descartada? O contrato assinado, o histórico e os documentos serão preservados.', '', gatilho);
         if(!motivo||motivo.trim().length<3)return;
-        if(!window.confirm(`Descartar a alteração (V${v.numero_versao})? As mudanças preparadas nela serão descartadas.`))return;
+        if(!await dialogo.confirmar("Descartar alteração", `Descartar a alteração (V${v.numero_versao})? As mudanças preparadas nela serão descartadas.`, undefined, gatilho))return;
         await action({acao:'cancelar_revisao',revisao:v.revisao,motivo:motivo.trim()});
     }
     async function criarRevisao(){
@@ -286,10 +297,11 @@ export default function ContratoAdmin() {
         if(pedidoRevisao.current?.intencao!==intencao)pedidoRevisao.current={intencao,chave:crypto.randomUUID()};
         if(await action(pred.podeSubstituir?{acao:'substituir_preparacao',motivo:motivo.trim(),chaveCriacao:pedidoRevisao.current.chave}:{acao:'nova_versao',tipo,motivo:motivo.trim(),chaveCriacao:pedidoRevisao.current.chave})){pedidoRevisao.current=null;setMotivo('');setAlterarAberto(false);setEditando(true);window.history.replaceState(window.history.state,'','#alteracoes');setDestino('#alteracoes');}
     }
-    async function assinar(){
+    async function assinar({ currentTarget: gatilho }: React.MouseEvent<HTMLButtonElement>){
         if(!v?.documento_revisado_id)return;
-        if (!window.confirm(`APROVAR E ASSINAR PELO BUFFET: versão ${v.numero_versao}, revisão ${v.revisao}, PDF ${v.documento_revisado_id}. O conteúdo será congelado.`))
-            return; setError(''); try {
+        await dialogo.confirmar("Aprovar e assinar pelo buffet", `${resumoRevisao(v)}\n\nO conteúdo será congelado.`, async () => {
+          setError('');
+          try {
             // Renovação anunciada: a reautenticação troca a sessão; sem o anúncio a página seria descartada antes de assinar.
             const auth = await reautenticarSessao(senha);
             setSenha('');
@@ -298,10 +310,10 @@ export default function ContratoAdmin() {
             const id = key || crypto.randomUUID();
             setKey(id);
             await action({ acao: 'assinar', revisao: v.revisao, documentoId: v.documento_revisado_id, chaveIdempotencia: id });
-        }
-        catch (e) {
+          } catch (e) {
             setError(String(e));
-        }
+          }
+        }, gatilho);
     }
     const abas = [{ id: 'geral', rotulo: 'Resumo', hash: '#visao-geral' }, { id: 'documentos', rotulo: 'Documentos', hash: '#documentacao' }, { id: 'financeiro', rotulo: 'Pagamentos', hash: '#financeiro' }, { id: 'historico', rotulo: 'Histórico', hash: '#historico' }];
     const aba = destino === '#documentacao' ? 'documentos' : destino === '#financeiro' ? 'financeiro' : destino === '#historico' ? 'historico' : 'geral';
@@ -365,15 +377,15 @@ export default function ContratoAdmin() {
  <p className={styles.discreto}>Próximo passo: {proximoPasso(v, docs)}</p>
  <div className={styles.actions}>
  {pred.podeGerarPdf && !pdfDaRevisao && <button type="button" data-km-primario className={classePrimaria} disabled={busy} onClick={() => action({ acao: 'gerar_pdf', revisao: v.revisao })}>Preparar documento</button>}
- {pred.podeRevisarPdf && !v.documento_revisado_id && pdfDaRevisao && <><a className={styles.documentButton} href={docUrl(pdfDaRevisao.id)} target="_blank" rel="noreferrer">Ver PDF</a><button type="button" data-km-primario className={classePrimaria} disabled={busy} onClick={() => { if (window.confirm(`Confirmo que revisei o PDF ${pdfDaRevisao.id} da versão ${v.numero_versao}, revisão ${v.revisao}, e que seus dados refletem as condições oficiais aprovadas.`)) action({ acao: 'revisar', revisao: v.revisao, documentoId: pdfDaRevisao.id }); }}>Confirmar revisão do PDF</button></>}
+ {pred.podeRevisarPdf && !v.documento_revisado_id && pdfDaRevisao && <><a className={styles.documentButton} href={docUrl(pdfDaRevisao.id)} target="_blank" rel="noreferrer">Ver PDF</a><button type="button" data-km-primario className={classePrimaria} disabled={busy} onClick={evento => dialogo.confirmar('Confirmar revisão do PDF', `${resumoRevisao(v)}\n\nConfirmo que revisei o PDF da versão ${v.numero_versao}, revisão ${v.revisao}, e que seus dados refletem as condições oficiais aprovadas.`, () => action({ acao: 'revisar', revisao: v.revisao, documentoId: pdfDaRevisao.id }), evento.currentTarget)}>Confirmar revisão do PDF</button></>}
  {pred.podeAssinar && <><label>Confirme sua senha <input type="password" value={senha} autoComplete="current-password" onChange={e => setSenha(e.target.value)}/></label><button type="button" data-km-primario className={classePrimaria} disabled={busy || !senha} onClick={assinar}>Aprovar e assinar pelo buffet</button></>}
  {pred.podeLiberar && <button type="button" data-km-primario className={classePrimaria} disabled={busy} onClick={() => action({ acao: 'liberar', revisao: v.revisao })}>Liberar para o cliente</button>}
  {pred.podeAbrirPublico && <a className={styles.documentButton} href={`/contrato/${cid}`} target="_blank" rel="noreferrer">Abrir página do cliente ↗</a>}
  {!alteracao && data.assinaturaPapel?.podeRegistrar && v.numero_versao === 1 && v.estado_edicao === 'AGUARDANDO_CLIENTE' && data.contrato.status !== 'CANCELADO' && <RegistrarPapelCliente key={v.id} versaoId={v.id} onRegistrado={() => load(cid)} />}
  {pred.podeEditar && <button type="button" disabled={busy} onClick={() => { invalidarConferencia(); setEditando(!editando); }}>{editando ? 'Fechar edição' : 'Editar dados desta revisão'}</button>}
  {pred.podeRevalidar && <button type="button" disabled={busy} onClick={() => void revalidar()}>Revalidar destino</button>}
- {pred.podeRecusarComercial && <button type="button" disabled={busy} onClick={() => { const m = window.prompt('Motivo da recusa comercial. A reserva e a preparação serão mantidas.'); if (m && m.trim().length >= 3) action({ acao: 'recusar_comercial', revisao: v.revisao, motivo: m, chaveDecisao: crypto.randomUUID() }); }}>Recusar condição comercial</button>}
- {pred.podeCancelarRevisao && <button type="button" disabled={busy} onClick={() => void cancelarRevisao()}>{alteracao ? 'Descartar alteração' : 'Cancelar revisão'}</button>}
+ {pred.podeRecusarComercial && <button type="button" disabled={busy} onClick={async (evento) => { const m = await dialogo.perguntar('Recusar condição comercial', 'Motivo da recusa comercial. A reserva e a preparação serão mantidas.', '', evento.currentTarget); if (m && m.trim().length >= 3) action({ acao: 'recusar_comercial', revisao: v.revisao, motivo: m, chaveDecisao: crypto.randomUUID() }); }}>Recusar condição comercial</button>}
+ {pred.podeCancelarRevisao && <button type="button" disabled={busy} onClick={evento => void cancelarRevisao(evento.currentTarget)}>{alteracao ? 'Descartar alteração' : 'Cancelar revisão'}</button>}
  </div>
  {pred.podeSubstituir && <details><summary>Criar nova revisão</summary><p>Esta versão e a assinatura do buffet serão preservadas. O acesso anterior será encerrado. A nova revisão exigirá novo PDF e nova assinatura do buffet antes da liberação ao cliente.</p><label>Motivo <input value={motivo} maxLength={500} onChange={e => setMotivo(e.target.value)}/></label><button type="button" disabled={busy || motivo.trim().length < 3} onClick={criarRevisao}>Criar nova revisão</button></details>}
  {editando && <EdicaoFesta key={vid} versaoId={vid} revisao={v.revisao} serverError={error} onSave={action} onClose={()=>{invalidarConferencia();setEditando(false);}}/>}

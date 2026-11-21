@@ -1,4 +1,5 @@
 'use client';
+import { dialogo } from '@/components/JanelaConfirmacao';
 import Link from 'next/link';
 import { useState } from 'react';
 import { enviarMarketing, useMarketing } from './comum';
@@ -45,7 +46,7 @@ export function LinksAvaliacao() {
       <button type="button" className={styles.secundario} disabled={ocupado || !(rascunho[l.chave] ?? '').trim()}
         onClick={() => void enviar({ acao: 'salvar', estabelecimentoId: l.estabelecimentoId, url: (rascunho[l.chave] ?? '').trim() }, 'Link salvo.')}>Salvar</button>
       {l.url && <button type="button" className={styles.fantasma} disabled={ocupado}
-        onClick={() => { if (window.confirm(`Remover o link de ${l.nome}?`)) void enviar({ acao: 'remover', estabelecimentoId: l.estabelecimentoId }, 'Link removido.'); }}>Remover</button>}
+        onClick={async (evento) => { if (await dialogo.confirmar("Remover link", `Remover o link de ${l.nome}?`, undefined, evento.currentTarget)) void enviar({ acao: 'remover', estabelecimentoId: l.estabelecimentoId }, 'Link removido.'); }}>Remover</button>}
     </div>)}
   </div>;
 }
