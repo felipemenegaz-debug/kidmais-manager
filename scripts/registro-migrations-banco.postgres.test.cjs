@@ -229,3 +229,47 @@ test('down da 129: recusa com linhas; vazia remove a tabela e a função', {skip
   const r = (await sql(b, "SELECT to_regclass('public.operacao_migration_tentativas') t, to_regprocedure('public.operacao_migration_tentativas_terminal()') f")).rows[0];
   assert.deepEqual(r, {t: null, f: null});
 });
+
+// ---------------------------------------------------------------- sessões curtas do diagnóstico em PG real (§4 (a), (c), (d), (f), isolamento)
+async function comUpgrade() {
+  const b = await comRegistro();
+  ok(await rodar(b, ['--aplicar-130-autorizado', '--backup', BACKUP]), /APLICADA_POSTCHECK_PASS 130/);
+  ok(await rodar(b, ['--aplicar-131-autorizado', '--backup', BACKUP]), /APLICADA_POSTCHECK_PASS 131/);
+  return b;
+}
+const na130 = (info, rotulo) => info.sessao === 'ESTADO 130' && info.rotulo === rotulo;
+const DIAG = ['--conferir-registro', '--ids', '130,131'];
+
+test('sessões (a)/(c)/(d): P0001 marcado = FALHOU (3); timeout = 57014 (1); P0001 auxiliar = ERRO_VERIFICACAO (1); 131 sempre PASS', {skip: pular}, async () => {
+  const b = await comUpgrade();
+  ok(await rodar(b, DIAG), /POSTCHECK 130 PASS[\s\S]*POSTCHECK 131 PASS[\s\S]*DIAGNOSTICO_CODIGO 0/);
+  const a = await rodar(b, DIAG, {ganchos: {sql: (i, s) => (na130(i, 'POSTCHECK') ? "DO $$BEGIN RAISE EXCEPTION 'reprovado no teste'; END$$" : s)}});
+  ok(a, /POSTCHECK 130 FALHOU[\s\S]*POSTCHECK 131 PASS/, 3);
+  assert.doesNotMatch(a.texto, /ERRO_VERIFICACAO/);
+  const c = await rodar(b, DIAG, {ganchos: {sql: (i, s) => (na130(i, 'POSTCHECK') ? "SET LOCAL statement_timeout = '300ms'; SELECT pg_sleep(3)" : s)}});
+  ok(c, /ERRO_VERIFICACAO ESTADO 130 POSTCHECK 57014[\s\S]*POSTCHECK 131 PASS/, 1);
+  assert.doesNotMatch(c.texto, /FALHOU/);
+  const d = await rodar(b, DIAG, {ganchos: {auxiliar: ({sessao}) => (sessao === 'ESTADO 130' ? "DO $$BEGIN RAISE EXCEPTION 'auxiliar'; END$$" : null)}});
+  ok(d, /ERRO_VERIFICACAO ESTADO 130 AUXILIAR P0001[\s\S]*POSTCHECK 131 PASS/, 1);
+  assert.doesNotMatch(d.texto, /FALHOU/);
+});
+
+test('sessões (f): backend da 130 encerrado na pausa antes do postcheck = 57P01, sem ROLLBACK, 131 PASS', {skip: pular}, async () => {
+  const b = await comUpgrade();
+  const enviados = [];
+  const r = await rodar(b, DIAG, {ganchos: {
+    antesDe: async i => { if (na130(i, 'POSTCHECK')) { await admin.query('SELECT pg_terminate_backend($1)', [i.pid]); await new Promise(s => setTimeout(s, 300)); } },
+    sql: (i, s) => { enviados.push(`${i.sessao}|${s.slice(0, 8)}`); return s; },
+  }});
+  ok(r, /ERRO_VERIFICACAO ESTADO 130 POSTCHECK 57P01[\s\S]*POSTCHECK 131 PASS/, 1);
+  assert.equal(r.linhas.filter(l => l.startsWith('ERRO_VERIFICACAO ESTADO 130')).length, 1);
+  assert.ok(!enviados.includes('ESTADO 130|ROLLBACK'), enviados.join(','));
+});
+
+test('isolamento: BEGIN trocado por REPEATABLE READ = LEITURA_ISOLAMENTO_INVALIDO (1) sem consultar', {skip: pular}, async () => {
+  const b = await comUpgrade();
+  const consultas = [];
+  const r = await rodar(b, DIAG, {ganchos: {sql: (i, s) => { consultas.push(i.rotulo); return i.rotulo === 'BEGIN' ? 'BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY' : s; }}});
+  ok(r, /LEITURA_ISOLAMENTO_INVALIDO/, 1);
+  assert.ok(!consultas.includes('SONDAGEM') && !consultas.includes('SENTINELAS'), consultas.join(','));
+});
