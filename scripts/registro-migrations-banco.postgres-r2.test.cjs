@@ -54,6 +54,26 @@ const lerArq = rel => fs.readFileSync(path.join(raiz, rel), 'utf8');
 const arqMig = id => 'database/migrations/' + fs.readdirSync(path.join(raiz, 'database/migrations')).find(a => a.split('_')[1] === id);
 const linhaDe = async (b, u) => (await sql(b, "SELECT situacao, versao, detalhe FROM operacao_migration_tentativas WHERE tentativa = $1", [u])).rows[0];
 const espera = ms => new Promise(s => setTimeout(s, ms));
+/** Polling com prazo: repete `cond` até ser verdadeira; estouro falha o teste com `msg`. */
+async function ate(cond, msg, ms = 10000) {
+  const fim = Date.now() + ms;
+  for (;;) {
+    const v = await cond();
+    if (v) return v;
+    if (Date.now() > fim) assert.fail('prazo do teste: ' + msg);
+    await espera(25);
+  }
+}
+/** Espera o evento 'close' do socket de C (ou já fechado), com prazo. */
+function fechamentoDe(db, ms = 10000) {
+  const s = db.connection?.stream;
+  if (!s || s.destroyed) return Promise.resolve();
+  return new Promise((ok_, falha) => {
+    const t_ = setTimeout(() => falha(new Error('socket de C não fechou em ' + ms + ' ms')), ms);
+    s.once('close', () => { clearTimeout(t_); ok_(); });
+  });
+}
+const travasAdvisoryEm = async b => Number((await admin.query("SELECT count(*)::int AS n FROM pg_locks l JOIN pg_database d ON d.oid = l.database WHERE l.locktype = 'advisory' AND l.granted AND d.datname = $1", [b])).rows[0].n);
 
 // ------------------------------------------------------------------ P2: prazo local no COMMIT (resposta retida pelo proxy)
 
@@ -231,7 +251,7 @@ test('129: C encerrada ANTES do envio do UPDATE de CONCLUIDA = REGISTRO_NAO_ATUA
   const r = await rodar(b, ['--aplicar-129-bootstrap-autorizado', '--backup', BACKUP], {ganchos: {antesDaEscritaPosCommit: async ({db, novaSituacao}) => {
     visto.situacao = novaSituacao;
     await admin.query('SELECT pg_terminate_backend($1)', [db.processID]);
-    await espera(300);
+    await fechamentoDe(db);
     visto.destruida = db.connection?.stream?.destroyed === true;
   }}});
   assert.equal(visto.situacao, 'CONCLUIDA');
@@ -251,9 +271,11 @@ test('129: postcheck final reprovado e C encerrada antes do UPDATE de FALHA = c�
     antesDaEscritaPosCommit: async ({db, novaSituacao}) => {
       visto.situacao = novaSituacao;
       await admin.query('SELECT pg_terminate_backend($1)', [db.processID]);
-      await espera(300);
+      await fechamentoDe(db);
+      visto.destruida = db.connection?.stream?.destroyed === true;
     }}});
   assert.equal(visto.situacao, 'FALHA', 'o caminho chegou à escrita de FALHA');
+  assert.ok(visto.destruida, 'o socket de C já estava fechado antes do envio');
   ok(r, /REGISTRO_NAO_ATUALIZADO tentativa=[0-9a-f-]{36} .*antes do envio/, 2);
   assert.doesNotMatch(r.texto, /^ERRO /m);
   assert.equal((await linhaDe(b, uuidDe(r, 'RESERVANDO'))).situacao, 'VERIFICACAO_PENDENTE');
@@ -268,6 +290,8 @@ test('130: UPDATE final CONFIRMADO no servidor com a resposta perdida = REGISTRO
     const r = await rodar(b, ['--aplicar-130-autorizado', '--backup', BACKUP], {portaAlvo: px.porta, prazoDescarte: 1500,
       ganchos: {antesDaEscritaPosCommit: ({novaSituacao}) => { if (novaSituacao === 'CONCLUIDA') armado = true; }}});
     ok(r, /REGISTRO_INDETERMINADO tentativa=[0-9a-f-]{36} CONCLUIDA .*consultar primeiro --conferir-tentativa 130 --tentativa/, 2);
+    assert.ok(px.cortada, 'o proxy cortou de fato a resposta do UPDATE');
+    assert.doesNotMatch(r.texto, /escrita_registro_timeout/, 'caminho de erro fatal, não o de prazo');
     assert.doesNotMatch(r.texto, /REGISTRO_NAO_ATUALIZADO|APLICADA_POSTCHECK_PASS/);
     const u = uuidDe(r, 'INICIADA');
     assert.equal((await linhaDe(b, u)).situacao, 'CONCLUIDA', 'o servidor confirmou o UPDATE');
@@ -285,13 +309,16 @@ test('130: UPDATE final bloqueado no servidor = prazo local, socket de C destru�
       await bloqueador.query('SELECT 1 FROM operacao_migration_tentativas WHERE tentativa = $1 FOR UPDATE', [u]);
       visto.db = db; visto.pid = db.processID;
     }}});
+    let terminou = false;
+    execucao.finally(() => { terminou = true; }).catch(() => {});
     // Enquanto C espera: o UPDATE chegou ao servidor e o backend de C está parado na trava de linha.
-    for (let i = 0; i < 40 && !visto.esperando; i++) {
-      await espera(50);
-      if (!visto.pid) continue;
+    await ate(() => visto.pid || terminou, 'o gancho entregou o PID de C');
+    await ate(async () => {
+      if (terminou) return true;
       const a = (await admin.query("SELECT wait_event_type, query FROM pg_stat_activity WHERE pid = $1", [visto.pid])).rows[0];
       if (a?.wait_event_type === 'Lock' && /^UPDATE /.test(a.query)) visto.esperando = true;
-    }
+      return visto.esperando;
+    }, 'C esperando a trava ou execução encerrada');
     const r = await execucao;
     assert.ok(visto.esperando, 'o UPDATE do registro chegou ao servidor e esperou a trava');
     ok(r, /REGISTRO_INDETERMINADO tentativa=[0-9a-f-]{36} CONCLUIDA .*escrita_registro_timeout.*consultar primeiro --conferir-tentativa 130 --tentativa/, 2);
@@ -299,9 +326,8 @@ test('130: UPDATE final bloqueado no servidor = prazo local, socket de C destru�
     const u = uuidDe(r, 'INICIADA');
     assert.equal((await linhaDe(b, u)).situacao, 'EM_ANDAMENTO', 'ainda bloqueado: nada gravado');
     await bloqueador.query('ROLLBACK');
-    await espera(500);
     // O backend de C (vivo, sem cliente) executa e confirma o UPDATE ao sair da trava: por isso a orientação é conferir primeiro.
-    assert.equal((await linhaDe(b, u)).situacao, 'CONCLUIDA');
+    await ate(async () => (await linhaDe(b, u)).situacao === 'CONCLUIDA', 'o UPDATE de C confirmou depois da liberação');
     ok(await rodar(b, ['--conferir-tentativa', '130', '--tentativa', u]), /TENTATIVA .* CONCLUIDA/);
   } finally { await bloqueador.query('ROLLBACK').catch(() => {}); await bloqueador.end(); }
 });
@@ -310,11 +336,14 @@ test('ROLLBACK da leitura pós-COMMIT sem resposta: prazo no lerEmC destrói C, 
   const b = await comRegistro();
   const px = await apoio.proxy(P);
   try {
-    let armado = false, updates = 0;
-    px.regra = (cx, d) => {
+    let armado = false, updates = 0, depoisDaRetencao = 0;
+    // Observador vê todo pacote durante a execução inteira (antes da regra): UPDATE em qualquer conexão depois de armar e
+    // qualquer pacote de C depois do ROLLBACK segurado (segundo ROLLBACK, UPDATE recusado...).
+    px.observador = (cx, d) => {
       if (armado && apoio.contem(d, 'UPDATE ')) updates++;
-      return armado && apoio.ehComando(d, 'ROLLBACK') ? 'segurar' : 'passar';
+      if (px.retida && cx === px.retida) depoisDaRetencao++;
     };
+    px.regra = (cx, d) => (armado && apoio.ehComando(d, 'ROLLBACK') ? 'segurar' : 'passar');
     const t0 = Date.now();
     const r = await rodar(b, ['--aplicar-130-autorizado', '--backup', BACKUP], {portaAlvo: px.porta, prazoRollback: 1500, prazoDescarte: 1500,
       ganchos: {naVerificacaoPosCommit: () => { armado = true; }}});
@@ -323,14 +352,14 @@ test('ROLLBACK da leitura pós-COMMIT sem resposta: prazo no lerEmC destrói C, 
     assert.match(r.texto, /REGISTRO_NAO_ATUALIZADO tentativa=[0-9a-f-]{36} conexão perdida .*--concluir-verificacao 130/);
     assert.ok(px.retida, 'o ROLLBACK ficou segurado no proxy');
     assert.ok(dt < 15000, 'o prazo local soltou o processo');
-    // A regra é de uso único: depois de segurar, conta pelos pacotes seguintes da conexão C.
-    px.regra = (cx, d) => { if (apoio.contem(d, 'UPDATE ')) updates++; return 'passar'; };
-    await espera(200);
-    assert.equal(updates, 0, 'nenhum UPDATE enviado depois do estouro');
+    assert.equal(updates, 0, 'nenhum UPDATE enviado depois de armar');
+    assert.equal(depoisDaRetencao, 0, 'nenhum pacote de C (ROLLBACK ou UPDATE) depois da retenção');
+    await ate(() => px.retida.c.destroyed, 'o socket de C foi fechado no estouro');
     const u = uuidDe(r, 'INICIADA');
     assert.equal((await linhaDe(b, u)).situacao, 'EM_ANDAMENTO');
   } finally { await px.fechar(); }
-  await espera(300);
+  // O backend de C some quando o proxy fecha: espera a trava advisory ser liberada em vez de um tempo fixo.
+  await ate(async () => (await travasAdvisoryEm(b)) === 0, 'a trava de C foi liberada');
   const u = (await sql(b, "SELECT tentativa::text AS u FROM operacao_migration_tentativas WHERE migration = '130' AND arquivada_em IS NULL")).rows[0].u;
   ok(await rodar(b, ['--concluir-verificacao', '130', '--tentativa', u]), /CONCLUIDA 130/);
 });

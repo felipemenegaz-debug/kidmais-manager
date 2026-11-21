@@ -232,3 +232,37 @@ test('inventário: 129 aprovada com checks e autorização explícita', async ()
   assert.ok(i > inv.approvedFiles.indexOf('20261120_128_dados_fora_do_disco.sql') && i < inv.approvedFiles.indexOf('20261120_130_pre_reserva_manual.sql'));
   assert.deepEqual(inv.requiredChecks('20261121_129_registro_migrations.sql'), ['20261121_129_precheck.sql', '20261121_129_postcheck.sql']);
 });
+
+test('lerEmC: postcheck com P0001 e ROLLBACK sem resposta = estouro propagado (C destruída, P0001 como causa), nunca reprovação normal', async () => {
+  const enviados = [];
+  let destruida = 0;
+  const db = {
+    prazoRollbackC: 50,
+    destruir: () => { destruida++; },
+    query: texto => {
+      enviados.push(texto);
+      if (texto === 'POSTCHECK_FALSO') return Promise.reject(erroPg('P0001', 'ERROR', 'postcheck reprovado'));
+      if (texto === 'ROLLBACK') return new Promise(() => {});
+      return Promise.resolve({rows: []});
+    },
+  };
+  await assert.rejects(r._teste.postcheckEmC(db, {postcheck: 'POSTCHECK_FALSO'}), e => {
+    assert.equal(e.prazo, true);
+    assert.equal(e.local, 'rollback_timeout');
+    assert.equal(r.sqlstateDe(e), null, 'sem SQLSTATE: o chamador trata como conexão perdida');
+    assert.equal(r.sqlstateDe(e.cause), 'P0001', 'a falha da leitura vai como causa');
+    return true;
+  });
+  assert.equal(db.destruido, true);
+  assert.equal(destruida, 1);
+  assert.equal(enviados.filter(t => t === 'ROLLBACK').length, 1, 'um ROLLBACK só, nada depois do estouro');
+  assert.equal(enviados.at(-1), 'ROLLBACK');
+});
+
+test('lerEmC: postcheck com P0001 e ROLLBACK respondido = reprovação normal (aprovado false)', async () => {
+  const db = {query: texto => (texto === 'POSTCHECK_FALSO' ? Promise.reject(erroPg('P0001', 'ERROR', 'postcheck reprovado')) : Promise.resolve({rows: []}))};
+  const res = await r._teste.postcheckEmC(db, {postcheck: 'POSTCHECK_FALSO'});
+  assert.equal(res.aprovado, false);
+  assert.match(res.motivo, /postcheck reprovado/);
+  assert.notEqual(db.destruido, true);
+});

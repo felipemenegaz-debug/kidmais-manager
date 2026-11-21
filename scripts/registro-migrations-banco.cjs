@@ -409,7 +409,11 @@ async function rollbackEmC(db) {
   try { await comPrazo(db.query('ROLLBACK'), db.prazoRollbackC ?? 10000, 'rollback_timeout'); }
   catch (x) { if (x?.prazo) { destruir(db); db.destruido = true; } throw x; }
 }
-/** Leitura READ ONLY em C (a mesma conexão que segura a trava). ROLLBACK com prazo nos dois caminhos. */
+/**
+ * Leitura READ ONLY em C (a mesma conexão que segura a trava). ROLLBACK com prazo nos dois caminhos. Se a leitura falha
+ * (ex.: P0001 do postcheck) e o ROLLBACK estoura, propaga o estouro (sem SQLSTATE, C destruída) com a falha como `cause`:
+ * o chamador nunca confunde conexão perdida com reprovação normal.
+ */
 async function lerEmC(db, sql, params) {
   await db.query('BEGIN TRANSACTION READ ONLY');
   try {
@@ -417,7 +421,12 @@ async function lerEmC(db, sql, params) {
     const r = await db.query(sql, params);
     await rollbackEmC(db);
     return r;
-  } catch (e) { if (!db.destruido) await rollbackEmC(db).catch(() => {}); throw e; }
+  } catch (e) {
+    if (!db.destruido) {
+      try { await rollbackEmC(db); } catch (x) { if (x?.prazo) { x.cause = e; throw x; } }
+    }
+    throw e;
+  }
 }
 async function identidadeEmC(ctx, db) {
   const linha = (await lerEmC(db, ctx.ambiente.sqlIdentidade)).rows?.[0];
@@ -907,4 +916,6 @@ function cli() {
 }
 if (require.main === module) cli();
 module.exports = {ORDEM, ANTECESSORA, ARQUIVOS_129, SQL, BACKUP, carregar129, lerDivergencias, avaliarPostcheck, sqlstateDe, fatal, abrirSessaoLeitura,
-  conferirRegistro, conferirTentativa, conferirId, aplicar, bootstrap129, arquivar, concluirVerificacao, classificar, modo, principal, ambienteDe, cli};
+  conferirRegistro, conferirTentativa, conferirId, aplicar, bootstrap129, arquivar, concluirVerificacao, classificar, modo, principal, ambienteDe, cli,
+  /** Só para testes unitários (cliente falso). */
+  _teste: {lerEmC, postcheckEmC}};

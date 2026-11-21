@@ -96,6 +96,8 @@ function ambienteLocal(p, banco, portaAlvo = p) {
  * sem repassar), 'reter' (guarda o pacote, fecha só o lado do cliente; o backend fica vivo), 'segurar' (guarda o pacote e não
  * responde nem fecha: o cliente espera até o prazo local dele), 'cortarResposta' (repassa e fecha
  * os dois lados quando a resposta chegar). A regra é de uso único quando devolve algo diferente de 'passar'.
+ * `observador(cx, dados)` (opcional) vê TODO pacote do cliente, antes da regra, durante a execução inteira.
+ * `cortada` = conexão cuja resposta foi de fato cortada por 'cortarResposta'.
  */
 async function proxy(portaPg) {
   const ctl = {regra: null, conexoes: []};
@@ -107,6 +109,7 @@ async function proxy(portaPg) {
     c.on('close', () => { if (!cx.retido) s.destroy(); });
     s.on('close', () => c.destroy());
     c.on('data', d => {
+      ctl.observador?.(cx, d);
       const acao = ctl.regra ? ctl.regra(cx, d) : 'passar';
       if (acao !== 'passar') ctl.regra = null;
       if (acao === 'passar') s.write(d);
@@ -115,7 +118,7 @@ async function proxy(portaPg) {
       else if (acao === 'segurar') { cx.retido = d; ctl.retida = cx; } // cliente fica pendurado sem resposta (prazo local)
       else if (acao === 'cortarResposta') { cx.cortarResposta = true; s.write(d); }
     });
-    s.on('data', d => { if (cx.cortarResposta) { c.destroy(); s.destroy(); } else c.write(d); });
+    s.on('data', d => { if (cx.cortarResposta) { ctl.cortada = cx; c.destroy(); s.destroy(); } else c.write(d); });
   });
   await new Promise(r => srv.listen(0, HOST, r));
   ctl.porta = srv.address().port;
