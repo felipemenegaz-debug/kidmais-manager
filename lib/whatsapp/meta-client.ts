@@ -5,7 +5,7 @@ type Config = ReturnType<typeof exigirConfiguracaoWhatsappPrivada>;
 /** Leituras só precisam da versão da Graph (a demonstração de ativos de teste não usa segredo do app). */
 type ConfigLeitura = Pick<Config, 'graphApiVersion'>;
 type Fetch = typeof fetch;
-type GraphList<T> = { data?: T[]; paging?: { next?: unknown }; error?: unknown };
+type GraphList<T> = { data?: T[]; paging?: { next?: unknown; cursors?: { after?: unknown } }; error?: unknown };
 
 /** Etapas da conexão com a Meta que podem ser registradas quando falham (lista fechada). */
 export type EtapaMeta = 'troca_codigo' | 'debug_token' | 'dono_waba' | 'numeros';
@@ -40,6 +40,12 @@ function registrarRecusaMeta(etapa: EtapaMeta, httpStatus: number, body: unknown
 }
 
 async function respostaJson(response: Response, etapa: EtapaMeta) {
+  if (response.status >= 500) {
+    // 5xx: a recusa não espera um corpo que pode nunca terminar (troca, debug e números, como no dono). O corpo é cancelado.
+    void response.body?.cancel().catch(() => undefined);
+    registrarRecusaMeta(etapa, response.status, CORPO_NAO_LIDO);
+    throw new WhatsappOnboardingError('META_API_RECUSOU', 'A Meta recusou a validação da configuração.', 502);
+  }
   const body = await response.json().catch(() => null) as Record<string, unknown> | null;
   if (!response.ok || !body || body.error) {
     registrarRecusaMeta(etapa, response.status, body);
@@ -53,10 +59,22 @@ async function graphGet(path: string, token: string, config: ConfigLeitura, fetc
   }), etapa);
 }
 
-/** IDs explícitos de um escopo granular; sem `target_ids` (escopo sobre todos os objetos) não há prova da AUTORIZAÇÃO do ativo. */
+const AUTORIZACAO_MALFORMADA = () => new WhatsappOnboardingError('META_AUTORIZACAO_INVALIDA', 'A Meta informou os ativos autorizados num formato inesperado.', 409);
+const idDecimal = (id: unknown) => (typeof id === 'string' || (typeof id === 'number' && Number.isSafeInteger(id))) && /^[0-9]{1,64}$/.test(String(id));
+/**
+ * IDs explícitos de um escopo granular. `null` só quando `target_ids` está AUSENTE (escopo sobre todos os objetos, sem
+ * prova da autorização do ativo). Presente com outro formato (não lista, ou item que não seja id numérico): recusa
+ * (fail-closed), nunca concessão geral.
+ */
 function alvosDoEscopo(granular: unknown[], scope: string): string[] | null {
-  const item = granular.find((entrada): entrada is { scope: string; target_ids?: unknown } => Boolean(entrada) && typeof entrada === 'object' && (entrada as { scope?: unknown }).scope === scope);
-  return Array.isArray(item?.target_ids) ? item.target_ids.map(String) : null;
+  const itens = granular.filter((entrada): entrada is { scope: string; target_ids?: unknown } => Boolean(entrada) && typeof entrada === 'object' && (entrada as { scope?: unknown }).scope === scope);
+  // Escopo repetido é ambíguo (uma entrada sem alvos e outra com alvos ruins): recusa antes de interpretar.
+  if (itens.length > 1) throw AUTORIZACAO_MALFORMADA();
+  const item = itens[0];
+  if (!item || !('target_ids' in item) || item.target_ids === undefined) return null;
+  const alvos = item.target_ids;
+  if (!Array.isArray(alvos) || !alvos.every(idDecimal)) throw AUTORIZACAO_MALFORMADA();
+  return alvos.map(String);
 }
 
 const RELACAO_NAO_CONFIRMADA = () => new WhatsappOnboardingError('META_RELACAO_NAO_CONFIRMADA', 'A Meta não confirmou que a conta WhatsApp pertence ao negócio informado.', 409);
@@ -75,15 +93,16 @@ export async function wabaPertenceAoNegocio(businessId: string, wabaId: string, 
   const body = await response.json().catch(() => null) as { data?: unknown; paging?: { next?: unknown }; error?: unknown } | null;
   if (!response.ok || !body || body.error || !Array.isArray(body.data)) throw RELACAO_NAO_CONFIRMADA();
   const ids = body.data.map((item) => (item && typeof item === 'object' ? (item as { id?: unknown }).id : undefined));
-  if (ids.some((id) => typeof id !== 'string' && typeof id !== 'number')) throw RELACAO_NAO_CONFIRMADA();
+  if (!ids.every(idDecimal)) throw RELACAO_NAO_CONFIRMADA();
   if (ids.map(String).includes(wabaId)) return true;
   if (body.paging?.next) throw RELACAO_NAO_CONFIRMADA();
   return false;
 }
 
 /** Números da WABA com os campos que a conexão confere (inclusive `is_on_biz_app`). Só leitura. */
-export async function lerNumerosDaWaba(wabaId: string, token: string, config: ConfigLeitura, fetchImpl: Fetch) {
-  return await graphGet(`/${wabaId}/phone_numbers?fields=id,display_phone_number,verified_name,status,account_mode,is_on_biz_app&limit=100`, token, config, fetchImpl, 'numeros') as GraphList<Record<string, unknown>>;
+export async function lerNumerosDaWaba(wabaId: string, token: string, config: ConfigLeitura, fetchImpl: Fetch, cursor?: string) {
+  const pagina = cursor ? `&after=${encodeURIComponent(cursor)}` : '';
+  return await graphGet(`/${wabaId}/phone_numbers?fields=id,display_phone_number,verified_name,status,account_mode,is_on_biz_app&limit=100${pagina}`, token, config, fetchImpl, 'numeros') as GraphList<Record<string, unknown>>;
 }
 
 /**
@@ -99,15 +118,16 @@ async function negocioDonoDaWaba(wabaId: string, token: string, config: ConfigLe
   });
   if (response.status >= 500) {
     // Como antes da mudança, o status basta: a recusa não espera o corpo (que pode nunca terminar de chegar).
+    void response.body?.cancel().catch(() => undefined);
     registrarRecusaMeta('dono_waba', response.status, CORPO_NAO_LIDO);
     throw new WhatsappOnboardingError('META_API_RECUSOU', 'A Meta recusou a validação da configuração.', 502);
   }
   const body = await response.json().catch(() => null) as { id?: unknown; owner_business_info?: unknown; error?: unknown } | null;
   if (!response.ok || !body || body.error) registrarRecusaMeta('dono_waba', response.status, body);
-  if (!response.ok || !body || body.error || String(body.id ?? '') !== wabaId) throw RELACAO_NAO_CONFIRMADA();
+  if (!response.ok || !body || body.error || !idDecimal(body.id) || String(body.id) !== wabaId) throw RELACAO_NAO_CONFIRMADA();
   const dono = body.owner_business_info;
   const id = dono && typeof dono === 'object' ? (dono as { id?: unknown }).id : undefined;
-  if ((typeof id !== 'string' && typeof id !== 'number') || !/^[0-9]{1,64}$/.test(String(id))) throw RELACAO_NAO_CONFIRMADA();
+  if (!idDecimal(id)) throw RELACAO_NAO_CONFIRMADA();
   return String(id);
 }
 
@@ -115,11 +135,20 @@ async function negocioDonoDaWaba(wabaId: string, token: string, config: ConfigLe
  * Número a conectar. Informado pelo evento: precisa estar na WABA. Ausente (fluxo do WhatsApp Business App): o único
  * número da WABA em coexistência (`is_on_biz_app`); nenhum, mais de um ou lista paginada: recusa.
  */
-function numeroDaConexao(phones: GraphList<Record<string, unknown>>, phoneNumberId: string | undefined) {
+async function numeroDaConexao(wabaId: string, token: string, config: ConfigLeitura, fetchImpl: Fetch, phoneNumberId: string | undefined) {
+  let phones = await lerNumerosDaWaba(wabaId, token, config, fetchImpl);
   if (phoneNumberId) {
-    const phone = phones.data?.find((item) => String(item.id) === phoneNumberId);
-    if (!phone) throw new WhatsappOnboardingError('META_NUMERO_DIVERGENTE', 'O número não pertence à conta WhatsApp autorizada.', 409);
-    return phone;
+    const vistos = new Set<string>();
+    while (true) {
+      const phone = phones.data?.find((item) => idDecimal(item.id) && String(item.id) === phoneNumberId);
+      if (phone) return phone;
+      // O cursor é opaco. Nunca seguir a URL retornada pela Meta com o token em mãos.
+      const cursor = phones.paging?.cursors?.after;
+      if (!phones.paging?.next || typeof cursor !== 'string' || !cursor || vistos.has(cursor)) break;
+      vistos.add(cursor);
+      phones = await lerNumerosDaWaba(wabaId, token, config, fetchImpl, cursor);
+    }
+    throw new WhatsappOnboardingError('META_NUMERO_DIVERGENTE', 'O número não pertence à conta WhatsApp autorizada.', 409);
   }
   const coexistentes = (phones.data ?? []).filter((item) => item.is_on_biz_app === true);
   if (phones.paging?.next || coexistentes.length > 1) throw new WhatsappOnboardingError('META_NUMERO_AMBIGUO', 'A conta WhatsApp tem mais de um número do WhatsApp Business App; não é possível saber qual conectar.', 409);
@@ -164,8 +193,35 @@ async function inscreverAppNaWaba(wabaId: string, token: string, config: Config,
   throw INSCRICAO_INCERTA();
 }
 
+/** Prazo por etapa de leitura. Todas as páginas de números compartilham o mesmo prazo. A inscrição tem prazo próprio. */
+export const PRAZO_LEITURA_META_MS = 10_000;
+const META_SEM_RESPOSTA = () => new WhatsappOnboardingError('META_SEM_RESPOSTA', 'A Meta não respondeu a tempo. Nada foi alterado; tente de novo.', 504);
+/**
+ * Fetch com prazo: o mesmo sinal cobre a chamada e a leitura do corpo, que é lido aqui (status < 500) para que um corpo
+ * interrompido no prazo também vire META_SEM_RESPOSTA nas quatro leituras, e não um corpo ilegível. Resposta 5xx segue
+ * sem ler o corpo (a recusa não espera um corpo que pode nunca chegar). Só leituras: nada foi gravado aqui nem na Meta.
+ * Quem já traz o próprio sinal (inscrição) mantém o seu.
+ */
+function comPrazo(fetchImpl: Fetch, prazoMs: number, sinalCompartilhado?: AbortSignal): Fetch {
+  return (async (url: string | URL | Request, init: RequestInit = {}) => {
+    if (init.signal) return fetchImpl(url, init);
+    const signal = sinalCompartilhado ?? AbortSignal.timeout(prazoMs);
+    try {
+      signal.throwIfAborted();
+      const resposta = await fetchImpl(url, { ...init, signal });
+      if (resposta.status >= 500) return resposta;
+      const corpo = await resposta.arrayBuffer();
+      signal.throwIfAborted();
+      return new Response([101, 204, 205, 304].includes(resposta.status) ? null : corpo, { status: resposta.status, statusText: resposta.statusText, headers: resposta.headers });
+    }
+    catch (e) { if (signal.aborted) throw META_SEM_RESPOSTA(); throw e; }
+  }) as Fetch;
+}
+
 /** `businessId` e `phoneNumberId` podem faltar no evento da Meta: são então resolvidos e comprovados aqui e devolvidos. */
-export async function trocarCodigoEValidarAtivos(input: { code: string; wabaId: string; businessId?: string; phoneNumberId?: string }, config: Config, fetchImpl: Fetch = fetch) {
+export async function trocarCodigoEValidarAtivos(input: { code: string; wabaId: string; businessId?: string; phoneNumberId?: string }, config: Config, fetchSemPrazo: Fetch = fetch, opcoes: { prazoLeituraMs?: number } = {}) {
+  const prazoLeitura = opcoes.prazoLeituraMs ?? PRAZO_LEITURA_META_MS;
+  const fetchImpl = comPrazo(fetchSemPrazo, prazoLeitura);
   const oauth = new URL(`https://graph.facebook.com/${config.graphApiVersion}/oauth/access_token`);
   // Troca documentada do Embedded Signup (Tech Provider): só client_id, client_secret e code, SEM redirect_uri. O código
   // vem do FB.login do SDK. Causa PROVÁVEL da recusa na tentativa real em staging de 03/11/2026 (23:27Z): o envio de
@@ -173,6 +229,8 @@ export async function trocarCodigoEValidarAtivos(input: { code: string; wabaId: 
   oauth.searchParams.set('client_id', config.appId);
   oauth.searchParams.set('client_secret', config.appSecret);
   oauth.searchParams.set('code', input.code);
+  // Referência conservadora: o tempo de resposta da troca também conta no prazo da credencial.
+  const trocaIniciadaEm = Date.now();
   const tokenBody = await respostaJson(await fetchImpl(oauth, { method: 'GET', headers: { Accept: 'application/json' }, cache: 'no-store' }), 'troca_codigo');
   const accessToken = typeof tokenBody.access_token === 'string' ? tokenBody.access_token : '';
   const tokenType = typeof tokenBody.token_type === 'string' ? tokenBody.token_type : 'UNKNOWN';
@@ -185,7 +243,7 @@ export async function trocarCodigoEValidarAtivos(input: { code: string; wabaId: 
   const debugBody = await respostaJson(await fetchImpl(debug, { method: 'GET', headers: { Accept: 'application/json' }, cache: 'no-store' }), 'debug_token');
   const debugData = debugBody.data as Record<string, unknown> | undefined;
   const scopes = Array.isArray(debugData?.scopes) ? debugData.scopes.filter((item): item is string => typeof item === 'string') : [];
-  if (debugData?.is_valid !== true || String(debugData.app_id ?? '') !== config.appId
+  if (debugData?.is_valid !== true || !idDecimal(debugData.app_id) || String(debugData.app_id) !== config.appId
       || !['whatsapp_business_management', 'whatsapp_business_messaging'].every((scope) => scopes.includes(scope))) {
     throw new WhatsappOnboardingError('META_ESCOPO_INVALIDO', 'A autorização Meta não concedeu os acessos necessários.', 409);
   }
@@ -195,17 +253,43 @@ export async function trocarCodigoEValidarAtivos(input: { code: string; wabaId: 
   const granular = debugData?.granular_scopes;
   if (!Array.isArray(granular)) throw new WhatsappOnboardingError('META_AUTORIZACAO_INCOMPLETA', 'A Meta não informou quais ativos foram autorizados.', 409);
   if (!alvosDoEscopo(granular, 'whatsapp_business_management')?.includes(input.wabaId)) throw new WhatsappOnboardingError('META_WABA_DIVERGENTE', 'A conta WhatsApp não foi autorizada nesta conexão.', 409);
+  // ENVIO: quando a Meta restringe `whatsapp_business_messaging` a ativos (target_ids), a WABA tem de estar entre eles;
+  // senão o token não envia por ela e uma renovação trocaria uma credencial funcional por outra inútil. Sem target_ids
+  // no escopo de envio, vale a concessão geral já exigida em `scopes`. Conferido antes de qualquer escrita (inscrição).
+  const alvosEnvio = alvosDoEscopo(granular, 'whatsapp_business_messaging');
+  if (alvosEnvio && !alvosEnvio.includes(input.wabaId)) throw new WhatsappOnboardingError('META_ENVIO_NAO_AUTORIZADO', 'A autorização da Meta não permite enviar mensagens por esta conta WhatsApp.', 409);
   const businessId = await negocioDonoDaWaba(input.wabaId, accessToken, config, fetchImpl);
   if (input.businessId && input.businessId !== businessId) throw new WhatsappOnboardingError('META_WABA_DIVERGENTE', 'A conta WhatsApp não pertence ao negócio informado.', 409);
-  const phones = await lerNumerosDaWaba(input.wabaId, accessToken, config, fetchImpl);
-  const phone = numeroDaConexao(phones, input.phoneNumberId);
-  const phoneNumberId = String(phone.id ?? '');
-  if (!/^[0-9]{1,64}$/.test(phoneNumberId)) throw new WhatsappOnboardingError('META_NUMERO_INCOMPLETO', 'A Meta não retornou a identificação completa do número.', 409);
+  const fetchNumeros = comPrazo(fetchSemPrazo, prazoLeitura, AbortSignal.timeout(prazoLeitura));
+  const phone = await numeroDaConexao(input.wabaId, accessToken, config, fetchNumeros, input.phoneNumberId);
+  if (!idDecimal(phone.id)) throw new WhatsappOnboardingError('META_NUMERO_INCOMPLETO', 'A Meta não retornou a identificação completa do número.', 409);
+  const phoneNumberId = String(phone.id);
   if (phone.is_on_biz_app !== true) throw new WhatsappOnboardingError('META_COEXISTENCIA_NAO_CONFIRMADA', 'A Meta não confirmou a coexistência com o WhatsApp Business App.', 409);
   const displayPhoneNumber = typeof phone.display_phone_number === 'string' ? phone.display_phone_number : '';
   const verifiedName = typeof phone.verified_name === 'string' ? phone.verified_name : '';
   if (!displayPhoneNumber || !verifiedName) throw new WhatsappOnboardingError('META_NUMERO_INCOMPLETO', 'A Meta não retornou a identificação completa do número.', 409);
-  // Última etapa: só a WABA já comprovada (posse, número e coexistência) recebe a inscrição.
+  const expiresAt = validadeDoToken(expiresIn, debugData.expires_at, trocaIniciadaEm);
+  exigirTokenVigente(expiresAt);
+  // Última etapa externa: só a WABA já comprovada (posse, número e coexistência) recebe a inscrição.
   await inscreverAppNaWaba(input.wabaId, accessToken, config, fetchImpl);
-  return { accessToken, tokenType, scopes, expiresAt: expiresIn && expiresIn > 0 ? new Date(Date.now() + expiresIn * 1000) : null, displayPhoneNumber, verifiedName, businessId, phoneNumberId, webhookInscrito: true as const };
+  exigirTokenVigente(expiresAt);
+  return { accessToken, tokenType, scopes, expiresAt, displayPhoneNumber, verifiedName, businessId, phoneNumberId, webhookInscrito: true as const };
+}
+
+export const metaTokenExpirado = () => new WhatsappOnboardingError('META_TOKEN_EXPIRADO', 'A credencial da Meta venceu durante a validação. Autorize novamente.', 409);
+
+function exigirTokenVigente(expiresAt: Date | null) {
+  if (expiresAt && !(expiresAt.getTime() > Date.now())) throw metaTokenExpirado();
+}
+
+/**
+ * Validade do token: a MAIS CEDO entre `expires_in` da troca e `expires_at` do debug_token (segundos Unix; 0 = não
+ * expira). Sem nenhuma das duas positiva: null (token sem validade, como o da configuração "Nunca" do Embedded Signup).
+ * Usar as duas evita gravar "não vence" para um token de 60 dias quando a troca omite `expires_in` (renovação de 20/11).
+ */
+export function validadeDoToken(expiresIn: number | null, debugExpiresAt: unknown, agora = Date.now()) {
+  const candidatos: number[] = [];
+  if (typeof expiresIn === 'number' && Number.isFinite(expiresIn) && expiresIn > 0) candidatos.push(agora + expiresIn * 1000);
+  if (typeof debugExpiresAt === 'number' && Number.isFinite(debugExpiresAt) && debugExpiresAt > 0) candidatos.push(debugExpiresAt * 1000);
+  return candidatos.length ? new Date(Math.min(...candidatos)) : null;
 }

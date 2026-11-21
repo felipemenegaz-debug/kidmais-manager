@@ -194,6 +194,7 @@ const ESTADO_POSTGRES = {
   // 16/10: WhatsApp por empresa (083): conexão, isolamento entre empresas, número único, desconexão, rollback.
   // Também no schema completo (084 de Convites + 085/086 do Marketing), desde a composição de 18/10/2026.
   "lib/whatsapp/conexao-empresa.postgres.test.ts": { descartavel: "083", tambem: ["086"] },
+  "lib/whatsapp/renovacao-credencial.postgres.test.ts": { descartavel: "083", tambem: ["086"] },
   // 16/10: Meta (Cloud API) como canal do atendimento: webhook assinado → empresa dona do número; status e envio.
   "lib/whatsapp/atendimento/meta-recepcao.postgres.test.ts": { descartavel: "083", tambem: ["086"] },
   // Recuperação manual de convites (079): valida schema e constraints após reconstruir a cadeia completa.
@@ -567,6 +568,7 @@ function estadoDaSuite(raiz, arquivo) {
 function arquivosDoCheckEstatico(raiz) {
   return [
     ...listarTestesEstaticos(raiz),
+    path.join(raiz, "components", "admin", "WhatsappConfiguracao.popup.test.mjs"),
     path.join(raiz, "scripts", "regressao-v1-estatica.test.cjs"),
     // Regressão do Wall-e com os casos dos holdouts já analisados (sem rede nem banco; usa a composition root da IA).
     path.join(raiz, "scripts", "walle-avaliacao", "regressao-holdouts.test.mjs"),
