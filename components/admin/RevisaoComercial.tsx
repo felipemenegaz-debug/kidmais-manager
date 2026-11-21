@@ -6,9 +6,19 @@ import { useEffect, useRef, useState } from "react";
 import type { AprovacaoNegociacaoRecord, FechamentoRecord } from "@/lib/fechamentos/repositories/models";
 import { calcularCondicaoComercial, centavosComerciais } from "@/lib/comercial/condicao-pagamento";
 import { formatarMoeda, formatarCondicaoPix, formatarFormaPagamento } from "@/lib/contratos/documento/formatters";
+import { pedidoDaUrl } from "./contrato-url";
 import styles from "./RevisaoComercial.module.css";
 
 type Dados = { recusa?: 'SEM_CONTRATO' | 'COM_PREPARACAO' | 'INDISPONIVEL'; fechamento: FechamentoRecord; aprovacoes: AprovacaoNegociacaoRecord[] };
+const listaContratos = "/admin/contratos";
+
+function urlDoContrato(id: unknown) {
+  if (typeof id !== "string") return listaContratos;
+  const params = new URLSearchParams({ contratoId: id });
+  const pedido = pedidoDaUrl(params);
+  return pedido.tipo === "contrato" ? `${listaContratos}?contratoId=${encodeURIComponent(pedido.contratoId)}` : listaContratos;
+}
+
 export default function RevisaoComercial({ fechamentoId }: { fechamentoId: string }) {
   const [dados, setDados] = useState<Dados | null>(null);
   const [erro, setErro] = useState("");
@@ -20,17 +30,35 @@ export default function RevisaoComercial({ fechamentoId }: { fechamentoId: strin
   const [quantidade, setQuantidade] = useState("");
   const [motivo, setMotivo] = useState("");
   const [conferido, setConferido] = useState(false);
-  const [contratoGerado, setContratoGerado] = useState(false);
-  const url = `/api/admin/fechamentos/${encodeURIComponent(fechamentoId)}/revisao`;
+  const [atalhoContrato, setAtalhoContrato] = useState<{ fechamentoId: string; href: string } | null>(null);
+  const idNaUrl = encodeURIComponent(fechamentoId);
+  const url = `/api/admin/fechamentos/${idNaUrl}/revisao`;
   useEffect(() => {
     let ativo = true;
     adminFetch(url, { cache: "no-store" }).then(async (r) => {
       const body = await r.json();
       if (!r.ok) throw new Error(body.erro);
-      if (ativo) setDados(body.data);
+      if (!ativo) return;
+      const revisao: Dados = body.data;
+      setDados(revisao);
+      const { status } = revisao.fechamento;
+      if (!["AGUARDANDO_CONTRATO", "CONTRATO_ASSINADO", "AGUARDANDO_PAGAMENTO", "CONFIRMADO"].includes(status)) return;
+
+      let href = revisao.recusa === "COM_PREPARACAO" || status !== "AGUARDANDO_CONTRATO" ? listaContratos : null;
+      try {
+        const resposta = await adminFetch(`/api/admin/contratos?fechamentoId=${idNaUrl}`, { cache: "no-store" });
+        if (resposta.ok) {
+          const contrato = await resposta.json();
+          href = urlDoContrato(contrato.data?.versao?.contratoId);
+        }
+      } catch { /* A consulta do atalho é opcional para a revisão. */ }
+      if (ativo && href !== null) {
+        const destino = href;
+        setAtalhoContrato((atual) => atual?.fechamentoId === fechamentoId ? atual : { fechamentoId, href: destino });
+      }
     }).catch((e) => { if (ativo) setErro(e.message); });
     return () => { ativo = false; };
-  }, [url]);
+  }, [url, idNaUrl, fechamentoId]);
   const dialogo = useRef<HTMLDialogElement>(null);
   const [motivoPerda, setMotivoPerda] = useState('');
   const [observacao, setObservacao] = useState('');
@@ -58,7 +86,7 @@ export default function RevisaoComercial({ fechamentoId }: { fechamentoId: strin
         throw new Error(body.erro);
       }
       setDados(null);
-      setContratoGerado(false);
+      setAtalhoContrato(null);
       setMensagem('Pedido recusado.');
       await atualizar();
     } catch (e) {
@@ -70,6 +98,7 @@ export default function RevisaoComercial({ fechamentoId }: { fechamentoId: strin
     }
   }
   const f = dados?.fechamento;
+  const hrefContrato = atalhoContrato?.fechamentoId === fechamentoId && f?.status !== "RECUSADO" ? atalhoContrato.href : null;
   const podeRecusar = dados?.recusa === 'SEM_CONTRATO' || dados?.recusa === 'COM_PREPARACAO';
   const condicao = f?.condicaoPagamento;
   const pendente = dados?.aprovacoes.find((a) => a.status === "PENDENTE" && a.condicaoPagamento);
@@ -106,7 +135,7 @@ export default function RevisaoComercial({ fechamentoId }: { fechamentoId: strin
     try {
       const r = await adminFetch("/api/admin/contratos", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ fechamentoId }) });
       const body = await r.json(); if (!r.ok) throw new Error(body.erro);
-      setContratoGerado(true);
+      setAtalhoContrato({ fechamentoId, href: urlDoContrato(body.data?.versao?.contratoId) });
       await atualizar();
       setMensagem(`Contrato gerado com valor final de ${formatarMoeda(body.data.versao.snapshot.comercial.valorFinalContrato)}.`);
     } catch (e) { setErro(e instanceof Error ? e.message : "Falha ao gerar contrato."); }
@@ -117,8 +146,10 @@ export default function RevisaoComercial({ fechamentoId }: { fechamentoId: strin
     <p>Confira a proposta e registre a decisão antes de gerar o contrato.</p>
     {erro && <p role="alert" className={styles.error}>{erro}</p>}
     {mensagem && <p role="status">{mensagem}</p>}
-    {contratoGerado && <a href={`/api/admin/contratos/resumo?fechamentoId=${encodeURIComponent(fechamentoId)}`} target="_blank" rel="noreferrer">Abrir Resumo da Contratação</a>}
-    {contratoGerado && <p><a href="/admin/contratos">Abrir revisão e assinatura administrativa do Contrato</a></p>}
+    {hrefContrato && <div className={styles.actions}>
+      <a className={styles.atalhoContrato} href={hrefContrato}>Abrir contrato para assinar</a>
+      <a href={`/api/admin/contratos/resumo?fechamentoId=${idNaUrl}`} target="_blank" rel="noreferrer">Abrir Resumo da Contratação</a>
+    </div>}
     {!f && !erro && <p>Carregando fechamento…</p>}
     {f && <>
       <section className={styles.card}><h2>Cliente e festa</h2>{f.clienteId && <a href={`/clientes/${encodeURIComponent(f.clienteId)}`}>Conferir cadastro do cliente</a>}<p>{f.dataEvento.split('-').reverse().join('/')} · {f.horarioInicio.slice(0,5)}–{f.horarioFim.slice(0,5)} · {f.convidados} convidados</p>{f.temaFesta && <p>Tema: {f.temaFesta}</p>}</section>
