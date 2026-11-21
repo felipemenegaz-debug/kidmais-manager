@@ -44,6 +44,8 @@ export default function RevisaoComercial({ fechamentoId }: { fechamentoId: strin
       const { status } = revisao.fechamento;
       if (!["AGUARDANDO_CONTRATO", "CONTRATO_ASSINADO", "AGUARDANDO_PAGAMENTO", "CONFIRMADO"].includes(status)) return;
 
+      // SEM_CONTRATO já confirma que ainda não existe contrato: não consultar (evita 404 no fluxo normal).
+      if (status === "AGUARDANDO_CONTRATO" && revisao.recusa === "SEM_CONTRATO") return;
       let href = revisao.recusa === "COM_PREPARACAO" || status !== "AGUARDANDO_CONTRATO" ? listaContratos : null;
       try {
         const resposta = await adminFetch(`/api/admin/contratos?fechamentoId=${idNaUrl}`, { cache: "no-store" });

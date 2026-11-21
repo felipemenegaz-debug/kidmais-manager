@@ -219,7 +219,7 @@ Não repita para criar chaves duplicadas se essas variáveis já estiverem prese
 8. Informe base comercial combinada **9.290,00**. Na etapa da forma de pagamento, confira PIX à vista **8.361,00**, PIX parcelado **9.011,30** e Cartão **9.290,00**. Selecione PIX parcelado e informe uma proposta parcial, por exemplo parcela pretendida **500,25**, deixando outros campos vazios.
 9. Abra F12 → Rede/Network e envie para conferência. Copie `fechamentoId` da resposta de `/api/fechamentos`. O estado esperado é AGUARDANDO_APROVACAO; nenhuma parcela financeira ou Pagamento deve existir.
 10. Já autenticado, abra `/admin/fechamentos/FECHAMENTO_ID/revisao`, substituindo o ID. Aprove a base 9290 quando solicitada, entrada **0**, parcela **4505,65**, quantidade **2**, motivo e confirmação de conferência. O resultado é AGUARDANDO_CONTRATO com proposta/aprovação separadas e total **9011,30**.
-11. Clique **Gerar contrato** e depois **Abrir contrato para assinar**. Confira que a página abre o contrato recém-gerado. Se o atalho abrir a lista, selecione a contratação. Abrir acesso público antes da liberação não deve permitir o aceite.
+11. Clique **Gerar contrato** e depois **Abrir contrato para assinar**. Confira que a URL é `/admin/contratos?contratoId=CONTRATO_ID`, com o `data.versao.contratoId` devolvido pelo POST `/api/admin/contratos` (F12 → Rede), e que o documento abre sem selecionar nada na lista. A lista só é aceitável quando não há ID confiável (por exemplo, contrato já em preparação). Abrir acesso público antes da liberação não deve permitir o aceite.
 
 ### Revisar e assinar pela Kidmais
 
