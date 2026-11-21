@@ -44,10 +44,11 @@ const curta = e => String(e?.message ?? e).replace(/postgres(?:ql)?:\/\/\S+/gi, 
 
 // ---------------------------------------------------------------- SQL (todo UPDATE filtra ambiente, migration, tentativa, versao, situacao)
 const T = 'public.operacao_migration_tentativas';
-// tem_corpo: evidência ESTRUTURADA (objeto com txid e postcheck=PASS); tem_chave_corpo: qualquer chave 'corpo' (inclusive {"corpo":null}),
+// tem_corpo: evidência ESTRUTURADA (objeto com txid string decimal não vazia, como o aplicador grava, e postcheck=PASS); tem_chave_corpo: qualquer chave 'corpo' (inclusive {"corpo":null}),
 // usada só para RECUSAR (arquivar, classificar), nunca para aceitar.
 const COLS = "id, tentativa::text AS tentativa, ambiente, migration, situacao, versao, (detalhe ? 'corpo') AS tem_chave_corpo, " +
-  "COALESCE(jsonb_typeof(detalhe -> 'corpo') = 'object' AND (detalhe -> 'corpo') ? 'txid' AND detalhe -> 'corpo' ->> 'postcheck' = 'PASS', false) AS tem_corpo, " +
+  "COALESCE(jsonb_typeof(detalhe -> 'corpo') = 'object' AND jsonb_typeof(detalhe -> 'corpo' -> 'txid') = 'string' " +
+  "AND detalhe -> 'corpo' ->> 'txid' ~ '^[0-9]+$' AND detalhe -> 'corpo' ->> 'postcheck' = 'PASS', false) AS tem_corpo, " +
   'arquivada_em IS NOT NULL AS arquivada, arquivada_motivo, substituida_por::text AS substituida_por';
 const SQL = Object.freeze({
   sondagem: "SELECT to_regclass('public.operacao_migration_tentativas')::text AS tabela",
@@ -565,12 +566,11 @@ async function aplicar(ctx, {id, backup}) {
       await falhaPosCommit(ctx, db, o, id, atual, e);
       return fim(o);
     }
-    const naoAtualizado = x => { o.linha(`REGISTRO_NAO_ATUALIZADO tentativa=${u} ${curta(x)} (corpo COMMITADO; reconciliar com --concluir-verificacao ${id} --tentativa ${u})`, 2); return null; };
     if (pf.aprovado) {
-      const w = await escreverLinha(ctx, db, o, id, atual, 'CONCLUIDA', {conclusao: {postcheck: 'PASS'}}).catch(naoAtualizado);
+      const w = await escreverPosCommit(ctx, db, o, id, atual, 'CONCLUIDA', {conclusao: {postcheck: 'PASS'}});
       if (w) o.linha('APLICADA_POSTCHECK_PASS ' + id, 0);
     } else {
-      const w = await escreverLinha(ctx, db, o, id, atual, 'FALHA', {falha: {fase: 'postcheck_final', motivo: pf.motivo}}).catch(naoAtualizado);
+      const w = await escreverPosCommit(ctx, db, o, id, atual, 'FALHA', {falha: {fase: 'postcheck_final', motivo: pf.motivo}});
       if (w) o.linha(`FALHA ${id} tentativa=${u} postcheck=${pf.motivo} (corpo preservado; ver --concluir-verificacao)`, 2);
     }
     return fim(o);
@@ -588,13 +588,35 @@ async function falhaPosCommit(ctx, db, o, id, linha, e) {
   const u = linha.tentativa;
   o.linha(`VERIFICACAO_POS_COMMIT_FALHOU ${id} tentativa=${u} ${curta(e)}`, 2);
   const reconciliar = `(corpo COMMITADO; reconciliar com --concluir-verificacao ${id} --tentativa ${u})`;
-  // Sem SQLSTATE (erro local, asserção) a C pode estar viva: tenta gravar FALHA; se não responder, o catch abaixo indica a reconciliação.
+  // Sem SQLSTATE (erro local, asserção) a C pode estar viva: tenta gravar FALHA; se não responder, escreverPosCommit indica a reconciliação.
   if (db.destruido || (sqlstateDe(e) && fatal(e))) { o.linha(`REGISTRO_NAO_ATUALIZADO tentativa=${u} conexão perdida ${reconciliar}`, 2); return; }
+  try { await comPrazo(db.query('ROLLBACK'), ctx.prazoRollback ?? 10000, 'rollback_timeout'); } catch (x) {
+    if (x?.prazo) { destruir(db); db.destruido = true; o.linha(`REGISTRO_NAO_ATUALIZADO tentativa=${u} ${curta(x)} ${reconciliar}`, 2); return; }
+  }
+  const w = await escreverPosCommit(ctx, db, o, id, linha, 'FALHA', {falha: {fase: 'verificacao_pos_commit', motivo: curta(e)}});
+  if (w) o.linha(`FALHA ${id} tentativa=${u} ${reconciliar}`, 2);
+}
+/**
+ * Escrita no registro depois do COMMIT do corpo (ou da 129): prazo local; nunca lança e nunca vira código 1.
+ * Estouro: destrói C e devolve código 2 com o uuid — o UPDATE já foi enviado e pode ter sido confirmado, então a orientação
+ * é consultar --conferir-tentativa primeiro. Outro erro: REGISTRO_NAO_ATUALIZADO (código 2) com o comando de reconciliação.
+ */
+async function escreverPosCommit(ctx, db, o, id, linha, novaSituacao, detalhe) {
+  const u = linha.tentativa;
   try {
-    await db.query('ROLLBACK').catch(() => {});
-    const w = await escreverLinha(ctx, db, o, id, linha, 'FALHA', {falha: {fase: 'verificacao_pos_commit', motivo: curta(e)}});
-    if (w) o.linha(`FALHA ${id} tentativa=${u} ${reconciliar}`, 2);
-  } catch (x) { o.linha(`REGISTRO_NAO_ATUALIZADO tentativa=${u} ${curta(x)} ${reconciliar}`, 2); }
+    const escrita = (async () => {
+      await ctx.ganchos?.antesDaEscritaPosCommit?.({id, u, db, novaSituacao});
+      return escreverLinha(ctx, db, o, id, linha, novaSituacao, detalhe);
+    })();
+    return await comPrazo(escrita, ctx.prazoEscrita ?? 30000, 'escrita_registro_timeout');
+  } catch (x) {
+    if (x?.prazo) {
+      destruir(db); db.destruido = true;
+      o.linha(`REGISTRO_INDETERMINADO tentativa=${u} ${novaSituacao} ${curta(x)} (corpo COMMITADO; a escrita pode ter sido confirmada: ` +
+        `consultar primeiro --conferir-tentativa ${id} --tentativa ${u}; só então --concluir-verificacao ${id} --tentativa ${u})`, 2);
+    } else o.linha(`REGISTRO_NAO_ATUALIZADO tentativa=${u} ${curta(x)} (corpo COMMITADO; reconciliar com --concluir-verificacao ${id} --tentativa ${u})`, 2);
+    return null;
+  }
 }
 
 // ---------------------------------------------------------------- bootstrap da 129 (§3.4)
@@ -662,10 +684,10 @@ async function bootstrap129(ctx, {backup}) {
     const confere = linha?.tentativa === u && linha.situacao === 'VERIFICACAO_PENDENTE' && linha.versao === 1 && linha.tem_corpo === true;
     if (!confere) o.linha(`REGISTRO_DESATUALIZADO tentativa=${u} linha da 129 não confere (${linha ? `${linha.tentativa} ${linha.situacao} versao=${linha.versao} corpo=${linha.tem_corpo ? 'sim' : 'nao'}` : 'ausente'})`, 2);
     else if (pf.aprovado) {
-      const w = await escreverLinha(ctx, db, o, '129', linha, 'CONCLUIDA', {conclusao: {postcheck: 'PASS'}});
+      const w = await escreverPosCommit(ctx, db, o, '129', linha, 'CONCLUIDA', {conclusao: {postcheck: 'PASS'}});
       if (w) o.linha('APLICADA_POSTCHECK_PASS 129', 0);
     } else {
-      const w = await escreverLinha(ctx, db, o, '129', linha, 'FALHA', {falha: {fase: 'postcheck_final', motivo: pf.motivo}});
+      const w = await escreverPosCommit(ctx, db, o, '129', linha, 'FALHA', {falha: {fase: 'postcheck_final', motivo: pf.motivo}});
       if (w) o.linha(`FALHA 129 tentativa=${u} postcheck=${pf.motivo} (ver --concluir-verificacao 129)`, 2);
     }
     return fim(o);
@@ -853,7 +875,7 @@ async function principal(argv, env, deps = {}) {
   try {
     ctx = {env, raiz: deps.raiz ?? raizPadrao, Client: deps.Client ?? require('pg').Client, ambiente: ambienteDe(m.ambiente, env, deps), ganchos: deps.ganchos,
       out: deps.out, uuid: deps.uuid, agora: deps.agora, antecessoras: deps.antecessoras, prazoRollback: deps.prazoRollback, prazoDescarte: deps.prazoDescarte,
-      prazoLiquidacao: deps.prazoLiquidacao, prazoCommit: deps.prazoCommit, clientInjetado: Boolean(deps.Client)};
+      prazoLiquidacao: deps.prazoLiquidacao, prazoCommit: deps.prazoCommit, prazoEscrita: deps.prazoEscrita, clientInjetado: Boolean(deps.Client)};
     ctx.ambiente.alvo(`kidmais-registro-${m.ambiente}-alvo`); // valida o alvo antes de conectar
   } catch (e) { const t = 'RECUSADO ' + curta(e); (deps.out ?? (() => {}))(t); return {codigo: 1, linhas: [t]}; }
   switch (m.modo) {
