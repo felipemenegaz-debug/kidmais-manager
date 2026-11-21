@@ -42,12 +42,13 @@ export function avaliarTolerancia(valor: string | undefined, agora: number): Est
   return instante > agora ? 'VALIDA' : 'VENCIDA';
 }
 
-/** Mesma leitura dos consumidores: `valor || fallback`, comparando a origem. Valor inválido dá falso. */
+/** Mesma leitura dos consumidores: `valor || fallback`, comparando a origem. Valor inválido ou com usuário/senha dá falso. */
 function origemIgual(valor: string | undefined, esperada: string, exigeSemCaminho = false) {
   if (!valor) return false;
   try {
     const url = new URL(valor);
-    return url.origin === esperada && (!exigeSemCaminho || url.pathname === '/');
+    // usuário:senha não muda `origin`, mas o consumidor da mídia recusa (urlPublicaArquivo): não pode parecer coerente.
+    return url.origin === esperada && !url.username && !url.password && (!exigeSemCaminho || url.pathname === '/');
   } catch {
     return false;
   }

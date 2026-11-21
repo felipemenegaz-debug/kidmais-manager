@@ -72,6 +72,9 @@ test('coerência: cada origem errada derruba só o seu item, sem mudar o modo', 
     [{ WHATSAPP_ATENDIMENTO_MIDIA_ORIGEM: '' }, 'midia'],
     [{ WHATSAPP_ATENDIMENTO_MIDIA_ORIGEM: 'não é url' }, 'midia'],
     [{ WHATSAPP_ATENDIMENTO_MIDIA_ORIGEM: 'https://outro.example' }, 'midia'],
+    [{ WHATSAPP_ATENDIMENTO_MIDIA_ORIGEM: 'https://u:s@iafest.demerzellabs.com.br' }, 'midia'],
+    [{ WHATSAPP_ATENDIMENTO_MIDIA_ORIGEM: 'https://u@manager.kidmaisfestas.com' }, 'midia'],
+    [{ WHATSAPP_ATENDIMENTO_MIDIA_ORIGEM: '   ' }, 'midia'],
     [{ MCP_PUBLIC_URL: `${N}/api/mcp` }, 'mcp'],
     [{ MCP_PUBLIC_URL: 'não é url' }, 'mcp'],
   ];
@@ -90,6 +93,9 @@ test('mídia (F4/M1): N escrita na variável é coerente em qualquer modo; N her
   assert.equal(diag(hA, { ...ATIVA, WHATSAPP_ATENDIMENTO_MIDIA_ORIGEM: `${N}/` }).coerencia!.midia, true, 'compara a origem');
   assert.equal(diag(hA, { ...REVERSAO, WHATSAPP_ATENDIMENTO_MIDIA_ORIGEM: N }).coerencia!.midia, true, '/api livre em N também na reversão');
   assert.equal(diag(hA, { ...REVERSAO, WHATSAPP_ATENDIMENTO_MIDIA_ORIGEM: N }).midiaEm, 'N');
+  const prep: AmbienteDiagnostico = { ...REVERSAO, ENDERECOS_MODO: 'PREPARACAO', WHATSAPP_ATENDIMENTO_MIDIA_ORIGEM: N };
+  assert.equal(diag(hA, prep).coerencia!.midia, true, 'também em PREPARACAO');
+  assert.equal(diag(hA, { ...ATIVA, WHATSAPP_ATENDIMENTO_MIDIA_ORIGEM: `https://u:s@${hN}` }).midiaEm, 'INDETERMINADA', 'usuário/senha');
   // Ausente ou vazia em ATIVA cai em ADMIN_AUTH_ORIGIN = N sem decisão: H25 segue alertando.
   for (const v of [undefined, '']) {
     const d = diag(hA, { ...ATIVA, WHATSAPP_ATENDIMENTO_MIDIA_ORIGEM: v });
@@ -132,6 +138,7 @@ test('nenhum valor de variável aparece na resposta nem no log', () => {
   const env: AmbienteDiagnostico = {
     ...ATIVA, ENDERECOS_MODO: 'segredo-modo', SITE_URL: 'https://segredo-site.example', CONVITES_PUBLIC_ORIGIN: 'https://segredo-convites.example',
     MCP_PUBLIC_URL: 'https://segredo-mcp.example/api/mcp', ENDERECOS_TOLERANCIA_ATE: 'segredo-data',
+    WHATSAPP_ATENDIMENTO_MIDIA_ORIGEM: 'https://segredo-midia.example', AGENDA_PUBLICA_ORIGEM: 'https://segredo-agenda.example',
   };
   for (const texto of [JSON.stringify(diag(hA, env)), linhaDeLogDoEndereco(env, AGORA), JSON.stringify(diag(hA, ATIVA)), linhaDeLogDoEndereco(ATIVA, AGORA)]) {
     assert.doesNotMatch(texto, /segredo|kidmaisfestas|demerzellabs|https?:/);

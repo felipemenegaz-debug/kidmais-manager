@@ -52,6 +52,7 @@ test('--midia (F4/M1): exige a origem efetiva da mídia; sem a opção, não con
     assert.deepEqual(avaliar('A', leitura({ midiaEm: 'A' }), { ...esperado, midia: 'N' }), ['A:MIDIA_DIVERGENTE']);
     assert.deepEqual(avaliar('A', leitura(), { ...esperado, midia: 'A' }), ['A:MIDIA_DIVERGENTE'], 'campo ausente (web antigo) reprova');
     assert.deepEqual(avaliar('A', leitura({ midiaEm: 'INDETERMINADA' }), esperado), []);
+    assert.deepEqual(avaliar('N', leitura({ midiaEm: 'A', painelNesteHost: true }), { ...esperado, midia: 'A' }), []);
     const base = ['--antiga', A, '--nova', N, '--modo', 'ATIVA', '--mcp-sha256', HASH];
     assert.equal(argumentos([...base, '--midia', 'N']).midia, 'N');
     assert.equal(argumentos(base).midia, undefined);

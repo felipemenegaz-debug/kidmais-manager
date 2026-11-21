@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 // Confere /api/endereco-atual em A e N contra o modo esperado (plano D4). Obrigatório depois de todo deploy ou reinício
 // com modo diferente de DESLIGADO. Só leitura; enxerga só o ambiente do web. Código de saída 1 = reprovado.
+// --midia A|N (F4/M1) exige o campo midiaEm; em DESLIGADO ele é nulo e reprova, então não use --midia nesse modo.
 //   node scripts/enderecos-conferir.cjs --antiga <origem> --nova <origem> --modo <MODO> --mcp-sha256 <hash|AUSENTE> [--sem-nova] [--exige-tolerancia] [--midia A|N]
 const ORIGEM_ATIVA = { DESLIGADO: 'INDETERMINADA', PREPARACAO: 'A', ATIVA: 'N', REVERSAO: 'A' };
 
