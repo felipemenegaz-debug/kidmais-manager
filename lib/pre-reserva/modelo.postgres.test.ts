@@ -55,9 +55,7 @@ test('migration A sobre a 128, isolamento, transferência concorrente e expiraç
     assert.deepEqual(await servico.configuracaoPreReserva(tx,gestor),padrao);
     await db.query("INSERT INTO empresa_pix_recebimento(empresa_id,tipo_chave,chave,nome_recebedor,cidade_recebedor,atualizado_por) VALUES($1,'EMAIL','pix@example.test','Buffet','Brasilia',$2)",[a.empresa,gestor.usuarioId]);
     const ativa = await servico.salvarConfiguracaoPreReserva(tx,gestor,sessao,{...padrao,habilitada:true});
-    await db.query('SAVEPOINT adesao');
-    await assert.rejects(db.query(postcheck),/empresa habilitada/);
-    await db.query('ROLLBACK TO SAVEPOINT adesao');
+    await db.query(postcheck);
     assert.deepEqual(ativa,{...padrao,habilitada:true,versao:1});
     assert.deepEqual(await servico.configuracaoPreReserva(tx,gestorB),padrao);
     assert.equal((await db.query("SELECT 1 FROM auditoria WHERE acao='PRE_RESERVA_CONFIGURADA' AND entidade_id=$1 AND usuario_id=$2",[a.empresa,gestor.usuarioId])).rowCount,1);

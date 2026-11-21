@@ -1,5 +1,7 @@
 -- Fatia A. Não altera a ocupação da agenda nem habilita buffets existentes.
 BEGIN;
+SET LOCAL lock_timeout = '5s';
+SET LOCAL statement_timeout = '60s';
 SET LOCAL search_path = public, pg_catalog;
 
 CREATE TABLE pre_reserva_configuracoes (

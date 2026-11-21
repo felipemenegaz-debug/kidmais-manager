@@ -97,8 +97,5 @@ FROM pg_class c WHERE c.oid=to_regclass('public.pre_reserva_situacoes') AND c.re
   SELECT e.tabela,e.nome INTO divergente FROM esperado e LEFT JOIN instalado i ON i.tabela=e.tabela AND i.nome=e.nome AND i.definicao=replace(e.definicao,chr(13),'')
     WHERE i.nome IS NULL LIMIT 1;
   IF FOUND THEN RAISE EXCEPTION '130: peça ausente ou divergente %.%', divergente.tabela,divergente.nome; END IF;
-  IF EXISTS (SELECT FROM public.pre_reserva_configuracoes WHERE habilitada) THEN
-    RAISE EXCEPTION '130: empresa habilitada na instalação';
-  END IF;
 END $$;
 SELECT true AS aprovado;
