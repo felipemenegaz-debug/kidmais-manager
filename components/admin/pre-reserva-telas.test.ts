@@ -3,6 +3,7 @@ import test from 'node:test';
 import * as preReserva from '../../lib/pre-reserva/apresentacao-admin.ts';
 import * as agenda from '../../lib/agenda/disponibilidade.ts';
 import * as periodos from '../fechamento/periodos.ts';
+import { pedidoDaUrl } from './contrato-url.ts';
 import { achar, carregarComponente, cssFalso, elementos, texto, tique } from './teste-componente.ts';
 import { carregarModulo, executorFalso } from '../../lib/acessos/teste-carregador.ts';
 
@@ -168,6 +169,78 @@ test('revisão mantém o pedido recusado quando a leitura da confirmação chega
   assert.doesNotMatch(texto(estado), /Recusar pedido/);
   assert.doesNotMatch(texto(renderSinal(estado)), /Pré-reserva garantida até/);
 });
+
+const pedidoCanonico = 'abcdef12-abcd-4def-8abc-abcdef123456';
+for (const [idNaUrl, cenario] of [
+  [pedidoCanonico, 'UUID canônico'],
+  [pedidoCanonico.toUpperCase(), 'UUID em maiúsculas'],
+]) {
+  test(`revisão exibe o aceite e os atalhos que chegam após a confirmação do sinal (${cenario})`, async () => {
+    const aceite: preReserva.RevisaoPreReserva = {
+      sequencia: 1, sinalCentavos: 10000, aceitoEm: '2026-11-21T12:00Z',
+      inicio: '2026-12-21T19:00Z', fim: '2026-12-21T22:00Z', unidade: 'Unidade', salao: 'Salão',
+      recebedor: 'Buffet', garantiaAte: null, garantia: null, destinos: [],
+    };
+    const garantiaAte = '2026-11-23T12:00Z';
+    const contratoId = '22222222-2222-4222-8222-222222222222';
+    const consulta = Promise.withResolvers<Response>();
+    let leituras = 0;
+    let consultas = 0;
+    const http = { async adminFetch(url: string, init: RequestInit) {
+      if (url === `/api/admin/contratos?fechamentoId=${idNaUrl}`) {
+        consultas++;
+        return consulta.promise;
+      }
+      if (url === `/api/admin/fechamentos/${idNaUrl}/confirmar-sinal`) {
+        assert.equal(init.method, 'POST');
+        return Response.json({ data: { garantiaAte } });
+      }
+      assert.equal(url, `/api/admin/fechamentos/${idNaUrl}/revisao`);
+      return Response.json({ data: {
+        fechamento: {
+          id: pedidoCanonico, status: 'AGUARDANDO_CONTRATO', dataEvento: '2026-12-21',
+          horarioInicio: '16:00', horarioFim: '19:00', valorTabela: 1000, valorNegociado: null,
+        },
+        aprovacoes: [], recusa: 'COM_PREPARACAO',
+        preReserva: ++leituras === 1 ? aceite : { ...aceite, garantiaAte, garantia: 'ATIVA', destinos: ['EM_GARANTIA'] },
+      } });
+    } };
+    const sinal = carregarComponente('components/admin/RevisaoPreReserva.tsx', { ...deps, '@/lib/http/admin-fetch': http });
+    const { RevisaoPreReserva } = sinal.modulo;
+    const tela = carregarComponente('components/admin/RevisaoComercial.tsx', {
+      ...deps,
+      '@/lib/http/admin-fetch': http,
+      '@/lib/comercial/condicao-pagamento': {},
+      '@/lib/contratos/documento/formatters': {
+        ...deps['@/lib/contratos/documento/formatters'], formatarFormaPagamento: () => 'Pix',
+        formatarCondicaoPix: () => 'À vista',
+      },
+      './contrato-url': { pedidoDaUrl },
+      './RevisaoPreReserva': { RevisaoPreReserva },
+    });
+    const render = () => tela.render('default', { fechamentoId: idNaUrl });
+    const renderSinal = () => sinal.render('RevisaoPreReserva', achar(render(), RevisaoPreReserva).props);
+    render();
+    tela.efeitos();
+    await tique();
+    assert.equal(consultas, 1);
+    assert.match(texto(renderSinal()), /Aceito em/);
+    digitar(renderSinal(), /Valor recebido/, '100,00');
+    digitar(renderSinal(), /Identificador da transferência/, pix);
+    (achar(renderSinal(), 'form').props.onSubmit as (e: object) => void)({ preventDefault() {} });
+    await tique();
+    assert.equal(leituras, 2);
+    assert.match(texto(renderSinal()), /Pré-reserva garantida até/);
+    assert.doesNotMatch(texto(render()), /Abrir contrato para assinar/);
+
+    consulta.resolve(Response.json({ data: { versao: { contratoId } } }));
+    await tique();
+    const estado = render();
+    assert.equal(consultas, 1);
+    assert.equal(achar(estado, 'a', 'Abrir contrato para assinar').props.href, `/admin/contratos?contratoId=${contratoId}`);
+    assert.equal(achar(estado, 'a', 'Abrir Resumo da Contratação').props.href, `/api/admin/contratos/resumo?fechamentoId=${idNaUrl}`);
+  });
+}
 
 test('fila só permite baixa após assunção e recarrega no conflito; histórico mostra os dois autores', async () => {
   const movimento = {

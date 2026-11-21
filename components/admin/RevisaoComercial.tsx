@@ -14,6 +14,13 @@ import styles from "./RevisaoComercial.module.css";
 type Dados = { recusa?: 'SEM_CONTRATO' | 'COM_PREPARACAO' | 'INDISPONIVEL'; fechamento: FechamentoRecord; aprovacoes: AprovacaoNegociacaoRecord[]; preReserva?: DadosPreReserva };
 const listaContratos = "/admin/contratos";
 
+function permiteAtalho(dados: Dados | null) {
+  if (!dados) return false;
+  const { status } = dados.fechamento;
+  if (status === "AGUARDANDO_CONTRATO") return dados.recusa !== "SEM_CONTRATO";
+  return ["CONTRATO_ASSINADO", "AGUARDANDO_PAGAMENTO", "CONFIRMADO"].includes(status);
+}
+
 function urlDoContrato(id: unknown) {
   if (typeof id !== "string") return listaContratos;
   const params = new URLSearchParams({ contratoId: id });
@@ -35,12 +42,12 @@ export default function RevisaoComercial({ fechamentoId }: { fechamentoId: strin
   const [atalhoContrato, setAtalhoContrato] = useState<{ fechamentoId: string; href: string } | null>(null);
   const idNaUrl = encodeURIComponent(fechamentoId);
   const url = `/api/admin/fechamentos/${idNaUrl}/revisao`;
-  const leituras = useRef({ ativa: false, geracao: 0 });
+  const leituras = useRef<{ fechamentoId: string; geracao: number } | null>(null);
   const atualizar = useCallback(async (carregarAtalho = false) => {
     const sessao = leituras.current;
-    if (!sessao.ativa) return;
+    if (sessao?.fechamentoId !== fechamentoId) return;
     const geracao = ++sessao.geracao;
-    const vigente = () => sessao.ativa && sessao.geracao === geracao;
+    const vigente = () => leituras.current === sessao && sessao.geracao === geracao;
     let revisao: Dados;
     try {
       const r = await adminFetch(url, { cache: "no-store" });
@@ -56,12 +63,8 @@ export default function RevisaoComercial({ fechamentoId }: { fechamentoId: strin
     if (!vigente()) return;
     setDados(revisao);
 
-    if (carregarAtalho) {
+    if (carregarAtalho && permiteAtalho(revisao)) {
       const { status } = revisao.fechamento;
-      if (!["AGUARDANDO_CONTRATO", "CONTRATO_ASSINADO", "AGUARDANDO_PAGAMENTO", "CONFIRMADO"].includes(status)) return;
-
-      // SEM_CONTRATO já confirma que ainda não existe contrato: não consultar (evita 404 no fluxo normal).
-      if (status === "AGUARDANDO_CONTRATO" && revisao.recusa === "SEM_CONTRATO") return;
       let href = revisao.recusa === "COM_PREPARACAO" || status !== "AGUARDANDO_CONTRATO" ? listaContratos : null;
       try {
         const resposta = await adminFetch(`/api/admin/contratos?fechamentoId=${idNaUrl}`, { cache: "no-store" });
@@ -70,7 +73,8 @@ export default function RevisaoComercial({ fechamentoId }: { fechamentoId: strin
           href = urlDoContrato(contrato.data?.versao?.contratoId);
         }
       } catch { /* A consulta do atalho é opcional para a revisão. */ }
-      if (vigente() && href !== null) {
+      // A releitura do sinal invalida a revisão anterior, mas o atalho pertence ao pedido aberto.
+      if (leituras.current === sessao && href !== null) {
         const destino = href;
         setAtalhoContrato((atual) => atual?.fechamentoId === fechamentoId ? atual : { fechamentoId, href: destino });
       }
@@ -78,14 +82,12 @@ export default function RevisaoComercial({ fechamentoId }: { fechamentoId: strin
     return vigente() ? revisao.preReserva : undefined;
   }, [url, idNaUrl, fechamentoId]);
   useEffect(() => {
-    const sessao = leituras.current;
-    sessao.ativa = true;
+    leituras.current = { fechamentoId, geracao: 0 };
     void atualizar(true);
     return () => {
-      sessao.ativa = false;
-      sessao.geracao++;
+      leituras.current = null;
     };
-  }, [atualizar]);
+  }, [atualizar, fechamentoId]);
   const dialogo = useRef<HTMLDialogElement>(null);
   const [motivoPerda, setMotivoPerda] = useState('');
   const [observacao, setObservacao] = useState('');
@@ -119,7 +121,7 @@ export default function RevisaoComercial({ fechamentoId }: { fechamentoId: strin
     }
   }
   const f = dados?.fechamento;
-  const hrefContrato = atalhoContrato?.fechamentoId === fechamentoId && f?.status !== "RECUSADO" ? atalhoContrato.href : null;
+  const hrefContrato = atalhoContrato?.fechamentoId === fechamentoId && permiteAtalho(dados) ? atalhoContrato.href : null;
   const podeRecusar = dados?.recusa === 'SEM_CONTRATO' || dados?.recusa === 'COM_PREPARACAO';
   const condicao = f?.condicaoPagamento;
   const pendente = dados?.aprovacoes.find((a) => a.status === "PENDENTE" && a.condicaoPagamento);
@@ -172,7 +174,7 @@ export default function RevisaoComercial({ fechamentoId }: { fechamentoId: strin
     </div>}
     {!f && !erro && <p>Carregando fechamento…</p>}
     {f && <>
-      {f.id === fechamentoId && dados.preReserva && <RevisaoPreReserva key={fechamentoId}
+      {f.id.toLowerCase() === fechamentoId.toLowerCase() && dados.preReserva && <RevisaoPreReserva key={fechamentoId}
         dados={dados.preReserva} fechamentoId={fechamentoId} atualizar={atualizar} />}
       <section className={styles.card}><h2>Cliente e festa</h2>{f.clienteId && <a href={`/clientes/${encodeURIComponent(f.clienteId)}`}>Conferir cadastro do cliente</a>}<p>{f.dataEvento.split('-').reverse().join('/')} · {f.horarioInicio.slice(0,5)}–{f.horarioFim.slice(0,5)} · {f.convidados} convidados</p>{f.temaFesta && <p>Tema: {f.temaFesta}</p>}</section>
       <section className={styles.card}>
