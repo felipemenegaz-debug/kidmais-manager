@@ -120,6 +120,22 @@ test('fechamento normal não é perda; descarte rejeitado ou fora do prazo vira 
   assert.deepEqual(s2.falha, {rotulo: 'FIM', codigo: 'local=descarte_timeout'}); assert.equal(lento.clientes[0].destruido, true);
 });
 
+test('erro do descarte nunca preenche o código de uma falha anterior (Astra r1 código, P2)', async () => {
+  // Perda sem liquidação (código vazio) e depois o end rejeita com 08006: a falha continua POSTCHECK sem código.
+  const a = fabrica((t, c) => { if (t === 'PC') { c.emit('end'); return new Promise(() => {}); } return padrao(t); }, {end: () => Promise.reject(erroPg('08006', 'FATAL'))});
+  const s1 = await r.abrirSessaoLeitura(ctxDe(a.Client), 'ESTADO 130', async x => { await x.instrucao('POSTCHECK', 'PC'); });
+  assert.deepEqual(s1.falha, {rotulo: 'POSTCHECK', codigo: null});
+  // Mesmo com o evento error emitido durante o fechamento.
+  const b = fabrica((t, c) => { if (t === 'PC') { c.emit('end'); return new Promise(() => {}); } return padrao(t); },
+    {end: c => { c.emit('error', erroPg('57P01', 'FATAL')); return Promise.resolve(); }});
+  const s2 = await r.abrirSessaoLeitura(ctxDe(b.Client), 'ESTADO 130', async x => { await x.instrucao('POSTCHECK', 'PC'); });
+  assert.deepEqual(s2.falha, {rotulo: 'POSTCHECK', codigo: null});
+  // ROLLBACK rejeitado depois de uma falha comum também não sobrescreve nem preenche.
+  const d = fabrica(t => { if (t === 'AUX') throw erroPg('42P01'); if (t === 'ROLLBACK') throw erroPg('XX000'); return padrao(t); });
+  const s3 = await r.abrirSessaoLeitura(ctxDe(d.Client), 'ESTADO 130', async x => { await x.instrucao('AUXILIAR', 'AUX'); });
+  assert.deepEqual(s3.falha, {rotulo: 'AUXILIAR', codigo: '42P01'});
+});
+
 test('rótulo fixado antes da pausa e FIM depois do último resultado (P2-1 da r14)', async () => {
   const vistos = [];
   const {Client} = fabrica(padrao);

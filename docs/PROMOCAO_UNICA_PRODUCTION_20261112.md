@@ -10,6 +10,7 @@
 - Cada passo tem três fases, nesta ordem: **CONFERIR** (só leitura) → **APLICAR** (uma vez; marcador exclusivo no disco persistente) → **CONFERIR** de novo.
 - **Qualquer código de saída diferente de 0 para a cadeia.** Não repetir o passo, não seguir para o próximo: copiar a saída e o marcador e decidir com Felipe. `proximoPasso()` deste script devolve PARAR nesses casos.
 - A 098 é histórica e **nunca** entra (a 102 e a 108 recusam se ela existir). A 099 e a 105 já estão em production.
+- A 129 e a 130+ ficam **fora desta cadeia** (PELO_REGISTRO): bootstrap da 129 e cada 130+ só por `scripts/registro-migrations-banco.cjs`, com o registro de tentativas no banco no lugar do marcador em disco; o genérico recusa aplicá-las (ID_PELO_REGISTRO).
 - O aplicador da 092–094 de production tem dois escopos: 092-093 e 094. O 094 exige antes o deploy do código novo.
 - Os adaptadores de `scripts/migration-102-103-production.cjs`, `scripts/migration-104-106-production.cjs`, `scripts/migration-107-108-production.cjs`, `scripts/migration-109-production.cjs` são do outro lote desta promoção: os comandos deles abaixo usam as flags do núcleo e precisam ser conferidos contra o adaptador entregue.
 
@@ -48,6 +49,9 @@ Situação do COMMIT numa FALHA: `NAO_COMMITADA` (o COMMIT nunca foi enviado: na
 | 098 | EXCLUIDA | salões combinados HISTÓRICA: nunca entra na cadeia; a 102 e a 108 recusam se ela existir (a 108 é a 098 rebaseada) |
 | 099 | JA_APLICADA | convites avulsos: já está em production |
 | 105 | JA_APLICADA | canal MCP por assinatura: já está em production; fica fora do aplicador da 104–106 |
+| 129 | PELO_REGISTRO | registro de tentativas no banco: bootstrap único por scripts/registro-migrations-banco.cjs --ambiente production --aplicar-129-bootstrap-autorizado --backup "<registro-do-backup>" |
+| 130 | PELO_REGISTRO | pré-reserva manual; aplicar só por scripts/registro-migrations-banco.cjs --ambiente production --aplicar-130-autorizado --backup "<registro-do-backup>" (o genérico recusa) |
+| 131 | PELO_REGISTRO | agenda da pré-reserva; exige a 130; aplicar só por scripts/registro-migrations-banco.cjs --ambiente production --aplicar-131-autorizado --backup "<registro-do-backup>" (o genérico recusa) |
 
 ## Ordem e comandos
 
@@ -321,24 +325,6 @@ Situação do COMMIT numa FALHA: `NAO_COMMITADA` (o COMMIT nunca foi enviado: na
 - APLICAR: `node scripts/migration-generico-production.cjs --aplicar-autorizado 128 --backup "<registro-do-backup>"`
 - CONFERIR de novo: `node scripts/migration-generico-production.cjs --conferir 128`
 - Bloco de Shell: `node scripts/bloco-shell-promocao-production.cjs 128 <CONFERIR|APLICAR> <rotulo>`
-- Volta: restaurar o backup ou corrigir para a frente
-
-### 31. 130 — pré-reserva manual: configuração, aceites e recebimentos; os índices únicos bloqueiam escritas em fechamentos e contratos durante a instalação
-
-- Aplicador: `scripts/migration-generico-production.cjs` (genérico, lista fechada)
-- CONFERIR: `node scripts/migration-generico-production.cjs --conferir 130`
-- APLICAR: `node scripts/migration-generico-production.cjs --aplicar-autorizado 130 --backup "<registro-do-backup>"`
-- CONFERIR de novo: `node scripts/migration-generico-production.cjs --conferir 130`
-- Bloco de Shell: `node scripts/bloco-shell-promocao-production.cjs 130 <CONFERIR|APLICAR> <rotulo>`
-- Volta: restaurar o backup ou corrigir para a frente
-
-### 32. 131 — agenda da pré-reserva: ocupação temporária e proteção do destino pago; exige a 130
-
-- Aplicador: `scripts/migration-generico-production.cjs` (genérico, lista fechada)
-- CONFERIR: `node scripts/migration-generico-production.cjs --conferir 131`
-- APLICAR: `node scripts/migration-generico-production.cjs --aplicar-autorizado 131 --backup "<registro-do-backup>"`
-- CONFERIR de novo: `node scripts/migration-generico-production.cjs --conferir 131`
-- Bloco de Shell: `node scripts/bloco-shell-promocao-production.cjs 131 <CONFERIR|APLICAR> <rotulo>`
 - Volta: restaurar o backup ou corrigir para a frente
 
 ## Pendências conhecidas deste roteiro

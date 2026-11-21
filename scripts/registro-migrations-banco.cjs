@@ -34,7 +34,7 @@ const ESCOPO_129 = Object.freeze(['--conferir-tentativa', '--concluir-verificaca
 const ARQUIVOS_129 = Object.freeze([
   Object.freeze(['precheck', 'database/checks/20261121_129_precheck.sql', '7625809dbd28aec433af30582387f353908627697e5be818391a44d74904e78d']),
   Object.freeze(['migration', 'database/migrations/20261121_129_registro_migrations.sql', '2e8e1bea7acef7bb376c372c4bd8ef777e473c9586b259108c5d67d3dcdfb805']),
-  Object.freeze(['postcheck', 'database/checks/20261121_129_postcheck.sql', '23e439ec668ec6a02be8d38e953007a3523dbb1fb695bf9656cd53eba6e3838d']),
+  Object.freeze(['postcheck', 'database/checks/20261121_129_postcheck.sql', '201c3ab61e5d03abf4b54d45ab696eb182a53a3b809ea7da42487665bcd53684']),
 ]);
 const BACKUP = /^[A-Za-z0-9:._/ -]{6,120}$/;
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
@@ -44,14 +44,17 @@ const curta = e => String(e?.message ?? e).replace(/postgres(?:ql)?:\/\/\S+/gi, 
 
 // ---------------------------------------------------------------- SQL (todo UPDATE filtra ambiente, migration, tentativa, versao, situacao)
 const T = 'public.operacao_migration_tentativas';
-const COLS = "id, tentativa::text AS tentativa, ambiente, migration, situacao, versao, (detalhe ? 'corpo') AS tem_corpo, " +
+// tem_corpo: evidência ESTRUTURADA (objeto com txid e postcheck=PASS); tem_chave_corpo: qualquer chave 'corpo' (inclusive {"corpo":null}),
+// usada só para RECUSAR (arquivar, classificar), nunca para aceitar.
+const COLS = "id, tentativa::text AS tentativa, ambiente, migration, situacao, versao, (detalhe ? 'corpo') AS tem_chave_corpo, " +
+  "COALESCE(jsonb_typeof(detalhe -> 'corpo') = 'object' AND (detalhe -> 'corpo') ? 'txid' AND detalhe -> 'corpo' ->> 'postcheck' = 'PASS', false) AS tem_corpo, " +
   'arquivada_em IS NOT NULL AS arquivada, arquivada_motivo, substituida_por::text AS substituida_por';
 const SQL = Object.freeze({
   sondagem: "SELECT to_regclass('public.operacao_migration_tentativas')::text AS tabela",
   travaSessao: "SELECT pg_try_advisory_lock(hashtext('kidmais-migration'), hashtext($1::text)) AS ok",
   travaTransacao: "SELECT pg_try_advisory_xact_lock(hashtext('kidmais-migration'), hashtext($1::text)) AS ok",
   travaOcupada: "SELECT EXISTS (SELECT 1 FROM pg_locks WHERE locktype = 'advisory' AND classid = hashtext('kidmais-migration')::oid " +
-    'AND objid = hashtext($1::text)::oid AND objsubid = 2) AS ocupada',
+    'AND objid = hashtext($1::text)::oid AND objsubid = 2 AND granted AND database = (SELECT oid FROM pg_database WHERE datname = current_database())) AS ocupada',
   ativa: `SELECT ${COLS} FROM ${T} WHERE ambiente = $1 AND migration = $2 AND arquivada_em IS NULL`,
   porUuid: `SELECT ${COLS} FROM ${T} WHERE tentativa = $1::uuid`,
   buscaDiagnostica: `SELECT ${COLS} FROM ${T} WHERE ambiente = $1 AND tentativa = $2::uuid`,
@@ -131,6 +134,16 @@ function comPrazo(p, ms, local) {
   let t;
   const prazo = new Promise((_, rej) => { t = setTimeout(() => rej(Object.assign(new Error('prazo ' + local), {prazo: true, local})), ms); t.unref?.(); });
   return Promise.race([Promise.resolve(p), prazo]).finally(() => clearTimeout(t));
+}
+/** COMMIT com prazo local: estouro destrói o socket (o servidor decide sozinho) e propaga erro sem SQLSTATE (INDETERMINADO). */
+async function commitComPrazo(ctx, db, local) {
+  try { return await comPrazo(db.query('COMMIT'), ctx.prazoCommit ?? 75000, local); }
+  catch (e) { if (e?.prazo) { destruir(db); db.destruido = true; } throw e; }
+}
+/** Fim de C: end com prazo; estouro ou C já destruída = destruir. */
+async function encerrarC(ctx, db) {
+  if (db.destruido) { destruir(db); return; }
+  try { await comPrazo(db.end(), ctx.prazoDescarte ?? 10000, 'descarte_timeout'); } catch { destruir(db); }
 }
 function destruir(db) { try { (db.destruir ?? (() => db.connection?.stream?.destroy()))(); } catch { /* já destruído */ } }
 
@@ -214,7 +227,7 @@ async function abrirSessaoLeitura(ctx, nome, corpo, {timeout = '60s'} = {}) {
         await comPrazo(db.query(texto), ctx.prazoRollback ?? 10000, 'rollback_timeout');
       } catch (e) {
         if (e?.prazo) { falhar('FIM', 'local=rollback_timeout'); destruir(db); destruido = true; }
-        else { if (fatal(e)) marcarPerda(); falhar('FIM', sqlstateDe(e)); }
+        else { if (fatal(e)) marcarPerda(); if (!s.falha) falhar('FIM', sqlstateDe(e)); }
       }
     }
     s.conexao = 'ENCERRANDO'; // daqui em diante end/error são do fechamento pedido
@@ -222,7 +235,11 @@ async function abrirSessaoLeitura(ctx, nome, corpo, {timeout = '60s'} = {}) {
       try {
         await comPrazo(g.end ? g.end(info(), db) : db.end(), ctx.prazoDescarte ?? 10000, 'descarte_timeout');
         if (s.erroNoDescarte) throw s.erroNoDescarte;
-      } catch (e) { destruir(db); falhar('FIM', e?.prazo ? 'local=descarte_timeout' : sqlstateDe(e)); }
+      } catch (e) {
+        destruir(db);
+        // O fechamento é outro evento: nunca preenche o código de uma falha anterior; só registra FIM se não havia falha.
+        if (!s.falha) falhar('FIM', e?.prazo ? 'local=descarte_timeout' : sqlstateDe(e));
+      }
     }
   }
   return s;
@@ -439,7 +456,7 @@ function classificar(id, estado, linha, postcheck) {
     return {texto: `TENTATIVA_ANTERIOR_REVISAR ${linha.tentativa} ${linha.situacao}`, codigo: 1};
   }
   if (estado.situacao === 'parcial') return {texto: `ESTADO_PARCIAL_REVISAR ${id} ${(estado.divergencias ?? []).join(', ')}`.trim(), codigo: 1};
-  if (linha && (linha.situacao === 'CONCLUIDA' || linha.tem_corpo)) return {texto: `DIVERGENCIA_REGISTRO_ESTADO ${linha.tentativa}`, codigo: 3};
+  if (linha && (linha.situacao === 'CONCLUIDA' || linha.tem_corpo || linha.tem_chave_corpo)) return {texto: `DIVERGENCIA_REGISTRO_ESTADO ${linha.tentativa}`, codigo: 3};
   if (linha) return {texto: `TENTATIVA_ANTERIOR_REVISAR ${linha.tentativa} ${linha.situacao}`, codigo: 1};
   return {texto: 'PRONTA_PARA_APLICAR ' + id, codigo: 0, reserva: true};
 }
@@ -492,10 +509,10 @@ async function aplicar(ctx, {id, backup}) {
       }
       await g.antesDoCommitReserva?.({id, u});
       fase = 'commit';
-      const c = await db.query('COMMIT');
+      const c = await commitComPrazo(ctx, db, 'commit_reserva_timeout');
       if (c?.command === 'ROLLBACK') throw Object.assign(new Error('COMMIT respondido como ROLLBACK'), {comoRollback: true});
     } catch (e) {
-      if (fase === 'reserva') await db.query('ROLLBACK').catch(() => {});
+      if (fase === 'reserva' && !db.destruido) await db.query('ROLLBACK').catch(() => {});
       if (fase === 'reserva' && sqlstateDe(e) === '23505' && e.constraint === 'operacao_migration_tentativas_ativa_uk') {
         o.linha(`TENTATIVA_ANTERIOR_REVISAR reserva concorrente tentativa=${u}`, 1); return fim(o);
       }
@@ -521,7 +538,7 @@ async function aplicar(ctx, {id, backup}) {
       if (ev.rowCount !== 1) throw new Error('REGISTRO_DESATUALIZADO na evidência');
       await g.antesDoCommitCorpo?.({id, u, db});
       fase = 'commit';
-      const c = await db.query('COMMIT');
+      const c = await commitComPrazo(ctx, db, 'commit_timeout');
       if (c?.command === 'ROLLBACK') { commit = 'DESFEITA_PELO_SERVIDOR'; throw new Error('COMMIT respondido como ROLLBACK'); }
       commit = 'CONFIRMADO';
     } catch (e) {
@@ -536,24 +553,49 @@ async function aplicar(ctx, {id, backup}) {
     }
     atual = {...atual, versao: 2, situacao: 'EM_ANDAMENTO'};
     o.linha(linhaTexto(ctx, id, u, 'EM_ANDAMENTO', 2), 0);
+    // depoisDoCommitCorpo simula a MORTE do processo (teste); exceção na verificação é naVerificacaoPosCommit, dentro do try.
     await g.depoisDoCommitCorpo?.({id, u, db});
-    // 7. Releitura e postcheck READ ONLY; CONCLUIDA só com PASS.
-    const depois = await estadoEmC(db, id);
-    const pf = depois.situacao === 'presente' ? await postcheckEmC(db, corpos) : {aprovado: false, motivo: 'estado ' + depois.situacao};
+    // 7. Releitura e postcheck READ ONLY; CONCLUIDA só com PASS. Exceção aqui (corpo já COMMITADO) = código 2 com o uuid.
+    let pf;
+    try {
+      await g.naVerificacaoPosCommit?.({id, u, db});
+      const depois = await estadoEmC(db, id);
+      pf = depois.situacao === 'presente' ? await postcheckEmC(db, corpos) : {aprovado: false, motivo: 'estado ' + depois.situacao};
+    } catch (e) {
+      await falhaPosCommit(ctx, db, o, id, atual, e);
+      return fim(o);
+    }
+    const naoAtualizado = x => { o.linha(`REGISTRO_NAO_ATUALIZADO tentativa=${u} ${curta(x)} (corpo COMMITADO; reconciliar com --concluir-verificacao ${id} --tentativa ${u})`, 2); return null; };
     if (pf.aprovado) {
-      const w = await escreverLinha(ctx, db, o, id, atual, 'CONCLUIDA', {conclusao: {postcheck: 'PASS'}});
+      const w = await escreverLinha(ctx, db, o, id, atual, 'CONCLUIDA', {conclusao: {postcheck: 'PASS'}}).catch(naoAtualizado);
       if (w) o.linha('APLICADA_POSTCHECK_PASS ' + id, 0);
     } else {
-      const w = await escreverLinha(ctx, db, o, id, atual, 'FALHA', {falha: {fase: 'postcheck_final', motivo: pf.motivo}});
+      const w = await escreverLinha(ctx, db, o, id, atual, 'FALHA', {falha: {fase: 'postcheck_final', motivo: pf.motivo}}).catch(naoAtualizado);
       if (w) o.linha(`FALHA ${id} tentativa=${u} postcheck=${pf.motivo} (corpo preservado; ver --concluir-verificacao)`, 2);
     }
     return fim(o);
   } catch (e) {
     o.linha(e?.saida ? curta(e) : 'ERRO ' + curta(e), e?.codigo ?? 1);
     return fim(o);
-  } finally { await db.end().catch(() => {}); }
+  } finally { await encerrarC(ctx, db); }
 }
 const fim = o => ({codigo: o.codigo, linhas: o.linhas});
+/**
+ * Exceção na verificação depois do COMMIT do corpo (ou da 129): sempre código 2 com o uuid. Se C ainda responde, grava FALHA
+ * (o corpo da evidência fica: detalhe || falha); senão, só indica a reconciliação. Nunca código 1 ("recusa antes de conectar").
+ */
+async function falhaPosCommit(ctx, db, o, id, linha, e) {
+  const u = linha.tentativa;
+  o.linha(`VERIFICACAO_POS_COMMIT_FALHOU ${id} tentativa=${u} ${curta(e)}`, 2);
+  const reconciliar = `(corpo COMMITADO; reconciliar com --concluir-verificacao ${id} --tentativa ${u})`;
+  // Sem SQLSTATE (erro local, asserção) a C pode estar viva: tenta gravar FALHA; se não responder, o catch abaixo indica a reconciliação.
+  if (db.destruido || (sqlstateDe(e) && fatal(e))) { o.linha(`REGISTRO_NAO_ATUALIZADO tentativa=${u} conexão perdida ${reconciliar}`, 2); return; }
+  try {
+    await db.query('ROLLBACK').catch(() => {});
+    const w = await escreverLinha(ctx, db, o, id, linha, 'FALHA', {falha: {fase: 'verificacao_pos_commit', motivo: curta(e)}});
+    if (w) o.linha(`FALHA ${id} tentativa=${u} ${reconciliar}`, 2);
+  } catch (x) { o.linha(`REGISTRO_NAO_ATUALIZADO tentativa=${u} ${curta(x)} ${reconciliar}`, 2); }
+}
 
 // ---------------------------------------------------------------- bootstrap da 129 (§3.4)
 async function bootstrap129(ctx, {backup}) {
@@ -567,7 +609,7 @@ async function bootstrap129(ctx, {backup}) {
     await identidadeEmC(ctx, db);                        // 1. identidade em C antes da trava e de qualquer DDL
     await travar(ctx, db, '129');                        // trava de sessão, até o processo terminar
     await g.depoisDaTrava129?.({db});
-    const ant = await (ctx.antecessoras ?? (() => require('./conferir-antecessoras.cjs').conferir({ambiente: amb, env: ctx.env})))(amb); // 2
+    const ant = await (ctx.antecessoras ?? (() => require('./conferir-antecessoras.cjs').conferir({ambiente: amb, env: ctx.env, deps: ctx.clientInjetado ? {Client: ctx.Client} : {}})))(amb); // 2
     for (const l of ant?.linhas ?? []) o.linha('ANTECESSORA ' + l, 0);
     if (ant?.codigo !== 0) { o.linha('ANTECESSORAS_PENDENTES ' + (ant?.pendentes ?? []).join(','), 3); return fim(o); }
     const estado = await estadoEmC(db, '129');           // 3
@@ -594,33 +636,43 @@ async function bootstrap129(ctx, {backup}) {
       fase = 'linha'; await db.query(SQL.inserir129, [amb, '129', u, backup]);
       await g.antesDoCommit129?.({db, u});
       fase = 'commit';
-      const c = await db.query('COMMIT');
+      const c = await commitComPrazo(ctx, db, 'commit_timeout');
       if (c?.command === 'ROLLBACK') { commit = 'DESFEITA_PELO_SERVIDOR'; throw new Error('COMMIT respondido como ROLLBACK'); }
       commit = 'CONFIRMADO';
     } catch (e) {
       if (!commit) commit = fase === 'commit' ? commitNaFalha(e) : 'NAO_COMMITADA';
-      if (commit === 'NAO_COMMITADA') await db.query('ROLLBACK').catch(() => {});
+      if (commit === 'NAO_COMMITADA' && !db.destruido) await db.query('ROLLBACK').catch(() => {});
       o.linha(`BOOTSTRAP_129 commit=${commit} fase=${fase} tentativa=${u} ${curta(e)}` +
         (commit === 'NAO_COMMITADA' ? '' : ` (decidir com --conferir-tentativa 129 --tentativa ${u}; não repetir)`), 2);
       return fim(o);
     }
     o.linha(linhaTexto(ctx, '129', u, 'VERIFICACAO_PENDENTE', 1), 0);
     await g.depoisDoCommit129?.({db, u});
-    // 5. Releitura: estrutura e postcheck READ ONLY ⇒ CONCLUIDA.
-    const linha = (await lerEmC(db, SQL.ativa, [amb, '129'])).rows?.[0];
-    const pf = await postcheckEmC(db, corpos);
-    if (linha?.tentativa === u && pf.aprovado) {
+    // 5. Releitura: a linha tem de ser a recém-inserida (uuid, VERIFICACAO_PENDENTE, versão 1, corpo estruturado); estrutura e
+    // postcheck READ ONLY ⇒ CONCLUIDA. Exceção aqui (já COMMITADO) = código 2 com o uuid.
+    let linha, pf;
+    try {
+      await g.naVerificacaoPosCommit?.({id: '129', u, db});
+      linha = (await lerEmC(db, SQL.ativa, [amb, '129'])).rows?.[0];
+      pf = await postcheckEmC(db, corpos);
+    } catch (e) {
+      await falhaPosCommit(ctx, db, o, '129', {tentativa: u, versao: 1, situacao: 'VERIFICACAO_PENDENTE'}, e);
+      return fim(o);
+    }
+    const confere = linha?.tentativa === u && linha.situacao === 'VERIFICACAO_PENDENTE' && linha.versao === 1 && linha.tem_corpo === true;
+    if (!confere) o.linha(`REGISTRO_DESATUALIZADO tentativa=${u} linha da 129 não confere (${linha ? `${linha.tentativa} ${linha.situacao} versao=${linha.versao} corpo=${linha.tem_corpo ? 'sim' : 'nao'}` : 'ausente'})`, 2);
+    else if (pf.aprovado) {
       const w = await escreverLinha(ctx, db, o, '129', linha, 'CONCLUIDA', {conclusao: {postcheck: 'PASS'}});
       if (w) o.linha('APLICADA_POSTCHECK_PASS 129', 0);
-    } else if (linha?.tentativa === u) {
+    } else {
       const w = await escreverLinha(ctx, db, o, '129', linha, 'FALHA', {falha: {fase: 'postcheck_final', motivo: pf.motivo}});
       if (w) o.linha(`FALHA 129 tentativa=${u} postcheck=${pf.motivo} (ver --concluir-verificacao 129)`, 2);
-    } else o.linha(`REGISTRO_DESATUALIZADO tentativa=${u} linha da 129 não confere`, 2);
+    }
     return fim(o);
   } catch (e) {
     o.linha(e?.saida ? curta(e) : 'ERRO ' + curta(e), e?.codigo ?? 1);
     return fim(o);
-  } finally { await db.end().catch(() => {}); }
+  } finally { await encerrarC(ctx, db); }
 }
 
 // ---------------------------------------------------------------- leitura da tupla (arquivar e concluir)
@@ -646,7 +698,7 @@ async function arquivar(ctx, {id, tentativa: u, motivo}) {
     if (!l) return fim(o);
     const estado = await estadoEmC(db, id);
     if (estado.situacao === 'parcial') { o.linha('ESTADO_PARCIAL_REVISAR ' + id, 1); return fim(o); }
-    if (l.tem_corpo || l.situacao === 'CONCLUIDA') {
+    if (l.tem_corpo || l.tem_chave_corpo || l.situacao === 'CONCLUIDA') {
       o.linha(estado.situacao === 'presente' ? (l.situacao === 'CONCLUIDA' ? 'TENTATIVA_CONCLUIDA_NAO_ARQUIVA ' + u : 'USAR_CONCLUIR_VERIFICACAO ' + u) : 'DIVERGENCIA_REGISTRO_ESTADO ' + u,
         estado.situacao === 'presente' ? 1 : 3);
       return fim(o);
@@ -660,7 +712,7 @@ async function arquivar(ctx, {id, tentativa: u, motivo}) {
   } catch (e) {
     o.linha(e?.saida ? curta(e) : 'ERRO ' + curta(e), e?.codigo ?? 1);
     return fim(o);
-  } finally { await db.end().catch(() => {}); }
+  } finally { await encerrarC(ctx, db); }
 }
 
 // ---------------------------------------------------------------- --concluir-verificacao (§3.3a)
@@ -674,7 +726,8 @@ async function concluirVerificacao(ctx, {id, tentativa: u}) {
     await travar(ctx, db, id);
     const l = await lerTupla(ctx, db, o, id, u);
     if (!l) return fim(o);
-    const comEvidencia = (l.tem_corpo && ['EM_ANDAMENTO', 'FALHA'].includes(l.situacao)) || (id === '129' && l.situacao === 'VERIFICACAO_PENDENTE');
+    // Evidência estruturada em TODOS os caminhos, inclusive a 129 em VERIFICACAO_PENDENTE ({"corpo":null} não serve).
+    const comEvidencia = l.tem_corpo === true && (['EM_ANDAMENTO', 'FALHA'].includes(l.situacao) || (id === '129' && l.situacao === 'VERIFICACAO_PENDENTE'));
     if (!comEvidencia) { o.linha(`CONCLUSAO_RECUSADA ${u} ${l.situacao} corpo=${l.tem_corpo ? 'sim' : 'nao'}`, 1); return fim(o); }
     const corpos = carregarId(ctx.raiz, id);
     const estado = await estadoEmC(db, id);
@@ -688,7 +741,7 @@ async function concluirVerificacao(ctx, {id, tentativa: u}) {
   } catch (e) {
     o.linha(e?.saida ? curta(e) : 'ERRO ' + curta(e), e?.codigo ?? 1);
     return fim(o);
-  } finally { await db.end().catch(() => {}); }
+  } finally { await encerrarC(ctx, db); }
 }
 
 // ---------------------------------------------------------------- --conferir-<id> (§3.2 passo 9), sessões de leitura
@@ -800,7 +853,7 @@ async function principal(argv, env, deps = {}) {
   try {
     ctx = {env, raiz: deps.raiz ?? raizPadrao, Client: deps.Client ?? require('pg').Client, ambiente: ambienteDe(m.ambiente, env, deps), ganchos: deps.ganchos,
       out: deps.out, uuid: deps.uuid, agora: deps.agora, antecessoras: deps.antecessoras, prazoRollback: deps.prazoRollback, prazoDescarte: deps.prazoDescarte,
-      prazoLiquidacao: deps.prazoLiquidacao};
+      prazoLiquidacao: deps.prazoLiquidacao, prazoCommit: deps.prazoCommit, clientInjetado: Boolean(deps.Client)};
     ctx.ambiente.alvo(`kidmais-registro-${m.ambiente}-alvo`); // valida o alvo antes de conectar
   } catch (e) { const t = 'RECUSADO ' + curta(e); (deps.out ?? (() => {}))(t); return {codigo: 1, linhas: [t]}; }
   switch (m.modo) {

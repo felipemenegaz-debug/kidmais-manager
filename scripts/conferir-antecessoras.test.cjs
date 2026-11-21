@@ -231,7 +231,9 @@ test('principal imprime o final; contrato do bootstrap ({codigo, linhas, pendent
   assert.equal(p.codigo, 0);
   assert.equal(p.linhas.at(-1), 'ANTECESSORAS_OK');
   const fonte = fs.readFileSync(path.join(__dirname, 'registro-migrations-banco.cjs'), 'utf8');
-  assert.match(fonte, /require\('\.\/conferir-antecessoras\.cjs'\)\.conferir\(\{ambiente: amb, env: ctx\.env\}\)/);
+  // O bootstrap repassa ao conferidor o MESMO Client só quando injetado (teste §4.1 com os adaptadores reais); sem injeção, o padrão de cada módulo.
+  assert.ok(fonte.includes("require('./conferir-antecessoras.cjs').conferir({ambiente: amb, env: ctx.env, deps: ctx.clientInjetado ? {Client: ctx.Client} : {}})"));
+  assert.match(fonte, /clientInjetado: Boolean\(deps\.Client\)/);
 });
 
 // ---------- estáticos ----------

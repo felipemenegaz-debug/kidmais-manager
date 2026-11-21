@@ -23,6 +23,7 @@ WITH t AS (
   ('substituida_por', 'uuid', false, '', NULL)
 ), colunas_atuais AS (
   SELECT a.attname::text AS nome, format_type(a.atttypid, a.atttypmod) AS tipo, a.attnotnull AS nao_nulo, a.attidentity::text AS identidade,
+         a.attgenerated::text AS gerada,
          pg_get_expr(d.adbin, d.adrelid) AS padrao, a.attacl
     FROM t JOIN pg_attribute a ON a.attrelid = t.oid AND a.attnum > 0 AND NOT a.attisdropped
     LEFT JOIN pg_attrdef d ON d.adrelid = a.attrelid AND d.adnum = a.attnum
@@ -69,7 +70,7 @@ WITH t AS (
   UNION ALL SELECT 'coluna divergente ' || coalesce(e.nome, a.nome)
     FROM colunas_esperadas e FULL JOIN colunas_atuais a ON a.nome = e.nome
    WHERE e.nome IS NULL OR a.nome IS NULL OR a.tipo <> e.tipo OR a.nao_nulo <> e.nao_nulo OR a.identidade <> e.identidade
-      OR a.padrao IS DISTINCT FROM e.padrao
+      OR a.gerada <> '' OR a.padrao IS DISTINCT FROM e.padrao
   UNION ALL SELECT 'restrição divergente ' || coalesce(e.nome, a.nome)
     FROM restricoes_esperadas e FULL JOIN restricoes_atuais a ON a.nome = e.nome
    WHERE e.nome IS NULL OR a.nome IS NULL OR a.tipo <> e.tipo OR a.definicao <> e.definicao OR NOT a.convalidated OR a.condeferrable

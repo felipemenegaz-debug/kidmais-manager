@@ -159,8 +159,10 @@ const MIGRATIONS = Object.freeze({
     criados: [funcao('pre_reserva_exigir_configuracao()'), funcao('pre_reserva_preservar_destino()')],
     privilegios: {criaNoSchema: true, alteradas: ['fechamentos','pre_reserva_recebimentos','pre_reserva_aceites'], funcoes: ['kidmais094_ocupacoes(date,date)','kidmais062_ocupacoes_escopo(date,date)'], referenciadas: []}}),
 });
-/** Ordem do inventário (scripts/production/check-migrations.mjs, approvedFiles): 120, 121, 110, 111, 115, 123, 124, 125, 126, 127, 128, 130, 131. */
-const IDS = Object.freeze(['120', '121', '110', '111', '115', '123', '124', '125', '126', '127', '128', '130', '131']);
+/** Ordem do inventário (scripts/production/check-migrations.mjs, approvedFiles): 120, 121, 110, 111, 115, 123, 124, 125, 126, 127, 128.
+ * A 130 e a 131 continuam em MIGRATIONS (SQL revisados e sentinelas que o registro no banco carrega e o --conferir lê), mas não
+ * são aplicadas por aqui: ver SO_PELO_REGISTRO. */
+const IDS = Object.freeze(['120', '121', '110', '111', '115', '123', '124', '125', '126', '127', '128']);
 const definicao = id => { assert.ok(typeof id === 'string' && Object.hasOwn(MIGRATIONS, id), 'MIGRATION_FORA_DA_LISTA'); return MIGRATIONS[id]; };
 const marcadorDe = id => `migration-${id}.json`;
 const curta = e => String(e?.message ?? e).replace(/postgres(?:ql)?:\/\/\S+/gi, '<url>').slice(0, 300);
@@ -331,6 +333,7 @@ async function preflightNoCliente(db, {id, sqlIdentidade = SQL_IDENTIDADE, ident
 
 /** Aplicação: o estado é relido aqui, imediatamente antes; presente = só o postcheck (READ ONLY), nada é reaplicado. */
 async function aplicarNoCliente(db, {id, raiz, sqlIdentidade = SQL_IDENTIDADE, identidade = prd.identidade, registrar = () => {}}) {
+  exigirForaDoRegistro(id);
   const corpos = carregar(raiz, id);
   const r = {id, etapas: []};
   r.conexao = identidade((await somenteLeitura(db, sqlIdentidade)).rows[0]); registrar(r);
@@ -359,11 +362,14 @@ const situacoes = r => Object.fromEntries((r.etapas ?? []).filter(x => x.commit)
 const commitadas = r => Object.entries(situacoes(r)).filter(([, c]) => c === 'CONFIRMADO').map(([id]) => id);
 
 const BACKUP = /^[A-Za-z0-9:._/ -]{6,120}$/;
+/** 130+ só pelo registro no banco (scripts/registro-migrations-banco.cjs): aqui a definição só serve para carregar os SQL revisados. */
+const SO_PELO_REGISTRO = Object.freeze(['130', '131']);
+const exigirForaDoRegistro = id => { if (SO_PELO_REGISTRO.includes(id)) assert.fail(`ID_PELO_REGISTRO ${id}: aplicar só por scripts/registro-migrations-banco.cjs`); };
 function modo(argv) {
   if (argv.length === 0) return {modo: 'plano'};
   if (argv.length === 2 && argv[0] === FLAG_CONFERIR) { definicao(argv[1]); return {modo: 'conferir', id: argv[1]}; }
   if (argv.length === 4 && argv[0] === FLAG_APLICAR && argv[2] === FLAG_BACKUP) {
-    definicao(argv[1]);
+    definicao(argv[1]); exigirForaDoRegistro(argv[1]);
     assert.match(argv[3], BACKUP, 'BACKUP_INVALIDO');
     return {modo: 'aplicar', id: argv[1], backup: argv[3]};
   }
@@ -405,6 +411,7 @@ async function conferir({env, id, raiz = raizPadrao, Client = require('pg').Clie
   finally { await db.end().catch(() => {}); }
 }
 async function executar({env, id, backup, dir = DIR, raiz = raizPadrao, Client = require('pg').Client, disco = () => exigirDisco()}) {
+  exigirForaDoRegistro(id);
   const opts = alvo(env, id); disco();
   assert.match(String(backup ?? ''), BACKUP, 'BACKUP_OBRIGATORIO');
   carregar(raiz, id);
@@ -456,6 +463,6 @@ function cli() {
   }).catch(e => { console.error('RECUSADO ' + curta(e)); process.exitCode = 1; });
 }
 if (require.main === module) cli();
-module.exports = {ALVO, DIR, SQL_IDENTIDADE, PG_HERDADAS_RECUSADAS, MIGRATIONS, IDS, sqlPrivilegios, lerPrivilegios, FLAG_CONFERIR, FLAG_APLICAR, FLAG_BACKUP, CODIGO, marcadorDe, sqlEstado, lerEstado,
+module.exports = {SO_PELO_REGISTRO, ALVO, DIR, SQL_IDENTIDADE, PG_HERDADAS_RECUSADAS, MIGRATIONS, IDS, sqlPrivilegios, lerPrivilegios, FLAG_CONFERIR, FLAG_APLICAR, FLAG_BACKUP, CODIGO, marcadorDe, sqlEstado, lerEstado,
   planoEtapas, corpoMigration, corpoCheck, carregar, exigirAprovado, conferirNoCliente, aplicarNoCliente, modo, alvo, identidade, exigirDisco, plano, conferir, executar,
   principal, cli};

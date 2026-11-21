@@ -93,7 +93,8 @@ function ambienteLocal(p, banco, portaAlvo = p) {
 
 /**
  * Proxy TCP entre o módulo e o PG. `regra(cx, dados)` decide cada pacote do cliente: 'passar', 'cortar' (fecha os dois lados
- * sem repassar), 'reter' (guarda o pacote, fecha só o lado do cliente; o backend fica vivo), 'cortarResposta' (repassa e fecha
+ * sem repassar), 'reter' (guarda o pacote, fecha só o lado do cliente; o backend fica vivo), 'segurar' (guarda o pacote e não
+ * responde nem fecha: o cliente espera até o prazo local dele), 'cortarResposta' (repassa e fecha
  * os dois lados quando a resposta chegar). A regra é de uso único quando devolve algo diferente de 'passar'.
  */
 async function proxy(portaPg) {
@@ -111,6 +112,7 @@ async function proxy(portaPg) {
       if (acao === 'passar') s.write(d);
       else if (acao === 'cortar') { c.destroy(); s.destroy(); }
       else if (acao === 'reter') { cx.retido = d; ctl.retida = cx; c.destroy(); }
+      else if (acao === 'segurar') { cx.retido = d; ctl.retida = cx; } // cliente fica pendurado sem resposta (prazo local)
       else if (acao === 'cortarResposta') { cx.cortarResposta = true; s.write(d); }
     });
     s.on('data', d => { if (cx.cortarResposta) { c.destroy(); s.destroy(); } else c.write(d); });
