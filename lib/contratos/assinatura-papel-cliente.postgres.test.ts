@@ -170,8 +170,18 @@ for (const caso of [
     assert.deepEqual(fila.map(r => r.motivo),semCredito ? [caso.encerramento] : []);
     if (semCredito) {
       if (!caso.assumir) await devolucao.assumirDevolucao(executor(a),tenant,ref);
-      await assert.rejects(devolucao.assumirDevolucao(executor(a),tenant,ref),{code:'DEVOLUCAO_INDISPONIVEL'});
-      const instante = (await a.query("SELECT clock_timestamp()::text AS agora")).rows[0].agora;
+      const assuncao = async () => (await a.query(`SELECT devolucao_assumida_por, devolucao_assumida_em::text AS assumida_em
+        FROM pre_reserva_recebimentos WHERE empresa_id=$1 AND end_to_end_id=$2`, [x.c.empresa, ref])).rows[0];
+      const original = await assuncao();
+      assert.equal(original.devolucao_assumida_por, tenant.usuarioId);
+      assert.ok(original.assumida_em);
+      await devolucao.assumirDevolucao(executor(a),tenant,ref);
+      assert.deepEqual(await assuncao(), original);
+      const eventos = await a.query(`SELECT usuario_id FROM auditoria
+        WHERE origem='PRE_RESERVA' AND acao='PRE_RESERVA_DEVOLUCAO_ASSUMIDA' AND entidade_id=$1`, [pedido]);
+      assert.deepEqual(eventos.rows, [{ usuario_id: tenant.usuarioId }]);
+      const instante = (await a.query(`SELECT to_char(clock_timestamp() AT TIME ZONE 'UTC',
+        'YYYY-MM-DD"T"HH24:MI:SS.US"+00:00"') AS agora`)).rows[0].agora;
       const baixa = {referencia:'DEV-TESTE',valorCentavos:caso.sinal,devolvidoEm:instante,extratoConferido:true};
       await assert.rejects(devolucao.confirmarDevolucao(executor(a),tenant,ref,{...baixa,valorCentavos:1}),{code:'BAIXA_INDISPONIVEL'});
       await devolucao.confirmarDevolucao(executor(a),tenant,ref,baixa);
