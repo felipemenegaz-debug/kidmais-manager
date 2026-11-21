@@ -12,7 +12,25 @@ export const concluirOnboardingSchema = z.object({
   // comprovados no servidor (meta-client). Quando vêm, continuam conferidos.
   authorizationCode: z.string().min(8).max(8192), businessId: idMeta.optional(), wabaId: idMeta, phoneNumberId: idMeta.optional(),
 }).strict();
-export const desconectarSchema = z.object({ conexaoId: z.uuid(), motivo: z.string().trim().min(3).max(500) }).strict();
+/** Renovação da credencial: mesmo formato da conclusão (a Meta devolve o mesmo evento e o mesmo código). */
+export const concluirRenovacaoSchema = concluirOnboardingSchema;
+/** Conferência de uma conclusão sem resposta legível: só o id da tentativa. */
+export const conferirTentativaSchema = z.object({ tentativaId: z.uuid() }).strict();
+
+type IdentidadeConexao = { meta_app_id: string; business_id: string; waba_id: string; phone_number_id: string };
+/**
+ * Renovação NUNCA troca de número: app, WABA, negócio e número do evento (quando vêm) e os COMPROVADOS pela Meta têm de
+ * ser os da conexão CONFIGURADA. Devolve o primeiro campo divergente, ou null.
+ */
+export function divergenciaRenovacao(conexao: IdentidadeConexao, appId: string, comprovado: { wabaId: string; businessId?: string; phoneNumberId?: string }) {
+  if (appId !== conexao.meta_app_id) return 'app';
+  if (comprovado.wabaId !== conexao.waba_id) return 'waba';
+  if (comprovado.businessId !== undefined && comprovado.businessId !== conexao.business_id) return 'negocio';
+  if (comprovado.phoneNumberId !== undefined && comprovado.phoneNumberId !== conexao.phone_number_id) return 'numero';
+  return null;
+}
+
+export const desconectarSchema =z.object({ conexaoId: z.uuid(), motivo: z.string().trim().min(3).max(500) }).strict();
 
 /**
  * WhatsApp é da EMPRESA (083): cada empresa conecta o próprio número. Só a Gestão DELA pode consultar, conectar ou
