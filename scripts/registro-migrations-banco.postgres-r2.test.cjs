@@ -223,76 +223,143 @@ test('travaOcupada: a mesma chave segura em OUTRO banco do cluster não ocupa a 
   } finally { await mesmo.end(); }
 });
 
-// ------------------------------------------------------------------ Astra r2: escrita final depois do COMMIT (código 2, prazo)
+// ------------------------------------------------------------------ Astra r2/r3: escrita final depois do COMMIT (código 2, prazo)
 
-test('129: C terminada entre o postcheck final e o UPDATE de CONCLUIDA = código 2 com o uuid (nunca 1); concluir fecha', {skip: pular}, async () => {
+test('129: C encerrada ANTES do envio do UPDATE de CONCLUIDA = REGISTRO_NAO_ATUALIZADO (2, nunca 1); concluir fecha', {skip: pular}, async () => {
   const b = await banco();
-  const r = await rodar(b, ['--aplicar-129-bootstrap-autorizado', '--backup', BACKUP], {ganchos: {antesDaEscritaPosCommit: async ({db}) => {
+  const visto = {};
+  const r = await rodar(b, ['--aplicar-129-bootstrap-autorizado', '--backup', BACKUP], {ganchos: {antesDaEscritaPosCommit: async ({db, novaSituacao}) => {
+    visto.situacao = novaSituacao;
     await admin.query('SELECT pg_terminate_backend($1)', [db.processID]);
-    await espera(200);
+    await espera(300);
+    visto.destruida = db.connection?.stream?.destroyed === true;
   }}});
-  ok(r, /REGISTRO_NAO_ATUALIZADO tentativa=[0-9a-f-]{36} .*reconciliar com --concluir-verificacao 129/, 2);
-  assert.doesNotMatch(r.texto, /^ERRO /m);
+  assert.equal(visto.situacao, 'CONCLUIDA');
+  assert.ok(visto.destruida, 'o socket de C já estava fechado antes do envio');
+  ok(r, /REGISTRO_NAO_ATUALIZADO tentativa=[0-9a-f-]{36} .*antes do envio.*reconciliar com --concluir-verificacao 129/, 2);
+  assert.doesNotMatch(r.texto, /^ERRO |REGISTRO_INDETERMINADO/m);
   const u = uuidDe(r, 'RESERVANDO');
   assert.equal((await linhaDe(b, u)).situacao, 'VERIFICACAO_PENDENTE');
   ok(await rodar(b, ['--concluir-verificacao', '129', '--tentativa', u]), /CONCLUIDA 129/);
 });
 
-test('129: C terminada antes do UPDATE de FALHA (postcheck final reprovado) = código 2, nunca 1', {skip: pular}, async () => {
+test('129: postcheck final reprovado e C encerrada antes do UPDATE de FALHA = código 2, nunca 1 (situação conferida fora do gancho)', {skip: pular}, async () => {
   const b = await banco();
+  const visto = {};
   const r = await rodar(b, ['--aplicar-129-bootstrap-autorizado', '--backup', BACKUP], {ganchos: {
     depoisDoCommit129: async () => { await sql(b, 'ALTER TABLE public.operacao_migration_tentativas ADD COLUMN extra_teste integer'); },
     antesDaEscritaPosCommit: async ({db, novaSituacao}) => {
-      assert.equal(novaSituacao, 'FALHA');
+      visto.situacao = novaSituacao;
       await admin.query('SELECT pg_terminate_backend($1)', [db.processID]);
-      await espera(200);
+      await espera(300);
     }}});
-  ok(r, /REGISTRO_NAO_ATUALIZADO tentativa=[0-9a-f-]{36}/, 2);
+  assert.equal(visto.situacao, 'FALHA', 'o caminho chegou à escrita de FALHA');
+  ok(r, /REGISTRO_NAO_ATUALIZADO tentativa=[0-9a-f-]{36} .*antes do envio/, 2);
   assert.doesNotMatch(r.texto, /^ERRO /m);
+  assert.equal((await linhaDe(b, uuidDe(r, 'RESERVANDO'))).situacao, 'VERIFICACAO_PENDENTE');
 });
 
-test('130: UPDATE final bloqueado por outra sessão = prazo local, C destruída, REGISTRO_INDETERMINADO (2) orienta --conferir-tentativa primeiro', {skip: pular}, async () => {
+test('130: UPDATE final CONFIRMADO no servidor com a resposta perdida = REGISTRO_INDETERMINADO (2), conferir-tentativa mostra CONCLUIDA', {skip: pular}, async () => {
+  const b = await comRegistro();
+  const px = await apoio.proxy(P);
+  try {
+    let armado = false;
+    px.regra = (cx, d) => (armado && apoio.contem(d, 'UPDATE ') ? 'cortarResposta' : 'passar');
+    const r = await rodar(b, ['--aplicar-130-autorizado', '--backup', BACKUP], {portaAlvo: px.porta, prazoDescarte: 1500,
+      ganchos: {antesDaEscritaPosCommit: ({novaSituacao}) => { if (novaSituacao === 'CONCLUIDA') armado = true; }}});
+    ok(r, /REGISTRO_INDETERMINADO tentativa=[0-9a-f-]{36} CONCLUIDA .*consultar primeiro --conferir-tentativa 130 --tentativa/, 2);
+    assert.doesNotMatch(r.texto, /REGISTRO_NAO_ATUALIZADO|APLICADA_POSTCHECK_PASS/);
+    const u = uuidDe(r, 'INICIADA');
+    assert.equal((await linhaDe(b, u)).situacao, 'CONCLUIDA', 'o servidor confirmou o UPDATE');
+    ok(await rodar(b, ['--conferir-tentativa', '130', '--tentativa', u]), /TENTATIVA .* CONCLUIDA/);
+  } finally { await px.fechar(); }
+});
+
+test('130: UPDATE final bloqueado no servidor = prazo local, socket de C destruído, REGISTRO_INDETERMINADO (2); liberado, o UPDATE confirma', {skip: pular}, async () => {
   const b = await comRegistro();
   const bloqueador = await apoio.conectar(P, b);
   try {
-    const r = await rodar(b, ['--aplicar-130-autorizado', '--backup', BACKUP], {prazoEscrita: 1500, ganchos: {antesDaEscritaPosCommit: async ({u}) => {
+    const visto = {};
+    const execucao = rodar(b, ['--aplicar-130-autorizado', '--backup', BACKUP], {prazoEscrita: 3000, ganchos: {antesDaEscritaPosCommit: async ({u, db}) => {
       await bloqueador.query('BEGIN');
       await bloqueador.query('SELECT 1 FROM operacao_migration_tentativas WHERE tentativa = $1 FOR UPDATE', [u]);
+      visto.db = db; visto.pid = db.processID;
     }}});
-    ok(r, /REGISTRO_INDETERMINADO tentativa=[0-9a-f-]{36} CONCLUIDA .*consultar primeiro --conferir-tentativa 130 --tentativa/, 2);
+    // Enquanto C espera: o UPDATE chegou ao servidor e o backend de C está parado na trava de linha.
+    for (let i = 0; i < 40 && !visto.esperando; i++) {
+      await espera(50);
+      if (!visto.pid) continue;
+      const a = (await admin.query("SELECT wait_event_type, query FROM pg_stat_activity WHERE pid = $1", [visto.pid])).rows[0];
+      if (a?.wait_event_type === 'Lock' && /^UPDATE /.test(a.query)) visto.esperando = true;
+    }
+    const r = await execucao;
+    assert.ok(visto.esperando, 'o UPDATE do registro chegou ao servidor e esperou a trava');
+    ok(r, /REGISTRO_INDETERMINADO tentativa=[0-9a-f-]{36} CONCLUIDA .*escrita_registro_timeout.*consultar primeiro --conferir-tentativa 130 --tentativa/, 2);
+    assert.ok(visto.db.connection.stream.destroyed, 'o socket de C foi destruído no estouro, antes de liberar o bloqueio');
     const u = uuidDe(r, 'INICIADA');
+    assert.equal((await linhaDe(b, u)).situacao, 'EM_ANDAMENTO', 'ainda bloqueado: nada gravado');
     await bloqueador.query('ROLLBACK');
     await espera(500);
-    // O UPDATE enviado pode ter sido confirmado depois que o bloqueio saiu: a consulta decide; concluir só se ainda pendente.
-    const c = await rodar(b, ['--conferir-tentativa', '130', '--tentativa', u]);
-    assert.match(c.texto, /TENTATIVA .* (CONCLUIDA|EM_ANDAMENTO)/);
-    if (/EM_ANDAMENTO/.test(c.texto)) ok(await rodar(b, ['--concluir-verificacao', '130', '--tentativa', u]), /CONCLUIDA 130/);
+    // O backend de C (vivo, sem cliente) executa e confirma o UPDATE ao sair da trava: por isso a orientação é conferir primeiro.
     assert.equal((await linhaDe(b, u)).situacao, 'CONCLUIDA');
+    ok(await rodar(b, ['--conferir-tentativa', '130', '--tentativa', u]), /TENTATIVA .* CONCLUIDA/);
   } finally { await bloqueador.query('ROLLBACK').catch(() => {}); await bloqueador.end(); }
 });
 
-// ------------------------------------------------------------------ Astra r2: txid da evidência tem de ser string decimal
+test('ROLLBACK da leitura pós-COMMIT sem resposta: prazo no lerEmC destrói C, código 2, nenhum UPDATE enviado; concluir fecha', {skip: pular}, async () => {
+  const b = await comRegistro();
+  const px = await apoio.proxy(P);
+  try {
+    let armado = false, updates = 0;
+    px.regra = (cx, d) => {
+      if (armado && apoio.contem(d, 'UPDATE ')) updates++;
+      return armado && apoio.ehComando(d, 'ROLLBACK') ? 'segurar' : 'passar';
+    };
+    const t0 = Date.now();
+    const r = await rodar(b, ['--aplicar-130-autorizado', '--backup', BACKUP], {portaAlvo: px.porta, prazoRollback: 1500, prazoDescarte: 1500,
+      ganchos: {naVerificacaoPosCommit: () => { armado = true; }}});
+    const dt = Date.now() - t0;
+    ok(r, /VERIFICACAO_POS_COMMIT_FALHOU 130 tentativa=[0-9a-f-]{36} .*rollback_timeout/, 2);
+    assert.match(r.texto, /REGISTRO_NAO_ATUALIZADO tentativa=[0-9a-f-]{36} conexão perdida .*--concluir-verificacao 130/);
+    assert.ok(px.retida, 'o ROLLBACK ficou segurado no proxy');
+    assert.ok(dt < 15000, 'o prazo local soltou o processo');
+    // A regra é de uso único: depois de segurar, conta pelos pacotes seguintes da conexão C.
+    px.regra = (cx, d) => { if (apoio.contem(d, 'UPDATE ')) updates++; return 'passar'; };
+    await espera(200);
+    assert.equal(updates, 0, 'nenhum UPDATE enviado depois do estouro');
+    const u = uuidDe(r, 'INICIADA');
+    assert.equal((await linhaDe(b, u)).situacao, 'EM_ANDAMENTO');
+  } finally { await px.fechar(); }
+  await espera(300);
+  const u = (await sql(b, "SELECT tentativa::text AS u FROM operacao_migration_tentativas WHERE migration = '130' AND arquivada_em IS NULL")).rows[0].u;
+  ok(await rodar(b, ['--concluir-verificacao', '130', '--tentativa', u]), /CONCLUIDA 130/);
+});
 
-test('tem_corpo recusa txid null, número, vazio e não decimal (130 EM_ANDAMENTO e 129 VERIFICACAO_PENDENTE)', {skip: pular}, async () => {
+// ------------------------------------------------------------------ Astra r2/r3: txid da evidência tem de ser string decimal
+
+const TXID_INVALIDOS = [{txid: null}, {txid: 123}, {txid: ''}, {txid: 'abc'}, {txid: ['1']}, {}];
+const TXID_CONTROLE = {txid: '4242'};
+async function matrizTxid(b, id, situacao, versao) {
+  // Uma linha só (o registro recusa DELETE e só aceita uma ativa por id); o detalhe é trocado a cada caso.
+  const u = crypto.randomUUID();
+  await sql(b, "INSERT INTO operacao_migration_tentativas (ambiente, migration, tentativa, backup, situacao, versao, detalhe) VALUES ('staging', $1, $2, 'backup-x', $3, $4, '{}')", [id, u, situacao, versao]);
+  const trocar = extra => sql(b, 'UPDATE operacao_migration_tentativas SET detalhe = $2::jsonb WHERE tentativa = $1', [u, JSON.stringify({corpo: {...extra, postcheck: 'PASS'}})]);
+  for (const extra of TXID_INVALIDOS) {
+    await trocar(extra);
+    ok(await rodar(b, ['--concluir-verificacao', id, '--tentativa', u]), new RegExp(`CONCLUSAO_RECUSADA .* ${situacao} corpo=nao`), 1);
+  }
+  await trocar(TXID_CONTROLE);
+  ok(await rodar(b, ['--concluir-verificacao', id, '--tentativa', u]), new RegExp(`CONCLUIDA ${id}`));
+}
+
+test('tem_corpo: a mesma matriz de txid inválido (null, número, vazio, não decimal, array, ausente) e o controle "4242" na 131 e na 129', {skip: pular}, async () => {
   const b = await comRegistro();
   ok(await rodar(b, ['--aplicar-130-autorizado', '--backup', BACKUP]), /APLICADA_POSTCHECK_PASS 130/);
   await sql(b, lerArq(arqMig('131')));
-  const invalidos = [{txid: null}, {txid: 123}, {txid: ''}, {txid: 'abc'}, {txid: ['1']}, {}];
-  // Uma linha só (o registro recusa DELETE e só aceita uma ativa por id); o detalhe é trocado a cada caso.
-  const u = crypto.randomUUID();
-  await sql(b, "INSERT INTO operacao_migration_tentativas (ambiente, migration, tentativa, backup, situacao, versao, detalhe) VALUES ('staging', '131', $1, 'backup-x', 'EM_ANDAMENTO', 2, '{}')", [u]);
-  for (const extra of invalidos) {
-    await sql(b, 'UPDATE operacao_migration_tentativas SET detalhe = $2::jsonb WHERE tentativa = $1', [u, JSON.stringify({corpo: {...extra, postcheck: 'PASS'}})]);
-    ok(await rodar(b, ['--concluir-verificacao', '131', '--tentativa', u]), /CONCLUSAO_RECUSADA .* EM_ANDAMENTO corpo=nao/, 1);
-  }
+  await matrizTxid(b, '131', 'EM_ANDAMENTO', 2);
   const c = await banco();
   await sql(c, lerArq(arqMig('129')));
-  const u2 = crypto.randomUUID();
-  await sql(c, "INSERT INTO operacao_migration_tentativas (ambiente, migration, tentativa, backup, situacao, versao, detalhe) VALUES ('staging', '129', $1, 'backup-x', 'VERIFICACAO_PENDENTE', 1, '{\"corpo\":{\"txid\":null,\"postcheck\":\"PASS\"}}')", [u2]);
-  ok(await rodar(c, ['--concluir-verificacao', '129', '--tentativa', u2]), /CONCLUSAO_RECUSADA .* VERIFICACAO_PENDENTE corpo=nao/, 1);
-  // Controle: txid decimal em string (formato do aplicador) é aceito.
-  await sql(c, "UPDATE operacao_migration_tentativas SET detalhe = '{\"corpo\":{\"txid\":\"4242\",\"postcheck\":\"PASS\"}}' WHERE tentativa = $1", [u2]);
-  ok(await rodar(c, ['--concluir-verificacao', '129', '--tentativa', u2]), /CONCLUIDA 129/);
+  await matrizTxid(c, '129', 'VERIFICACAO_PENDENTE', 1);
 });
 
 // ------------------------------------------------------------------ §4.1 com os adaptadores reais
@@ -309,21 +376,31 @@ const SIMULADO = {
   staging: {banco: 'kidmais_staging_1z91', env: {RENDER: 'true', RENDER_SERVICE_ID: 'srv-daif418ae00c73e8k2gg', KIDMAIS_DEPLOY_ENV: 'staging',
     DATABASE_SSL: 'true', DATABASE_URL: 'postgresql://usuario_teste:senha_teste_local@dpg-daidko3m8hqs73ce4jt0-a/kidmais_staging_1z91'}},
 };
+function parametrosEfetivos(Client, cfg) {
+  const efetivo = new Client(cfg);
+  const ssl = efetivo.ssl;
+  return {
+    host: efetivo.host, port: Number(efetivo.port), database: efetivo.database, user: efetivo.user,
+    ssl: ssl ? {rejectUnauthorized: ssl.rejectUnauthorized, minVersion: ssl.minVersion} : false,
+    app: efetivo.connectionParameters.application_name,
+  };
+}
+test('§4.1 parametrosEfetivos: sslmode=disable na connectionString derruba o TLS mesmo com ssl objeto (a comparação pega)', () => {
+  const {Client} = require('pg');
+  const ssl = {rejectUnauthorized: true, minVersion: 'TLSv1.2'};
+  const url = SIMULADO.staging.env.DATABASE_URL;
+  assert.deepEqual(parametrosEfetivos(Client, {connectionString: url, ssl, application_name: 'a'}).ssl, ssl);
+  assert.equal(parametrosEfetivos(Client, {connectionString: url + '?sslmode=disable', ssl, application_name: 'a'}).ssl, false);
+});
 function clienteSimulado(nomeBanco, amb, vistos) {
   const {Client} = require('pg');
   const esperado = SIMULADO[amb];
   return class ClienteSimulado extends Client {
     constructor(cfg) {
-      const viaUrl = cfg.connectionString ? new URL(cfg.connectionString) : null;
-      // Configuração EXATA entregue pelo adaptador (normalizada entre connectionString e campos), guardada também na instância:
-      // o teste confere a de C (bootstrap e 130) pela própria conexão que segura a trava.
-      const recebida = {
-        host: viaUrl ? viaUrl.hostname : cfg.host, port: Number((viaUrl ? viaUrl.port : cfg.port) || 5432),
-        database: viaUrl ? decodeURIComponent(viaUrl.pathname.slice(1)) : cfg.database,
-        user: viaUrl ? decodeURIComponent(viaUrl.username) : cfg.user,
-        ssl: cfg.ssl ? {rejectUnauthorized: cfg.ssl.rejectUnauthorized, minVersion: cfg.ssl.minVersion} : false,
-        app: cfg.application_name,
-      };
+      // Parâmetros EFETIVOS: um Client do pg construído (sem conectar) com a configuração ORIGINAL do adaptador, antes de
+      // redirecionar a rede; inclui o que a connectionString impõe (ex.: sslmode=disable vira ssl=false). Guardados também na
+      // instância: o teste confere os de C (bootstrap e 130) pela própria conexão que segura a trava.
+      const recebida = parametrosEfetivos(Client, cfg);
       vistos.push(recebida);
       super({host: apoio.HOST, port: P, user: apoio.USUARIO, database: nomeBanco, application_name: cfg.application_name,
         password: () => Promise.reject(new Error('o servidor pediu senha'))});

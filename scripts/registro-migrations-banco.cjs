@@ -401,17 +401,23 @@ async function conferirTentativa(ctx, {id, tentativa: u}) {
 function clienteC(ctx, id) {
   const db = new ctx.Client(ctx.ambiente.alvo(`kidmais-registro-${ctx.ambiente.nome}-${id}`));
   db.on?.('error', () => undefined);
+  db.prazoRollbackC = ctx.prazoRollback ?? 10000;
   return db;
 }
-/** Leitura READ ONLY em C (a mesma conexão que segura a trava). */
+/** ROLLBACK de leitura em C com prazo local: estouro destrói C (db.destruido) e propaga o erro sem SQLSTATE. */
+async function rollbackEmC(db) {
+  try { await comPrazo(db.query('ROLLBACK'), db.prazoRollbackC ?? 10000, 'rollback_timeout'); }
+  catch (x) { if (x?.prazo) { destruir(db); db.destruido = true; } throw x; }
+}
+/** Leitura READ ONLY em C (a mesma conexão que segura a trava). ROLLBACK com prazo nos dois caminhos. */
 async function lerEmC(db, sql, params) {
   await db.query('BEGIN TRANSACTION READ ONLY');
   try {
     for (const set of SET_LOCAL('60s')) await db.query(set);
     const r = await db.query(sql, params);
-    await db.query('ROLLBACK');
+    await rollbackEmC(db);
     return r;
-  } catch (e) { await db.query('ROLLBACK').catch(() => {}); throw e; }
+  } catch (e) { if (!db.destruido) await rollbackEmC(db).catch(() => {}); throw e; }
 }
 async function identidadeEmC(ctx, db) {
   const linha = (await lerEmC(db, ctx.ambiente.sqlIdentidade)).rows?.[0];
@@ -598,20 +604,25 @@ async function falhaPosCommit(ctx, db, o, id, linha, e) {
 }
 /**
  * Escrita no registro depois do COMMIT do corpo (ou da 129): prazo local; nunca lança e nunca vira código 1.
- * Estouro: destrói C e devolve código 2 com o uuid — o UPDATE já foi enviado e pode ter sido confirmado, então a orientação
- * é consultar --conferir-tentativa primeiro. Outro erro: REGISTRO_NAO_ATUALIZADO (código 2) com o comando de reconciliação.
+ * Depois do ENVIO do UPDATE, estouro do prazo ou perda de conexão sem confirmação (erro sem SQLSTATE ou fatal) =
+ * REGISTRO_INDETERMINADO (código 2): o servidor pode ter confirmado, então a orientação é consultar --conferir-tentativa
+ * primeiro. Só é REGISTRO_NAO_ATUALIZADO (código 2, concluir direto) o que comprovadamente não gravou: C já encerrada antes
+ * do envio, ou erro do servidor não fatal (o UPDATE em autocommit foi desfeito).
  */
 async function escreverPosCommit(ctx, db, o, id, linha, novaSituacao, detalhe) {
   const u = linha.tentativa;
+  let enviado = false;
   try {
     const escrita = (async () => {
       await ctx.ganchos?.antesDaEscritaPosCommit?.({id, u, db, novaSituacao});
+      if (db.destruido || db.connection?.stream?.destroyed === true) throw new Error('conexão C encerrada antes do envio do UPDATE');
+      enviado = true;
       return escreverLinha(ctx, db, o, id, linha, novaSituacao, detalhe);
     })();
     return await comPrazo(escrita, ctx.prazoEscrita ?? 30000, 'escrita_registro_timeout');
   } catch (x) {
-    if (x?.prazo) {
-      destruir(db); db.destruido = true;
+    if (x?.prazo) { destruir(db); db.destruido = true; }
+    if (x?.prazo || (enviado && fatal(x))) {
       o.linha(`REGISTRO_INDETERMINADO tentativa=${u} ${novaSituacao} ${curta(x)} (corpo COMMITADO; a escrita pode ter sido confirmada: ` +
         `consultar primeiro --conferir-tentativa ${id} --tentativa ${u}; só então --concluir-verificacao ${id} --tentativa ${u})`, 2);
     } else o.linha(`REGISTRO_NAO_ATUALIZADO tentativa=${u} ${curta(x)} (corpo COMMITADO; reconciliar com --concluir-verificacao ${id} --tentativa ${u})`, 2);
