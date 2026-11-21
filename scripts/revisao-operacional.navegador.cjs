@@ -78,9 +78,10 @@ async function main() {
         assert.equal(await destinoProtegido.count(),0);
         await page.screenshot({path:'.tmp/revisao-mesmo-slot.png',fullPage:true});
         const editar = preparacao.getByRole('button',{name:'Editar dados desta revisão',exact:true});
-        async function abrir() {
-            if (!await page.locator('#editar-festa').isVisible()) await editar.click();
-            await page.getByLabel('Convidados pagantes',{exact:true}).waitFor();
+        const convidadosPagantes = page.getByLabel('Convidados pagantes',{exact:true});
+        async function reabrir() {
+            await editar.click();
+            await convidadosPagantes.waitFor();
         }
         async function salvar(comercial = false) {
             await page.getByLabel('Motivo da alteração administrativa',{exact:true}).fill('Alteração operacional pelo navegador');
@@ -89,25 +90,26 @@ async function main() {
             await page.locator('#editar-festa').waitFor({state:'detached'});
         }
         // Troca apenas de horário, na mesma data, continua sendo remarcação.
-        await abrir();await page.locator('summary').filter({hasText:'Dados da festa'}).click();
+        await convidadosPagantes.waitFor();
+        await page.locator('summary').filter({hasText:'Dados da festa'}).click();
         const horario=page.getByLabel('Horário',{exact:true}),original=await horario.inputValue();
         const outro=await horario.locator('option').evaluateAll((options,current)=>options.find(o=>!o.disabled&&o.value!==current&&o.textContent.includes('DISPONIVEL'))?.value,original);
         assert(outro,'Outro horário oficial disponível');await horario.selectOption(outro);await salvar();
         await destinoProtegido.waitFor();
-        await abrir();await page.locator('summary').filter({hasText:'Dados da festa'}).click();await page.getByLabel('Horário',{exact:true}).selectOption(original);await salvar();
+        await reabrir();await page.locator('summary').filter({hasText:'Dados da festa'}).click();await page.getByLabel('Horário',{exact:true}).selectOption(original);await salvar();
         await reservaMantida.waitFor();assert.equal(await destinoProtegido.count(),0);
-        await abrir();
-        for(const n of [110,130,140]){await page.locator('#editar-festa').getByRole('button',{name:String(n),exact:true}).click();assert.equal(await page.getByLabel('Convidados pagantes',{exact:true}).inputValue(),String(n));await salvar();await abrir();assert.equal(await page.getByLabel('Convidados pagantes',{exact:true}).inputValue(),String(n));}
+        await reabrir();
+        for(const n of [110,130,140]){await page.locator('#editar-festa').getByRole('button',{name:String(n),exact:true}).click();assert.equal(await page.getByLabel('Convidados pagantes',{exact:true}).inputValue(),String(n));await salvar();await reabrir();assert.equal(await page.getByLabel('Convidados pagantes',{exact:true}).inputValue(),String(n));}
         await page.getByLabel('Convidados pagantes',{exact:true}).fill('67');
         await page.locator('summary').filter({hasText:'Dados da festa'}).click();
         await page.getByLabel('Data da festa',{exact:true}).fill('2097-09-28');
         await salvar();await destinoProtegido.waitFor();
         await page.screenshot({path:'.tmp/revisao-painel-desktop.png',fullPage:true});
-        await abrir();await page.getByLabel('Pacote',{exact:true}).selectOption({label:'Festa Premium · DISPONIVEL'});await salvar();assert.equal(await page.getByText(/Este pacote ainda não possui modelo oficial/).count(),0);
-        await abrir();await page.getByLabel('Pacote',{exact:true}).selectOption({label:'Festa Completa · DISPONIVEL'});await salvar();
-        await abrir();await page.locator('summary').filter({hasText:'Escolhas do buffet'}).click();await page.getByLabel('Definição do buffet',{exact:true}).selectOption('DEFINIDO');await page.getByLabel('Bolo',{exact:true}).fill('Chocolate');
+        await reabrir();await page.getByLabel('Pacote',{exact:true}).selectOption({label:'Festa Premium · DISPONIVEL'});await salvar();assert.equal(await page.getByText(/Este pacote ainda não possui modelo oficial/).count(),0);
+        await reabrir();await page.getByLabel('Pacote',{exact:true}).selectOption({label:'Festa Completa · DISPONIVEL'});await salvar();
+        await reabrir();await page.locator('summary').filter({hasText:'Escolhas do buffet'}).click();await page.getByLabel('Definição do buffet',{exact:true}).selectOption('DEFINIDO');await page.getByLabel('Bolo',{exact:true}).fill('Chocolate');
         await page.locator('summary').filter({hasText:'Condições comerciais'}).click();await page.getByLabel('Revisar e aprovar condição comercial nesta edição').check();await page.getByLabel('Forma de pagamento',{exact:true}).selectOption('PIX_PARCELADO');await page.getByLabel('Base negociada (opcional)',{exact:true}).fill('9290');await page.getByLabel('Quantidade de parcelas acordada',{exact:true}).fill('3');await salvar(true);await page.getByText(/9.011,30/).first().waitFor();
-        await page.setViewportSize({width:390,height:844});await abrir();await page.locator('summary').filter({hasText:'Trocar vínculos da contratação'}).click();await page.getByLabel('Contratante proposto',{exact:true}).waitFor();await page.screenshot({path:'.tmp/revisao-editor-mobile.png',fullPage:true});assert(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1),'Sem overflow horizontal mobile');await page.getByRole('button',{name:'Cancelar edição',exact:true}).click();
+        await page.setViewportSize({width:390,height:844});await reabrir();await page.locator('summary').filter({hasText:'Trocar vínculos da contratação'}).click();await page.getByLabel('Contratante proposto',{exact:true}).waitFor();await page.screenshot({path:'.tmp/revisao-editor-mobile.png',fullPage:true});assert(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1),'Sem overflow horizontal mobile');await page.getByRole('button',{name:'Cancelar edição',exact:true}).click();
         await page.setViewportSize({width:1280,height:900});await page.getByRole('tab',{name:'Documentos',exact:true}).click();await page.getByRole('button',{name:'Gerar PDF da revisão',exact:true}).click();await page.getByRole('button',{name:'Confirmar revisão do PDF',exact:true}).click();
         await page.getByRole('dialog').getByRole('button', { name: 'Confirmar revisão do PDF', exact: true }).click();await page.getByLabel('Confirme sua senha',{exact:true}).fill(password);await page.getByRole('button',{name:'Aprovar e assinar pelo buffet',exact:true}).click();
         await page.getByRole('dialog').getByRole('button', { name: 'Aprovar e assinar pelo buffet', exact: true }).click();await page.getByRole('button',{name:'Liberar para o cliente',exact:true}).waitFor();

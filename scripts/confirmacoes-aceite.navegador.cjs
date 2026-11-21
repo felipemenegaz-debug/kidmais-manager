@@ -52,7 +52,7 @@ after(async () => {
 test('janela isolada distingue cancelar, entrada vazia e valor inicial; bloqueia reentrada', async () => {
   const pagina = await navegador.newPage();
   try {
-    await pagina.setContent('<button id="origem">Editar</button>');
+    await pagina.setContent('<button id="origem">Editar</button><button id="destino">Abrir no destino</button>');
     const codigo = ts.transpileModule(fs.readFileSync('components/JanelaConfirmacao.ts', 'utf8'), {
       compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
     }).outputText;
@@ -76,6 +76,41 @@ test('janela isolada distingue cancelar, entrada vazia e valor inicial; bloqueia
     await pagina.keyboard.press('Escape');
     assert.equal(await pagina.evaluate(() => window.resposta), null);
     assert.equal(await pagina.evaluate(() => document.activeElement.id), 'origem');
+
+    await pagina.evaluate(() => {
+      const pendente = new Promise(resolve => { window.terminarAcao = resolve; });
+      window.execucoes = 0;
+      window.respostaPendente = exports.dialogo.confirmar('Confirmar revisão do PDF', 'Revisão conferida', () => {
+        window.execucoes++;
+        return pendente;
+      });
+    });
+    const revisao = pagina.getByRole('dialog', { name: 'Confirmar revisão do PDF' });
+    await revisao.getByRole('button', { name: 'Confirmar revisão do PDF' }).evaluate(botao => { botao.click(); botao.click(); });
+    assert.equal(await revisao.getAttribute('aria-busy'), 'true');
+    await pagina.keyboard.press('Escape');
+    assert(await revisao.isVisible());
+    assert.equal(await pagina.evaluate(() => window.execucoes), 1);
+
+    await pagina.evaluate(() => window.dispatchEvent(new PopStateEvent('popstate')));
+    assert.equal(await pagina.locator('dialog').count(), 0);
+    assert.equal(await pagina.evaluate(() => window.respostaPendente), false);
+    assert.notEqual(await pagina.evaluate(() => document.activeElement.id), 'origem');
+    await pagina.evaluate(() => {
+      document.getElementById('destino').onclick = evento => {
+        window.respostaDestino = exports.dialogo.confirmar('Continuar no destino', 'Outro pedido', undefined, evento.currentTarget);
+      };
+    });
+    await pagina.locator('#destino').click();
+    const noDestino = pagina.getByRole('dialog', { name: 'Continuar no destino' });
+    await noDestino.waitFor();
+    await pagina.evaluate(async () => { window.terminarAcao(); await Promise.resolve(); });
+    assert(await noDestino.isVisible());
+    assert.equal(await pagina.evaluate(() => document.activeElement.textContent), 'Voltar');
+    assert.equal(await pagina.evaluate(() => exports.dialogo.confirmar('Excluir', 'Outro pedido')), false);
+    await pagina.keyboard.press('Escape');
+    assert.equal(await pagina.evaluate(() => window.respostaDestino), false);
+    assert.equal(await pagina.evaluate(() => document.activeElement.id), 'destino');
   } finally { await pagina.close(); }
 });
 

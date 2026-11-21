@@ -41,26 +41,30 @@ function abrir({ titulo, mensagem, valorInicial, executar, gatilho }: Pedido): P
   aberta = true;
   return new Promise((resolve, reject) => {
     let executando = false;
-    function concluir(valor: string | null) {
-      if (!janela.open) return;
+    let concluida = false;
+    function concluir(valor: string | null, devolverFoco = true) {
+      if (concluida) return;
+      concluida = true;
       principal.disabled = true;
-      janela.close();
+      // close() pode devolver o foco nativamente, mesmo sem a chamada a focus().
+      if (devolverFoco) janela.close();
       janela.remove();
       aberta = false;
-      window.removeEventListener('popstate', cancelar);
-      window.removeEventListener('hashchange', cancelar);
-      window.removeEventListener('pagehide', cancelar);
-      if (origem instanceof HTMLElement && origem.isConnected) origem.focus();
+      window.removeEventListener('popstate', sair);
+      window.removeEventListener('hashchange', sair);
+      window.removeEventListener('pagehide', sair);
+      if (devolverFoco && origem instanceof HTMLElement && origem.isConnected) origem.focus();
       resolve(valor);
     }
     function cancelar() { if (!executando) concluir(null); }
-    window.addEventListener('popstate', cancelar);
-    window.addEventListener('hashchange', cancelar);
-    window.addEventListener('pagehide', cancelar);
+    function sair() { concluir(null, false); }
+    window.addEventListener('popstate', sair);
+    window.addEventListener('hashchange', sair);
+    window.addEventListener('pagehide', sair);
     voltar.onclick = cancelar;
     principal.onclick = async () => {
-      if (executando || !janela.open) return;
-      if (endereco !== location.href || !origem?.isConnected) return cancelar();
+      if (concluida || executando || !janela.open) return;
+      if (endereco !== location.href || !origem?.isConnected) return sair();
       if (executar) {
         executando = true;
         principal.disabled = voltar.disabled = true;
