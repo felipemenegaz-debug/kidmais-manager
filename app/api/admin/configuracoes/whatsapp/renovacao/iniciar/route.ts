@@ -9,7 +9,8 @@ export const dynamic = 'force-dynamic';
 export async function POST(request: NextRequest) {
   try {
     await exigirApiAdminCrmDisponivel(request);
-    const data = await iniciarRenovacaoWhatsapp(tokenAdmin(request), contextoWhatsapp(request.headers.get('user-agent')));
+    const body = await request.json().catch(() => null);
+    const data = await iniciarRenovacaoWhatsapp(body, tokenAdmin(request), contextoWhatsapp(request.headers.get('user-agent')));
     return respostaWhatsapp({ ok: true, data });
   } catch (error) {
     return erroWhatsapp(error, 'Não foi possível iniciar a renovação com a Meta.');

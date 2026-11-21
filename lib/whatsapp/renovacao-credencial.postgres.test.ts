@@ -83,7 +83,8 @@ const conta = async (sql: string, params: unknown[] = []) => Number((await clien
 
 type Inicio = { tentativaId: string; state: string };
 const iniciarConexao = (s: { token: string }) => (svc.wpp.iniciarOnboardingWhatsapp as unknown as (t: string, c: unknown) => Promise<Inicio>)(s.token, ctx());
-const iniciarRenovacao = (s: { token: string }) => (svc.wpp.iniciarRenovacaoWhatsapp as unknown as (t: string, c: unknown) => Promise<Inicio>)(s.token, ctx());
+const iniciarRenovacao = (s: { token: string }, conexaoId = ids.conexaoA ?? randomUUID()) =>
+  (svc.wpp.iniciarRenovacaoWhatsapp as unknown as (r: unknown, t: string, c: unknown) => Promise<Inicio>)({ conexaoId }, s.token, ctx());
 const concluirConexao = (s: { token: string }, ini: Inicio, evento: Pedido, validarMeta: unknown) =>
   (svc.wpp.concluirOnboardingWhatsapp as unknown as (r: unknown, t: string, c: unknown, d: unknown) => Promise<{ conexaoId: string }>)(
     { tentativaId: ini.tentativaId, state: ini.state, authorizationCode: 'codigo-sintetico-renovacao', ...evento }, s.token, ctx(), { validarMeta });
@@ -218,14 +219,14 @@ test('renovação: tentativa da pessoa na A no prazo bloqueia a B com 409 sem to
   await moverPrazo(iniA.tentativaId, '5 minutes');
   const antesA = await jsonTentativaA();
   const antesB = await totalTentativasB();
-  assert.equal(await codigoErro(iniciarRenovacao(await sessaoDe(ids.gestaoAB, { empresaAtiva: ids.empresaB }))), 'WHATSAPP_TENTATIVA_CONCORRENTE', 'no prazo: 409');
+  assert.equal(await codigoErro(iniciarRenovacao(await sessaoDe(ids.gestaoAB, { empresaAtiva: ids.empresaB }), ids.conexaoB)), 'WHATSAPP_TENTATIVA_CONCORRENTE', 'no prazo: 409');
   assert.deepEqual(await jsonTentativaA(), antesA, 'no prazo: a tentativa da A ficou intacta');
   assert.equal(await totalTentativasB(), antesB, 'no prazo: nada criado na B');
   assert.equal((await auditoriaSistema(iniA.tentativaId)).length, 0, 'no prazo: a rotina do sistema não fecha');
   // Vencida, sem ninguém da A agir (a Gestão da A nem entra): a rotina do sistema fecha só ela e a B inicia.
   await moverPrazo(iniA.tentativaId, '-1 minute');
   const vencidaA = await jsonTentativaA();
-  const iniB = await iniciarRenovacao(await sessaoDe(ids.gestaoAB, { empresaAtiva: ids.empresaB }));
+  const iniB = await iniciarRenovacao(await sessaoDe(ids.gestaoAB, { empresaAtiva: ids.empresaB }), ids.conexaoB);
   const fechadaA = await jsonTentativaA();
   assert.deepEqual([fechadaA.status, fechadaA.erro_codigo], ['EXPIRADA', 'TENTATIVA_EXPIRADA']);
   const mudou = Object.keys(fechadaA).filter((k) => JSON.stringify(fechadaA[k]) !== JSON.stringify(vencidaA[k])).sort();
@@ -239,7 +240,7 @@ test('renovação: tentativa da pessoa na A no prazo bloqueia a B com 409 sem to
   for (let rodada = 0; rodada < 3; rodada++) {
     const [ra, rb] = await Promise.allSettled([
       iniciarRenovacao(await sessaoDe(ids.gestaoAB, { empresaAtiva: ids.empresaA })),
-      iniciarRenovacao(await sessaoDe(ids.gestaoAB, { empresaAtiva: ids.empresaB })),
+      iniciarRenovacao(await sessaoDe(ids.gestaoAB, { empresaAtiva: ids.empresaB }), ids.conexaoB),
     ]);
     const resultados = [ra, rb];
     const ok = resultados.filter((r) => r.status === 'fulfilled') as PromiseFulfilledResult<{ tentativaId: string }>[];
@@ -430,7 +431,7 @@ test('renovação: conexão alterada no meio (renovada por outra via ou desconec
   assert.equal((await um<{ status: string }>('SELECT status FROM whatsapp_onboarding_tentativas WHERE id = $1', [ini2.tentativaId])).status, 'FALHOU');
   // 3) Desconectada no meio: recusa e a conexão continua DESCONECTADA (a renovação nunca reconecta).
   const s3 = await sessaoDe(ids.gestaoB);
-  const ini3 = await iniciarRenovacao(s3);
+  const ini3 = await iniciarRenovacao(s3, ids.conexaoB);
   await (svc.wpp.desconectarWhatsapp as unknown as (r: unknown, t: string, c: unknown) => Promise<unknown>)({ conexaoId: ids.conexaoB, motivo: 'Teste da renovação' }, (await sessaoDe(ids.gestaoB)).token, ctx());
   assert.equal(await codigoErro(concluirRenovacao(s3, ini3, EVENTO_B, metaCom('token-sintetico-z', null))), 'WHATSAPP_RENOVACAO_CONEXAO_ALTERADA');
   assert.equal((await linha(ids.conexaoB)).status, 'DESCONECTADA');
@@ -586,4 +587,32 @@ test('r7: a substituição vale também para a conexão normal (empresa sem cone
   assert.equal((await auditoriasSubstituidas(c1.tentativaId)).length, 1);
   assert.equal(await statusTentativa(c2.tentativaId), 'INICIADA');
   await client.query("UPDATE whatsapp_onboarding_tentativas SET status = 'EXPIRADA', consumida_em = clock_timestamp(), erro_codigo = 'TENTATIVA_EXPIRADA', atualizada_em = clock_timestamp() WHERE id = $1", [c2.tentativaId]);
+});
+
+test('renovação: a credencial vencida ao chegar à persistência deixa a linha anterior intacta', async () => {
+  const antes = await linha(ids.conexaoA);
+  const s = await sessaoDe(ids.gestaoA);
+  const ini = await iniciarRenovacao(s);
+  const vencida = await um<{ vence: Date }>("SELECT clock_timestamp() - interval '1 second' AS vence");
+  assert.equal(await codigoErro(concluirRenovacao(s, ini, EVENTO_A, metaCom('token-sintetico-vencido', vencida.vence))), 'META_TOKEN_EXPIRADO');
+  assert.equal(await statusTentativa(ini.tentativaId), 'FALHOU');
+  assert.deepEqual(await linha(ids.conexaoA), antes);
+});
+
+test('renovação: POST para a conexão antiga não cria tentativa nem substitui a preparação da conexão atual', async () => {
+  const antiga = ids.conexaoB;
+  assert.equal((await linha(antiga)).status, 'DESCONECTADA');
+  const s = await sessaoDe(ids.gestaoB);
+  const evento = { ...EVENTO_B, phoneNumberId: '6002' };
+  const atual = (await concluirConexao(s, await iniciarConexao(s), evento, metaCom('token-sintetico-conexao-substituta', null))).conexaoId;
+  const ini = await iniciarRenovacao(s, atual);
+  const antes = await jsonTentativa(ini.tentativaId);
+  const contagem = () => conta('SELECT count(*)::int AS n FROM whatsapp_onboarding_tentativas WHERE empresa_id=$1', [ids.empresaB]);
+  const total = await contagem();
+  const outraSessao = await sessaoDe(ids.gestaoB);
+  assert.equal(await codigoErro(iniciarRenovacao(outraSessao, antiga)), 'WHATSAPP_RENOVACAO_CONEXAO_ALTERADA');
+  assert.equal(await contagem(), total);
+  assert.equal(await statusTentativa(ini.tentativaId), 'INICIADA');
+  assert.deepEqual(await jsonTentativa(ini.tentativaId), antes);
+  assert.deepEqual(await auditoriasSubstituidas(ini.tentativaId), []);
 });

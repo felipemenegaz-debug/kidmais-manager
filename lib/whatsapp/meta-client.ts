@@ -60,6 +60,7 @@ async function graphGet(path: string, token: string, config: ConfigLeitura, fetc
 }
 
 const AUTORIZACAO_MALFORMADA = () => new WhatsappOnboardingError('META_AUTORIZACAO_INVALIDA', 'A Meta informou os ativos autorizados num formato inesperado.', 409);
+const idDecimal = (id: unknown) => (typeof id === 'string' || (typeof id === 'number' && Number.isSafeInteger(id))) && /^[0-9]{1,64}$/.test(String(id));
 /**
  * IDs explícitos de um escopo granular. `null` só quando `target_ids` está AUSENTE (escopo sobre todos os objetos, sem
  * prova da autorização do ativo). Presente com outro formato (não lista, ou item que não seja id numérico): recusa
@@ -72,7 +73,7 @@ function alvosDoEscopo(granular: unknown[], scope: string): string[] | null {
   const item = itens[0];
   if (!item || !('target_ids' in item) || item.target_ids === undefined) return null;
   const alvos = item.target_ids;
-  if (!Array.isArray(alvos) || !alvos.every((id) => (typeof id === 'string' || typeof id === 'number') && /^[0-9]{1,64}$/.test(String(id)))) throw AUTORIZACAO_MALFORMADA();
+  if (!Array.isArray(alvos) || !alvos.every(idDecimal)) throw AUTORIZACAO_MALFORMADA();
   return alvos.map(String);
 }
 
@@ -92,7 +93,7 @@ export async function wabaPertenceAoNegocio(businessId: string, wabaId: string, 
   const body = await response.json().catch(() => null) as { data?: unknown; paging?: { next?: unknown }; error?: unknown } | null;
   if (!response.ok || !body || body.error || !Array.isArray(body.data)) throw RELACAO_NAO_CONFIRMADA();
   const ids = body.data.map((item) => (item && typeof item === 'object' ? (item as { id?: unknown }).id : undefined));
-  if (ids.some((id) => typeof id !== 'string' && typeof id !== 'number')) throw RELACAO_NAO_CONFIRMADA();
+  if (!ids.every(idDecimal)) throw RELACAO_NAO_CONFIRMADA();
   if (ids.map(String).includes(wabaId)) return true;
   if (body.paging?.next) throw RELACAO_NAO_CONFIRMADA();
   return false;
@@ -123,10 +124,10 @@ async function negocioDonoDaWaba(wabaId: string, token: string, config: ConfigLe
   }
   const body = await response.json().catch(() => null) as { id?: unknown; owner_business_info?: unknown; error?: unknown } | null;
   if (!response.ok || !body || body.error) registrarRecusaMeta('dono_waba', response.status, body);
-  if (!response.ok || !body || body.error || String(body.id ?? '') !== wabaId) throw RELACAO_NAO_CONFIRMADA();
+  if (!response.ok || !body || body.error || !idDecimal(body.id) || String(body.id) !== wabaId) throw RELACAO_NAO_CONFIRMADA();
   const dono = body.owner_business_info;
   const id = dono && typeof dono === 'object' ? (dono as { id?: unknown }).id : undefined;
-  if ((typeof id !== 'string' && typeof id !== 'number') || !/^[0-9]{1,64}$/.test(String(id))) throw RELACAO_NAO_CONFIRMADA();
+  if (!idDecimal(id)) throw RELACAO_NAO_CONFIRMADA();
   return String(id);
 }
 
@@ -139,7 +140,7 @@ async function numeroDaConexao(wabaId: string, token: string, config: ConfigLeit
   if (phoneNumberId) {
     const vistos = new Set<string>();
     while (true) {
-      const phone = phones.data?.find((item) => String(item.id) === phoneNumberId);
+      const phone = phones.data?.find((item) => idDecimal(item.id) && String(item.id) === phoneNumberId);
       if (phone) return phone;
       // O cursor é opaco. Nunca seguir a URL retornada pela Meta com o token em mãos.
       const cursor = phones.paging?.cursors?.after;
@@ -228,6 +229,8 @@ export async function trocarCodigoEValidarAtivos(input: { code: string; wabaId: 
   oauth.searchParams.set('client_id', config.appId);
   oauth.searchParams.set('client_secret', config.appSecret);
   oauth.searchParams.set('code', input.code);
+  // Referência conservadora: o tempo de resposta da troca também conta no prazo da credencial.
+  const trocaIniciadaEm = Date.now();
   const tokenBody = await respostaJson(await fetchImpl(oauth, { method: 'GET', headers: { Accept: 'application/json' }, cache: 'no-store' }), 'troca_codigo');
   const accessToken = typeof tokenBody.access_token === 'string' ? tokenBody.access_token : '';
   const tokenType = typeof tokenBody.token_type === 'string' ? tokenBody.token_type : 'UNKNOWN';
@@ -240,7 +243,7 @@ export async function trocarCodigoEValidarAtivos(input: { code: string; wabaId: 
   const debugBody = await respostaJson(await fetchImpl(debug, { method: 'GET', headers: { Accept: 'application/json' }, cache: 'no-store' }), 'debug_token');
   const debugData = debugBody.data as Record<string, unknown> | undefined;
   const scopes = Array.isArray(debugData?.scopes) ? debugData.scopes.filter((item): item is string => typeof item === 'string') : [];
-  if (debugData?.is_valid !== true || String(debugData.app_id ?? '') !== config.appId
+  if (debugData?.is_valid !== true || !idDecimal(debugData.app_id) || String(debugData.app_id) !== config.appId
       || !['whatsapp_business_management', 'whatsapp_business_messaging'].every((scope) => scopes.includes(scope))) {
     throw new WhatsappOnboardingError('META_ESCOPO_INVALIDO', 'A autorização Meta não concedeu os acessos necessários.', 409);
   }
@@ -259,15 +262,24 @@ export async function trocarCodigoEValidarAtivos(input: { code: string; wabaId: 
   if (input.businessId && input.businessId !== businessId) throw new WhatsappOnboardingError('META_WABA_DIVERGENTE', 'A conta WhatsApp não pertence ao negócio informado.', 409);
   const fetchNumeros = comPrazo(fetchSemPrazo, prazoLeitura, AbortSignal.timeout(prazoLeitura));
   const phone = await numeroDaConexao(input.wabaId, accessToken, config, fetchNumeros, input.phoneNumberId);
-  const phoneNumberId = String(phone.id ?? '');
-  if (!/^[0-9]{1,64}$/.test(phoneNumberId)) throw new WhatsappOnboardingError('META_NUMERO_INCOMPLETO', 'A Meta não retornou a identificação completa do número.', 409);
+  if (!idDecimal(phone.id)) throw new WhatsappOnboardingError('META_NUMERO_INCOMPLETO', 'A Meta não retornou a identificação completa do número.', 409);
+  const phoneNumberId = String(phone.id);
   if (phone.is_on_biz_app !== true) throw new WhatsappOnboardingError('META_COEXISTENCIA_NAO_CONFIRMADA', 'A Meta não confirmou a coexistência com o WhatsApp Business App.', 409);
   const displayPhoneNumber = typeof phone.display_phone_number === 'string' ? phone.display_phone_number : '';
   const verifiedName = typeof phone.verified_name === 'string' ? phone.verified_name : '';
   if (!displayPhoneNumber || !verifiedName) throw new WhatsappOnboardingError('META_NUMERO_INCOMPLETO', 'A Meta não retornou a identificação completa do número.', 409);
-  // Última etapa: só a WABA já comprovada (posse, número e coexistência) recebe a inscrição.
+  const expiresAt = validadeDoToken(expiresIn, debugData.expires_at, trocaIniciadaEm);
+  exigirTokenVigente(expiresAt);
+  // Última etapa externa: só a WABA já comprovada (posse, número e coexistência) recebe a inscrição.
   await inscreverAppNaWaba(input.wabaId, accessToken, config, fetchImpl);
-  return { accessToken, tokenType, scopes, expiresAt: validadeDoToken(expiresIn, debugData?.expires_at), displayPhoneNumber, verifiedName, businessId, phoneNumberId, webhookInscrito: true as const };
+  exigirTokenVigente(expiresAt);
+  return { accessToken, tokenType, scopes, expiresAt, displayPhoneNumber, verifiedName, businessId, phoneNumberId, webhookInscrito: true as const };
+}
+
+export const metaTokenExpirado = () => new WhatsappOnboardingError('META_TOKEN_EXPIRADO', 'A credencial da Meta venceu durante a validação. Autorize novamente.', 409);
+
+function exigirTokenVigente(expiresAt: Date | null) {
+  if (expiresAt && !(expiresAt.getTime() > Date.now())) throw metaTokenExpirado();
 }
 
 /**

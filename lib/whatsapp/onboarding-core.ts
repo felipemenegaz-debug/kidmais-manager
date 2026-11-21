@@ -14,6 +14,7 @@ export const concluirOnboardingSchema = z.object({
 }).strict();
 /** Renovação da credencial: mesmo formato da conclusão (a Meta devolve o mesmo evento e o mesmo código). */
 export const concluirRenovacaoSchema = concluirOnboardingSchema;
+export const iniciarRenovacaoSchema = z.object({ conexaoId: z.uuid() }).strict();
 /** Conferência de uma conclusão sem resposta legível: só o id da tentativa. */
 export const conferirTentativaSchema = z.object({ tentativaId: z.uuid() }).strict();
 

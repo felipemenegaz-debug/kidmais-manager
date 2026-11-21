@@ -56,6 +56,25 @@ function metaSimulada(r: Respostas = {}) {
 }
 const debugCom = (granular: unknown, scopes: string[] = escopos) => ({ data: { is_valid: true, app_id: '1', scopes, granular_scopes: granular } });
 
+test('IDs adjacentes acima da precisão do JSON numérico não autorizam envio pela WABA conectada', async () => {
+  const wabaId = '9007199254740992';
+  // Corpo bruto: JSON.stringify de um literal numérico já perderia a distinção antes do teste.
+  const debug = `{"data":{"is_valid":true,"app_id":1,"scopes":${JSON.stringify(escopos)},"granular_scopes":[
+    {"scope":"whatsapp_business_management","target_ids":["${wabaId}"]},
+    {"scope":"whatsapp_business_messaging","target_ids":[9007199254740993]}
+  ]}}`;
+  const meta = metaSimulada({ debug, dono: { ...donoOk, id: wabaId } });
+  await assert.rejects(trocarCodigoEValidarAtivos({ ...entrada, wabaId }, config, meta.fetch), { code: 'META_AUTORIZACAO_INVALIDA' });
+  assert.deepEqual(meta.etapas, ['oauth', 'debug']);
+
+  const idsValidos = metaSimulada({ debug: debugCom([
+    { scope: 'whatsapp_business_management', target_ids: [20, wabaId] },
+    { scope: 'whatsapp_business_messaging', target_ids: [wabaId] },
+  ]), dono: { id: wabaId, owner_business_info: { id: 10 } }, numeros: { data: [{ ...numeroOk, id: 30 }] } });
+  await trocarCodigoEValidarAtivos({ ...entrada, wabaId }, config, idsValidos.fetch);
+  assert.equal(idsValidos.etapas.at(-1), 'inscricao');
+});
+
 test('combinação comprovada: WABA autorizada, dono lido no servidor = negócio informado, número da WABA, coexistência', async () => {
   const meta = metaSimulada();
   const result = await trocarCodigoEValidarAtivos(entrada, config, meta.fetch);
@@ -571,4 +590,37 @@ test('validação devolve EXATAMENTE a validade do debug_token quando a troca n�
   const comAmbos = await trocarCodigoEValidarAtivos(entrada, config, metaSimulada({
     debug: { data: { is_valid: true, app_id: '1', scopes: escopos, granular_scopes: granularOk, expires_at: vence } } }).fetch);
   assert.ok(comAmbos.expiresAt && comAmbos.expiresAt.getTime() < vence * 1000, 'expires_in 3600 da troca é a mais cedo');
+});
+
+test('expires_in conta desde a troca e a menor validade é conferida antes e depois da inscrição', async (t) => {
+  const troca = Date.UTC(2026, 10, 21);
+  const relogio = t.mock.method(Date, 'now', () => troca);
+  for (const { debugAte, numerosAte, inscricaoAte, venceEm } of [
+    { debugAte: 0, numerosAte: 2000, inscricaoAte: 3000, venceEm: 4000 },
+    { debugAte: 3, numerosAte: 2000, inscricaoAte: 2000, venceEm: 3000 },
+    { debugAte: 0, numerosAte: 2000, inscricaoAte: 4000, venceEm: null },
+    { debugAte: 3, numerosAte: 3000, inscricaoAte: 3000, venceEm: null },
+  ]) {
+    relogio.mock.mockImplementation(() => troca);
+    const debug = debugCom(granularOk);
+    const meta = metaSimulada({
+      oauth: { access_token: 'token-sintetico', expires_in: 4 },
+      debug: { data: { ...debug.data, expires_at: debugAte && troca / 1000 + debugAte } },
+    });
+    const fetchComAtraso: typeof fetch = async (input, init) => {
+      const resposta = await meta.fetch(input, init);
+      const etapa = meta.etapas.at(-1);
+      if (etapa === 'oauth') relogio.mock.mockImplementation(() => troca + 1000);
+      if (etapa === 'numeros') relogio.mock.mockImplementation(() => troca + numerosAte);
+      if (etapa === 'inscricao') relogio.mock.mockImplementation(() => troca + inscricaoAte);
+      return resposta;
+    };
+    const validacao = trocarCodigoEValidarAtivos(entrada, config, fetchComAtraso);
+    if (venceEm === null) {
+      await assert.rejects(validacao, { code: 'META_TOKEN_EXPIRADO' });
+      assert.equal(meta.etapas.includes('inscricao'), numerosAte < 3000);
+    } else {
+      assert.equal((await validacao).expiresAt?.getTime(), troca + venceEm);
+    }
+  }
 });

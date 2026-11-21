@@ -8,8 +8,8 @@ import { configuracaoWhatsappPublica, configuracaoWhatsappServidorPronta, exigir
 import { cifrarCredencialWhatsapp } from './credencial.ts';
 import { demoAtivosTesteVisivel } from './demo-ativos-teste.ts';
 import { WhatsappOnboardingError } from './errors.ts';
-import { trocarCodigoEValidarAtivos } from './meta-client.ts';
-import { concluirOnboardingSchema, concluirRenovacaoSchema, conferirTentativaSchema, desconectarSchema, divergenciaRenovacao, exigirEsquemaPorEmpresa, exigirGestaoDaEmpresa, exigirReautenticacaoRecente, hashState, stateCorresponde } from './onboarding-core.ts';
+import { metaTokenExpirado, trocarCodigoEValidarAtivos } from './meta-client.ts';
+import { concluirOnboardingSchema, concluirRenovacaoSchema, conferirTentativaSchema, desconectarSchema, divergenciaRenovacao, exigirEsquemaPorEmpresa, exigirGestaoDaEmpresa, exigirReautenticacaoRecente, hashState, iniciarRenovacaoSchema, stateCorresponde } from './onboarding-core.ts';
 
 export { concluirOnboardingSchema, desconectarSchema, exigirGestaoDaEmpresa, exigirReautenticacaoRecente, stateCorresponde } from './onboarding-core.ts';
 
@@ -313,8 +313,11 @@ const SELECT_CONEXAO_RENOVAVEL = `SELECT id,meta_app_id,business_id,waba_id,phon
   FROM whatsapp_conexoes WHERE ambiente=$1 AND empresa_id=$2::uuid AND status='CONFIGURADA' FOR UPDATE`;
 const SEM_CONEXAO_PARA_RENOVAR = () => new WhatsappOnboardingError('WHATSAPP_NAO_CONFIGURADO', 'Esta empresa não tem um WhatsApp conectado para renovar.', 409);
 const RENOVACAO_DIVERGENTE = () => new WhatsappOnboardingError('WHATSAPP_RENOVACAO_DIVERGENTE', 'A Meta autorizou outra conta ou outro número. Na renovação, escolha o mesmo número já conectado.', 409);
+const CONEXAO_ALTERADA = () => new WhatsappOnboardingError('WHATSAPP_RENOVACAO_CONEXAO_ALTERADA', 'A conexão do WhatsApp mudou. Confira os dados atuais e tente renovar de novo.', 409);
 
-export async function iniciarRenovacaoWhatsapp(token: string, contexto: ContextoWhatsapp, deps: DepsWhatsapp = {}) {
+export async function iniciarRenovacaoWhatsapp(raw: unknown, token: string, contexto: ContextoWhatsapp, deps: DepsWhatsapp = {}) {
+  const input = iniciarRenovacaoSchema.safeParse(raw);
+  if (!input.success) throw new WhatsappOnboardingError('WHATSAPP_DADOS_INVALIDOS', 'Informe a conexão do WhatsApp que deseja renovar.', 400);
   const config = exigirConfiguracaoWhatsappPrivada();
   const state = randomBytes(32).toString('base64url');
   await expirarTentativasVencidasDaPessoa(transacaoDe(deps), token, config.ambiente, contexto);
@@ -325,6 +328,7 @@ export async function iniciarRenovacaoWhatsapp(token: string, contexto: Contexto
     await expirarTentativasVencidasDaEmpresa(tx, config.ambiente, empresaId);
     const conexao = (await tx.query<ConexaoRenovavel>(SELECT_CONEXAO_RENOVAVEL, [config.ambiente, empresaId])).rows[0];
     if (!conexao) throw SEM_CONEXAO_PARA_RENOVAR();
+    if (conexao.id !== input.data.conexaoId.toLowerCase()) throw CONEXAO_ALTERADA();
     // Outro app no ambiente: a autorização nova seria de outro app e não serviria a esta conexão.
     if (conexao.meta_app_id !== config.appId) throw RENOVACAO_DIVERGENTE();
     await substituirTentativaPropria(tx, config.ambiente, empresaId, sessao.usuario_id, contexto);
@@ -386,7 +390,7 @@ export async function concluirRenovacaoWhatsapp(raw: unknown, token: string, con
   if (preparada.codigo) {
     await falhou(preparada.codigo);
     throw preparada.codigo === 'WHATSAPP_RENOVACAO_DIVERGENTE' ? RENOVACAO_DIVERGENTE()
-      : new WhatsappOnboardingError('WHATSAPP_RENOVACAO_CONEXAO_ALTERADA', 'A conexão do WhatsApp mudou durante a renovação. Atualize a página e tente de novo.', 409);
+      : CONEXAO_ALTERADA();
   }
   const atual = preparada.conexao;
   let validada: Awaited<ReturnType<typeof trocarCodigoEValidarAtivos>>;
@@ -415,14 +419,16 @@ export async function concluirRenovacaoWhatsapp(raw: unknown, token: string, con
       const tentativa = await bloquearTentativa(tx, input.data.tentativaId, config.ambiente, empresaId);
       if (!tentativa || tentativa.status !== 'VALIDANDO' || !tentativaDaSessao(tentativa, sessao, tenant) || empresaId !== preparada.empresaId) throw new WhatsappOnboardingError('WHATSAPP_TENTATIVA_CONSUMIDA', 'Esta tentativa já foi utilizada.', 409);
       const conexao = (await tx.query<ConexaoRenovavel>(SELECT_CONEXAO_RENOVAVEL, [config.ambiente, empresaId])).rows[0];
-      if (!conexao || conexao.id !== atual.id || conexao.revisao !== atual.revisao) throw new WhatsappOnboardingError('WHATSAPP_RENOVACAO_CONEXAO_ALTERADA', 'A conexão do WhatsApp mudou durante a renovação. Atualize a página e tente de novo.', 409);
+      if (!conexao || conexao.id !== atual.id || conexao.revisao !== atual.revisao) throw CONEXAO_ALTERADA();
       // CONTRATO: muda SÓ a credencial (cifrada, iv, tag, versão da chave), o tipo, os escopos e a validade do token, mais
       // meta_validada_em (instante desta validação na Meta), revisao (+1, exigida pelo gatilho) e atualizada_em. Status,
       // número, identidade e todo o resto ficam; o teste PG compara a linha inteira contra essa lista.
       const depois = (await tx.query<{ revisao: number; token_expira_em: string | null; meta_validada_em: string }>(`UPDATE whatsapp_conexoes SET credencial_cifrada=$2,credencial_iv=$3,credencial_tag=$4,credencial_chave_versao=$5,
           token_tipo=$6,escopos=$7,token_expira_em=$8,meta_validada_em=clock_timestamp(),revisao=revisao+1,atualizada_em=clock_timestamp()
-        WHERE id=$1 AND status='CONFIGURADA' RETURNING revisao,${ISO_UTC('token_expira_em')},${ISO_UTC('meta_validada_em')}`,
+        WHERE id=$1 AND status='CONFIGURADA' AND ($8::timestamptz IS NULL OR $8::timestamptz > clock_timestamp())
+        RETURNING revisao,${ISO_UTC('token_expira_em')},${ISO_UTC('meta_validada_em')}`,
         [conexao.id, credencial.ciphertext, credencial.iv, credencial.tag, credencial.keyVersion, validada.tokenType, validada.scopes, validada.expiresAt])).rows[0];
+      if (!depois) throw metaTokenExpirado();
       await tx.query(`UPDATE whatsapp_onboarding_tentativas SET status='CONCLUIDA',business_id=$2,waba_id=$3,phone_number_id=$4,conexao_id=$5,atualizada_em=clock_timestamp() WHERE id=$1`, [tentativa.id, conexao.business_id, conexao.waba_id, conexao.phone_number_id, conexao.id]);
       await registrarAuditoria({ atorTipo: 'USUARIO', usuarioId: sessao.usuario_id, acao: 'WHATSAPP_CREDENCIAL_RENOVADA', entidadeTipo: 'WHATSAPP_CONEXAO', entidadeId: conexao.id,
         dadosAntes: { revisao: conexao.revisao, tokenTipo: conexao.token_tipo, tokenExpiraEm: conexao.token_expira_em, escopos: conexao.escopos, credencialChaveVersao: conexao.credencial_chave_versao },

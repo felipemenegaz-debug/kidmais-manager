@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { createHash, randomUUID } from 'node:crypto';
 import test from 'node:test';
 import { carregarModulo, executorFalso } from '../acessos/teste-carregador.ts';
+import type { DbExecutor } from '../db/contracts.ts';
 import { concluirOnboardingSchema, concluirRenovacaoSchema, desconectarSchema, divergenciaRenovacao, exigirEsquemaPorEmpresa, exigirGestaoDaEmpresa, exigirReautenticacaoRecente, stateCorresponde } from './onboarding-core.ts';
 
 type SessaoTeste = { id: string; usuario_id: string; nome: string; cargo: null; papel: string; autenticado_em: string; expira_em: string; csrf_hash: string };
@@ -170,12 +171,21 @@ test('rotina do sistema: banco anterior à 083 dá WHATSAPP_ATUALIZACAO_PENDENTE
   const servico = carregarModulo('lib/whatsapp/onboarding.service.ts', {
     'db/postgres': { withTransaction: () => { throw new Error('o teste usa só a transação dublada'); } },
     'autenticacao/service': { consultarSessao: async () => sessao() },
-  }) as { iniciarRenovacaoWhatsapp: (token: string, contexto: unknown, deps: unknown) => Promise<unknown>; iniciarOnboardingWhatsapp: (token: string, contexto: unknown, deps: unknown) => Promise<unknown> };
+  }) as Pick<typeof import('./onboarding.service.ts'), 'iniciarRenovacaoWhatsapp' | 'iniciarOnboardingWhatsapp'>;
+  const contexto = { requestId: 'r', ip: null, userAgent: null };
+  const token = 't'.repeat(43);
+  const alvo = { conexaoId: randomUUID() };
+  for (const entrada of [null, {}, { conexaoId: 'inválido' }, { ...alvo, empresaId: randomUUID() }]) {
+    await assert.rejects(servico.iniciarRenovacaoWhatsapp(entrada, token, contexto), { code: 'WHATSAPP_DADOS_INVALIDOS', httpStatus: 400 });
+  }
   for (const inicio of ['iniciarRenovacaoWhatsapp', 'iniciarOnboardingWhatsapp'] as const) {
     const sqls: string[] = [];
     const tx = { query: async (sql: string) => { sqls.push(sql); return { rows: /information_schema/.test(sql) ? [{ ok: false }] : [], rowCount: 0 }; } };
-    const transacao = async (fn: (executor: typeof tx) => Promise<unknown>) => fn(tx);
-    await assert.rejects(servico[inicio]('t'.repeat(43), { requestId: 'r', ip: null, userAgent: null }, { transacao }), { code: 'WHATSAPP_ATUALIZACAO_PENDENTE', httpStatus: 503 }, inicio);
+    const transacao = async <T>(fn: (executor: DbExecutor) => Promise<T>) => fn(tx as unknown as DbExecutor);
+    const chamada = inicio === 'iniciarRenovacaoWhatsapp'
+      ? servico.iniciarRenovacaoWhatsapp(alvo, token, contexto, { transacao })
+      : servico.iniciarOnboardingWhatsapp(token, contexto, { transacao });
+    await assert.rejects(chamada, { code: 'WHATSAPP_ATUALIZACAO_PENDENTE', httpStatus: 503 }, inicio);
     assert.equal(sqls.length, 1, inicio + ': só a conferência do esquema rodou');
     assert.match(sqls[0], /information_schema/);
     assert.equal(sqls.some((sql) => /whatsapp_onboarding_tentativas\s+WHERE/.test(sql)), false, inicio);

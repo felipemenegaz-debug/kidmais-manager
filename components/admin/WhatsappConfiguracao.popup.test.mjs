@@ -10,7 +10,8 @@ import * as jsxRuntime from 'react/jsx-runtime';
 const ROTA_CONFERIR = '/api/admin/configuracoes/whatsapp/tentativa/conferir';
 const ROTA_CONFIGURACAO = '/api/admin/configuracoes/whatsapp';
 const ROTA_DEMO = ROTA_CONFIGURACAO + '/demo-ativos';
-function montar({ expiraEm = new Date(Date.now() + 60_000).toISOString(), reauthOk = true, reautenticar, iniciar, login, eventName = 'FINISH', inicial, relogio, concluirPendente = false, semJanela = false, consulta, conferir, concluirResposta, semSdk = false, montagemReal = false, verificarDemo } = {}) {
+const ROTA_DESCONECTAR = ROTA_CONFIGURACAO + '/desconectar';
+function montar({ expiraEm = new Date(Date.now() + 60_000).toISOString(), reauthOk = true, reautenticar, iniciar, login, eventName = 'FINISH', inicial, relogio, concluirPendente = false, semJanela = false, consulta, conferir, concluirResposta, semSdk = false, montagemReal = false, verificarDemo, desconectar } = {}) {
   const slots = [], listeners = new Set(), chamadas = [], corpos = [], janelas = [];
   let consultas = 0, conferencias = 0, reautenticacoes = 0, popupBloqueado = semJanela;
   const estadoInicial = inicial ?? { estado: 'NAO_CONFIGURADA', metaConfigurada: true, conexao: null, tentativa: null };
@@ -89,6 +90,7 @@ function montar({ expiraEm = new Date(Date.now() + 60_000).toISOString(), reauth
         return consulta?.(consultas, init) ?? respostaDaConfiguracao(estadoInicial);
       }
       if (url === ROTA_DEMO && verificarDemo) return verificarDemo(init);
+      if (url === ROTA_DESCONECTAR && desconectar) return desconectar(init);
       await Promise.resolve();
       return { json: async () => ({ ok: true, data: {
         tentativaId: 'tentativa-sintetica', state: 'state-sintetico', expiraEm,
@@ -617,7 +619,8 @@ test('renovação: prepara por /renovacao/iniciar e conclui por /renovacao/concl
   await esperar();
   assert.deepEqual(ui.chamadas.filter((url) => url.includes('/renovacao/') || url.includes('/onboarding/')),
     ['/api/admin/configuracoes/whatsapp/renovacao/iniciar', '/api/admin/configuracoes/whatsapp/renovacao/concluir']);
-  assert.equal('conexaoId' in ui.corpos.at(-1), false, 'a conexão vem do servidor, nunca do navegador');
+  assert.deepEqual(ui.corpos[0], { conexaoId: 'conexao-sintetica' }, 'o início fica preso à conexão exibida');
+  assert.equal('conexaoId' in ui.corpos.at(-1), false, 'a conclusão usa a conexão da tentativa já gravada');
   assert.match(ui.texto(), /Autorização renovada/);
 });
 
@@ -1021,6 +1024,67 @@ test('desconexão com reautenticação pendente bloqueia Continuar na Meta e des
   assert.equal(ui.botao('Continuar na Meta'), undefined);
   assert.equal(ui.chamadasLogin, 0);
   assert.equal(ui.chamadas.filter((url) => url.endsWith('/desconectar')).length, 1);
+});
+
+test('prazo da reautenticação da desconexão mantém a preparação e impede POST tardio', async () => {
+  const { agendados, relogio } = relogioFalso();
+  let entregar;
+  let reautenticacoes = 0;
+  const ui = montar({ relogio, inicial: conectada(null),
+    reautenticar: () => ++reautenticacoes === 1 ? Promise.resolve({ ok: true }) : new Promise((resolve) => { entregar = resolve; }),
+  });
+  ui.senha();
+  await ui.clicar('Renovar credencial');
+  ui.preencherDesconexao();
+  const pendente = ui.clicar('Desconectar');
+  await esperar();
+  assert.equal(ui.botao('Continuar na Meta').props.disabled, true);
+  const prazo = agendados.find((item) => item.ms === 30_000 && item.fn);
+  assert.ok(prazo);
+  prazo.fn();
+  await pendente;
+  assert.match(ui.texto(), /A desconexão não foi enviada/);
+  assert.equal(ui.botao('Continuar na Meta').props.disabled, false);
+  entregar({ ok: true });
+  await esperar();
+  assert.equal(ui.chamadas.includes(ROTA_DESCONECTAR), false);
+  ui.clicar('Continuar na Meta');
+  assert.equal(ui.chamadasLogin, 1);
+});
+
+test('corpo pendente da desconexão vence, consulta o estado com controles bloqueados e ignora o corpo tardio', async () => {
+  const { agendados, relogio } = relogioFalso();
+  let entregarCorpo, entregarEstado, sinal;
+  const inicial = conectada(null);
+  const ui = montar({ relogio, inicial,
+    desconectar: (init) => {
+      sinal = init.signal;
+      return { json: () => new Promise((resolve) => { entregarCorpo = resolve; }) };
+    },
+    consulta: (n) => n === 3 ? new Promise((resolve) => { entregarEstado = resolve; }) : undefined,
+  });
+  ui.senha();
+  await ui.clicar('Renovar credencial');
+  ui.preencherDesconexao();
+  const pendente = ui.clicar('Desconectar');
+  await esperar();
+  assert.equal(typeof entregarCorpo, 'function');
+  assert.equal(ui.livre(), false);
+  const prazo = agendados.find((item) => item.ms === 30_000 && item.fn);
+  assert.ok(prazo);
+  prazo.fn();
+  await esperar();
+  assert.equal(sinal.aborted, true);
+  assert.equal(ui.chamadas.at(-1), ROTA_CONFIGURACAO);
+  assert.equal(ui.livre(), false);
+  assert.doesNotMatch(ui.texto(), /WhatsApp desconectado/);
+  entregarEstado(respostaDaConfiguracao({ ...inicial, estado: 'NAO_CONFIGURADA', conexao: null }));
+  await pendente;
+  assert.match(ui.texto(), /WhatsApp desconectado/);
+  assert.equal(ui.livre(), true);
+  entregarCorpo({ ok: false, erro: 'recusa tardia' });
+  await esperar();
+  assert.doesNotMatch(ui.texto(), /recusa tardia/);
 });
 
 test('carga inicial com corpo pendente vence, permite repetir e descarta a resposta antiga', async () => {

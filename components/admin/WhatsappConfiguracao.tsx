@@ -56,6 +56,7 @@ const CONECTADO = 'WhatsApp conectado. O envio e o recebimento de mensagens pelo
 type Recusa = { erro: string; codigo: string | null };
 type Conferencia = { tentativaId: string; renovando: boolean; recusa?: Recusa };
 export const PRAZO_PREPARAR_MS = 30_000;
+export const PRAZO_DESCONECTAR_MS = 30_000;
 /** Prazo da carga do SDK da Meta (script externo). */
 export const PRAZO_SDK_MS = 20_000;
 const SDK_FALHOU = 'A preparação foi feita, mas a janela da Meta não carregou. Clique em Continuar na Meta para tentar carregar de novo.';
@@ -338,7 +339,10 @@ export default function WhatsappConfiguracao() {
         const reauth = await reautenticarSessao(senhaConfirmada);
         if (!atual() || signal.aborted) return null;
         if (!reauth.ok) throw new Error(reauth.erro);
-        const response = await adminFetch(rotaDo(novoModo, 'iniciar'), { method: 'POST', signal });
+        const response = await adminFetch(rotaDo(novoModo, 'iniciar'), {
+          method: 'POST', signal,
+          ...(novoModo === 'renovar' && { headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ conexaoId }) }),
+        });
         if (!atual() || signal.aborted) return null;
         const body = await response.json();
         if (!body.ok) throw new Error(body.erro);
@@ -362,21 +366,40 @@ export default function WhatsappConfiguracao() {
   async function desconectar() {
     const conexaoId = data?.conexao?.id;
     if (!conexaoId || bloqueado || conferencia) return;
+    const motivo = motivoDesconexao.trim();
+    const desconectado = 'WhatsApp desconectado. Você pode conectar outro número quando quiser.';
     setErro(''); setAviso(''); setOcupado(true);
     try {
       const estado = await consultarAntesDeReautenticar();
       if (!estado) return;
       if (estado.conexao?.id !== conexaoId) throw new Error('A conexão do WhatsApp mudou. Confira os dados antes de desconectar.');
-      const reauth = await reautenticarSessao(senhaDesconexao);
-      if (desmontado.current) return;
+      const senhaConfirmada = senhaDesconexao;
       setSenhaDesconexao('');
+      const reauth = await comPrazo(async (signal) => {
+        const resultado = await reautenticarSessao(senhaConfirmada);
+        signal.throwIfAborted();
+        return resultado;
+      }, PRAZO_DESCONECTAR_MS, 'Não foi possível confirmar a senha no prazo. A desconexão não foi enviada.');
+      if (desmontado.current) return;
       if (!reauth.ok) throw new Error(reauth.erro);
       descartarPreparacao();
-      const r = await adminFetch('/api/admin/configuracoes/whatsapp/desconectar', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ conexaoId, motivo: motivoDesconexao.trim() }) });
-      const j = await r.json(); if (!j.ok) throw new Error(j.erro);
+      const j = await comPrazo(async (signal): Promise<{ ok?: unknown; erro?: unknown } | null> => {
+        const r = await adminFetch('/api/admin/configuracoes/whatsapp/desconectar', { method: 'POST', headers: { 'Content-Type': 'application/json' }, signal, body: JSON.stringify({ conexaoId, motivo }) });
+        return r.json();
+      }, PRAZO_DESCONECTAR_MS, 'PRAZO_DESCONECTAR').catch(() => null);
       if (desmontado.current) return;
-      setMotivoDesconexao(''); setAviso('WhatsApp desconectado. Você pode conectar outro número quando quiser.');
-      if (!(await atualizar()) && !desmontado.current) setErro(ATUALIZACAO_FALHOU);
+      if (j?.ok === false) throw new Error(typeof j.erro === 'string' ? j.erro : 'Não foi possível desconectar o WhatsApp.');
+      const consultado = await atualizar();
+      if (desmontado.current) return;
+      const atualizado = consultado?.ambiente === estado.ambiente ? consultado : null;
+      if (j?.ok === true || (atualizado && !atualizado.conexao)) {
+        setMotivoDesconexao(''); setAviso(desconectado);
+        if (!atualizado) setErro(ATUALIZACAO_FALHOU);
+      } else if (atualizado?.conexao?.id && atualizado.conexao.id !== conexaoId) {
+        setMotivoDesconexao(''); setAviso('A conexão anterior não está mais ativa. Confira os dados atuais.');
+      } else if (atualizado?.tentativa?.status !== 'VALIDANDO') {
+        setErro('Não foi possível confirmar a desconexão. ' + (atualizado ? 'A conexão ainda aparecia ativa na última consulta.' : ATUALIZACAO_FALHOU));
+      }
     } catch (e) { if (!desmontado.current) setErro(e instanceof Error ? e.message : 'Não foi possível desconectar o WhatsApp.'); }
     finally { if (!desmontado.current) setOcupado(false); }
   }
