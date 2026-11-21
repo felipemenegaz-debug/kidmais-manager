@@ -2,7 +2,7 @@
 import { adminFetch } from "@/lib/http/admin-fetch";
 
 import { MOTIVOS_PERDA } from '@/lib/oportunidades/modelo';
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type { AprovacaoNegociacaoRecord, FechamentoRecord } from "@/lib/fechamentos/repositories/models";
 import { calcularCondicaoComercial, centavosComerciais } from "@/lib/comercial/condicao-pagamento";
 import { formatarMoeda, formatarCondicaoPix, formatarFormaPagamento } from "@/lib/contratos/documento/formatters";
@@ -35,14 +35,28 @@ export default function RevisaoComercial({ fechamentoId }: { fechamentoId: strin
   const [atalhoContrato, setAtalhoContrato] = useState<{ fechamentoId: string; href: string } | null>(null);
   const idNaUrl = encodeURIComponent(fechamentoId);
   const url = `/api/admin/fechamentos/${idNaUrl}/revisao`;
-  useEffect(() => {
-    let ativo = true;
-    adminFetch(url, { cache: "no-store" }).then(async (r) => {
+  const leituras = useRef({ ativa: false, geracao: 0 });
+  const atualizar = useCallback(async (carregarAtalho = false) => {
+    const sessao = leituras.current;
+    if (!sessao.ativa) return;
+    const geracao = ++sessao.geracao;
+    const vigente = () => sessao.ativa && sessao.geracao === geracao;
+    let revisao: Dados;
+    try {
+      const r = await adminFetch(url, { cache: "no-store" });
       const body = await r.json();
       if (!r.ok) throw new Error(body.erro);
-      if (!ativo) return;
-      const revisao: Dados = body.data;
-      setDados(revisao);
+      revisao = body.data;
+    } catch (e) {
+      if (!vigente()) return;
+      if (!carregarAtalho) throw e;
+      setErro(e instanceof Error ? e.message : "Falha ao carregar a revisão.");
+      return;
+    }
+    if (!vigente()) return;
+    setDados(revisao);
+
+    if (carregarAtalho) {
       const { status } = revisao.fechamento;
       if (!["AGUARDANDO_CONTRATO", "CONTRATO_ASSINADO", "AGUARDANDO_PAGAMENTO", "CONFIRMADO"].includes(status)) return;
 
@@ -56,25 +70,26 @@ export default function RevisaoComercial({ fechamentoId }: { fechamentoId: strin
           href = urlDoContrato(contrato.data?.versao?.contratoId);
         }
       } catch { /* A consulta do atalho é opcional para a revisão. */ }
-      if (ativo && href !== null) {
+      if (vigente() && href !== null) {
         const destino = href;
         setAtalhoContrato((atual) => atual?.fechamentoId === fechamentoId ? atual : { fechamentoId, href: destino });
       }
-    }).catch((e) => { if (ativo) setErro(e.message); });
-    return () => { ativo = false; };
+    }
+    return vigente() ? revisao.preReserva : undefined;
   }, [url, idNaUrl, fechamentoId]);
+  useEffect(() => {
+    const sessao = leituras.current;
+    sessao.ativa = true;
+    void atualizar(true);
+    return () => {
+      sessao.ativa = false;
+      sessao.geracao++;
+    };
+  }, [atualizar]);
   const dialogo = useRef<HTMLDialogElement>(null);
   const [motivoPerda, setMotivoPerda] = useState('');
   const [observacao, setObservacao] = useState('');
   const enviando = useRef(false);
-  async function atualizar() {
-    const r = await adminFetch(url, { cache: 'no-store' });
-    const body = await r.json();
-    if (!r.ok) throw new Error(body.erro);
-    const revisao: Dados = body.data;
-    setDados(revisao);
-    return revisao.preReserva;
-  }
   async function recusar() {
     if (enviando.current || !motivoPerda || (motivoPerda === 'Outro' && !observacao.trim())) return;
     enviando.current = true;
@@ -130,9 +145,8 @@ export default function RevisaoComercial({ fechamentoId }: { fechamentoId: strin
         } : {}),
       }) });
       const body = await r.json(); if (!r.ok) throw new Error(body.erro);
-      const atual = await adminFetch(url, { cache: "no-store" });
-      const atualizado = await atual.json(); if (!atual.ok) throw new Error(atualizado.erro);
-      setDados(atualizado.data); setMensagem("Decisão registrada. Nenhum pagamento foi criado.");
+      await atualizar();
+      setMensagem("Decisão registrada. Nenhum pagamento foi criado.");
     } catch (e) { setErro(e instanceof Error ? e.message : "Falha na revisão."); }
     finally { setOcupado(false); }
   }

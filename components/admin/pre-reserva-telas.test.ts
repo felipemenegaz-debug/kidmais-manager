@@ -94,6 +94,81 @@ test('revisão recarrega no 409 e pede uma ação separada para confirmar o Pix 
   assert.doesNotMatch(texto(render()), /Pix registrado para devolução/);
 });
 
+test('revisão mantém o pedido recusado quando a leitura da confirmação chega depois', async () => {
+  const fechamento = {
+    id: pedido, status: 'AGUARDANDO_CONTRATO', dataEvento: '2026-12-21',
+    horarioInicio: '16:00', horarioFim: '19:00', valorTabela: 1000, valorNegociado: null,
+  };
+  const aceite: preReserva.RevisaoPreReserva = {
+    sequencia: 1, sinalCentavos: 10000, aceitoEm: '2026-11-21T12:00Z',
+    inicio: '2026-12-21T19:00Z', fim: '2026-12-21T22:00Z', unidade: 'Unidade', salao: 'Salão',
+    recebedor: 'Buffet', garantiaAte: null, garantia: null, destinos: [],
+  };
+  const inicial = { fechamento, aprovacoes: [], recusa: 'SEM_CONTRATO', preReserva: aceite };
+  const garantiaAte = '2026-11-23T12:00Z';
+  const leituraAtrasada = Promise.withResolvers<Response>();
+  let leituras = 0;
+  const http = { async adminFetch(url: string, init: RequestInit) {
+    if (url.endsWith('/confirmar-sinal') && init.method === 'POST') return Response.json({ data: { garantiaAte } });
+    if (url.endsWith('/recusar') && init.method === 'POST') return Response.json({ ok: true });
+    assert.equal(url, `/api/admin/fechamentos/${pedido}/revisao`);
+    assert.equal(init.method, undefined);
+    leituras++;
+    if (leituras === 1) return Response.json({ data: inicial });
+    if (leituras === 2) return leituraAtrasada.promise;
+    assert.equal(leituras, 3);
+    return Response.json({ data: {
+      fechamento: { ...fechamento, status: 'RECUSADO' }, aprovacoes: [],
+      preReserva: { ...aceite, garantiaAte, garantia: 'RECUSA', destinos: ['A_DEVOLVER'] },
+    } });
+  } };
+  const sinal = carregarComponente('components/admin/RevisaoPreReserva.tsx', { ...deps, '@/lib/http/admin-fetch': http });
+  const RevisaoPreReserva = sinal.modulo.RevisaoPreReserva;
+  const tela = carregarComponente('components/admin/RevisaoComercial.tsx', {
+    ...deps,
+    '@/lib/http/admin-fetch': http,
+    '@/lib/comercial/condicao-pagamento': {},
+    '@/lib/contratos/documento/formatters': {
+      ...deps['@/lib/contratos/documento/formatters'],
+      formatarFormaPagamento: () => 'Pix', formatarCondicaoPix: () => 'À vista',
+    },
+    './contrato-url': {},
+    './RevisaoPreReserva': { RevisaoPreReserva },
+  });
+  const render = () => tela.render('default', { fechamentoId: pedido });
+  const renderSinal = (revisao: unknown) => sinal.render('RevisaoPreReserva', achar(revisao, RevisaoPreReserva).props);
+  render();
+  tela.efeitos();
+  await tique();
+  digitar(renderSinal(render()), /Valor recebido/, '100,00');
+  digitar(renderSinal(render()), /Identificador da transferência/, pix);
+  const submeter = (form: ReturnType<typeof achar>) =>
+    (form.props.onSubmit as (e: object) => void)({ preventDefault() {} });
+  submeter(achar(renderSinal(render()), 'form'));
+  await tique();
+  assert.equal(leituras, 2);
+
+  clicar(render(), 'Recusar pedido');
+  const motivo = achar(achar(render(), 'dialog'), 'select');
+  const opcao = achar(motivo, 'option', 'Outro');
+  (motivo.props.onChange as (e: object) => void)({ target: { value: texto(opcao) } });
+  const observacao = achar(achar(render(), 'dialog'), 'textarea');
+  (observacao.props.onChange as (e: object) => void)({ target: { value: 'Recusa de teste' } });
+  submeter(achar(achar(render(), 'dialog'), 'form'));
+  await tique();
+  assert.equal(leituras, 3);
+  assert.match(texto(render()), /Estado: RECUSADO/);
+
+  leituraAtrasada.resolve(Response.json({ data: {
+    ...inicial, preReserva: { ...aceite, garantiaAte, garantia: 'ATIVA', destinos: ['EM_GARANTIA'] },
+  } }));
+  await tique();
+  const estado = render();
+  assert.match(texto(estado), /Estado: RECUSADO/);
+  assert.doesNotMatch(texto(estado), /Recusar pedido/);
+  assert.doesNotMatch(texto(renderSinal(estado)), /Pré-reserva garantida até/);
+});
+
 test('fila só permite baixa após assunção e recarrega no conflito; histórico mostra os dois autores', async () => {
   const movimento = {
     fechamento_id: pedido, end_to_end_id: pix, motivo: 'VALOR_DIVERGENTE', valor_centavos: '9900',

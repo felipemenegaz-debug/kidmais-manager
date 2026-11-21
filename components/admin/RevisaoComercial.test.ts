@@ -47,7 +47,12 @@ function montar({ gerado = false, id = contratoId, recusa }: { gerado?: boolean;
           estados[posicao] = typeof valor === "function" ? valor(estados[posicao]) : valor;
         }];
       },
-      useRef: (current: unknown) => ({ current }),
+      useRef(current: unknown) {
+        const posicao = indice++;
+        if (!(posicao in estados)) estados[posicao] = { current };
+        return estados[posicao];
+      },
+      useCallback: (fn: unknown) => fn,
       useEffect: (executar: () => unknown) => { efeito ??= executar; },
     },
     "react/jsx-runtime": { jsx: createElement, jsxs: createElement },
