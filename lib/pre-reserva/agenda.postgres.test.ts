@@ -218,6 +218,12 @@ test('pré-reserva e agenda em duas conexões PostgreSQL', {timeout:120000}, asy
       const [um,dois]=await corrida(()=>confirmar(a,p,5),()=>confirmar(b,p,5));
       assert.ok(um.garantiaAte);assert.deepEqual(dois,um);
       assert.equal((await a.query('SELECT count(*)::int AS n FROM pre_reserva_recebimentos WHERE fechamento_id=$1',[p])).rows[0].n,1);
+      const eventos = (await a.query("SELECT usuario_id,dados_depois FROM auditoria WHERE entidade_id=$1 AND acao='PRE_RESERVA_SINAL_CONFIRMADO'", [p])).rows;
+      assert.equal(eventos.length, 1);
+      assert.equal(eventos[0].usuario_id, gestor.usuarioId);
+      assert.deepEqual(eventos[0].dados_depois, {
+        empresaId:c.empresa,fechamentoId:p,movimento:ref(5),instante:eventos[0].dados_depois.instante,
+      });
     });
     await t.test('duas unidades no mesmo horário concordam com o calendário',async()=>{
       const d='2028-08-17',[u1,u2]=c.unidades;

@@ -24,7 +24,7 @@ export async function cancelarContratacaoDaFesta(tx:DbExecutor,id:string,s:Sessa
  exigir(!aberta,aberta?`Há uma revisão em andamento (V${aberta.numero_versao}). Cancele a revisão antes de cancelar o contrato.`:'');
  await cancelarFinanceiroDaContratacao(tx,id,c.cliente_id,s,motivo,chave,ctx);
  const cancelado=(await tx.query<{cancelado_em:string}>("UPDATE contratos SET status='CANCELADO',cancelado_em=clock_timestamp() WHERE id=$1 RETURNING cancelado_em::text",[id])).rows[0];
- await reverterCreditoSemBaixa(tx, autoridade.empresaId, id);
+ await reverterCreditoSemBaixa(tx, autoridade.empresaId, id, s.usuario_id);
  const detail={contratoId:id,motivo,usuarioId:s.usuario_id,nome:s.nome,papel:autoridade.papel,canceladoEm:cancelado.cancelado_em,chave};
  await registrarEventoHistorico({clienteId:c.cliente_id,tipoEvento:'CONTRATO_CANCELADO',origem:'CONTRATO_ADMIN',entidadeTipo:'CONTRATO',entidadeId:id,usuarioId:s.usuario_id,detalhe:motivo,metadata:detail,critico:true},tx);
  await registrarAuditoria({clienteId:c.cliente_id,atorTipo:'USUARIO',usuarioId:s.usuario_id,acao:'CONTRATO_CANCELADO',origem:'CONTRATO_ADMIN',entidadeTipo:'CONTRATO',entidadeId:id,dadosAntes:{status:c.status,canceladoEm:c.cancelado_em},dadosDepois:detail,justificativa:motivo,requestId:ctx.requestId,userAgent:ctx.userAgent},tx);

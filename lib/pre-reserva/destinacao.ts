@@ -1,4 +1,5 @@
 import type { DbExecutor } from '../db/contracts.ts';
+import { auditarMovimentoPreReserva } from './auditoria.ts';
 
 export async function recebimentosInstalados(tx: DbExecutor) {
   const { rows } = await tx.query<{ instalada: boolean }>(
@@ -36,17 +37,51 @@ export async function encerrarGarantia(tx: DbExecutor, empresa: string, pedido: 
   return r.rows.length > 0;
 }
 
-/** O cancelamento já bloqueou o contrato e o marcou CANCELADO na transação da Festa.
- * A abertura do plano também bloqueia e revalida o contrato antes de criar o plano e a baixa.
- */
-export async function reverterCreditoSemBaixa(tx: DbExecutor, empresa: string, contrato: string) {
+const semBaixaNoPlano = `NOT EXISTS (SELECT FROM pagamento_recebimentos baixa
+  JOIN pagamentos p ON p.id=baixa.pagamento_id JOIN contrato_versoes v ON v.id=p.contrato_versao_id
+  WHERE v.contrato_id=r.contrato_id AND baixa.chave_idempotencia='PRE_RESERVA:' || r.contrato_id::text)`;
+
+type Reversao = { empresa_id: string; fechamento_id: string; end_to_end_id: string; instante: string };
+const movimentoRevertido = 'r.empresa_id, r.fechamento_id, r.end_to_end_id, r.credito_revertido_em::text AS instante';
+
+/** O cancelamento já bloqueou o contrato e o marcou CANCELADO na transação da Festa. */
+export async function reverterCreditoSemBaixa(tx: DbExecutor, empresa: string, contrato: string, usuarioId: string) {
   if (!await recebimentosInstalados(tx)) return;
-  await tx.query(`UPDATE pre_reserva_recebimentos r SET credito_revertido_em=c.cancelado_em
+  const motivo = 'CANCELAMENTO_FESTA_SEM_BAIXA';
+  const { rows: [movimento] } = await tx.query<Reversao>(`UPDATE pre_reserva_recebimentos r
+    SET credito_revertido_em=c.cancelado_em, credito_reversao_motivo=$3
     FROM contratos c WHERE c.id=$2 AND c.status='CANCELADO' AND r.contrato_id=c.id
-    AND r.empresa_id=$1 AND r.credito_revertido_em IS NULL
-    AND NOT EXISTS (SELECT FROM pagamento_recebimentos baixa JOIN pagamentos p ON p.id=baixa.pagamento_id
-      JOIN contrato_versoes v ON v.id=p.contrato_versao_id WHERE v.contrato_id=c.id
-      AND baixa.chave_idempotencia='PRE_RESERVA:' || c.id::text)`, [empresa,contrato]);
+    AND r.empresa_id=$1 AND r.credito_revertido_em IS NULL AND ${semBaixaNoPlano}
+    RETURNING ${movimentoRevertido}`, [empresa,contrato,motivo]);
+  if (movimento) await auditarMovimentoPreReserva(tx, { usuarioId }, 'PRE_RESERVA_CREDITO_REVERTIDO',
+    movimento.empresa_id, movimento.fechamento_id, movimento.end_to_end_id, movimento.instante, { motivo, contratoId: contrato });
+}
+
+/** A promoção e a abertura do plano mantêm o mesmo contrato travado até o commit. */
+export async function reverterCreditoPorAditivo(tx: DbExecutor, contrato: string, versao: string,
+  ator: { usuarioId: string } | { clienteId: string },
+) {
+  if (!await recebimentosInstalados(tx)) return;
+  const { rows: [credito] } = await tx.query<{ empresa_id: string; end_to_end_id: string; abaixo: boolean | null }>(`
+    SELECT r.empresa_id, r.end_to_end_id,
+      CASE WHEN total BETWEEN 0.01 AND 9999999999.99 AND total=trunc(total,2) THEN total*100<r.valor_centavos END AS abaixo
+    FROM pre_reserva_recebimentos r
+    JOIN contrato_fluxos f ON f.contrato_id=r.contrato_id AND f.versao_vigente_id=$2
+    JOIN contrato_versoes v ON v.id=f.versao_vigente_id AND v.contrato_id=f.contrato_id
+    CROSS JOIN LATERAL (SELECT CASE WHEN jsonb_typeof(v.snapshot #> '{comercial,valorFinalContrato}')='number'
+      THEN (v.snapshot #>> '{comercial,valorFinalContrato}')::numeric END AS total) snapshot
+    WHERE r.contrato_id=$1 AND r.credito_revertido_em IS NULL AND ${semBaixaNoPlano}`, [contrato,versao]);
+  if (!credito) return;
+  if (credito.abaixo === null) throw new Error('Valor final ausente ou inválido no snapshot do aditivo vigente');
+  if (!credito.abaixo) return;
+  const motivo = 'ADITIVO_ABAIXO_DO_CREDITO';
+  const { rows: [movimento] } = await tx.query<Reversao>(`UPDATE pre_reserva_recebimentos r
+    SET credito_revertido_em=clock_timestamp(), credito_reversao_motivo=$3
+    WHERE r.empresa_id=$1 AND r.end_to_end_id=$2 AND r.credito_revertido_em IS NULL
+    RETURNING ${movimentoRevertido}`, [credito.empresa_id,credito.end_to_end_id,motivo]);
+  if (movimento) await auditarMovimentoPreReserva(tx, ator, 'PRE_RESERVA_CREDITO_REVERTIDO',
+    movimento.empresa_id, movimento.fechamento_id, movimento.end_to_end_id, movimento.instante,
+    { motivo, contratoId: contrato, versaoId: versao });
 }
 
 export async function creditoDoContrato(tx: DbExecutor, contrato: string, empresa: string) {

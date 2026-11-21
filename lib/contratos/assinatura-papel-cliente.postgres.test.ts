@@ -711,19 +711,148 @@ for (const primeiro of ['cancelamento','plano'] as const) test('131: reversão d
         await assert.rejects(a.query('UPDATE pre_reserva_recebimentos SET credito_revertido_em=NULL WHERE contrato_id=$1',[x.contratoId]),{code:'23514'});
         await dev.assumirDevolucao(tx,tenant,ref);
         assert.equal(await situacao(),'EM_DEVOLUCAO');
-        const instante = (await a.query('SELECT clock_timestamp()::text AS agora')).rows[0].agora;
+        const instante = (await a.query(`SELECT to_char(clock_timestamp() AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS agora`)).rows[0].agora;
         await dev.confirmarDevolucao(tx,tenant,ref,{referencia:'DEV-TESTE',valorCentavos:10000,devolvidoEm:instante,extratoConferido:true});
         await cancelar();
         assert.equal(await situacao(),'DEVOLVIDO');
         assert.deepEqual(await fila(),[]);
       } else {
-        await assert.rejects(a.query(`UPDATE pre_reserva_recebimentos r SET credito_revertido_em=c.cancelado_em
+        await assert.rejects(a.query(`UPDATE pre_reserva_recebimentos r
+          SET credito_revertido_em=c.cancelado_em,credito_reversao_motivo='CANCELAMENTO_FESTA_SEM_BAIXA'
           FROM contratos c WHERE r.contrato_id=c.id AND c.id=$1`,[x.contratoId]),{code:'23514'});
         assert.equal(baixas,1); assert.equal(await situacao(),'CREDITO_CONTRATO');
         assert.deepEqual(await fila(),[]);
         await assert.rejects(dev.assumirDevolucao(tx,tenant,ref),{code:'DEVOLUCAO_INDISPONIVEL'});
       }
     } finally { portaoCommit.liberar(); await a.query('ROLLBACK'); pool.restaurar(); restaurar(); }
+  });
+
+for (const caso of [
+  { total: 99.99, primeiro: 'aditivo' },
+  { total: 99.99, primeiro: 'plano' },
+  { total: 100, primeiro: null },
+  { total: 100.01, primeiro: null },
+]) test(`4a: aditivo de ${caso.total} sobre crédito de 100 (${caso.primeiro ?? 'só aditivo'})`,
+  { skip: !opt(), timeout: 120000 }, async t => {
+    if (!(await a.query("SELECT to_regprocedure('pre_reserva_exigir_configuracao()') IS NOT NULL AS ok")).rows[0].ok) return t.skip('modelo sem a 131');
+    const restaurar = ambienteAssinatura(), pool = poolRoteado(), fim = portao();
+    const pendentes: Promise<unknown>[] = [];
+    try {
+      const x = await aguardandoCommitado('PIX_AVISTA');
+      await a.query('BEGIN');
+      await travarConfiguracaoAgenda(executor(a),x.c.empresa,{modo:'COMPARTILHADA',linha:'KEY_SHARE'});
+      const { pedido, ref } = await inserirSinal(x,10000,false);
+      await a.query('COMMIT');
+      await registrar(x,{dataDeclarada:await hojeSp()});
+      const { versaoId: v2 } = await operar(x.versaoId, {
+        acao: 'nova_versao', tipo: 'NOVA_VERSAO', motivo: 'Alteração comercial sintética', chaveCriacao: randomUUID(),
+      }, x.c.token, x.c.empresa) as { versaoId: string };
+      const { fontesPreparacao } = carregar<typeof import('../fechamentos/services/revisao-operacional.service.ts')>(
+        'lib/fechamentos/services/revisao-operacional.service.ts',
+      );
+      const fonte = (await fontesPreparacao(v2, executor(a)))!;
+      const f = fonte.fechamento;
+      await operar(v2, {
+        acao: 'editar_festa', revisao: 1, fonteHash: fonte.fonteHash, motivo: 'Novo total contratado',
+        dataEvento: f.dataEvento, horarioInicio: f.horarioInicio, horarioFim: f.horarioFim,
+        pacoteId: f.pacoteId, convidados: f.convidados, configuracaoAgendaId: f.configuracaoAgendaId,
+        adicionais: fonte.adicionais, idadeAniversarianteEvento: f.idadeAniversarianteEvento,
+        temaFesta: '', buffetStatus: 'PENDENTE', buffetSalgados: '', buffetBebidas: '', buffetDoces: '',
+        buffetBolo: '', buffetOutros: '', observacoesEquipe: '',
+        comercial: { confirmarAprovacao: true, forma: 'PIX_AVISTA', condicaoPix: null, baseNegociada: caso.total },
+      }, x.nativo.tokenRepresentante, x.c.empresa);
+      await congelarEAssinarKidmais(a, adm().operarContrato as unknown as Operar, v2, x.c.empresa, x.c.token, x.nativo.tokenRepresentante);
+      const state = async () => (await a.query(`SELECT garantia,dinheiro,credito_reversao_motivo,valor_centavos::int
+        FROM pre_reserva_situacoes WHERE fechamento_id=$1`, [pedido])).rows[0];
+      const gravarReversaoDireta = () => a.query(`UPDATE pre_reserva_recebimentos
+        SET credito_revertido_em=clock_timestamp(),credito_reversao_motivo='ADITIVO_ABAIXO_DO_CREDITO'
+        WHERE contrato_id=$1`, [x.contratoId]);
+      assert.equal((await state()).dinheiro, 'CREDITO_CONTRATO');
+      await assert.rejects(gravarReversaoDireta(), /Valor do aditivo vigente não é inferior|Reversão exige aditivo assinado e vigente/);
+      const eventos = async () => (await a.query(`SELECT ator_tipo,cliente_id,dados_depois FROM auditoria
+        WHERE entidade_id=$1 AND acao='PRE_RESERVA_CREDITO_REVERTIDO'`, [pedido])).rows;
+      const cliente = await clientePronto(x);
+      const pagamentos = carregar<typeof import('../pagamentos/services/pagamento.service.ts')>('lib/pagamentos/services/pagamento.service.ts');
+      const criar = (valor: number) => pagamentos.criarPagamentoDoFechamento({ fechamentoId: pedido,
+        plano: { meioPagamento: 'PIX', modalidade: 'AVISTA', parcelas: [{ valor, vencimento: dia(1), confirmaReserva: true }] },
+      }, { origem: 'CRM_INTERNO', token: x.nativo.tokenRepresentante, requestId: randomUUID(), usuarioId: x.nativo.representante.usuarioId });
+      if (caso.primeiro === 'aditivo') {
+        pool.rota({ cliente: a, falharNoCommit: true });
+        await assert.rejects(cliente.assinar(), /falha injetada antes do COMMIT/);
+        assert.deepEqual(await eventos(), []);
+        assert.equal((await state()).dinheiro, 'CREDITO_CONTRATO');
+      }
+      if (caso.primeiro) {
+        const { b: vencedor, c3: concorrente } = await conexoesExtras();
+        const pidVencedor = await pidDe(vencedor), pidConcorrente = await pidDe(concorrente);
+        const antes = caso.primeiro === 'aditivo';
+        pool.rota({ cliente: vencedor, noCommit: fim });
+        const inicial = antes ? cliente.assinar() : criar(100);
+        pendentes.push(inicial);
+        await Promise.race([fim.chegou, inicial]);
+        pool.rota({ cliente: concorrente });
+        const seguinte = antes ? criar(caso.total) : cliente.assinar();
+        pendentes.push(seguinte);
+        void seguinte.catch(() => {});
+        await esperaPor(pidConcorrente, pidVencedor);
+        fim.liberar();
+        await Promise.all(pendentes);
+      } else {
+        await cliente.assinar();
+        await assert.rejects(criar(caso.total - 1), { code: 'PLANO_PAGAMENTO_INVALIDO' });
+      }
+      const vigente = (await a.query(`SELECT v.id, v.snapshot #>> '{comercial,valorFinalContrato}' AS total
+        FROM contrato_fluxos f JOIN contrato_versoes v ON v.id=f.versao_vigente_id WHERE f.contrato_id=$1`, [x.contratoId])).rows[0];
+      assert.equal(vigente.id,v2);
+      assert.equal(Number(vigente.total),caso.total);
+      const reverteu = caso.primeiro === 'aditivo';
+      const motivo = 'ADITIVO_ABAIXO_DO_CREDITO';
+      assert.deepEqual(await state(), {
+        garantia: 'FORMALIZACAO', dinheiro: reverteu ? 'A_DEVOLVER' : 'CREDITO_CONTRATO',
+        credito_reversao_motivo: reverteu ? motivo : null, valor_centavos: 10000,
+      });
+      const plano = (await a.query(`SELECT p.valor_total_contratado::numeric * 100 AS total, count(r.id)::int AS baixas
+        FROM pagamentos p JOIN contrato_versoes v ON v.id=p.contrato_versao_id
+        LEFT JOIN pagamento_recebimentos r ON r.pagamento_id=p.id AND r.chave_idempotencia='PRE_RESERVA:'||v.contrato_id::text
+        WHERE v.contrato_id=$1 GROUP BY p.id`, [x.contratoId])).rows;
+      assert.deepEqual(plano.map(p => [Number(p.total),p.baixas]), caso.primeiro ? [[reverteu ? 9999 : 10000,reverteu ? 0 : 1]] : []);
+      const dev = carregar<typeof import('../pre-reserva/devolucao.ts')>('lib/pre-reserva/devolucao.ts');
+      assert.deepEqual((await dev.filaDevolucao(executor(a), x.nativo.representante)).map(r => [r.end_to_end_id,r.motivo,Number(r.valor_centavos)]),
+        reverteu ? [[ref,motivo,10000]] : []);
+      await cliente.assinar();
+      const aud = await eventos();
+      assert.equal(aud.length, reverteu ? 1 : 0);
+      if (reverteu) {
+        const titular = (await a.query('SELECT cliente_id FROM fechamentos WHERE id=$1',[pedido])).rows[0].cliente_id;
+        assert.deepEqual(aud[0], { ator_tipo: 'CLIENTE', cliente_id: titular, dados_depois: {
+          empresaId: x.c.empresa, fechamentoId: pedido, movimento: ref, instante: aud[0].dados_depois.instante,
+          motivo, contratoId: x.contratoId, versaoId: v2,
+        } });
+        await assert.rejects(a.query("UPDATE pre_reserva_recebimentos SET credito_reversao_motivo='CANCELAMENTO_FESTA_SEM_BAIXA' WHERE contrato_id=$1",[x.contratoId]), { code: '23514' });
+      }
+      if (caso.total === 100) {
+        for (const expressao of ["snapshot #- '{comercial,valorFinalContrato}'", `jsonb_set(snapshot,'{comercial,valorFinalContrato}','"100"')`]) {
+          await a.query('BEGIN');
+          try {
+            // Corrompe somente a fixture para provar a defesa da 130 contra formatos que o fluxo nativo não emite.
+            await a.query('SET LOCAL session_replication_role = replica');
+            await a.query(`UPDATE contrato_versoes SET snapshot=${expressao} WHERE id=$1`, [v2]);
+            await a.query('SET LOCAL session_replication_role = origin');
+            const { reverterCreditoPorAditivo } = carregar<typeof import('../pre-reserva/destinacao.ts')>('lib/pre-reserva/destinacao.ts');
+            const falha = /Valor final ausente ou inválido no snapshot do aditivo vigente/;
+            await a.query('SELECT 1 FROM contratos WHERE id=$1 FOR UPDATE',[x.contratoId]);
+            await assert.rejects(reverterCreditoPorAditivo(executor(a),x.contratoId,v2,{usuarioId:x.nativo.representante.usuarioId}),falha);
+            await assert.rejects(gravarReversaoDireta(),falha);
+          } finally { await a.query('ROLLBACK'); }
+        }
+      }
+    } finally {
+      fim.liberar();
+      await Promise.allSettled(pendentes);
+      await a.query('ROLLBACK');
+      pool.restaurar();
+      restaurar();
+    }
   });
 
 const contagens = async (x: Aguardando) => (await a.query<Record<string, number | string>>(`SELECT
