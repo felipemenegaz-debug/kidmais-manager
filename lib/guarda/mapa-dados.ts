@@ -4,7 +4,7 @@ import type { Medida } from "./plano-lote.ts";
  * Guarda fase 3 (20/11/2026): mapa FECHADO dos dados por tabela e coluna, para a anonimização (fase 4) saber o que cada
  * medida alcança. Só classificação: nada aqui lê ou altera o banco.
  *
- * Toda coluna de texto, binária, JSON, enum ou endereço IP do schema public está aqui (inventário do modelo 127, todas
+ * Toda coluna de texto, binária, JSON, enum ou endereço IP do schema public está aqui (inventário do modelo 130, todas
  * as migrations menos a 098). O teste lib/guarda/mapa-dados.postgres.test.ts FALHA se aparecer coluna nova sem
  * classificação ou se o mapa citar coluna que não existe. Coluna numérica, data e uuid ficam fora: não guardam texto
  * pessoal (os vínculos por id são resolvidos pela fase 4 a partir das tabelas classificadas).
@@ -40,9 +40,11 @@ export const TIPOS_CONFERIDOS = Object.freeze({
   vetores: ["_text", "_varchar", "_bpchar", "_jsonb", "_bytea"],
 });
 
-/** Tabela → classe → colunas separadas por espaço. Gerado do inventário do modelo 127 e revisado à mão. */
+/** Tabela → classe → colunas separadas por espaço. Gerado do inventário do modelo 130 e revisado à mão. */
 const BRUTO: Record<string, Partial<Record<Classe, string>>> = {
 // <mapa>
+  pre_reserva_aceites: { EMPRESA: "recebedor chave_pix", CONTRATO: "termos_aceitos", SEM_DADO_PESSOAL: "termos_versao" },
+  pre_reserva_recebimentos: { CONTRATO: "end_to_end_id referencia_devolucao", SEM_DADO_PESSOAL: "encerramento" },
   aceites_documentos_legais: { EMPRESA: "documento hash_conteudo ip origem user_agent versao" },
   adicionais: { SEM_DADO_PESSOAL: "categoria codigo descricao nome observacoes unidade_cobranca" },
   adicional_categorias: { SEM_DADO_PESSOAL: "codigo nome" },
@@ -97,7 +99,8 @@ const BRUTO: Record<string, Partial<Record<Classe, string>>> = {
   convites: { CONTRATO: "publicado rascunho", SEM_DADO_PESSOAL: "editor_hash publico_token" },
   convites_acesso: { EMPRESA: "email nome_sugerido papel status token_hash" },
   documentos_legais_versoes: { SEM_DADO_PESSOAL: "conteudo documento hash versao" },
-  documentos_publicos: { EMPRESA: "chave_armazenamento mime_type nome_arquivo sha256 tipo" },
+  disponibilidade_config_legada: { SEM_DADO_PESSOAL: "conteudo origem" },
+  documentos_publicos: { EMPRESA: "conteudo chave_armazenamento mime_type nome_arquivo sha256 tipo" },
   empresa_assinaturas: { EMPRESA: "ciclo documento_teste plano provedor provedor_assinatura_id provedor_cliente_id provedor_situacao situacao" },
   empresa_documento_continuidades: { EMPRESA: "condicoes documento_anterior documento_novo evidencias instrumento nome_novo provedor_nota situacao tipo" },
   empresa_excecoes_comerciais: { EMPRESA: "motivo motivo_revogacao tipo" },
