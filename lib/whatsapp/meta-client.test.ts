@@ -1,7 +1,13 @@
 import assert from 'node:assert/strict';
-import test from 'node:test';
+import test, { after } from 'node:test';
 import { CORPO_NAO_LIDO, registroRecusaMeta, trocarCodigoEValidarAtivos, validadeDoToken } from './meta-client.ts';
 import { exigirConfiguracaoWhatsappPrivada } from './configuracao.ts';
+
+// O relógio de AbortSignal.timeout é unref. No servidor o event loop está sempre vivo; no Node 22 do CI, um teste que só
+// espera o prazo esvaziava o loop antes do abort ("Promise resolution is still pending", CI da PR #493). Este intervalo
+// faz o papel do servidor durante os testes.
+const manterLoopVivo = setInterval(() => {}, 1_000);
+after(() => clearInterval(manterLoopVivo));
 
 const config = exigirConfiguracaoWhatsappPrivada({
   KIDMAIS_DEPLOY_ENV: 'staging', META_APP_ID: '1', META_APP_SECRET: 'segredo-sintetico-valido',
