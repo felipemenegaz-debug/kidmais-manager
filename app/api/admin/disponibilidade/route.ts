@@ -39,6 +39,7 @@ import {
   resolverEDesativarBloqueioLegado,
 } from "@/lib/disponibilidade/bloqueios-legados";
 import { apiErrorResponse } from "@/lib/http/api-response";
+import type { OcupacaoPreReserva } from "@/lib/pre-reserva/apresentacao-admin";
 import { telaDoClienteGlobal } from "@/lib/enderecos/roteamento";
 import { ehDonaDaConfigLegada, exigirDonaDaConfigLegada } from "@/lib/disponibilidade/config-legada";
 import { lerConfigLegada, salvarConfigLegada, type ConfigLegada } from "@/lib/disponibilidade/config-legada-armazem";
@@ -137,6 +138,29 @@ async function escopoDoPedido(tx: DbExecutor, empresaId: string, unidadeId: stri
   return escopoDaEmpresa(tx, empresaId, unidadeSchema.parse(unidadeId || null));
 }
 
+async function preReservasDaAgenda(
+  tx: DbExecutor, escopo: EscopoAgenda, inicio: string, fim: string,
+) {
+  const { rows: [schema] } = await tx.query<{ instalada: boolean }>(
+    "SELECT to_regprocedure('public.pre_reserva_exigir_configuracao()') IS NOT NULL AS instalada",
+  );
+  if (!schema?.instalada) return [];
+  // A revisão comercial usa a mesma autorização da agenda: sessão administrativa
+  // com acesso comercial e pedido da empresa comprovada, inclusive para a Equipe.
+  const { rows } = await tx.query<OcupacaoPreReserva>(`
+    SELECT o.data::text, left(o.horario_inicio::text, 5) AS inicio,
+           left(o.horario_fim::text, 5) AS fim, s.nome AS salao,
+           p.garantia_ate AS "garantiaAte", o.fechamento_id AS "fechamentoId"
+    FROM kidmais094_ocupacoes($1::date,$2::date) o
+    JOIN pre_reserva_recebimentos p ON (p.empresa_id,p.fechamento_id)=(o.empresa_id,o.fechamento_id)
+    LEFT JOIN agenda_saloes s ON (s.empresa_id,s.id)=(o.empresa_id,o.salao_id)
+    WHERE o.origem='PRE_RESERVA' AND o.empresa_id=$3 AND p.garantia_ate > statement_timestamp()
+      AND kidmais062_mesmo_recurso($3::uuid,$4::uuid,o.empresa_id,o.estabelecimento_id)
+    ORDER BY o.data,o.horario_inicio,o.fechamento_id
+  `, [inicio, fim, escopo.empresaId, escopo.estabelecimentoId]);
+  return rows;
+}
+
 async function montarConfigAdmin(tx: DbExecutor, escopo: EscopoAgenda, empresaComprovada: string) {
   // E2: o arquivo é da instalação (agenda pública); só a empresa dona o vê. As demais recebem listas vazias.
   const configuracaoComercial = await ehDonaDaConfigLegada(tx, empresaComprovada);
@@ -219,7 +243,13 @@ export async function GET(request: NextRequest) {
         : inicio && fim
           ? await consultarDisponibilidadePeriodo(dataSchema.parse(inicio), dataSchema.parse(fim), tx, undefined, escopo, opcoes)
           : null;
-      return { ...(await montarConfigAdmin(tx, escopo, tenant.empresaComprovada)), dias, podeResolverLegado: await agendaPorEscopoInstalada(tx) && await podeResolverBloqueioLegado(tx, sessao.usuario_id) };
+      const primeiroDia = data || inicio;
+      const ultimoDia = data || fim;
+      const preReservas = primeiroDia && ultimoDia && q.get("preReservas") === "1"
+        ? await preReservasDaAgenda(tx, escopo, primeiroDia, ultimoDia)
+        : undefined;
+      return { ...(await montarConfigAdmin(tx, escopo, tenant.empresaComprovada)), dias,
+        ...(preReservas && { preReservas }), podeResolverLegado: await agendaPorEscopoInstalada(tx) && await podeResolverBloqueioLegado(tx, sessao.usuario_id) };
     });
     return NextResponse.json(resposta, {
       headers: { "Cache-Control": "no-store" },

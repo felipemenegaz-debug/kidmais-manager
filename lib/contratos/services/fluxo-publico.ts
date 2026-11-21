@@ -11,6 +11,7 @@ import { gerarContratoOficialPdfDaVersao } from './documento.service';
 import { hashSnapshotContrato } from './snapshot-core';
 import { randomUUID } from 'node:crypto';
 import { detectarPendenciasFinanceiras } from '../../pagamentos/services/pendencias-financeiras.service';
+import { reverterCreditoPorAditivo } from '../../pre-reserva/destinacao.ts';
 /**
  * D1 — aquisição (consultas, no `tx` do chamador) separada da materialização (só memória). Rotas com Tenant
  * Context adquirem dentro da transação da prova e materializam depois do commit, sem nova consulta e sem
@@ -84,9 +85,11 @@ export async function concluirFluxoCliente(tx: DbExecutor, v: ContratoVersaoReco
     await promoverVigencia(tx, v, f.versao_vigente_id);
 }
 /** Promove a versão assinada a vigente (OTP e, na 124, papel do cliente): pendências, edição, fluxo e contrato. */
-export async function promoverVigencia(tx: DbExecutor, v: ContratoVersaoRecord, anteriorVigente: string | null) {
+export async function promoverVigencia(tx: DbExecutor, v: ContratoVersaoRecord, anteriorVigente: string | null, usuarioId?: string) {
     await registrarPendenciasDaVigencia(tx, v, anteriorVigente);
     await tx.query("UPDATE contrato_edicoes SET estado='CONCLUIDA' WHERE contrato_versao_id=$1", [v.id]);
     await tx.query('UPDATE contrato_fluxos SET versao_vigente_id=$2,versao_em_preparacao_id=NULL WHERE contrato_id=$1', [v.contratoId, v.id]);
     await tx.query("UPDATE contratos SET status='ASSINADO',versao_atual=$2,assinado_em=COALESCE(assinado_em,$3::timestamptz) WHERE id=$1", [v.contratoId, v.numeroVersao, v.assinadoEm]);
+    if (anteriorVigente) await reverterCreditoPorAditivo(tx, v.contratoId, v.id,
+        usuarioId ? { usuarioId } : { clienteId: v.snapshot.contratante.clienteId });
 }

@@ -19,7 +19,9 @@ test("agenda: 'Ver tela do cliente' leva ao endereço público da empresa ativa,
   assert.doesNotMatch(tela, /href="\/disponibilidade"/, "sem endereço fixo da Kidmais");
   assert.match(tela, /\{telaDoCliente\s*\?\s*<div className=\{styles\.contentActions\}><a className=\{styles\.clientView\} href=\{telaDoCliente\}>/);
   assert.match(tela, /A tela do cliente desta empresa ainda não está disponível\./, "sem endereço público: explica em vez de levar a um 404");
-  assert.equal((tela.match(/setTelaDoCliente\(dados\.telaDoCliente\);/g) ?? []).length, 2, "carga inicial e recarga");
+  assert.match(tela, /async function carregar\([\s\S]*?setTelaDoCliente\(dados\.telaDoCliente\);/);
+  assert.match(tela, /useEffect\(\(\) => \{\s*void carregar\(false\);/);
+  assert.match(tela, /onClick=\{\(\) => carregar\(\)\} disabled=\{carregando\}/);
 });
 
 test("PDF de pacotes: só a dona vê e substitui o documento da instalação; empresa nova vê 'Nenhuma tabela publicada'", () => {

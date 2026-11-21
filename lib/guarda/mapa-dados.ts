@@ -44,7 +44,7 @@ export const TIPOS_CONFERIDOS = Object.freeze({
 const BRUTO: Record<string, Partial<Record<Classe, string>>> = {
 // <mapa>
   pre_reserva_aceites: { EMPRESA: "recebedor chave_pix", CONTRATO: "termos_aceitos", SEM_DADO_PESSOAL: "termos_versao" },
-  pre_reserva_recebimentos: { CONTRATO: "end_to_end_id referencia_devolucao", SEM_DADO_PESSOAL: "encerramento" },
+  pre_reserva_recebimentos: { CONTRATO: "end_to_end_id referencia_devolucao", SEM_DADO_PESSOAL: "encerramento credito_reversao_motivo" },
   aceites_documentos_legais: { EMPRESA: "documento hash_conteudo ip origem user_agent versao" },
   adicionais: { SEM_DADO_PESSOAL: "categoria codigo descricao nome observacoes unidade_cobranca" },
   adicional_categorias: { SEM_DADO_PESSOAL: "codigo nome" },

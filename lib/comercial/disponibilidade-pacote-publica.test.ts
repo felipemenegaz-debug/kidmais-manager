@@ -223,7 +223,9 @@ test("administração: empresa nova sem pacote não herda o catálogo Kidmais no
   assert.match(tela, /const opcoesPacote = pacotesEmpresa \?\? PACOTES;/);
   assert.match(tela, /opcoesPacote\.map\(\(p\) => <option/);
   assert.doesNotMatch(tela, /\{PACOTES\.map\(/, "o seletor não lista o catálogo fixo diretamente");
-  assert.equal((tela.match(/aplicarPacotesEmpresa\(dados\.pacotes\);/g) ?? []).length, 2, "carga inicial e recarga");
+  assert.match(tela, /async function carregar\([\s\S]*?aplicarPacotesEmpresa\(dados\.pacotes\);/);
+  assert.match(tela, /useEffect\(\(\) => \{\s*void carregar\(false\);/);
+  assert.match(tela, /onClick=\{\(\) => carregar\(\)\} disabled=\{carregando\}/);
 });
 
 test("coerência administração = cotação pública: mesmas regras e mesmo status em 5 semanas × 2 períodos × 7 pacotes", async () => {
@@ -264,7 +266,7 @@ test("administração: dona da agenda pública mantém a regra legada (null); de
   assert.equal(chamadas.length, 2);
   // 2c-1: depois das regras vem só o horário configurado em foco (idHorario).
   assert.ok(chamadas.every((c) => /, regrasDoPacote(, idHorario)?$/.test(c.trim())), chamadas.join(" | "));
-  assert.equal((tela.match(/setRegrasPacotes\(dados\.regrasPacotes\);/g) ?? []).length, 2, "carga inicial e recarga");
+  assert.match(tela, /async function carregar\([\s\S]*?setRegrasPacotes\(dados\.regrasPacotes\);/);
   // Com null, o status é exatamente o legado (mesmos casos da regra fixa).
   for (const [id, data, h] of [["pocket", "2026-11-14", "almoco"], ["compacta", "2026-11-14", "noite"], ["mini", "2026-11-13", "noite"], ["pizza_party_scienza", "2026-11-18", "almoco"]] as const)
     assert.equal(statusDataPacote(CONFIG_VAZIA, id, data, h, null).status, regraPadraoPacote(id, data, h));
