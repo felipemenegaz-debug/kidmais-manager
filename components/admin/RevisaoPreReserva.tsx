@@ -48,7 +48,7 @@ export function RevisaoPreReserva({ dados, fechamentoId, atualizar }: {
         throw new Error(aviso);
       }
       setMensagem(json.data.motivo
-        ? `Pix registrado para devolução. ${rotuloMotivo(json.data.motivo)}.`
+        ? `Recebimento Pix identificado. ${rotuloMotivo(json.data.motivo)}.`
         : 'Sinal registrado.');
       setValor('');
       setReferencia('');

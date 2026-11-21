@@ -139,23 +139,25 @@ async function escopoDoPedido(tx: DbExecutor, empresaId: string, unidadeId: stri
 }
 
 async function preReservasDaAgenda(
-  tx: DbExecutor, escopo: EscopoAgenda, inicio: string, fim: string, podeRevisar: boolean,
+  tx: DbExecutor, escopo: EscopoAgenda, inicio: string, fim: string,
 ) {
   const { rows: [schema] } = await tx.query<{ instalada: boolean }>(
     "SELECT to_regprocedure('public.pre_reserva_exigir_configuracao()') IS NOT NULL AS instalada",
   );
   if (!schema?.instalada) return [];
+  // A revisão comercial usa a mesma autorização da agenda: sessão administrativa
+  // com acesso comercial e pedido da empresa comprovada, inclusive para a Equipe.
   const { rows } = await tx.query<OcupacaoPreReserva>(`
     SELECT o.data::text, left(o.horario_inicio::text, 5) AS inicio,
            left(o.horario_fim::text, 5) AS fim, s.nome AS salao,
-           p.garantia_ate AS "garantiaAte", CASE WHEN $5::boolean THEN o.fechamento_id END AS "fechamentoId"
+           p.garantia_ate AS "garantiaAte", o.fechamento_id AS "fechamentoId"
     FROM kidmais094_ocupacoes($1::date,$2::date) o
     JOIN pre_reserva_recebimentos p ON (p.empresa_id,p.fechamento_id)=(o.empresa_id,o.fechamento_id)
     LEFT JOIN agenda_saloes s ON (s.empresa_id,s.id)=(o.empresa_id,o.salao_id)
     WHERE o.origem='PRE_RESERVA' AND o.empresa_id=$3 AND p.garantia_ate > statement_timestamp()
       AND kidmais062_mesmo_recurso($3::uuid,$4::uuid,o.empresa_id,o.estabelecimento_id)
     ORDER BY o.data,o.horario_inicio,o.fechamento_id
-  `, [inicio, fim, escopo.empresaId, escopo.estabelecimentoId, podeRevisar]);
+  `, [inicio, fim, escopo.empresaId, escopo.estabelecimentoId]);
   return rows;
 }
 
@@ -244,7 +246,7 @@ export async function GET(request: NextRequest) {
       const primeiroDia = data || inicio;
       const ultimoDia = data || fim;
       const preReservas = primeiroDia && ultimoDia && q.get("preReservas") === "1"
-        ? await preReservasDaAgenda(tx, escopo, primeiroDia, ultimoDia, tenant.papelAtual === 'REPRESENTANTE_AUTORIZADO')
+        ? await preReservasDaAgenda(tx, escopo, primeiroDia, ultimoDia)
         : undefined;
       return { ...(await montarConfigAdmin(tx, escopo, tenant.empresaComprovada)), dias,
         ...(preReservas && { preReservas }), podeResolverLegado: await agendaPorEscopoInstalada(tx) && await podeResolverBloqueioLegado(tx, sessao.usuario_id) };

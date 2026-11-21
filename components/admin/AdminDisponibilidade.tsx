@@ -2,7 +2,7 @@
 import { dialogo } from '@/components/JanelaConfirmacao';
 import { adminFetch } from "@/lib/http/admin-fetch";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { SaloesDoDia } from "./SaloesDoDia";
 import { formatarInstanteSP, type OcupacaoPreReserva } from "@/lib/pre-reserva/apresentacao-admin";
 import { PACOTES } from "@/components/fechamento/data";
@@ -87,8 +87,11 @@ export default function AdminDisponibilidade() {
   const [pacote, setPacote] = useState<PacoteId>("pocket");
   // Horário configurado em foco (configuracao_agenda.id); "" = o primeiro horário da agenda carregada.
   const [configuracaoId, setConfiguracaoId] = useState("");
-  const [mes, setMes] = useState(hoje.getMonth());
-  const [ano, setAno] = useState(hoje.getFullYear());
+  // "" consulta a única unidade ou a empresa inteira.
+  const [consulta, setConsulta] = useState({ ano: hoje.getFullYear(), mes: hoje.getMonth(), unidadeId: "" });
+  const { ano, mes, unidadeId } = consulta;
+  const consultaVigente = useRef(consulta);
+  const geracaoConsulta = useRef(0);
   const [config, setConfig] = useState<DisponibilidadeConfig>(CONFIG_SEM_RESPOSTA);
   const [bloqueios, setBloqueios] = useState<BloqueioAgendaRecord[]>([]);
   const [operacionalPorData, setOperacionalPorData] = useState<
@@ -109,8 +112,6 @@ export default function AdminDisponibilidade() {
   const [observacoesBloqueio, setObservacoesBloqueio] = useState("");
   // O formulário de bloqueio físico fica recolhido até a pessoa pedir ("Bloquear esta data").
   const [bloqueioAberto, setBloqueioAberto] = useState(false);
-  // Agenda por empresa/unidade (062): a unidade escolhida é o recurso consultado; "" = a única ou a empresa inteira.
-  const [unidadeId, setUnidadeId] = useState("");
   const [unidades, setUnidades] = useState<Array<{ id: string; nome: string }>>([]);
   const [agendaPorEscopo, setAgendaPorEscopo] = useState(false);
   const [podeResolverLegado, setPodeResolverLegado] = useState(false);
@@ -141,10 +142,14 @@ export default function AdminDisponibilidade() {
   // Legado almoco/noite (regras manuais e descontos por data em JSON): só TURNO_1/TURNO_2; "" nos demais horários.
   const horario: HorarioBase | "" = horarioLegadoDoCodigo(periodoEmFoco?.codigo);
 
-  async function carregarGestaoUnidades() {
-    const r = await adminFetch("/api/admin/disponibilidade/unidades", { cache: "no-store" });
-    const json = await r.json().catch(() => null);
-    setGestaoUnidades(r.ok && Array.isArray(json?.unidades) ? json.unidades : []);
+  async function carregarGestaoUnidades(vigente: () => boolean) {
+    try {
+      const r = await adminFetch("/api/admin/disponibilidade/unidades", { cache: "no-store" });
+      const json = await r.json().catch(() => null);
+      if (vigente()) setGestaoUnidades(r.ok && Array.isArray(json?.unidades) ? json.unidades : []);
+    } catch {
+      if (vigente()) setGestaoUnidades([]);
+    }
   }
 
   async function decidirUnidade(acao: "habilitar" | "revogar", unidade: UnidadeAgendaGestao) {
@@ -169,7 +174,7 @@ export default function AdminDisponibilidade() {
       setMensagemUnidade(acao === "habilitar"
         ? `${unidade.nome} habilitada para a agenda.`
         : `${unidade.nome} revogada. ${json?.data?.reservasFuturasPreservadas ?? 0} reserva(s) futura(s) mantida(s); novas contratações e remarcações nela ficam bloqueadas.`);
-      await Promise.all([carregarGestaoUnidades(), carregar()]);
+      await carregar();
     } catch {
       setMensagemUnidade("Não foi possível salvar.");
     } finally {
@@ -246,10 +251,20 @@ export default function AdminDisponibilidade() {
     }
   }
 
+  function iniciarCarga() {
+    geracaoConsulta.current += 1;
+    const geracao = geracaoConsulta.current;
+    return () => geracao === geracaoConsulta.current;
+  }
+
   async function carregar() {
+    // Uma gravação iniciada em outra consulta pode terminar depois da navegação.
+    if (consulta !== consultaVigente.current) return;
+    const vigente = iniciarCarga();
     setCarregando(true);
     try {
       const dados = await buscarDadosMes(ano, mes);
+      if (!vigente()) return;
       setConfig(dados.config);
       setPreReservas(dados.preReservas);
       setRevisaoSaloes((anterior) => anterior + 1);
@@ -262,30 +277,26 @@ export default function AdminDisponibilidade() {
       setRegrasPacotes(dados.regrasPacotes);
       aplicarPacotesEmpresa(dados.pacotes);
       setTelaDoCliente(dados.telaDoCliente);
-      sincronizarDescontoFormulario(
-        dados.config,
-        pacote,
-        selecionada,
-        horario,
-      );
+      sincronizarDescontoFormulario(dados.config, pacote, selecionada, horario);
+      if (dados.agendaPorEscopo) void carregarGestaoUnidades(vigente);
     } catch {
+      if (!vigente()) return;
       setConfig(CONFIG_SEM_RESPOSTA);
       setPreReservas(null);
       setBloqueios([]);
       setOperacionalPorData({});
       setMensagem("Não foi possível carregar a disponibilidade agora.");
     } finally {
-      setCarregando(false);
+      if (vigente()) setCarregando(false);
     }
   }
 
   useEffect(() => {
-    let cancelado = false;
-
+    const vigente = iniciarCarga();
     void (async () => {
       try {
         const dados = await buscarDadosMes(ano, mes);
-        if (cancelado) return;
+        if (!vigente()) return;
         setConfig(dados.config);
         setPreReservas(dados.preReservas);
         setBloqueios(dados.bloqueios);
@@ -297,25 +308,24 @@ export default function AdminDisponibilidade() {
         setRegrasPacotes(dados.regrasPacotes);
         aplicarPacotesEmpresa(dados.pacotes);
         setTelaDoCliente(dados.telaDoCliente);
-        if (dados.agendaPorEscopo) void carregarGestaoUnidades().catch(() => setGestaoUnidades([]));
+        if (dados.agendaPorEscopo) void carregarGestaoUnidades(vigente);
       } catch {
-        if (cancelado) return;
+        if (!vigente()) return;
         setConfig(CONFIG_SEM_RESPOSTA);
         setPreReservas(null);
         setBloqueios([]);
         setOperacionalPorData({});
         setMensagem("Não foi possível carregar a disponibilidade agora.");
       } finally {
-        if (!cancelado) setCarregando(false);
+        if (vigente()) setCarregando(false);
       }
     })();
 
     return () => {
-      cancelado = true;
+      geracaoConsulta.current += 1;
     };
-    // buscarDadosMes lê a unidade do estado; a dependência explícita é unidadeId.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [mes, ano, unidadeId]);
+  }, [consulta]);
 
   const diasMes = useMemo(() => {
     const primeiro = new Date(Date.UTC(ano, mes, 1)).getUTCDay();
@@ -323,12 +333,19 @@ export default function AdminDisponibilidade() {
     return { primeiro, total };
   }, [ano, mes]);
 
-  function mudarMes(delta: number) {
-    const d = new Date(Date.UTC(ano, mes + delta, 1));
-    setAno(d.getUTCFullYear());
-    setMes(d.getUTCMonth());
+  function mudarConsulta(proxima: typeof consulta) {
+    // Invalida a carga já no clique, antes de o efeito iniciar a nova consulta.
+    geracaoConsulta.current += 1;
+    consultaVigente.current = proxima;
+    setConsulta(proxima);
+    setCarregando(true);
     setSelecionada("");
     setMensagem("");
+  }
+
+  function mudarMes(delta: number) {
+    const d = new Date(Date.UTC(ano, mes + delta, 1));
+    mudarConsulta({ ano: d.getUTCFullYear(), mes: d.getUTCMonth(), unidadeId });
   }
 
   function periodoOperacional(
@@ -536,11 +553,7 @@ export default function AdminDisponibilidade() {
               <span>Unidade</span>
               <select
                 value={unidadeId}
-                onChange={(e) => {
-                  setUnidadeId(e.target.value);
-                  setSelecionada("");
-                  setMensagem("");
-                }}
+                onChange={(e) => mudarConsulta({ ano, mes, unidadeId: e.target.value })}
               >
                 <option value="">Todas as unidades da empresa</option>
                 {unidades.map((u) => <option value={u.id} key={u.id}>{u.nome}</option>)}

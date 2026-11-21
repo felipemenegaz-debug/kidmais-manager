@@ -4,6 +4,7 @@ import * as preReserva from '../../lib/pre-reserva/apresentacao-admin.ts';
 import * as agenda from '../../lib/agenda/disponibilidade.ts';
 import * as periodos from '../fechamento/periodos.ts';
 import { achar, carregarComponente, cssFalso, elementos, texto, tique } from './teste-componente.ts';
+import { carregarModulo, executorFalso } from '../../lib/acessos/teste-carregador.ts';
 
 const pedido = '11111111-1111-4111-8111-111111111111';
 const pix = 'E12345678202611201234Ab123456789';
@@ -80,7 +81,17 @@ test('revisão recarrega no 409 e pede uma ação separada para confirmar o Pix 
   await tique();
   assert.equal(leituras, 2);
   assert.deepEqual(envios.map((e) => e.acao), ['CONFIRMAR', 'REGISTRAR_DIVERGENTE_A_DEVOLVER']);
-  assert.match(texto(render()), /Pix registrado para devolução. Valor recebido diferente do sinal/);
+  assert.match(texto(render()), /Recebimento Pix identificado. Valor recebido diferente do sinal/);
+
+  dados.destinos = ['DEVOLVIDO'];
+  digitar(render(), /Valor recebido/, '99,00');
+  digitar(render(), /Identificador da transferência/, pix);
+  (achar(render(), 'form').props.onSubmit as (e: object) => void)({ preventDefault() {} });
+  await tique();
+  assert.equal(leituras, 3);
+  assert.deepEqual(envios[2], envios[0]);
+  assert.match(texto(render()), /Devolvido.*Recebimento Pix identificado. Valor recebido diferente do sinal/);
+  assert.doesNotMatch(texto(render()), /Pix registrado para devolução/);
 });
 
 test('fila só permite baixa após assunção e recarrega no conflito; histórico mostra os dois autores', async () => {
@@ -123,9 +134,8 @@ test('fila só permite baixa após assunção e recarrega no conflito; históric
   assert.doesNotMatch(texto(tela.render()), /Dar baixa/);
 });
 
-test('agenda marca somente ocupações projetadas e atualiza o dia aberto', async () => {
-  let leituras = 0;
-  const tela = carregarComponente('components/admin/AdminDisponibilidade.tsx', {
+function carregarAgenda(adminFetch: (url: string) => Promise<Response>) {
+  return carregarComponente('components/admin/AdminDisponibilidade.tsx', {
     ...deps,
     './SaloesDoDia': { SaloesDoDia: () => null },
     './AdminDisponibilidade.module.css': cssFalso,
@@ -134,26 +144,114 @@ test('agenda marca somente ocupações projetadas e atualiza o dia aberto', asyn
     '@/lib/agenda/disponibilidade': agenda,
     '@/lib/comercial/descontos': { descontoPersonalizadoDaData: () => null, avisoDescontoDoPacote: () => null },
     '@/lib/comercial/descontos-dia': {},
-    '@/lib/http/admin-fetch': { adminFetch: async (url: string) => {
-      const q = new URL(url, 'http://localhost').searchParams;
-      assert.equal(q.get('preReservas'), '1');
-      const data = q.get('inicio')!;
-      const ocupacao = { data, inicio: '16:00', fim: '20:00', garantiaAte: `${data}T21:00Z`, salao: 'Salão A' };
-      return Response.json({ preReservas: ++leituras === 1
-        ? [{ ...ocupacao, fechamentoId: pedido }, { ...ocupacao, fechamentoId: null, inicio: '11:00' }]
-        : [] });
-    } },
+    '@/lib/http/admin-fetch': { adminFetch },
+  });
+}
+
+function abrirPrimeiroDia(arvore: unknown) {
+  const primeiroDia = elementos(arvore).find((e) => e.type === 'button' && /-01$/.test(String((e as { key?: string }).key)));
+  assert.ok(primeiroDia);
+  (primeiroDia.props.onClick as () => void)();
+}
+
+test('agenda marca somente ocupações projetadas e atualiza o dia aberto', async () => {
+  let leituras = 0;
+  const tela = carregarAgenda(async (url) => {
+    const q = new URL(url, 'http://localhost').searchParams;
+    assert.equal(q.get('preReservas'), '1');
+    const data = q.get('inicio')!;
+    const ocupacao = { data, inicio: '16:00', fim: '20:00', garantiaAte: `${data}T21:00Z`, salao: 'Salão A' };
+    return Response.json({ preReservas: ++leituras === 1
+      ? [{ ...ocupacao, fechamentoId: pedido }, { ...ocupacao, fechamentoId: null, inicio: '11:00' }]
+      : [] });
   });
   tela.render();
   tela.efeitos();
   await tique();
-  const primeiroDia = elementos(tela.render()).find((e) => e.type === 'button' && /-01$/.test(String((e as { key?: string }).key)));
-  assert.ok(primeiroDia);
-  (primeiroDia.props.onClick as () => void)();
+  abrirPrimeiroDia(tela.render());
   const selecionado = tela.render();
   const rotulo = /Pré-reserva garantida até .*18:00/;
   assert.equal(achar(selecionado, 'a', rotulo).props.href, `/admin/fechamentos/${pedido}/revisao`);
   assert.equal(elementos(selecionado).filter((e) => e.type === 'b' && rotulo.test(texto(e))).length, 2);
   await clicar(selecionado, '↻');
   assert.doesNotMatch(texto(tela.render()), /Pré-reserva garantida/);
+});
+
+for (const statusAntigo of [200, 500]) {
+  test(`agenda preserva garantias do mês visível quando a atualização antiga termina depois (HTTP ${statusAntigo})`, async () => {
+    const consultas: Array<{ data: string; resolver: (r: Response) => void }> = [];
+    const tela = carregarAgenda((url) => new Promise((resolver) => {
+      const data = new URL(url, 'http://localhost').searchParams.get('inicio')!;
+      consultas.push({ data, resolver });
+    }));
+    tela.render();
+    tela.efeitos();
+    consultas[0].resolver(Response.json({}));
+    await tique();
+
+    const antiga = clicar(tela.render(), '↻');
+    clicar(tela.render(), '→');
+    tela.render();
+    tela.efeitos();
+    const [mesA, mesB] = consultas.slice(1);
+    assert.notEqual(mesA.data, mesB.data);
+    mesB.resolver(Response.json({ preReservas: [{
+      data: mesB.data, inicio: '16:00', fim: '20:00', garantiaAte: `${mesB.data}T21:00Z`, fechamentoId: pedido, salao: 'Salão B',
+    }] }));
+    await tique();
+    abrirPrimeiroDia(tela.render());
+    const rotulo = /Pré-reserva garantida até .*18:00/;
+    assert.ok(achar(tela.render(), 'a', rotulo));
+
+    mesA.resolver(Response.json({ preReservas: [] }, { status: statusAntigo }));
+    await antiga;
+    const estado = tela.render();
+    assert.equal(achar(estado, 'a', rotulo).props.href, `/admin/fechamentos/${pedido}/revisao`);
+    assert.equal(achar(estado, 'button', '↻').props.disabled, false);
+    assert.doesNotMatch(texto(estado), /Não foi possível carregar a disponibilidade/);
+  });
+}
+
+test('GET da agenda inclui link comercial para Equipe da empresa comprovada', async () => {
+  const empresaId = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
+  const data = '2026-11-21';
+  const ocupacao = { data, inicio: '16:00', fim: '20:00', garantiaAte: `${data}T21:00Z`, salao: 'Salão A', fechamentoId: pedido };
+  const tx = executorFalso([
+    [/to_regprocedure/, () => [{ instalada: true }]],
+    [/FROM kidmais094_ocupacoes/, () => [ocupacao]],
+  ]);
+  const inertes = Object.fromEntries([
+    'agenda/trava-configuracao', 'comercial/pacotes-v1', 'comercial/repositories',
+    'fechamentos/rota-publica', 'comercial/cotacao-publica', 'comercial/descontos-dia',
+    'disponibilidade/bloqueios-legados', 'disponibilidade/config-legada-armazem', 'enderecos/roteamento',
+  ].map((id) => [`lib/${id}`, {}]));
+  const { GET } = carregarModulo('app/api/admin/disponibilidade/route.ts', {
+    ...inertes,
+    'next/server': { NextResponse: { json: Response.json } },
+    'lib/http/admin-crm-api': { exigirApiAdminCrmDisponivel: async () => ({ papel: 'ADMINISTRATIVO' }) },
+    'lib/http/api-response': { apiErrorResponse: (erro: unknown) => { throw erro; } },
+    'lib/saas/provar-tenant': {
+      withTenantTransaction: (_: unknown, __: unknown, consultar: (db: typeof tx, tenant: object) => unknown) =>
+        consultar(tx, { empresaComprovada: empresaId, papelAtual: 'ADMINISTRATIVO' }),
+    },
+    'lib/disponibilidade/escopo': {
+      escopoDaEmpresa: (_: unknown, empresa: string) => ({ empresaId: empresa, estabelecimentoId: null }),
+      agendaPorEscopoInstalada: async () => false,
+    },
+    'lib/disponibilidade/services': {
+      duracaoAceita: () => null, duracaoDoPacoteDaEmpresa: async () => 240, consultarDisponibilidadeData: async () => ({}),
+    },
+    'lib/disponibilidade/repositories': { listarTodosBloqueiosAtivos: async () => [] },
+    'lib/disponibilidade/config-legada': { ehDonaDaConfigLegada: async () => false },
+    'lib/comercial/disponibilidade-pacote-publica': { pacotesDaAgendaDaEmpresa: async () => null },
+    'lib/comercial/descontos-dia-publico': { descontosPublicosDaEmpresa: async () => null },
+  }) as { GET: (r: { nextUrl: URL }) => Promise<Response> };
+  const resposta = await GET({ nextUrl: new URL(`http://localhost/api/admin/disponibilidade?data=${data}&preReservas=1`) });
+  assert.equal(resposta.status, 200);
+  assert.deepEqual((await resposta.json()).preReservas, [ocupacao]);
+  const projecao = tx.executados.find(({ sql }) => /FROM kidmais094_ocupacoes/.test(sql));
+  assert.ok(projecao);
+  assert.match(projecao.sql, /o\.fechamento_id AS "fechamentoId"/);
+  assert.match(projecao.sql, /o\.empresa_id=\$3/);
+  assert.deepEqual(projecao.params, [data, data, empresaId, null]);
 });
