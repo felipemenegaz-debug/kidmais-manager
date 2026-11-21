@@ -295,17 +295,48 @@
 }
 
 .calendarWrap {
-  /* O calendário também é usado fora da página pública, no tema escuro do admin. */
-  --ink: #111a3a;
-  --muted: #657290;
-  --border: #e3e7f0;
-  --lilac: #955be1;
+  --ink: #f1f5ff;
+  --muted: #bac7df;
+  --border: #7887a5;
+  --lilac: #d3b8ff;
+  --calendar-control: rgba(143, 162, 205, .14);
+  --calendar-available-bg: #163b32;
+  --calendar-available-text: #a2f3ce;
+  --calendar-consult-bg: #203658;
+  --calendar-consult-text: #c0dcff;
+  --calendar-exception-bg: #3b2a53;
+  --calendar-exception-text: #e5cdff;
+  --calendar-unavailable-bg: #482830;
+  --calendar-unavailable-text: #ffc2cd;
+  --calendar-past-bg: #262d3e;
+  --calendar-discount-bg: #3d2c1c;
+  --calendar-discount-text: #ffdbac;
   color: var(--ink);
   margin-bottom: 22px;
   border: 1px solid var(--border);
   border-radius: 18px;
-  background: #fff;
+  background: transparent;
   padding: 17px;
+}
+
+/* Modo interno do assistente compartilhado, com cartão claro. */
+.page:not(.publico) .calendarWrap {
+  --ink: #111a3a;
+  --muted: #536178;
+  --border: #8390a8;
+  --lilac: #6536a7;
+  --calendar-control: rgba(74, 93, 138, .08);
+  --calendar-available-bg: #e9f8ef;
+  --calendar-available-text: #176239;
+  --calendar-consult-bg: #e9f1ff;
+  --calendar-consult-text: #2457b7;
+  --calendar-exception-bg: #f1e9ff;
+  --calendar-exception-text: #6536a7;
+  --calendar-unavailable-bg: #ffeaea;
+  --calendar-unavailable-text: #a12532;
+  --calendar-past-bg: #edf0f7;
+  --calendar-discount-bg: #fff4e8;
+  --calendar-discount-text: #7a3d09;
 }
 
 .calendarToolbar {
@@ -321,13 +352,18 @@
   min-width: 42px;
   min-height: 42px;
   border: 1px solid var(--border);
-  background: #fff;
+  background: var(--calendar-control);
   border-radius: 11px;
   color: var(--ink);
   font: inherit;
   font-size: 12px;
   font-weight: 800;
   cursor: pointer;
+}
+
+.calendarToolbarActions button:disabled {
+  color: var(--muted);
+  cursor: wait;
 }
 
 .calendarToolbarActions {
@@ -361,10 +397,6 @@
   font-style: normal;
 }
 
-.legendAvailable { background: #e9f8ef; color: #176a3b; }
-.legendConsult { background: #e9f1ff; color: #2457b7; }
-.legendUnavailable { background: #ffeaea; color: #a92c2c; }
-
 .weekHeader,
 .calendarGrid {
   display: grid;
@@ -396,7 +428,7 @@
   text-align: left;
   font: inherit;
   cursor: pointer;
-  transition: transform .12s ease, box-shadow .12s ease, border-color .12s ease;
+  transition: transform .12s ease, border-color .12s ease;
 }
 
 .calendarDay span {
@@ -414,36 +446,41 @@
   font-size: 11px;
   font-style: normal;
   font-weight: 900;
-  background: rgba(255,255,255,.75);
+  background: var(--calendar-control);
 }
 
-.calendarAvailable {
-  background: #e9f8ef;
-  color: #176a3b;
+.legendAvailable, .calendarAvailable, .calendarMessageOk {
+  background: var(--calendar-available-bg);
+  color: var(--calendar-available-text);
 }
 
-.calendarConsult {
-  background: #e9f1ff;
-  color: #2457b7;
+.legendConsult, .calendarConsult, .calendarMessageConsult {
+  background: var(--calendar-consult-bg);
+  color: var(--calendar-consult-text);
 }
 
-.calendarUnavailable {
-  background: #ffeaea;
-  color: #a92c2c;
+.legendException, .calendarException, .calendarMessageException {
+  background: var(--calendar-exception-bg);
+  color: var(--calendar-exception-text);
+}
+
+.legendUnavailable, .calendarUnavailable, .calendarMessageError {
+  background: var(--calendar-unavailable-bg);
+  color: var(--calendar-unavailable-text);
 }
 
 .calendarDay:not(:disabled):hover {
   transform: translateY(-1px);
-  box-shadow: 0 8px 16px rgba(34,44,85,.08);
 }
 
 .calendarSelected {
   border-color: var(--lilac);
-  box-shadow: 0 0 0 3px rgba(149,91,225,.18);
+  box-shadow: inset 0 0 0 1px var(--lilac);
 }
 
 .calendarPast {
-  opacity: .42;
+  background: var(--calendar-past-bg);
+  color: var(--muted);
   cursor: not-allowed;
 }
 
@@ -471,30 +508,15 @@
 .calendarMessage button {
   flex: 0 0 auto;
   min-height: 40px;
-  border: 0;
+  border: 1px solid currentColor;
   border-radius: 10px;
   padding: 0 12px;
-  background: #fff;
-  color: var(--ink);
+  background: var(--calendar-control);
+  color: inherit;
   font: inherit;
   font-size: 11px;
   font-weight: 850;
   cursor: pointer;
-}
-
-.calendarMessageOk {
-  background: #e9f8ef;
-  color: #176a3b;
-}
-
-.calendarMessageConsult {
-  background: #e9f1ff;
-  color: #2457b7;
-}
-
-.calendarMessageError {
-  background: #ffeaea;
-  color: #a92c2c;
 }
 
 .consultNotice {
@@ -567,7 +589,12 @@
   gap: 11px;
   padding: 13px 14px;
   margin-bottom: 13px;
+  border-color: var(--border);
+  background: var(--calendar-discount-bg);
+  color: var(--calendar-discount-text);
 }
+
+.weekdayDiscountBanner p { color: inherit; }
 
 .weekdayDiscountIcon {
   flex: 0 0 auto;
@@ -576,8 +603,8 @@
   border-radius: 11px;
   display: grid;
   place-items: center;
-  color: #fff;
-  background: var(--orange);
+  color: #482408;
+  background: #ffbb78;
   font-weight: 950;
 }
 
@@ -594,8 +621,8 @@
   flex: 0 0 auto;
   border-radius: 999px;
   padding: 3px 5px;
-  background: #ff7b22;
-  color: #fff;
+  background: #ffbb78;
+  color: #482408;
   font-size: 8px;
   line-height: 1;
   font-style: normal;
@@ -721,22 +748,7 @@
 }
 
 
-/* V6 — exceção + preço na escolha da data */
-.legendException {
-  background: #f1e9ff;
-  color: #6536a7;
-}
-
-.calendarException {
-  background: #f1e9ff;
-  color: #6536a7;
-}
-
-.calendarMessageException {
-  background: #f1e9ff;
-  color: #6536a7;
-}
-
+/* V6 — preço na escolha da data */
 .datePricePreview {
   margin: 15px 0 4px;
   display: grid;
@@ -1102,7 +1114,7 @@
 .page .stepTitle { margin-bottom: 26px; }
 .page .stepTitle > div, .page .field, .page .fieldGroup { min-width: 0; }
 .page .stepNumber, .page .successIcon { background: linear-gradient(135deg, var(--blue), var(--purple)); }
-.page :is(.choiceCard, .packageCard, .paymentCard, .additionalCard, .buffetDecisionCard, .birthdayCard, .summaryCard, .maskedContact, .calendarWrap, .buffetSummaryBox) {
+.page :is(.choiceCard, .packageCard, .paymentCard, .additionalCard, .buffetDecisionCard, .birthdayCard, .summaryCard, .maskedContact, .buffetSummaryBox) {
   border-radius: 18px;
   border-color: #e1e5f0;
   background: rgba(255, 255, 255, .88);
@@ -1328,10 +1340,10 @@
 .publico :is(button,a,input,select,textarea):focus-visible { outline: 3px solid var(--ia-menta); outline-offset: 3px; }
 .publico[data-pausado=true] *, .publico[data-pausado=true] *::before, .publico[data-pausado=true] *::after { animation-play-state: paused !important; }
 
-.publico :is(.discountCallout,.weekdayDiscountBanner,.discountAppliedNotice,.datePricePreview,.foundBadge) {
+.publico :is(.discountCallout,.discountAppliedNotice,.datePricePreview,.foundBadge) {
   background: #16352f; border-color: #467b69; color: var(--ia-menta);
 }
-.publico :is(.discountCallout,.weekdayDiscountBanner,.discountAppliedNotice,.datePricePreview) :is(p,small) { color: var(--ia-auxiliar); }
+.publico :is(.discountCallout,.discountAppliedNotice,.datePricePreview) :is(p,small) { color: var(--ia-auxiliar); }
 .publico .documentChoice { background: var(--ia-painel); border-color: var(--border); }
 .publico .documentChoice .documentChoiceSelected { background: var(--ia-lilas); color: var(--ia-tinta); }
 

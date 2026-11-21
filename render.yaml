@@ -9,7 +9,10 @@ services:
     # check:v1:static já termina com `next build` (scripts/regressao-v1-estatica.cjs); um `npm run build` a mais só
     # repetia o mesmo build (~30 s no deploy de 23/10). docs/DEPLOY_BUILD_20261023.md.
     buildCommand: npm ci --include=dev && npm run check:v1:static
-    startCommand: node scripts/init-staging-data.cjs && npm start
+    # next direto, sem npm: no Web Shell (20/11) a árvore era graceful-shell-command.sh (PID 1) → npm start → sh -c
+    # "next start" → next-server. O sh do npm não repassa o SIGTERM, e o handler do desligamento nunca registrou nada.
+    # Com exec, o next-server é o filho direto do PID 1 e recebe o sinal (vault "Convites geracao sobrevive ao deploy 20261120").
+    startCommand: node scripts/init-staging-data.cjs && exec node_modules/.bin/next start
     healthCheckPath: /api/health
     numInstances: 1
     # Sem disco desde 20/11/2026 (migration 128: regras legadas da agenda e PDFs públicos no banco; disco removido no painel).

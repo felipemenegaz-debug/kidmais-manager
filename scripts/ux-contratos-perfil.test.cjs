@@ -180,10 +180,12 @@ async function main() {
         // Assinatura e liberação continuam usando as mesmas operações, apenas em mocks.
         await page.setViewportSize({ width: 1440, height: 1000 });
         estadoContrato = 'EM_ELABORACAO'; await abrir('contratos'); await page.getByRole('tab', { name: 'Documentos', exact: true }).click();
-        page.on('dialog', dialog => dialog.accept());
+        page.on('dialog', dialog => { errors.push('Diálogo nativo inesperado'); void dialog.dismiss(); });
         await page.getByRole('button', { name: 'Confirmar revisão do PDF', exact: true }).click();
+        await page.getByRole('dialog').getByRole('button', { name: 'Confirmar revisão do PDF', exact: true }).click();
         await page.getByLabel('Confirme sua senha').fill('senha-sintetica-sem-credencial-real');
         await page.getByRole('button', { name: 'Aprovar e assinar pelo buffet', exact: true }).click();
+        await page.getByRole('dialog').getByRole('button', { name: 'Aprovar e assinar pelo buffet', exact: true }).click();
         await page.getByRole('button', { name: 'Liberar para o cliente', exact: true }).click();
         const publico = page.getByRole('link', { name: /^Abrir página do cliente/ });
         await publico.waitFor(); assert.equal(await publico.count(),1);

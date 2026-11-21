@@ -1,4 +1,5 @@
 "use client";
+import { dialogo } from '@/components/JanelaConfirmacao';
 
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
@@ -387,7 +388,7 @@ function Pessoas({ base, dados, visita }: { base: string; dados: MinhaFesta; vis
             <div><dt>Link</dt><dd>{segundo.linkAtivoAte ? `vale até ${dataCurta(segundo.linkAtivoAte)}` : "sem link ativo"}</dd></div>
           </dl>
           <button type="button" className={styles.secundario} disabled={ocupado} onClick={() => executar({ acao: "LINK_SEGUNDO" })}>Gerar link novo</button>
-          <button type="button" className={styles.secundario} disabled={ocupado} onClick={() => { if (window.confirm(`Remover ${segundo.nome} da área da festa?`)) void executar({ acao: "REMOVER_SEGUNDO" }); }}>Remover</button>
+          <button type="button" className={styles.secundario} disabled={ocupado} onClick={async (evento) => { if (await dialogo.confirmar("Remover responsável", `Remover ${segundo.nome} da área da festa?`, undefined, evento.currentTarget)) void executar({ acao: "REMOVER_SEGUNDO" }); }}>Remover</button>
         </>
       ) : link ? null : (
         <form onSubmit={(e) => { e.preventDefault(); void executar({ acao: "CONVIDAR_SEGUNDO", nome: form.nome, whatsapp: form.whatsapp, documento: form.documento || null }); }}>

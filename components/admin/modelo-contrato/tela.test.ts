@@ -54,9 +54,10 @@ function montar() {
   const g = globalThis as Record<string, unknown>;
   g.document ??= { addEventListener() {}, removeEventListener() {} };
   const abertos: string[] = [];
-  g.window = { addEventListener() {}, removeEventListener() {}, location: { origin: 'http://x', pathname: '/', search: '' }, confirm: () => true, open: (u: string) => { abertos.push(u); } };
+  g.window = { addEventListener() {}, removeEventListener() {}, location: { origin: 'http://x', pathname: '/', search: '' }, open: (u: string) => { abertos.push(u); } };
   const m = carregarComponente('components/admin/ModeloContrato.tsx', {
     'next/navigation': { useRouter: () => ({ push() {} }) },
+    '@/components/JanelaConfirmacao': { dialogo: { confirmar: async (_titulo: string, _mensagem: string, executar: () => Promise<unknown>) => { await executar(); return true; } } },
     '@/lib/http/admin-fetch': { adminFetch },
     '@/lib/contratos/modelo-empresa/conteudo': conteudoMod, '@/lib/contratos/modelo-empresa/contratada': contratadaMod,
     // Entrega B: aviso "Não serve para cliente pessoa jurídica" (função pura, módulo real).
@@ -82,7 +83,7 @@ function montar() {
   };
   return tela;
 }
-const clicar = (e: Elemento) => (e.props.onClick as () => void)();
+const clicar = (e: Elemento) => (e.props.onClick as (evento: { currentTarget: Elemento }) => void)({ currentTarget: e });
 
 async function abrirDoPainel(t: ReturnType<typeof montar>, id: 'A' | 'B', versao: number) {
   await t.atualizar();

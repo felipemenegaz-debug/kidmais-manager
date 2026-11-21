@@ -1,4 +1,5 @@
 'use client';
+import { dialogo } from '@/components/JanelaConfirmacao';
 import { useState } from 'react';
 import { adminFetch } from '@/lib/http/admin-fetch';
 import { dataCivilBr } from '@/lib/contratos/assinatura-papel';
@@ -21,11 +22,11 @@ export default function RegistrarPapelCliente({ versaoId, onRegistrado }: { vers
   const [chave, setChave] = useState(() => crypto.randomUUID());
   const novaChave = () => setChave(crypto.randomUUID());
 
-  async function registrar() {
+  async function registrar(gatilho: HTMLButtonElement) {
     if (!/^\d{4}-\d{2}-\d{2}$/.test(data)) { setErro('Informe a data em que o cliente assinou.'); return; }
     const texto = `Registrar que o cliente assinou o contrato em papel em ${dataCivilBr(data)}? O contrato passa a ASSINADO e a festa é formalizada.`
       + (arquivo ? '' : `\n\n${AVISO_SEM_COPIA}`);
-    if (!window.confirm(texto)) return;
+    if (!await dialogo.confirmar("Registrar assinatura", texto, undefined, gatilho)) return;
     setEnviando(true); setErro('');
     try {
       const form = new FormData();
@@ -55,7 +56,7 @@ export default function RegistrarPapelCliente({ versaoId, onRegistrado }: { vers
     {!arquivo && <p className={styles.discreto}>{AVISO_SEM_COPIA}</p>}
     <label>Observação (opcional) <input value={observacao} maxLength={500} onChange={e => mudar(setObservacao)(e.target.value)} /></label>
     {erro && <p className={styles.notice} role="alert">{erro}</p>}
-    <button type="button" data-km-primario className={classePrimaria} disabled={enviando || !data} onClick={() => void registrar()}>Registrar assinatura em papel</button>
+    <button type="button" data-km-primario className={classePrimaria} disabled={enviando || !data} onClick={(evento) => void registrar(evento.currentTarget)}>Registrar assinatura em papel</button>
   </details>;
 }
 

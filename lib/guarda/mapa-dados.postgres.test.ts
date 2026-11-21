@@ -4,7 +4,7 @@ import { conectarDescartavel, encerrarDescartavel } from "../comercial/postgres-
 import { conferirMapa, TIPOS_CONFERIDOS } from "./mapa-dados.ts";
 
 /**
- * Guarda fase 3 (20/11/2026), PostgreSQL DESCARTÁVEL no modelo 127 (inventário inteiro de migrations, menos a 098 como
+ * Guarda fase 3 (20/11/2026), PostgreSQL DESCARTÁVEL no modelo 130 (inventário inteiro de migrations, menos a 098 como
  * os demais modelos). Teste de guarda do mapa dos dados pessoais: toda coluna de texto, binária, JSON ou de endereço IP
  * do schema public precisa estar classificada em lib/guarda/mapa-dados.ts, e o mapa não pode citar coluna que não existe.
  * Coluna nova sem classificação faz a suíte FALHAR, para que a anonimização (fase 4) não deixe dado pessoal para trás.
