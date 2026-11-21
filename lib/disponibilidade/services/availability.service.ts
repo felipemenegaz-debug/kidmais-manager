@@ -71,6 +71,8 @@ export type OpcoesDisponibilidade = {
   incluirCombinados?: boolean;
   /** Índice privado do pedido, nunca serializado na agenda pública. */
   saloesLivres?: Map<HorarioCandidatoPublico, string[]>;
+  /** Executor do pool que reaproveita sondagens no pedido e permite leituras paralelas. */
+  executorComSondagensReutilizadas?: DbExecutor;
 };
 export const DURACAO_PADRAO_MINUTOS = 240;
 
@@ -475,6 +477,7 @@ export async function consultarDisponibilidadePeriodo(
   validarPeriodo(inicio, fim);
 
   const escopo = await resolverEscopo(customDb, escopoInformado, excluirFechamentoId);
+  const executorDoPool = opcoes?.executorComSondagensReutilizadas;
   const [configuracoes, bloqueios, ocupacoesConfirmadas] = customDb
     ? [
         await listarConfiguracoesAgendaAtivas(customDb, escopo),
@@ -482,12 +485,12 @@ export async function consultarDisponibilidadePeriodo(
         await listarFechamentosConfirmadosPorPeriodo(inicio, fim, customDb, escopo),
       ]
     : await Promise.all([
-        listarConfiguracoesAgendaAtivas(undefined, escopo),
-        listarBloqueiosAtivosPorPeriodo(inicio, fim, undefined, escopo),
-        listarFechamentosConfirmadosPorPeriodo(inicio, fim, undefined, escopo),
+        listarConfiguracoesAgendaAtivas(executorDoPool, escopo),
+        listarBloqueiosAtivosPorPeriodo(inicio, fim, executorDoPool, escopo),
+        listarFechamentosConfirmadosPorPeriodo(inicio, fim, executorDoPool, escopo),
       ]);
 
-  const regra = await lerRegraCapacidadeAgenda(customDb, escopo, { incluirCombinados: opcoes?.incluirCombinados === true });
+  const regra = await lerRegraCapacidadeAgenda(customDb ?? executorDoPool, escopo, { incluirCombinados: opcoes?.incluirCombinados === true });
 
   const livre = regra?.modo === "LIVRE" ? regra.horarioLivre ?? null : null;
   // Parecer do Astra (P3): a duração aceita é usada como veio, sem teto; a que não cabe no dia não gera candidatos.
