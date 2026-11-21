@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import type { DbExecutor } from '../db/contracts.ts';
+import { isUniqueViolation } from '../db/errors.ts';
 import { exigirGestaoNoTenant, type TenantComprovado } from '../saas/provar-tenant.ts';
 import { PacoteAdminError } from '../comercial/pacotes-admin.ts';
 import { POLITICA_PRE_RESERVA, referenciaTransferencia } from './politica.ts';
@@ -9,7 +10,7 @@ import { recebimentosInstalados } from './destinacao.ts';
 const instanteComOffset = z.union([
   z.iso.datetime({ offset: true }),
   z.iso.datetime({ offset: true, precision: -1 }),
-]).refine(valor => valor.endsWith('Z') || Number(valor.slice(-5, -3)) < 16);
+]).refine(valor => !/\.\d{7}/.test(valor) && (valor.endsWith('Z') || Number(valor.slice(-5, -3)) < 16));
 type Movimento = { fechamento_id: string; instante: string };
 
 async function exigirRecebimentos(tx: DbExecutor) {
@@ -28,10 +29,12 @@ export async function filaDevolucao(tx: DbExecutor, tenant: TenantComprovado) {
   }
   const { rows } = await tx.query<{
     fechamento_id: string; end_to_end_id: string; valor_centavos: string; devolver_desde: Date;
-    motivo: string; situacao: string; responsavel: string | null; devolucao_assumida_em: Date | null;
+    motivo: string; situacao: string; responsavel: string | null; devolucao_assumida_em: string | null;
   }>(`SELECT s.fechamento_id,s.end_to_end_id,s.valor_centavos,s.devolver_desde,
     coalesce(s.credito_reversao_motivo,r.motivo_sem_garantia::text,s.garantia) AS motivo,s.dinheiro AS situacao,
-    r.devolucao_assumida_por AS responsavel,r.devolucao_assumida_em FROM pre_reserva_situacoes s
+    r.devolucao_assumida_por AS responsavel,
+    to_char(r.devolucao_assumida_em AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS devolucao_assumida_em
+    FROM pre_reserva_situacoes s
     JOIN pre_reserva_recebimentos r USING (empresa_id,end_to_end_id)
     WHERE s.empresa_id=$1 AND s.dinheiro IN ('A_DEVOLVER','EM_DEVOLUCAO')
     ORDER BY s.devolver_desde,s.end_to_end_id`, [tenant.empresaComprovada]);
@@ -72,7 +75,12 @@ export async function confirmarDevolucao(tx: DbExecutor, tenant: TenantComprovad
     SET devolvido_por=$3,devolvido_em=$4,referencia_devolucao=$5
     WHERE empresa_id=$1 AND end_to_end_id=$2 AND devolucao_assumida_em IS NOT NULL AND valor_centavos=$6
       AND devolvido_em IS NULL AND $4::timestamptz BETWEEN devolucao_assumida_em AND clock_timestamp()
-    RETURNING fechamento_id,devolvido_em::text AS instante`, parametros);
+    RETURNING fechamento_id,devolvido_em::text AS instante`, parametros).catch((erro: unknown) => {
+    if (isUniqueViolation(erro, 'pre_reserva_recebimentos_empresa_id_referencia_devolucao_key')) {
+      throw new PacoteAdminError('REFERENCIA_DEVOLUCAO_EM_USO','Esta referência de saída já foi usada em outra devolução.',409);
+    }
+    throw erro;
+  });
   if (movimento) {
     await auditarMovimentoPreReserva(tx, tenant, 'PRE_RESERVA_DEVOLUCAO_CONFIRMADA',
       tenant.empresaComprovada, movimento.fechamento_id, referencia, movimento.instante);

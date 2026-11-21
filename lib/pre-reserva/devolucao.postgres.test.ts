@@ -62,13 +62,18 @@ test('4a: Gestão, dois autores, instantes da baixa e auditoria transacional', a
     await assumir();
     await assumir();
 
+    const limite = (await lista())[0].devolucao_assumida_em;
+    assert.ok(limite);
+    assert.match(limite, /\.\d{6}Z$/);
     const formato = 'YYYY-MM-DD"T"HH24:MI:SS.US"-03:00"';
-    const { limite, antes, futuro } = (await a.query(`SELECT
-      to_char(devolucao_assumida_em AT TIME ZONE 'America/Sao_Paulo',$3) AS limite,
+    const { limiteExato, antes, futuro } = (await a.query(`SELECT
+      devolucao_assumida_em=$4::timestamptz AS "limiteExato",
       to_char((devolucao_assumida_em-interval '1 microsecond') AT TIME ZONE 'America/Sao_Paulo',$3) AS antes,
       to_char((clock_timestamp()+interval '1 hour') AT TIME ZONE 'America/Sao_Paulo',$3) AS futuro
-      FROM pre_reserva_recebimentos WHERE empresa_id=$1 AND end_to_end_id=$2`, [empresa,ref,formato])).rows[0];
-    for (const invalida of [limite.slice(0,10), limite.slice(0,-6)]) {
+      FROM pre_reserva_recebimentos WHERE empresa_id=$1 AND end_to_end_id=$2`, [empresa,ref,formato,limite])).rows[0];
+    assert.equal(limiteExato, true);
+    const antesQueArredonda = antes.replace('-03:00', '9-03:00');
+    for (const invalida of [limite.slice(0,10), limite.slice(0,-1), antesQueArredonda]) {
       await assert.rejects(porTransacao(a)(tx => dev.confirmarDevolucao(tx, segundo, ref, baixa(invalida))), { code: 'BAIXA_INVALIDA' });
     }
     for (const fora of [antes, futuro]) {
@@ -112,6 +117,27 @@ test('4a: Gestão, dois autores, instantes da baixa e auditoria transacional', a
       assert.deepEqual(d, { empresaId: empresa, fechamentoId: pedido, movimento: ref, instante: d.instante });
       assert.ok(Number.isFinite(Date.parse(d.instante)));
     }
+
+    const outraRef = 'E12345678202611201234Ab123456790';
+    await porTransacao(a)(async tx => {
+      await travarConfiguracaoAgenda(tx, empresa, { modo: 'COMPARTILHADA', linha: 'KEY_SHARE' });
+      await tx.query(`INSERT INTO pre_reserva_recebimentos(empresa_id,fechamento_id,end_to_end_id,valor_centavos,confirmado_por,motivo_sem_garantia)
+        VALUES($1,$2,$3,9900,$4,'VALOR_DIVERGENTE')`, [empresa,pedido,outraRef,gestor.usuarioId]);
+      await dev.assumirDevolucao(tx, gestor, outraRef);
+    });
+    const filaAntesDoConflito = await lista();
+    assert.equal(filaAntesDoConflito.length, 1);
+    const [outra] = filaAntesDoConflito;
+    assert.equal(outra.end_to_end_id, outraRef);
+    assert.equal(outra.situacao, 'EM_DEVOLUCAO');
+    assert.ok(outra.devolucao_assumida_em);
+    const eventosAntesDoConflito = await aud();
+    const baixaDuplicada = baixa(outra.devolucao_assumida_em);
+    await assert.rejects(como(segundo.usuarioId, (tx, tenant) => dev.confirmarDevolucao(tx, tenant, outraRef, baixaDuplicada)), {
+      code: 'REFERENCIA_DEVOLUCAO_EM_USO', httpStatus: 409,
+    });
+    assert.deepEqual(await lista(), filaAntesDoConflito);
+    assert.deepEqual(await aud(), eventosAntesDoConflito);
   } finally {
     await encerrarDescartavel(b, false);
     await encerrarDescartavel(a);
