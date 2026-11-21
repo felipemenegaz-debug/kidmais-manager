@@ -53,7 +53,7 @@ function montar({ gerado = false, id = contratoId, recusa }: { gerado?: boolean;
         return estados[posicao];
       },
       useCallback: (fn: unknown) => fn,
-      useEffect: (executar: () => unknown) => { efeito ??= executar; },
+      useLayoutEffect: (executar: () => unknown) => { efeito ??= executar; },
     },
     "react/jsx-runtime": { jsx: createElement, jsxs: createElement },
     "RevisaoComercial.module.css": {},

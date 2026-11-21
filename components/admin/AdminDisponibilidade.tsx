@@ -2,7 +2,7 @@
 import { dialogo } from '@/components/JanelaConfirmacao';
 import { adminFetch } from "@/lib/http/admin-fetch";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { SaloesDoDia } from "./SaloesDoDia";
 import { formatarInstanteSP, type OcupacaoPreReserva } from "@/lib/pre-reserva/apresentacao-admin";
 import { PACOTES } from "@/components/fechamento/data";
@@ -79,6 +79,10 @@ type AdminPayload = DisponibilidadeConfig & {
   unidadeId?: string | null;
 };
 
+function chaveConsulta({ ano, mes, unidadeId }: { ano: number; mes: number; unidadeId: string }) {
+  return `${iso(ano, mes, 1)}:${unidadeId}`;
+}
+
 export default function AdminDisponibilidade() {
   const [preReservas, setPreReservas] = useState<{ unidade: string; ocupacoes: OcupacaoPreReserva[] } | null>(null);
   const [revisaoSaloes, setRevisaoSaloes] = useState(0);
@@ -141,6 +145,10 @@ export default function AdminDisponibilidade() {
   const periodoEmFoco = periodosDoMes.find((p) => p.configuracaoId === idHorario);
   // Legado almoco/noite (regras manuais e descontos por data em JSON): só TURNO_1/TURNO_2; "" nos demais horários.
   const horario: HorarioBase | "" = horarioLegadoDoCodigo(periodoEmFoco?.codigo);
+  const formularioDesconto = useRef({ pacote, selecionada, horario });
+  useLayoutEffect(() => {
+    formularioDesconto.current = { pacote, selecionada, horario };
+  }, [pacote, selecionada, horario]);
 
   async function carregarGestaoUnidades(vigente: () => boolean) {
     try {
@@ -182,7 +190,7 @@ export default function AdminDisponibilidade() {
     }
   }
 
-  async function buscarDadosMes(anoAlvo: number, mesAlvo: number, unidadeAlvo = unidadeId) {
+  async function buscarDadosMes(anoAlvo: number, mesAlvo: number, unidadeAlvo: string) {
     const inicio = iso(anoAlvo, mesAlvo, 1);
     const ultimoDia = new Date(Date.UTC(anoAlvo, mesAlvo + 1, 0)).getUTCDate();
     const fim = iso(anoAlvo, mesAlvo, ultimoDia);
@@ -251,23 +259,17 @@ export default function AdminDisponibilidade() {
     }
   }
 
-  function iniciarCarga() {
-    geracaoConsulta.current += 1;
-    const geracao = geracaoConsulta.current;
-    return () => geracao === geracaoConsulta.current;
-  }
-
-  async function carregar() {
-    // Uma gravação iniciada em outra consulta pode terminar depois da navegação.
-    if (consulta !== consultaVigente.current) return;
-    const vigente = iniciarCarga();
-    setCarregando(true);
+  async function carregar(atualizacao = true) {
+    const alvo = consultaVigente.current;
+    const chave = chaveConsulta(alvo);
+    const geracao = ++geracaoConsulta.current;
+    const vigente = () => chave === chaveConsulta(consultaVigente.current) && geracao === geracaoConsulta.current;
+    if (atualizacao) setCarregando(true);
     try {
-      const dados = await buscarDadosMes(ano, mes);
+      const dados = await buscarDadosMes(alvo.ano, alvo.mes, alvo.unidadeId);
       if (!vigente()) return;
       setConfig(dados.config);
       setPreReservas(dados.preReservas);
-      setRevisaoSaloes((anterior) => anterior + 1);
       setBloqueios(dados.bloqueios);
       setOperacionalPorData(dados.operacionalPorData);
       setUnidades(dados.unidades);
@@ -277,7 +279,11 @@ export default function AdminDisponibilidade() {
       setRegrasPacotes(dados.regrasPacotes);
       aplicarPacotesEmpresa(dados.pacotes);
       setTelaDoCliente(dados.telaDoCliente);
-      sincronizarDescontoFormulario(dados.config, pacote, selecionada, horario);
+      if (atualizacao) {
+        setRevisaoSaloes((anterior) => anterior + 1);
+        const { pacote, selecionada, horario } = formularioDesconto.current;
+        sincronizarDescontoFormulario(dados.config, pacote, selecionada, horario);
+      }
       if (dados.agendaPorEscopo) void carregarGestaoUnidades(vigente);
     } catch {
       if (!vigente()) return;
@@ -292,40 +298,12 @@ export default function AdminDisponibilidade() {
   }
 
   useEffect(() => {
-    const vigente = iniciarCarga();
-    void (async () => {
-      try {
-        const dados = await buscarDadosMes(ano, mes);
-        if (!vigente()) return;
-        setConfig(dados.config);
-        setPreReservas(dados.preReservas);
-        setBloqueios(dados.bloqueios);
-        setOperacionalPorData(dados.operacionalPorData);
-        setUnidades(dados.unidades);
-        setAgendaPorEscopo(dados.agendaPorEscopo);
-        setPodeResolverLegado(dados.podeResolverLegado);
-        setConfiguracaoComercial(dados.configuracaoComercial);
-        setRegrasPacotes(dados.regrasPacotes);
-        aplicarPacotesEmpresa(dados.pacotes);
-        setTelaDoCliente(dados.telaDoCliente);
-        if (dados.agendaPorEscopo) void carregarGestaoUnidades(vigente);
-      } catch {
-        if (!vigente()) return;
-        setConfig(CONFIG_SEM_RESPOSTA);
-        setPreReservas(null);
-        setBloqueios([]);
-        setOperacionalPorData({});
-        setMensagem("Não foi possível carregar a disponibilidade agora.");
-      } finally {
-        if (vigente()) setCarregando(false);
-      }
-    })();
-
+    void carregar(false);
     return () => {
       geracaoConsulta.current += 1;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [consulta]);
+  }, [ano, mes, unidadeId]);
 
   const diasMes = useMemo(() => {
     const primeiro = new Date(Date.UTC(ano, mes, 1)).getUTCDay();
@@ -610,7 +588,7 @@ export default function AdminDisponibilidade() {
               <button type="button" onClick={() => mudarMes(-1)}>←</button>
               <strong>{MESES[mes]} de {ano}</strong>
               <div className={styles.toolbarActions}>
-                <button type="button" onClick={carregar} disabled={carregando}>
+                <button type="button" onClick={() => carregar()} disabled={carregando}>
                   {carregando ? "…" : "↻"}
                 </button>
                 <button type="button" onClick={() => mudarMes(1)}>→</button>

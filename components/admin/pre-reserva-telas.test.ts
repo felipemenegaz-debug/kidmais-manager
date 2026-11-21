@@ -171,9 +171,10 @@ test('revisão mantém o pedido recusado quando a leitura da confirmação chega
 });
 
 const pedidoCanonico = 'abcdef12-abcd-4def-8abc-abcdef123456';
-for (const [idNaUrl, cenario] of [
-  [pedidoCanonico, 'UUID canônico'],
-  [pedidoCanonico.toUpperCase(), 'UUID em maiúsculas'],
+for (const { idNaUrl, cenario, recusaInicial } of [
+  { idNaUrl: pedidoCanonico, cenario: 'contrato já em preparação', recusaInicial: 'COM_PREPARACAO' },
+  { idNaUrl: pedidoCanonico.toUpperCase(), cenario: 'UUID em maiúsculas e mesmo Pix reenviado', recusaInicial: 'COM_PREPARACAO' },
+  { idNaUrl: pedidoCanonico, cenario: 'contrato entra em preparação durante a confirmação', recusaInicial: 'SEM_CONTRATO' },
 ]) {
   test(`revisão exibe o aceite e os atalhos que chegam após a confirmação do sinal (${cenario})`, async () => {
     const aceite: preReserva.RevisaoPreReserva = {
@@ -186,23 +187,29 @@ for (const [idNaUrl, cenario] of [
     const consulta = Promise.withResolvers<Response>();
     let leituras = 0;
     let consultas = 0;
+    const envios: Array<{ url: string; corpo: unknown }> = [];
     const http = { async adminFetch(url: string, init: RequestInit) {
       if (url === `/api/admin/contratos?fechamentoId=${idNaUrl}`) {
         consultas++;
         return consulta.promise;
       }
-      if (url === `/api/admin/fechamentos/${idNaUrl}/confirmar-sinal`) {
+      if (url.endsWith('/confirmar-sinal')) {
         assert.equal(init.method, 'POST');
+        envios.push({ url, corpo: JSON.parse(String(init.body)) });
+        if (url !== `/api/admin/fechamentos/${pedidoCanonico}/confirmar-sinal`) {
+          return Response.json({ codigo: 'PIX_JA_LANCADO', erro: 'Pix já lançado em outro pedido.' }, { status: 409 });
+        }
         return Response.json({ data: { garantiaAte } });
       }
       assert.equal(url, `/api/admin/fechamentos/${idNaUrl}/revisao`);
+      leituras++;
       return Response.json({ data: {
         fechamento: {
           id: pedidoCanonico, status: 'AGUARDANDO_CONTRATO', dataEvento: '2026-12-21',
           horarioInicio: '16:00', horarioFim: '19:00', valorTabela: 1000, valorNegociado: null,
         },
-        aprovacoes: [], recusa: 'COM_PREPARACAO',
-        preReserva: ++leituras === 1 ? aceite : { ...aceite, garantiaAte, garantia: 'ATIVA', destinos: ['EM_GARANTIA'] },
+        aprovacoes: [], recusa: leituras === 1 ? recusaInicial : 'COM_PREPARACAO',
+        preReserva: leituras === 1 ? aceite : { ...aceite, garantiaAte, garantia: 'ATIVA', destinos: ['EM_GARANTIA'] },
       } });
     } };
     const sinal = carregarComponente('components/admin/RevisaoPreReserva.tsx', { ...deps, '@/lib/http/admin-fetch': http });
@@ -223,12 +230,15 @@ for (const [idNaUrl, cenario] of [
     render();
     tela.efeitos();
     await tique();
-    assert.equal(consultas, 1);
+    assert.equal(consultas, recusaInicial === 'SEM_CONTRATO' ? 0 : 1);
     assert.match(texto(renderSinal()), /Aceito em/);
-    digitar(renderSinal(), /Valor recebido/, '100,00');
-    digitar(renderSinal(), /Identificador da transferência/, pix);
-    (achar(renderSinal(), 'form').props.onSubmit as (e: object) => void)({ preventDefault() {} });
-    await tique();
+    async function confirmarMesmoPix() {
+      digitar(renderSinal(), /Valor recebido/, '100,00');
+      digitar(renderSinal(), /Identificador da transferência/, pix);
+      (achar(renderSinal(), 'form').props.onSubmit as (e: object) => void)({ preventDefault() {} });
+      await tique();
+    }
+    await confirmarMesmoPix();
     assert.equal(leituras, 2);
     assert.match(texto(renderSinal()), /Pré-reserva garantida até/);
     assert.doesNotMatch(texto(render()), /Abrir contrato para assinar/);
@@ -239,6 +249,17 @@ for (const [idNaUrl, cenario] of [
     assert.equal(consultas, 1);
     assert.equal(achar(estado, 'a', 'Abrir contrato para assinar').props.href, `/admin/contratos?contratoId=${contratoId}`);
     assert.equal(achar(estado, 'a', 'Abrir Resumo da Contratação').props.href, `/api/admin/contratos/resumo?fechamentoId=${idNaUrl}`);
+
+    if (idNaUrl !== pedidoCanonico) {
+      await confirmarMesmoPix();
+      assert.equal(leituras, 3);
+      assert.equal(consultas, 1);
+      assert.equal(envios.length, 2);
+      assert.equal(envios[0].url, `/api/admin/fechamentos/${pedidoCanonico}/confirmar-sinal`);
+      assert.deepEqual(envios[1], envios[0]);
+      assert.match(texto(renderSinal()), /Sinal registrado/);
+      assert.doesNotMatch(texto(renderSinal()), /Pix já lançado em outro pedido/);
+    }
   });
 }
 
@@ -282,7 +303,7 @@ test('fila só permite baixa após assunção e recarrega no conflito; históric
   assert.doesNotMatch(texto(tela.render()), /Dar baixa/);
 });
 
-function carregarAgenda(adminFetch: (url: string) => Promise<Response>) {
+function carregarAgenda(adminFetch: (url: string, init: RequestInit) => Promise<Response>) {
   return carregarComponente('components/admin/AdminDisponibilidade.tsx', {
     ...deps,
     './SaloesDoDia': { SaloesDoDia: () => null },
@@ -359,6 +380,59 @@ for (const statusAntigo of [200, 500]) {
     assert.doesNotMatch(texto(estado), /Não foi possível carregar a disponibilidade/);
   });
 }
+
+test('agenda relê o mês A quando o bloqueio termina após navegar de A para B e voltar', async () => {
+  const gravacao = Promise.withResolvers<Response>();
+  const consultas: string[] = [];
+  const envios: unknown[] = [];
+  let bloqueado = false;
+  const tela = carregarAgenda(async (url, init) => {
+    if (init.method === 'POST') {
+      envios.push(JSON.parse(String(init.body)));
+      return gravacao.promise;
+    }
+    const data = new URL(url, 'http://localhost').searchParams.get('inicio')!;
+    consultas.push(data);
+    return Response.json({ dias: [{ data, periodos: [{
+      configuracaoId: 'turno', codigo: 'TURNO_1',
+      horarios: [{ ajusteMinutos: 0, inicio: '16:00', fim: '20:00', status: bloqueado ? 'INDISPONIVEL' : 'DISPONIVEL' }],
+    }] }] });
+  });
+  async function aplicarConsulta() {
+    tela.render();
+    tela.efeitos();
+    await tique();
+  }
+  function disponibilidade() {
+    return texto(elementos(tela.render()).find((elemento) => elemento.props.className?.toString().includes('physicalStatus')));
+  }
+
+  await aplicarConsulta();
+  abrirPrimeiroDia(tela.render());
+  clicar(tela.render(), '⊘ Bloquear esta data');
+  digitar(tela.render(), /Motivo obrigatório/, 'Manutenção');
+  clicar(tela.render(), 'Criar bloqueio físico');
+  assert.deepEqual(envios, [{
+    tipo: 'criar_bloqueio', data: consultas[0], escopo: 'horario', configuracaoId: 'turno', motivo: 'Manutenção',
+  }]);
+
+  clicar(tela.render(), '→');
+  await aplicarConsulta();
+  clicar(tela.render(), '←');
+  await aplicarConsulta();
+  const [mesA, mesB] = consultas;
+  assert.notEqual(mesA, mesB);
+  assert.deepEqual(consultas, [mesA, mesB, mesA]);
+  abrirPrimeiroDia(tela.render());
+  assert.match(disponibilidade(), /Disponibilidade físicaDisponível/);
+
+  bloqueado = true;
+  gravacao.resolve(Response.json({ ok: true }));
+  await tique();
+  assert.deepEqual(consultas, [mesA, mesB, mesA, mesA]);
+  assert.match(disponibilidade(), /Disponibilidade físicaIndisponível/);
+  assert.match(texto(tela.render()), /Alteração salva/);
+});
 
 test('GET da agenda inclui link comercial para Equipe da empresa comprovada', async () => {
   const empresaId = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
