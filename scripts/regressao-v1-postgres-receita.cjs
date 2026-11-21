@@ -152,6 +152,7 @@ const MODELOS = {
   "127": { banco: "kidmais_v1_modelo_127", ate: "127", sem: ["098"] },
   // Dados fora do disco (128, LOCAL 20/11/2026): o estado da 127 com a 128.
   "130": { banco: "kidmais_v1_modelo_130", ate: "130", sem: ["098"] },
+  "131": { banco: "kidmais_v1_modelo_131", ate: "131", sem: ["098"] },
   "128": { banco: "kidmais_v1_modelo_128", ate: "128", sem: ["098"] },
   // B-14 (28/10/2026, HB-3, plano rev. 8.1 §3.8): um modelo por prefixo da promoção, com o CONJUNTO exato de migrations
   // além da 088 aplicado na ORDEM DO RUNBOOK (`runbook: true`: 089, 092, 093, 099 → 090, 094, 095, 096, 097, 100, 091 —

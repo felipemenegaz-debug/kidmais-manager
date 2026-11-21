@@ -322,7 +322,7 @@ const ESTADO_POSTGRES = {
   // 20/11/2026 (LOCAL): guarda fase 3, simulação do lote (só leitura, só contagens).
   "lib/guarda/simulacao.postgres.test.ts": { descartavel: "127" },
   // 15/11/2026 (LOCAL): assinatura do cliente em papel (124): registro pela Gestão, travas do banco no COMMIT e down.
-  "lib/contratos/assinatura-papel-cliente.postgres.test.ts": { descartavel: "124", tambem: ["123"] },
+  "lib/contratos/assinatura-papel-cliente.postgres.test.ts": { descartavel: "124", tambem: ["123", "131"] },
   // 15/11/2026 (LOCAL): ciclo da 124 — precheck/postcheck, up repetido, down com COMMIT, up/down/up com o mesmo catálogo.
   "lib/contratos/migration-124.postgres.test.ts": { descartavel: "124" },
   // 16/11/2026 (logo do buffet no convite, etapa 3): sessões/ordem da logo, intercalação real com travas, rotas reais,

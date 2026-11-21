@@ -1,3 +1,4 @@
+import { encerrarGarantia } from '../pre-reserva/destinacao.ts';
 import { exigirGestaoNoTenant, type TenantComprovado } from '../saas/provar-tenant.ts';
 import type { DbExecutor } from '../db/contracts.ts';
 import { registrarEventoHistorico } from '../clientes/repositories/historico.repository.ts';
@@ -73,6 +74,7 @@ async function perder(tx: DbExecutor, empresaId: string, usuarioId: string, cmd:
   }
   if (cmd.concluir && aberta) await concluirAcao(tx,empresaId,usuarioId,atual.cliente_id,cmd.alvo,aberta.id);
   await tx.query(`UPDATE ${cmd.alvo.tipo === 'CONTATO' ? 'marketing_contatos' : 'fechamentos'} SET status=$3 WHERE empresa_id=$1::uuid AND id=$2::uuid`,[empresaId,cmd.alvo.id,cmd.alvo.tipo === 'CONTATO' ? 'DESCARTADO' : 'CANCELADO']);
+  if (cmd.alvo.tipo === 'FECHAMENTO') await encerrarGarantia(tx, empresaId, cmd.alvo.id, 'RECUSA');
   await gravarPerda(tx,empresaId,usuarioId,cmd.alvo,atual.cliente_id,cmd.perda);
   return { perdida: true };
 }
