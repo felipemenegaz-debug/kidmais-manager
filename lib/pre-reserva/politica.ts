@@ -21,6 +21,11 @@ export function referenciaTransferencia(valor: string): string {
   return referencia;
 }
 
+export function vencimentoDaGarantia(confirmadoEm: Date, inicioEvento: Date): Date | null {
+  if (inicioEvento.getTime() - confirmadoEm.getTime() < 24 * 3_600_000) return null;
+  return new Date(Math.min(garantiaAte(confirmadoEm).getTime(), inicioEvento.getTime()));
+}
+
 export function garantiaAte(confirmadoEm: Date): Date {
   return new Date(confirmadoEm.getTime() + POLITICA_PRE_RESERVA.validadeHoras * 3_600_000);
 }

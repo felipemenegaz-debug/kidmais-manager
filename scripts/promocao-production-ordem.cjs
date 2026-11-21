@@ -78,6 +78,7 @@ const ORDEM = Object.freeze([
   // 128 (dados fora do disco) DEPOIS da 127: exige só a 021 (já aplicada); vem ANTES do código que lê disponibilidade_config_legada (que tolera a ausência).
   generico('128', 'dados fora do disco: tabela das regras legadas da agenda e coluna com os bytes do PDF público; trava por instantes documentos_publicos'),
   generico('130', 'pré-reserva manual: configuração, aceites e recebimentos; os índices únicos bloqueiam escritas em fechamentos e contratos durante a instalação'),
+  generico('131', 'agenda da pré-reserva: ocupação temporária e proteção do destino pago; exige a 130'),
 ].map(congelar));
 
 /** Só os passos que rodam (sem a 098 excluída nem a 099/105 já aplicadas). */

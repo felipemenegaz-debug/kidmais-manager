@@ -332,6 +332,15 @@ Situação do COMMIT numa FALHA: `NAO_COMMITADA` (o COMMIT nunca foi enviado: na
 - Bloco de Shell: `node scripts/bloco-shell-promocao-production.cjs 130 <CONFERIR|APLICAR> <rotulo>`
 - Volta: restaurar o backup ou corrigir para a frente
 
+### 32. 131 — agenda da pré-reserva: ocupação temporária e proteção do destino pago; exige a 130
+
+- Aplicador: `scripts/migration-generico-production.cjs` (genérico, lista fechada)
+- CONFERIR: `node scripts/migration-generico-production.cjs --conferir 131`
+- APLICAR: `node scripts/migration-generico-production.cjs --aplicar-autorizado 131 --backup "<registro-do-backup>"`
+- CONFERIR de novo: `node scripts/migration-generico-production.cjs --conferir 131`
+- Bloco de Shell: `node scripts/bloco-shell-promocao-production.cjs 131 <CONFERIR|APLICAR> <rotulo>`
+- Volta: restaurar o backup ou corrigir para a frente
+
 ## Pendências conhecidas deste roteiro
 
 - Nenhum passo foi ensaiado em PostgreSQL real por este lote: os adaptadores novos e o genérico têm só testes com cliente simulado.

@@ -72,9 +72,10 @@ const PASSOS = Object.freeze({
   '127': pelGenerico('127', 'marca de saida das campanhas por telefone/e-mail (marketing_saidas_contato), gatilhos e carga inicial; trava por instantes clientes, marketing_contato_preferencias e whatsapp_atendimento_conversas'),
   '128': pelGenerico('128', 'tabela das regras legadas da agenda e coluna com os bytes do PDF publico; trava por instantes documentos_publicos'),
   '130': pelGenerico('130', 'pre-reserva manual: configuracao, aceites e recebimentos; os indices unicos bloqueiam escritas em fechamentos e contratos durante a instalacao'),
+  '131': pelGenerico('131', 'agenda da pre-reserva: ocupacao temporaria e protecao do destino pago; exige a 130'),
 });
 /** Na ordem da cadeia (Object.keys ordenaria as chaves numéricas). */
-const IDS = Object.freeze(['114', '112', '116', '117', '120', '121', '110', '111', '115', '123', '122', '124', '125', '126', '127', '128', '130']);
+const IDS = Object.freeze(['114', '112', '116', '117', '120', '121', '110', '111', '115', '123', '122', '124', '125', '126', '127', '128', '130', '131']);
 const passo = id => { assert.ok(typeof id === 'string' && Object.hasOwn(PASSOS, id), 'PASSO_DESCONHECIDO'); return PASSOS[id]; };
 
 const sha = b => createHash('sha256').update(b).digest('hex');

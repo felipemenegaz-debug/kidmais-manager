@@ -314,6 +314,7 @@ const ESTADO_POSTGRES = {
   // 19/11/2026 (LOCAL): guarda dos clientes fase 1a (127): marca de saída por telefone/e-mail.
   "lib/guarda/saidas-contato.postgres.test.ts": { descartavel: "127" },
   // 20/11/2026 (LOCAL): dados fora do disco (128): travas, armazém, PDF pelo banco, script de cópia e ciclo up/down.
+  "lib/pre-reserva/agenda.postgres.test.ts": { descartavel: "130" },
   "lib/pre-reserva/modelo.postgres.test.ts": { descartavel: "128" },
   "lib/disponibilidade/migration-128.postgres.test.ts": { descartavel: "128" },
   // 20/11/2026 (LOCAL): guarda fase 3, mapa dos dados pessoais (toda coluna de texto/bytea/JSON/inet classificada).
