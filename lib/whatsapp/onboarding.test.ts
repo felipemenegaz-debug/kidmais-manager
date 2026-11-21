@@ -71,6 +71,39 @@ test('conferência: entrada inválida (sem id, id fora do formato, campo extra) 
     await assert.rejects(servico.conferirTentativaWhatsapp(raw, 't'.repeat(43), { requestId: 'r', ip: null, userAgent: null }, { transacao }), { code: 'WHATSAPP_DADOS_INVALIDOS', httpStatus: 400 }, JSON.stringify(raw));
 });
 
+test('conferência fecha VALIDANDO vencida com o ambiente público e mantém o escopo da empresa e do lock', async () => {
+  const empresaId = randomUUID(), tentativaId = randomUUID();
+  const tentativa = { id: tentativaId, status: 'EXPIRADA', expira_em: '2026-11-21T00:00:00.000Z' };
+  const tx = executorFalso([
+    [/information_schema/, () => [{ ok: true }]],
+    [/UPDATE whatsapp_onboarding_tentativas/, () => [{ status_antes: 'VALIDANDO' }]],
+    [/^SELECT id,status,/, () => [tentativa]],
+  ]);
+  const servico = carregarModulo('lib/whatsapp/onboarding.service.ts', {
+    'db/postgres': { withTransaction: () => { throw new Error('o teste usa só a transação dublada'); } },
+    'autenticacao/service': { consultarSessao: async () => sessao() },
+    'saas/provar-tenant': {
+      provarTenant: async () => ({ papelAtual: 'REPRESENTANTE_AUTORIZADO', empresaComprovada: empresaId }),
+      revalidarTenant: async () => undefined,
+    },
+    'clientes/repositories/auditoria.repository': { registrarAuditoria: async () => undefined },
+    'whatsapp/configuracao': {
+      configuracaoWhatsappPublica: () => ({ ambiente: 'STAGING', pronta: true }),
+      exigirConfiguracaoWhatsappPrivada: () => { throw new Error('segredo da Meta indisponível'); },
+    },
+  }) as { conferirTentativaWhatsapp: (raw: unknown, token: string, contexto: unknown, deps: unknown) => Promise<unknown> };
+  const resultado = await servico.conferirTentativaWhatsapp({ tentativaId }, 't'.repeat(43), { requestId: 'r', ip: null, userAgent: null }, {
+    transacao: (work: (executor: typeof tx) => Promise<unknown>) => work(tx),
+  });
+  assert.deepEqual(resultado, { tentativa });
+  const consultas = tx.executados.filter(({ sql }) => /^(SELECT pg_advisory_xact_lock|UPDATE whatsapp_onboarding_tentativas|SELECT id,status,)/.test(sql));
+  assert.equal(consultas.length, 3);
+  const [lock, fechamento, leitura] = consultas;
+  assert.deepEqual(lock.params, ['STAGING', empresaId]);
+  assert.match(fechamento.sql, /id=\$1::uuid AND ambiente=\$2 AND empresa_id=\$3::uuid FOR UPDATE/);
+  for (const consulta of [fechamento, leitura]) assert.deepEqual(consulta.params, [tentativaId, 'STAGING', empresaId]);
+});
+
 test('conclusões travam a tentativa pelo id, ambiente e empresa comprovada, inclusive ao finalizar ou marcar falha', async () => {
   const sessaoAtual = sessao({ autenticado_em: new Date().toISOString() });
   const empresaId = randomUUID(), tentativaId = randomUUID(), conexaoId = randomUUID();

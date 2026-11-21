@@ -318,6 +318,8 @@ export default function WhatsappConfiguracao() {
 
   async function prepararConexao(novoModo: Modo = 'conectar') {
     if (bloqueado || conferencia || preparacao.current) return;
+    const conexaoId = data?.conexao?.id;
+    if (novoModo === 'renovar' && !conexaoId) return;
     const operacao = {};
     preparacao.current = operacao;
     const senhaConfirmada = novoModo === 'renovar' ? senhaRenovacao : senha;
@@ -328,6 +330,9 @@ export default function WhatsappConfiguracao() {
     try {
       const estado = await consultarAntesDeReautenticar();
       if (!atual() || !estado) return;
+      if (novoModo === 'renovar' && estado.conexao?.id !== conexaoId) {
+        throw new Error('A conexão do WhatsApp mudou. Confira os dados atuais e clique de novo para renovar.');
+      }
       const tentativa = await comPrazo(async (signal): Promise<Inicio | null> => {
         // A reautenticação anuncia a troca da sessão para manter a página aberta durante o início.
         const reauth = await reautenticarSessao(senhaConfirmada);
@@ -380,10 +385,15 @@ export default function WhatsappConfiguracao() {
     if (bloqueado || conferencia) return;
     setErro(''); setAviso(''); setVerificandoDemo(true);
     try {
-      const r = await adminFetch('/api/admin/configuracoes/whatsapp/demo-ativos', { method: 'POST' });
-      const j = await r.json(); if (!j.ok) throw new Error(j.erro); setDemo(j.data);
-    } catch (e) { setErro(e instanceof Error ? e.message : 'Não foi possível verificar os ativos de teste.'); }
-    finally { setVerificandoDemo(false); }
+      const ativos = await comPrazo(async (signal): Promise<DemoAtivos> => {
+        const r = await adminFetch('/api/admin/configuracoes/whatsapp/demo-ativos', { method: 'POST', signal });
+        const j = await r.json();
+        if (!j.ok) throw new Error(j.erro);
+        return j.data;
+      }, PRAZO_CONSULTA_MS, 'A verificação dos ativos de teste demorou demais. Tente de novo.');
+      if (!desmontado.current) setDemo(ativos);
+    } catch (e) { if (!desmontado.current) setErro(e instanceof Error ? e.message : 'Não foi possível verificar os ativos de teste.'); }
+    finally { if (!desmontado.current) setVerificandoDemo(false); }
   }
 
   function abrirMeta() {

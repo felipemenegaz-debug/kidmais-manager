@@ -471,7 +471,7 @@ const jsonTentativa = async (id: string) => (await um<{ j: Record<string, unknow
 const auditoriasExpiradas = async (id: string) => (await client.query<{ ator_tipo: string; usuario_id: string | null; dados_antes: Record<string, unknown>; dados_depois: Record<string, unknown> }>(
   "SELECT ator_tipo, usuario_id, dados_antes, dados_depois FROM auditoria WHERE acao = 'WHATSAPP_TENTATIVA_EXPIRADA_SISTEMA' AND entidade_id = $1", [id])).rows;
 
-test('conferência: no prazo devolve o status sem escrever; VALIDANDO vencida vira EXPIRADA (auditoria SISTEMA) e a credencial anterior fica', async () => {
+test('conferência: no prazo só lê; mesmo sem segredo da Meta, fecha VALIDANDO vencida e mantém a credencial', async () => {
   const s = await sessaoDe(ids.gestaoA, { reautenticadoHaMin: 10 }); // conferir não exige senha recente
   const aberta = await um<{ id: string }>("SELECT id FROM whatsapp_onboarding_tentativas WHERE empresa_id = $1 AND usuario_id = $2 AND status = 'INICIADA'", [ids.empresaA, ids.gestaoA]);
   assert.ok(aberta?.id, 'tentativa da A em aberto (do teste anterior)');
@@ -488,8 +488,14 @@ test('conferência: no prazo devolve o status sem escrever; VALIDANDO vencida vi
   const credencialAntes = decifrar(await linha(ids.conexaoA));
   const revisaoAntes = (await linha(ids.conexaoA)).revisao;
   const vencida = await jsonTentativa(aberta.id);
-  const r2 = await conferir(s, aberta.id);
-  assert.equal(r2.tentativa?.status, 'EXPIRADA');
+  // Ausência do segredo sintético de teste. O ambiente continua definido.
+  delete process.env.META_APP_SECRET;
+  try {
+    const r2 = await conferir(s, aberta.id);
+    assert.equal(r2.tentativa?.status, 'EXPIRADA');
+  } finally {
+    process.env.META_APP_SECRET = env.META_APP_SECRET;
+  }
   const fechada = await jsonTentativa(aberta.id);
   const mudou = Object.keys(fechada).filter((k) => JSON.stringify(fechada[k]) !== JSON.stringify(vencida[k])).sort();
   assert.deepEqual(mudou, ['atualizada_em', 'erro_codigo', 'status'], 'só o fechamento (consumida_em já vinha do VALIDANDO)');

@@ -9,7 +9,8 @@ import * as jsxRuntime from 'react/jsx-runtime';
 // Nenhum SDK externo, credencial, servidor ou banco é usado neste teste.
 const ROTA_CONFERIR = '/api/admin/configuracoes/whatsapp/tentativa/conferir';
 const ROTA_CONFIGURACAO = '/api/admin/configuracoes/whatsapp';
-function montar({ expiraEm = new Date(Date.now() + 60_000).toISOString(), reauthOk = true, reautenticar, iniciar, login, eventName = 'FINISH', inicial, relogio, concluirPendente = false, semJanela = false, consulta, conferir, concluirResposta, semSdk = false, montagemReal = false } = {}) {
+const ROTA_DEMO = ROTA_CONFIGURACAO + '/demo-ativos';
+function montar({ expiraEm = new Date(Date.now() + 60_000).toISOString(), reauthOk = true, reautenticar, iniciar, login, eventName = 'FINISH', inicial, relogio, concluirPendente = false, semJanela = false, consulta, conferir, concluirResposta, semSdk = false, montagemReal = false, verificarDemo } = {}) {
   const slots = [], listeners = new Set(), chamadas = [], corpos = [], janelas = [];
   let consultas = 0, conferencias = 0, reautenticacoes = 0, popupBloqueado = semJanela;
   const estadoInicial = inicial ?? { estado: 'NAO_CONFIGURADA', metaConfigurada: true, conexao: null, tentativa: null };
@@ -87,6 +88,7 @@ function montar({ expiraEm = new Date(Date.now() + 60_000).toISOString(), reauth
         consultas++;
         return consulta?.(consultas, init) ?? respostaDaConfiguracao(estadoInicial);
       }
+      if (url === ROTA_DEMO && verificarDemo) return verificarDemo(init);
       await Promise.resolve();
       return { json: async () => ({ ok: true, data: {
         tentativaId: 'tentativa-sintetica', state: 'state-sintetico', expiraEm,
@@ -945,6 +947,54 @@ for (const acao of ['Renovar credencial', 'Desconectar']) {
     assert.equal(ui.botao(acao).props.carregando, false);
   });
 }
+
+test('a troca da conexão exibida impede reautenticação e início da renovação até um novo clique', async () => {
+  const antiga = conectada(null);
+  const atual = { ...antiga, conexao: { ...antiga.conexao, id: 'conexao-nova' } };
+  const ui = montar({ inicial: antiga, consulta: () => respostaDaConfiguracao(atual) });
+  ui.senha();
+  await ui.clicar('Renovar credencial');
+  assert.equal(ui.reautenticacoes, 0);
+  assert.deepEqual(ui.chamadas, [ROTA_CONFIGURACAO]);
+  assert.match(ui.texto(), /conexão do WhatsApp mudou.*clique de novo/);
+  assert.equal(ui.botao('Renovar credencial').props.disabled, true, 'pede a senha novamente');
+
+  ui.senha();
+  await ui.clicar('Renovar credencial');
+  assert.equal(ui.reautenticacoes, 1);
+  assert.equal(ui.chamadas.filter((url) => url.endsWith('/renovacao/iniciar')).length, 1);
+  assert.ok(ui.botao('Continuar na Meta'));
+});
+
+test('verificação de ativos com corpo pendente vence e permite continuar a mesma renovação', async () => {
+  const { agendados, relogio } = relogioFalso();
+  let sinal, entregarCorpo;
+  const ui = montar({ inicial: { ...conectada(null), demoAtivosTeste: true }, relogio, verificarDemo: (init) => {
+    sinal = init.signal;
+    return { json: () => new Promise((resolve) => { entregarCorpo = resolve; }) };
+  } });
+  ui.senha();
+  await ui.clicar('Renovar credencial');
+  const verificando = ui.clicar('Verificar ativos de teste');
+  await esperar();
+  assert.equal(typeof entregarCorpo, 'function');
+  assert.equal(ui.botao('Continuar na Meta').props.disabled, true);
+  const prazo = agendados.find((item) => item.ms === 15_000 && item.fn);
+  assert.ok(prazo, 'a verificação tem prazo de 15 segundos');
+  prazo.fn();
+  await verificando;
+  assert.equal(sinal.aborted, true);
+  assert.match(ui.texto(), /verificação dos ativos de teste demorou demais/);
+  ui.clicar('Continuar na Meta');
+  assert.equal(ui.chamadasLogin, 1);
+  assert.equal(ui.reautenticacoes, 1);
+  assert.equal(ui.chamadas.filter((url) => url.endsWith('/renovacao/iniciar')).length, 1);
+
+  entregarCorpo({ ok: true, data: { portfolio: { id: '123', possuiWabaTeste: true }, waba: { id: '456' }, numeros: [], aviso: 'Resultado tardio' } });
+  await esperar();
+  assert.doesNotMatch(ui.texto(), /Resultado tardio/);
+  assert.match(ui.texto(), /Conclua a autorização na janela da Meta/);
+});
 
 test('desconexão com reautenticação pendente bloqueia Continuar na Meta e descarta a preparação ao confirmar', async () => {
   let reautenticarDesconexao;

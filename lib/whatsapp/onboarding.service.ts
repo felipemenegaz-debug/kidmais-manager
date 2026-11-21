@@ -449,21 +449,22 @@ export async function concluirRenovacaoWhatsapp(raw: unknown, token: string, con
 export async function conferirTentativaWhatsapp(raw: unknown, token: string, contexto: ContextoWhatsapp, deps: DepsWhatsapp = {}) {
   const input = conferirTentativaSchema.safeParse(raw);
   if (!input.success) throw new WhatsappOnboardingError('WHATSAPP_DADOS_INVALIDOS', 'Dados da conferência inválidos.', 400);
-  const config = exigirConfiguracaoWhatsappPrivada();
+  const { ambiente } = configuracaoWhatsappPublica();
+  if (!ambiente) throw new WhatsappOnboardingError('META_CONFIGURACAO_PENDENTE', 'O ambiente do WhatsApp não está configurado.', 503);
   return transacaoDe(deps)(async (tx) => {
     const sessao = await consultarSessao(token, tx, false);
     const tenant = await provarTenant(tx, sessao, null);
     exigirGestaoDaEmpresa(tenant.papelAtual, 'consultar');
     await exigirEsquemaPorEmpresa(tx);
     const empresaId = tenant.empresaComprovada;
-    await lockEmpresa(tx, config.ambiente, empresaId);
+    await lockEmpresa(tx, ambiente, empresaId);
     const fechada = (await tx.query<{ status_antes: string }>(`UPDATE whatsapp_onboarding_tentativas t SET status='EXPIRADA',consumida_em=COALESCE(t.consumida_em,clock_timestamp()),erro_codigo='TENTATIVA_EXPIRADA',atualizada_em=clock_timestamp()
       FROM (SELECT id,status AS status_antes FROM whatsapp_onboarding_tentativas WHERE id=$1::uuid AND ambiente=$2 AND empresa_id=$3::uuid FOR UPDATE) a
-      WHERE t.id=a.id AND t.status IN ('INICIADA','VALIDANDO') AND t.expira_em<=clock_timestamp() RETURNING a.status_antes`, [input.data.tentativaId, config.ambiente, empresaId])).rows[0];
-    if (fechada) await registrarAuditoria({ atorTipo: 'SISTEMA', usuarioId: null, acao: 'WHATSAPP_TENTATIVA_EXPIRADA_SISTEMA', entidadeTipo: 'WHATSAPP_ONBOARDING_TENTATIVA', entidadeId: input.data.tentativaId, dadosAntes: { status: fechada.status_antes }, dadosDepois: { ambiente: config.ambiente, empresaId, status: 'EXPIRADA', erroCodigo: 'TENTATIVA_EXPIRADA' }, ...auditoriaBase(contexto) }, tx);
+      WHERE t.id=a.id AND t.status IN ('INICIADA','VALIDANDO') AND t.expira_em<=clock_timestamp() RETURNING a.status_antes`, [input.data.tentativaId, ambiente, empresaId])).rows[0];
+    if (fechada) await registrarAuditoria({ atorTipo: 'SISTEMA', usuarioId: null, acao: 'WHATSAPP_TENTATIVA_EXPIRADA_SISTEMA', entidadeTipo: 'WHATSAPP_ONBOARDING_TENTATIVA', entidadeId: input.data.tentativaId, dadosAntes: { status: fechada.status_antes }, dadosDepois: { ambiente, empresaId, status: 'EXPIRADA', erroCodigo: 'TENTATIVA_EXPIRADA' }, ...auditoriaBase(contexto) }, tx);
     const tentativa = (await tx.query<{ id: string; status: string; expira_em: string }>(
       `SELECT id,status,${ISO_UTC('expira_em')} FROM whatsapp_onboarding_tentativas WHERE id=$1::uuid AND ambiente=$2 AND empresa_id=$3::uuid`,
-      [input.data.tentativaId, config.ambiente, empresaId])).rows[0] ?? null;
+      [input.data.tentativaId, ambiente, empresaId])).rows[0] ?? null;
     await revalidarTenant(tx, tenant);
     return { tentativa };
   });
