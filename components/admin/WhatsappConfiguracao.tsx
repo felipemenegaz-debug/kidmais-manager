@@ -11,7 +11,7 @@ import whatsapp from './WhatsappConfiguracao.module.css';
 type MetaInicio = { appId: string; graphApiVersion: string; configurationId: string; eventName: string; launchOptions: Record<string, unknown>; messageOrigins: string[] };
 type Inicio = { tentativaId: string; state: string; expiraEm: string; meta: MetaInicio };
 type DadosSessao = { wabaId: string; businessId?: string; phoneNumberId?: string };
-type Estado = { estado: string; metaConfigurada: boolean; ambiente?: string | null; empresa?: string | null; conexao: null | { id: string; numeroExibicao: string; nomeVerificado: string; businessId: string; wabaId: string; phoneNumberId: string; tokenExpiraEm?: string | null }; tentativa: null | { id?: string; status: string; expira_em: string }; demoAtivosTeste?: boolean };
+type Estado = { estado: string; metaConfigurada: boolean; ambiente?: string | null; empresa?: string | null; conexao: null | { id: string; numeroExibicao: string; nomeVerificado: string; businessId: string; wabaId: string; phoneNumberId: string; tokenExpiraEm?: string | null }; tentativa: null | { id: string; status: string; expira_em: string }; demoAtivosTeste?: boolean };
 type DemoAtivos = { portfolio: { id: string; possuiWabaTeste: boolean }; waba: { id: string }; numeros: { id: string; display_phone_number: string | null; verified_name: string | null; is_on_biz_app: boolean | null }[]; numeroTestePresente: boolean; requisitoKidmaisIsOnBizApp: 'atendido' | 'nao_atendido' | 'nao_informado'; aviso: string };
 const rotulosRequisito: Record<DemoAtivos['requisitoKidmaisIsOnBizApp'], string> = { atendido: 'atendido', nao_atendido: 'não atendido', nao_informado: 'não informado pela Meta' };
 type FbResponse = { authResponse?: { code?: string }; status?: string };
@@ -75,6 +75,15 @@ export function comPrazo<T>(executar: (signal: AbortSignal) => Promise<T>, ms: n
   trabalho.catch(() => undefined); // entrega tardia (sucesso ou erro) descartada sem rejeição solta
   return Promise.race([trabalho, limite]).finally(() => clearTimeout(relogio));
 }
+
+function lerEstado(): Promise<Estado> {
+  return comPrazo(async (signal) => {
+    const r = await adminFetch('/api/admin/configuracoes/whatsapp', { signal });
+    const j = await r.json();
+    if (!j.ok) throw new Error(j.erro || FALHA_CARGA);
+    return j.data;
+  }, PRAZO_CONSULTA_MS, FALHA_CARGA);
+}
 /** Janela de onde veio a mensagem: a própria, ou a janela de topo de um quadro dela (propriedade legível entre origens). */
 function topoDa(fonte: MessageEventSource | null): unknown {
   try { return fonte && typeof fonte === 'object' && 'top' in fonte ? (fonte as Window).top : null; } catch { return null; }
@@ -114,25 +123,7 @@ export default function WhatsappConfiguracao() {
   const desmontado = useRef(false);
   const preparacao = useRef<object | null>(null);
   const sdkInicializado = useRef<FacebookSdk | null>(null);
-  const lerEstado = useCallback(async (signal?: AbortSignal): Promise<Estado> => { const r = await adminFetch('/api/admin/configuracoes/whatsapp', signal ? { signal } : undefined), j = await r.json(); if (!j.ok) throw new Error(j.erro || FALHA_CARGA); return j.data; }, []);
-  const carregar = useCallback(async (signal?: AbortSignal): Promise<Estado> => { const estado = await lerEstado(signal); setData(estado); return estado; }, [lerEstado]);
-  useEffect(() => {
-    let ativo = true;
-    void (async () => {
-      try {
-        const estado = await lerEstado();
-        if (!ativo) return;
-        if (estado.tentativa?.status === 'VALIDANDO' && estado.tentativa.id) {
-          setConferencia({ tentativaId: estado.tentativa.id, renovando: Boolean(estado.conexao) });
-          setErro(AINDA_PENDENTE);
-        }
-        setData(estado);
-      }
-      // Mostra o motivo real (ex.: 403 de quem não é a conta da plataforma) e para de dizer "Carregando…".
-      catch (e) { if (ativo) { setErro(e instanceof Error && !(e instanceof SyntaxError) && e.message ? e.message : FALHA_CARGA); setFalhaCarga(true); } }
-    })();
-    return () => { ativo = false; };
-  }, [lerEstado]);
+  const bloqueado = ocupado || verificandoDemo;
   /** Para de escutar a Meta: remove o listener e o prazo da espera e fecha a janela da tentativa. A tentativa continua (a conclusão usa). */
   const pararEscuta = useCallback(() => {
     if (listenerMeta.current) window.removeEventListener('message', listenerMeta.current);
@@ -149,13 +140,45 @@ export default function WhatsappConfiguracao() {
     // Saiu da tela: a abertura deixa de valer (listener, retorno do FB.login e prazo), a janela fecha e a preparação some.
     return () => { desmontado.current = true; preparacao.current = null; pararEscuta(); codigo.current = null; sessaoMeta.current = null; inicio.current = null; };
   }, [pararEscuta]);
-  /** Encerra a espera pela Meta (sucesso, erro ou prazo): para a escuta, descarta a tentativa e libera os controles. */
-  const encerrarEspera = useCallback((mensagemErro?: string) => {
+  const descartarPreparacao = useCallback(() => {
     pararEscuta();
     codigo.current = null; sessaoMeta.current = null; inicio.current = null;
+    setPreparado(false); setPreparadoRenovacao(false);
+  }, [pararEscuta]);
+  const aplicarEstado = useCallback((estado: Estado) => {
+    setData(estado);
+    if (estado.tentativa?.status === 'VALIDANDO') {
+      descartarPreparacao();
+      setConferencia({ tentativaId: estado.tentativa.id, renovando: Boolean(estado.conexao) });
+      setErro(AINDA_PENDENTE);
+    }
+  }, [descartarPreparacao]);
+  const carregarInicial = useCallback((ativo: () => boolean) => {
+    return lerEstado().then((estado) => {
+      if (ativo()) aplicarEstado(estado);
+    }).catch((e: unknown) => {
+      if (!ativo()) return;
+      setErro(e instanceof Error && !(e instanceof SyntaxError) && e.message ? e.message : FALHA_CARGA);
+      setFalhaCarga(true);
+    });
+  }, [aplicarEstado]);
+  useEffect(() => {
+    let ativo = true;
+    void carregarInicial(() => ativo);
+    return () => { ativo = false; };
+  }, [carregarInicial]);
+
+  function repetirCarga() {
+    setFalhaCarga(false); setErro('');
+    return carregarInicial(() => !desmontado.current);
+  }
+
+  /** Encerra a espera pela Meta (sucesso, erro ou prazo): para a escuta, descarta a tentativa e libera os controles. */
+  const encerrarEspera = useCallback((mensagemErro?: string) => {
+    descartarPreparacao();
     if (mensagemErro !== undefined) { setAviso(''); setErro(mensagemErro); }
     setOcupado(false);
-  }, [pararEscuta]);
+  }, [descartarPreparacao]);
   /**
    * A espera acabou sem resultado (pop-up bloqueado, Meta sem código, formato inesperado, erro do SDK), mas a tentativa
    * segue válida no servidor: mantém a preparação para repetir Continuar na Meta, em vez de mandar preparar de novo (o
@@ -170,11 +193,19 @@ export default function WhatsappConfiguracao() {
   /** Atualiza a tela com prazo próprio. Falha não desfaz o que já foi confirmado: quem chama só acrescenta o aviso. */
   const atualizar = useCallback(async () => {
     try {
-      const estado = await comPrazo((signal) => lerEstado(signal), PRAZO_CONSULTA_MS, 'PRAZO_CONSULTA');
-      if (desmontado.current) return false;
-      setData(estado); return true;
-    } catch { return false; }
-  }, [lerEstado]);
+      const estado = await lerEstado();
+      if (desmontado.current) return null;
+      aplicarEstado(estado);
+      return estado;
+    } catch { return null; }
+  }, [aplicarEstado]);
+
+  async function consultarAntesDeReautenticar() {
+    const estado = await atualizar();
+    if (desmontado.current) return null;
+    if (!estado) throw new Error('Não foi possível confirmar o estado atual do WhatsApp. Tente de novo.');
+    return estado.tentativa?.status === 'VALIDANDO' ? null : estado;
+  }
 
   /**
    * Confere o resultado de uma conclusão sem resposta legível pela rota de conferência, com prazo próprio. O servidor
@@ -207,8 +238,10 @@ export default function WhatsappConfiguracao() {
     if (recusa && (!tentativa || tentativa.status === 'INICIADA')) {
       setErro(recusa.codigo === 'WHATSAPP_REAUTENTICACAO_NECESSARIA' ? SENHA_VENCEU : recusa.erro + NOVA_PREPARACAO); setOcupado(false); return;
     }
-    const nota = (await atualizar()) ? '' : ' ' + ATUALIZACAO_FALHOU;
+    const atualizado = await atualizar();
     if (desmontado.current) return;
+    if (atualizado?.tentativa?.status === 'VALIDANDO') { setOcupado(false); return; }
+    const nota = atualizado ? '' : ' ' + ATUALIZACAO_FALHOU;
     if (tentativa?.status === 'CONCLUIDA') { setAviso(alvo.renovando ? 'Autorização renovada.' : CONECTADO); if (nota) setErro(nota.trim()); }
     else if (tentativa && ['FALHOU', 'EXPIRADA'].includes(tentativa.status)) setErro(prefixo + NAO_CONCLUIDA + nota);
     else setErro(CONCLUSAO_INCERTA + nota);
@@ -284,16 +317,17 @@ export default function WhatsappConfiguracao() {
   }
 
   async function prepararConexao(novoModo: Modo = 'conectar') {
-    if (ocupado || conferencia || preparacao.current) return;
+    if (bloqueado || conferencia || preparacao.current) return;
     const operacao = {};
     preparacao.current = operacao;
     const senhaConfirmada = novoModo === 'renovar' ? senhaRenovacao : senha;
     const atual = () => preparacao.current === operacao;
-    setErro(''); setAviso(''); setOcupado(true); codigo.current = null; sessaoMeta.current = null;
+    setErro(''); setAviso(''); setOcupado(true);
     setSenha(''); setSenhaRenovacao('');
-    setPreparado(false); setPreparadoRenovacao(false); inicio.current = null; modo.current = novoModo;
-    pararEscuta();
+    descartarPreparacao(); modo.current = novoModo;
     try {
+      const estado = await consultarAntesDeReautenticar();
+      if (!atual() || !estado) return;
       const tentativa = await comPrazo(async (signal): Promise<Inicio | null> => {
         // A reautenticação anuncia a troca da sessão para manter a página aberta durante o início.
         const reauth = await reautenticarSessao(senhaConfirmada);
@@ -321,18 +355,29 @@ export default function WhatsappConfiguracao() {
   }
 
   async function desconectar() {
-    if (!data?.conexao || ocupado || conferencia) return;
+    const conexaoId = data?.conexao?.id;
+    if (!conexaoId || bloqueado || conferencia) return;
     setErro(''); setAviso(''); setOcupado(true);
     try {
-      const reauth = await reautenticarSessao(senhaDesconexao); setSenhaDesconexao(''); if (!reauth.ok) throw new Error(reauth.erro);
-      const r = await adminFetch('/api/admin/configuracoes/whatsapp/desconectar', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ conexaoId: data.conexao.id, motivo: motivoDesconexao.trim() }) });
+      const estado = await consultarAntesDeReautenticar();
+      if (!estado) return;
+      if (estado.conexao?.id !== conexaoId) throw new Error('A conexão do WhatsApp mudou. Confira os dados antes de desconectar.');
+      const reauth = await reautenticarSessao(senhaDesconexao);
+      if (desmontado.current) return;
+      setSenhaDesconexao('');
+      if (!reauth.ok) throw new Error(reauth.erro);
+      descartarPreparacao();
+      const r = await adminFetch('/api/admin/configuracoes/whatsapp/desconectar', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ conexaoId, motivo: motivoDesconexao.trim() }) });
       const j = await r.json(); if (!j.ok) throw new Error(j.erro);
-      setMotivoDesconexao(''); setAviso('WhatsApp desconectado. Você pode conectar outro número quando quiser.'); await carregar();
-    } catch (e) { setErro(e instanceof Error ? e.message : 'Não foi possível desconectar o WhatsApp.'); }
-    finally { setOcupado(false); }
+      if (desmontado.current) return;
+      setMotivoDesconexao(''); setAviso('WhatsApp desconectado. Você pode conectar outro número quando quiser.');
+      if (!(await atualizar()) && !desmontado.current) setErro(ATUALIZACAO_FALHOU);
+    } catch (e) { if (!desmontado.current) setErro(e instanceof Error ? e.message : 'Não foi possível desconectar o WhatsApp.'); }
+    finally { if (!desmontado.current) setOcupado(false); }
   }
 
   async function verificarAtivosTeste() {
+    if (bloqueado || conferencia) return;
     setErro(''); setAviso(''); setVerificandoDemo(true);
     try {
       const r = await adminFetch('/api/admin/configuracoes/whatsapp/demo-ativos', { method: 'POST' });
@@ -342,6 +387,7 @@ export default function WhatsappConfiguracao() {
   }
 
   function abrirMeta() {
+    if (bloqueado || conferencia) return;
     const tentativa = inicio.current;
     setErro(''); setAviso('');
     if (!tentativa || !Number.isFinite(Date.parse(tentativa.expiraEm)) || Date.parse(tentativa.expiraEm) <= Date.now()) {
@@ -409,13 +455,14 @@ export default function WhatsappConfiguracao() {
 
   return <main className={styles.page}><VoltarConfiguracoes /><h1>WhatsApp</h1><p>Conecte o WhatsApp Business da sua empresa ao iA.Fest pelo fluxo oficial da Meta. O número continua funcionando no WhatsApp Business App.</p>
     {erro && <p role="alert">{erro}</p>}{aviso && <p role="status" className={whatsapp.pending}>{aviso}</p>}
-    {conferencia && <div className={whatsapp.actions}><AdminPrimaryButton carregando={ocupado} onClick={() => conferirResultado(conferencia)}>Conferir de novo</AdminPrimaryButton></div>}
+    {conferencia && <div className={whatsapp.actions}><AdminPrimaryButton carregando={bloqueado} onClick={() => conferirResultado(conferencia)}>Conferir de novo</AdminPrimaryButton></div>}
+    {!data && falhaCarga && <AdminPrimaryButton onClick={repetirCarga}>Tentar carregar de novo</AdminPrimaryButton>}
     {!data ? (falhaCarga ? null : <p>Carregando…</p>) : <><section className={whatsapp.status}><strong>{rotulos[data.estado] ?? 'Ação necessária'}</strong>{data.empresa && <p>Empresa: {data.empresa}</p>}{data.conexao ? <><p>{data.conexao.nomeVerificado} · {data.conexao.numeroExibicao}</p><p className={whatsapp.technical}>Conta Meta e número conferidos. O envio e o recebimento de mensagens pelo iA.Fest serão ativados numa próxima etapa.</p></> : <p>Esta empresa ainda não tem um WhatsApp conectado.</p>}</section>
       {!data.metaConfigurada && <p className={whatsapp.pending}>A conexão com a Meta ainda não está disponível neste ambiente. <Link href={ROTA_AJUDA}>Fale com o suporte do iA.Fest</Link>.</p>}
-      {!data.conexao && <section className={styles.card}><h2>Conectar WhatsApp Business</h2><p>Você vai entrar na Meta com a conta que administra o WhatsApp Business da empresa e escolher o número.</p>{data.ambiente === 'STAGING' && <p className={whatsapp.pending}>Ambiente de testes: use somente um número de teste.</p>}<div className={whatsapp.actions}>{preparado ? <AdminPrimaryButton onClick={abrirMeta}>Continuar na Meta</AdminPrimaryButton> : <><label>Confirme sua senha<input type="password" autoComplete="current-password" value={senha} onChange={(e) => setSenha(e.target.value)} /></label><AdminPrimaryButton carregando={ocupado} disabled={!senha || !data.metaConfigurada || Boolean(conferencia)} onClick={() => prepararConexao('conectar')}>Preparar conexão</AdminPrimaryButton></>}</div></section>}
-      {data.conexao && (() => { const validade = textoValidade(data.conexao.tokenExpiraEm); return <section className={styles.card}><h2>Renovar autorização da Meta</h2><p className={validade.alerta ? whatsapp.pending : undefined}>{validade.texto}</p><p>Renova a autorização sem desconectar o número no iA.Fest. Na janela da Meta, escolha o mesmo número já conectado.</p><div className={whatsapp.actions}>{preparadoRenovacao ? <AdminPrimaryButton onClick={abrirMeta}>Continuar na Meta</AdminPrimaryButton> : <><label>Confirme sua senha<input type="password" autoComplete="current-password" value={senhaRenovacao} onChange={(e) => setSenhaRenovacao(e.target.value)} /></label><AdminPrimaryButton carregando={ocupado} disabled={!senhaRenovacao || !data.metaConfigurada || Boolean(conferencia)} onClick={() => prepararConexao('renovar')}>Renovar credencial</AdminPrimaryButton></>}</div></section>; })()}
-      {data.conexao && <section className={styles.card}><h2>Desconectar</h2><p>O iA.Fest deixa de usar este número. O WhatsApp Business App continua funcionando normalmente.</p><div className={whatsapp.actions}><label>Motivo<input value={motivoDesconexao} maxLength={500} onChange={(e) => setMotivoDesconexao(e.target.value)} /></label><label>Confirme sua senha<input type="password" autoComplete="current-password" value={senhaDesconexao} onChange={(e) => setSenhaDesconexao(e.target.value)} /></label><AdminPrimaryButton carregando={ocupado} disabled={!senhaDesconexao || motivoDesconexao.trim().length < 3 || Boolean(conferencia)} onClick={desconectar}>Desconectar</AdminPrimaryButton></div></section>}
-      {data.demoAtivosTeste && <section className={styles.card}><h2>Verificação de ativos de teste da Meta</h2><p className={whatsapp.pending}>Ambiente de teste: esta verificação não cria conexão.</p><p>Confere, com os ativos de teste do iA.Fest, se a conta do WhatsApp Business pertence ao portfólio empresarial e lê os números dessa conta.</p><div className={whatsapp.actions}><AdminPrimaryButton carregando={verificandoDemo} onClick={verificarAtivosTeste}>Verificar ativos de teste</AdminPrimaryButton></div>
+      {!data.conexao && <section className={styles.card}><h2>Conectar WhatsApp Business</h2><p>Você vai entrar na Meta com a conta que administra o WhatsApp Business da empresa e escolher o número.</p>{data.ambiente === 'STAGING' && <p className={whatsapp.pending}>Ambiente de testes: use somente um número de teste.</p>}<div className={whatsapp.actions}>{preparado ? <AdminPrimaryButton disabled={bloqueado || Boolean(conferencia)} onClick={abrirMeta}>Continuar na Meta</AdminPrimaryButton> : <><label>Confirme sua senha<input type="password" autoComplete="current-password" value={senha} onChange={(e) => setSenha(e.target.value)} /></label><AdminPrimaryButton carregando={bloqueado} disabled={!senha || !data.metaConfigurada || Boolean(conferencia)} onClick={() => prepararConexao('conectar')}>Preparar conexão</AdminPrimaryButton></>}</div></section>}
+      {data.conexao && (() => { const validade = textoValidade(data.conexao.tokenExpiraEm); return <section className={styles.card}><h2>Renovar autorização da Meta</h2><p className={validade.alerta ? whatsapp.pending : undefined}>{validade.texto}</p><p>Renova a autorização sem desconectar o número no iA.Fest. Na janela da Meta, escolha o mesmo número já conectado.</p><div className={whatsapp.actions}>{preparadoRenovacao ? <AdminPrimaryButton disabled={bloqueado || Boolean(conferencia)} onClick={abrirMeta}>Continuar na Meta</AdminPrimaryButton> : <><label>Confirme sua senha<input type="password" autoComplete="current-password" value={senhaRenovacao} onChange={(e) => setSenhaRenovacao(e.target.value)} /></label><AdminPrimaryButton carregando={bloqueado} disabled={!senhaRenovacao || !data.metaConfigurada || Boolean(conferencia)} onClick={() => prepararConexao('renovar')}>Renovar credencial</AdminPrimaryButton></>}</div></section>; })()}
+      {data.conexao && <section className={styles.card}><h2>Desconectar</h2><p>O iA.Fest deixa de usar este número. O WhatsApp Business App continua funcionando normalmente.</p><div className={whatsapp.actions}><label>Motivo<input value={motivoDesconexao} maxLength={500} onChange={(e) => setMotivoDesconexao(e.target.value)} /></label><label>Confirme sua senha<input type="password" autoComplete="current-password" value={senhaDesconexao} onChange={(e) => setSenhaDesconexao(e.target.value)} /></label><AdminPrimaryButton carregando={bloqueado} disabled={!senhaDesconexao || motivoDesconexao.trim().length < 3 || Boolean(conferencia)} onClick={desconectar}>Desconectar</AdminPrimaryButton></div></section>}
+      {data.demoAtivosTeste && <section className={styles.card}><h2>Verificação de ativos de teste da Meta</h2><p className={whatsapp.pending}>Ambiente de teste: esta verificação não cria conexão.</p><p>Confere, com os ativos de teste do iA.Fest, se a conta do WhatsApp Business pertence ao portfólio empresarial e lê os números dessa conta.</p><div className={whatsapp.actions}><AdminPrimaryButton carregando={verificandoDemo} disabled={ocupado || Boolean(conferencia)} onClick={verificarAtivosTeste}>Verificar ativos de teste</AdminPrimaryButton></div>
         {demo && <div className={whatsapp.status}><p>Portfólio {demo.portfolio.id}: {demo.portfolio.possuiWabaTeste ? 'a conta do WhatsApp Business ' + demo.waba.id + ' pertence a este portfólio.' : 'a conta do WhatsApp Business ' + demo.waba.id + ' não pertence a este portfólio.'}</p>{demo.numeros.map((n) => <p key={n.id}>{n.verified_name ?? 'Sem nome verificado'} · {n.display_phone_number ?? n.id} · is_on_biz_app: {n.is_on_biz_app === null ? 'não informado' : String(n.is_on_biz_app)}</p>)}<p>Requisito do Kidmais para coexistência (is_on_biz_app=true): {rotulosRequisito[demo.requisitoKidmaisIsOnBizApp]}.</p><p className={whatsapp.technical}>{demo.aviso}</p></div>}</section>}</>}
   </main>;
 }

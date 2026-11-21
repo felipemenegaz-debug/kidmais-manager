@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { createHash, randomUUID } from 'node:crypto';
 import test from 'node:test';
-import { carregarModulo } from '../acessos/teste-carregador.ts';
+import { carregarModulo, executorFalso } from '../acessos/teste-carregador.ts';
 import { concluirOnboardingSchema, concluirRenovacaoSchema, desconectarSchema, divergenciaRenovacao, exigirEsquemaPorEmpresa, exigirGestaoDaEmpresa, exigirReautenticacaoRecente, stateCorresponde } from './onboarding-core.ts';
 
 type SessaoTeste = { id: string; usuario_id: string; nome: string; cargo: null; papel: string; autenticado_em: string; expira_em: string; csrf_hash: string };
@@ -69,6 +69,59 @@ test('conferência: entrada inválida (sem id, id fora do formato, campo extra) 
   const transacao = async () => { throw new Error('não deveria abrir transação'); };
   for (const raw of [null, {}, { tentativaId: 'abc' }, { tentativaId: '00000000-0000-4000-8000-000000000000', extra: 1 }])
     await assert.rejects(servico.conferirTentativaWhatsapp(raw, 't'.repeat(43), { requestId: 'r', ip: null, userAgent: null }, { transacao }), { code: 'WHATSAPP_DADOS_INVALIDOS', httpStatus: 400 }, JSON.stringify(raw));
+});
+
+test('conclusões travam a tentativa pelo id, ambiente e empresa comprovada, inclusive ao finalizar ou marcar falha', async () => {
+  const sessaoAtual = sessao({ autenticado_em: new Date().toISOString() });
+  const empresaId = randomUUID(), tentativaId = randomUUID(), conexaoId = randomUUID();
+  const state = 'a'.repeat(43);
+  const config = { ambiente: 'STAGING', appId: '1' };
+  const servico = carregarModulo('lib/whatsapp/onboarding.service.ts', {
+    'db/postgres': { withTransaction: () => { throw new Error('o teste usa só a transação dublada'); } },
+    'autenticacao/service': { consultarSessao: async () => sessaoAtual },
+    'saas/provar-tenant': {
+      provarTenant: async () => ({ papelAtual: 'REPRESENTANTE_AUTORIZADO', empresaComprovada: empresaId }),
+      revalidarTenant: async () => undefined,
+    },
+    'clientes/repositories/auditoria.repository': { registrarAuditoria: async () => undefined },
+    'whatsapp/configuracao': { exigirConfiguracaoWhatsappPrivada: () => config },
+    'whatsapp/credencial': { cifrarCredencialWhatsapp: () => ({}) },
+  }) as Record<string, (raw: unknown, token: string, contexto: unknown, deps: unknown) => Promise<unknown>>;
+  const conexao = { id: conexaoId, revisao: 1, meta_app_id: '1', business_id: '10', waba_id: '20', phone_number_id: '30' };
+  for (const [acao, renovando] of [['concluirOnboardingWhatsapp', false], ['concluirRenovacaoWhatsapp', true]] as const) {
+    for (const falha of [false, true]) {
+      let status = 'INICIADA';
+      const tx = executorFalso([
+        [/information_schema/, () => [{ ok: true }]],
+        [/SELECT \* FROM whatsapp_onboarding_tentativas/, () => [{
+          id: tentativaId, ambiente: config.ambiente, empresa_id: empresaId, status,
+          usuario_id: sessaoAtual.usuario_id, sessao_referencia_id: sessaoAtual.id,
+          expira_em: new Date(Date.now() + 60_000).toISOString(), state_hash: createHash('sha256').update(state).digest(),
+        }]],
+        [/SET status='VALIDANDO'/, () => { status = 'VALIDANDO'; return []; }],
+        [/FROM auditoria/, () => renovando ? [{ conexao_id: conexaoId, revisao: 1 }] : []],
+        [/FROM whatsapp_conexoes WHERE ambiente=.*FOR UPDATE/, () => renovando ? [conexao] : []],
+        [/(INSERT INTO|UPDATE) whatsapp_conexoes/, () => [conexao]],
+      ]);
+      const validarMeta = async () => {
+        if (falha) throw new Error('Meta dublada recusou');
+        return { businessId: '10', phoneNumberId: '30' };
+      };
+      const resultado = servico[acao]({ tentativaId, state, authorizationCode: 'codigo-sintetico', wabaId: '20' },
+        't'.repeat(43), { requestId: 'r', ip: null, userAgent: null }, {
+          transacao: async (fn: (executor: typeof tx) => Promise<unknown>) => fn(tx),
+          validarMeta,
+        });
+      if (falha) await assert.rejects(resultado, { code: 'META_VALIDACAO_FALHOU' });
+      else await assert.doesNotReject(resultado);
+      const locks = tx.executados.filter(({ sql }) => /FROM whatsapp_onboarding_tentativas.*FOR UPDATE/.test(sql));
+      assert.equal(locks.length, 2, acao);
+      for (const { sql, params } of locks) {
+        assert.match(sql, /WHERE id=\$1::uuid AND ambiente=\$2 AND empresa_id=\$3::uuid FOR UPDATE/);
+        assert.deepEqual(params, [tentativaId, config.ambiente, empresaId]);
+      }
+    }
+  }
 });
 
 test('rotina do sistema: banco anterior à 083 dá WHATSAPP_ATUALIZACAO_PENDENTE (503) antes de qualquer leitura de tentativas', async (t) => {

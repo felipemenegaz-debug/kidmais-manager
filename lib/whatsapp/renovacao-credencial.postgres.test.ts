@@ -442,8 +442,23 @@ test('renovação: isolamento — a Gestão da B não renova a conexão da A, ne
   const antes = await linha(ids.conexaoA);
   // A B não tem conexão CONFIGURADA (desconectada acima): não inicia.
   assert.equal(await codigoErro(iniciarRenovacao(await sessaoDe(ids.gestaoB))), 'WHATSAPP_NAO_CONFIGURADO');
-  // Tentativa da A usada pela sessão da B: recusada.
-  assert.equal(await codigoErro(concluirRenovacao(await sessaoDe(ids.gestaoB), iniA, EVENTO_A, metaCom('token-sintetico-b-na-a', null))), 'WHATSAPP_TENTATIVA_INVALIDA');
+  // As duas conclusões devem recusar a B enquanto outra conexão ainda mantém a linha da A travada.
+  const sB = await sessaoDe(ids.gestaoB);
+  const bloqueadora = await conectarDescartavel({ travar: false });
+  const meta = metaCom('token-sintetico-b-na-a', null);
+  try {
+    await bloqueadora.query('BEGIN');
+    await bloqueadora.query('SELECT id FROM whatsapp_onboarding_tentativas WHERE id=$1 FOR UPDATE', [iniA.tentativaId]);
+    await client.query("SET lock_timeout = '2s'");
+    for (const concluir of [concluirRenovacao, concluirConexao]) {
+      assert.equal(await codigoErro(concluir(sB, iniA, EVENTO_A, meta)), 'WHATSAPP_TENTATIVA_INVALIDA',
+        '403 com a linha alheia ainda travada; esperar por ela causaria 55P03');
+    }
+    assert.equal(meta.chamadas.length, 0);
+  } finally {
+    try { await client.query('RESET lock_timeout'); }
+    finally { await encerrarDescartavel(bloqueadora, false); }
+  }
   assert.equal((await linha(ids.conexaoA)).revisao, antes.revisao);
   assert.equal(decifrar(await linha(ids.conexaoA)), 'token-sintetico-sem-validade');
 });

@@ -177,9 +177,17 @@ export async function iniciarOnboardingWhatsapp(token: string, contexto: Context
  */
 type InscricaoPendente = { inscricaoWebhook: 'CONFIRMADA' | 'INCERTA'; wabaId: string };
 
-async function marcarFalha(transacao: Transacao, tentativaId: string, usuarioId: string, contexto: ContextoWhatsapp, code: string, inscricao?: InscricaoPendente, acao = 'WHATSAPP_ONBOARDING_FALHOU') {
+async function bloquearTentativa(tx: DbExecutor, tentativaId: string, ambiente: string, empresaId: string) {
+  return (await tx.query<Tentativa>(
+    'SELECT * FROM whatsapp_onboarding_tentativas WHERE id=$1::uuid AND ambiente=$2 AND empresa_id=$3::uuid FOR UPDATE',
+    [tentativaId, ambiente, empresaId],
+  )).rows[0];
+}
+
+async function marcarFalha(transacao: Transacao, alvo: { tentativaId: string; ambiente: string; empresaId: string; usuarioId: string }, contexto: ContextoWhatsapp, code: string, inscricao?: InscricaoPendente, acao = 'WHATSAPP_ONBOARDING_FALHOU') {
+  const { tentativaId, ambiente, empresaId, usuarioId } = alvo;
   await transacao(async (tx) => {
-    const tentativa = (await tx.query<Tentativa>('SELECT * FROM whatsapp_onboarding_tentativas WHERE id=$1 FOR UPDATE', [tentativaId])).rows[0];
+    const tentativa = await bloquearTentativa(tx, tentativaId, ambiente, empresaId);
     if (!tentativa || tentativa.status !== 'VALIDANDO') return;
     await tx.query("UPDATE whatsapp_onboarding_tentativas SET status='FALHOU',erro_codigo=$2,waba_id=COALESCE($3,waba_id),atualizada_em=clock_timestamp() WHERE id=$1", [tentativaId, code, inscricao?.wabaId ?? null]);
     await registrarAuditoria({ atorTipo: 'USUARIO', usuarioId, acao, entidadeTipo: 'WHATSAPP_ONBOARDING_TENTATIVA', entidadeId: tentativaId, dadosDepois: { ambiente: tentativa.ambiente, empresaId: tentativa.empresa_id, status: 'FALHOU', erroCodigo: code, ...(inscricao ?? {}) }, ...auditoriaBase(contexto) }, tx);
@@ -201,8 +209,8 @@ export async function concluirOnboardingWhatsapp(raw: unknown, token: string, co
   const preparada = await transacao(async (tx) => {
     const { sessao, tenant } = await gestaoTransacional(tx, token, 'conectar');
     await lockEmpresa(tx, config.ambiente, tenant.empresaComprovada);
-    const tentativa = (await tx.query<Tentativa>('SELECT * FROM whatsapp_onboarding_tentativas WHERE id=$1 FOR UPDATE', [input.data.tentativaId])).rows[0];
-    if (!tentativa || tentativa.ambiente !== config.ambiente || !tentativaDaSessao(tentativa, sessao, tenant)) throw new WhatsappOnboardingError('WHATSAPP_TENTATIVA_INVALIDA', 'Tentativa de onboarding inválida.', 403);
+    const tentativa = await bloquearTentativa(tx, input.data.tentativaId, config.ambiente, tenant.empresaComprovada);
+    if (!tentativa || !tentativaDaSessao(tentativa, sessao, tenant)) throw new WhatsappOnboardingError('WHATSAPP_TENTATIVA_INVALIDA', 'Tentativa de onboarding inválida.', 403);
     // Tentativa de RENOVAÇÃO nunca conecta: recusada antes de consumir a tentativa e antes de qualquer chamada à Meta.
     if (await conexaoMiradaPelaRenovacao(tx, tentativa.id)) throw new WhatsappOnboardingError('WHATSAPP_TENTATIVA_INVALIDA', 'Tentativa de onboarding inválida.', 403);
     if (tentativa.status !== 'INICIADA') throw new WhatsappOnboardingError('WHATSAPP_TENTATIVA_CONSUMIDA', 'Esta tentativa já foi utilizada.', 409);
@@ -217,6 +225,7 @@ export async function concluirOnboardingWhatsapp(raw: unknown, token: string, co
     return { sessao, empresaId: tenant.empresaComprovada } as const;
   });
   if ('erro' in preparada) throw preparada.erro;
+  const alvo = { tentativaId: input.data.tentativaId, ambiente: config.ambiente, empresaId: preparada.empresaId, usuarioId: preparada.sessao.usuario_id };
   let validada: Awaited<ReturnType<typeof trocarCodigoEValidarAtivos>>;
   try {
     validada = await (deps.validarMeta ?? trocarCodigoEValidarAtivos)({
@@ -228,7 +237,7 @@ export async function concluirOnboardingWhatsapp(raw: unknown, token: string, co
   } catch (error) {
     const code = error instanceof WhatsappOnboardingError ? error.code : 'META_VALIDACAO_FALHOU';
     const incerta = code === 'META_WEBHOOK_INSCRICAO_INCERTA' ? { inscricaoWebhook: 'INCERTA' as const, wabaId: input.data.wabaId } : undefined;
-    await marcarFalha(transacao, input.data.tentativaId, preparada.sessao.usuario_id, contexto, code, incerta);
+    await marcarFalha(transacao, alvo, contexto, code, incerta);
     if (error instanceof WhatsappOnboardingError) throw error;
     throw new WhatsappOnboardingError('META_VALIDACAO_FALHOU', 'Não foi possível validar a configuração com a Meta.', 502);
   }
@@ -243,7 +252,7 @@ export async function concluirOnboardingWhatsapp(raw: unknown, token: string, co
       const { sessao, tenant } = await gestaoTransacional(tx, token, 'conectar');
       const empresaId = tenant.empresaComprovada;
       await lockEmpresa(tx, config.ambiente, empresaId);
-      const tentativa = (await tx.query<Tentativa>('SELECT * FROM whatsapp_onboarding_tentativas WHERE id=$1 FOR UPDATE', [input.data.tentativaId])).rows[0];
+      const tentativa = await bloquearTentativa(tx, input.data.tentativaId, config.ambiente, empresaId);
       if (!tentativa || tentativa.status !== 'VALIDANDO' || !tentativaDaSessao(tentativa, sessao, tenant) || empresaId !== preparada.empresaId) throw new WhatsappOnboardingError('WHATSAPP_TENTATIVA_CONSUMIDA', 'Esta tentativa já foi utilizada.', 409);
       if ((await tx.query("SELECT 1 FROM whatsapp_conexoes WHERE ambiente=$1 AND empresa_id=$2::uuid AND status='CONFIGURADA' FOR UPDATE", [config.ambiente, empresaId])).rows[0]) throw new WhatsappOnboardingError('WHATSAPP_TROCA_SILENCIOSA_RECUSADA', 'Já existe uma conexão. Desconecte-a explicitamente antes de conectar outro número.', 409);
       if ((await tx.query("SELECT 1 FROM whatsapp_conexoes WHERE ambiente=$1 AND phone_number_id=$2 AND status='CONFIGURADA'", [config.ambiente, phoneNumberId])).rows[0]) throw NUMERO_EM_USO();
@@ -261,7 +270,7 @@ export async function concluirOnboardingWhatsapp(raw: unknown, token: string, co
     const normalizado = (error as { code?: string; constraint?: string })?.code === '23505' && (error as { constraint?: string }).constraint === 'whatsapp_conexoes_numero_configurado_uk' ? NUMERO_EM_USO() : error;
     const code = normalizado instanceof WhatsappOnboardingError ? normalizado.code : 'WHATSAPP_PERSISTENCIA_FALHOU';
     // A validação passou inteira, inclusive a inscrição: a WABA ficou inscrita sem conexão local.
-    await marcarFalha(transacao, input.data.tentativaId, preparada.sessao.usuario_id, contexto, code, { inscricaoWebhook: 'CONFIRMADA', wabaId: input.data.wabaId });
+    await marcarFalha(transacao, alvo, contexto, code, { inscricaoWebhook: 'CONFIRMADA', wabaId: input.data.wabaId });
     throw normalizado;
   }
   return { conexaoId: concluida.id, estado: 'CONFIGURADA_SEM_WEBHOOK_OTP', numeroExibicao: validada.displayPhoneNumber, nomeVerificado: validada.verifiedName };
@@ -347,13 +356,12 @@ export async function concluirRenovacaoWhatsapp(raw: unknown, token: string, con
   if (!input.success) throw new WhatsappOnboardingError('WHATSAPP_DADOS_INVALIDOS', 'Dados de conclusão da renovação inválidos.', 400);
   const config = exigirConfiguracaoWhatsappPrivada();
   const transacao = transacaoDe(deps);
-  const falhou = (usuarioId: string, code: string) => marcarFalha(transacao, input.data.tentativaId, usuarioId, contexto, code, undefined, 'WHATSAPP_RENOVACAO_FALHOU');
   const preparada = await transacao(async (tx) => {
     const { sessao, tenant } = await gestaoTransacional(tx, token, 'renovar');
     const empresaId = tenant.empresaComprovada;
     await lockEmpresa(tx, config.ambiente, empresaId);
-    const tentativa = (await tx.query<Tentativa>('SELECT * FROM whatsapp_onboarding_tentativas WHERE id=$1 FOR UPDATE', [input.data.tentativaId])).rows[0];
-    if (!tentativa || tentativa.ambiente !== config.ambiente || !tentativaDaSessao(tentativa, sessao, tenant)) throw new WhatsappOnboardingError('WHATSAPP_TENTATIVA_INVALIDA', 'Tentativa de renovação inválida.', 403);
+    const tentativa = await bloquearTentativa(tx, input.data.tentativaId, config.ambiente, empresaId);
+    if (!tentativa || !tentativaDaSessao(tentativa, sessao, tenant)) throw new WhatsappOnboardingError('WHATSAPP_TENTATIVA_INVALIDA', 'Tentativa de renovação inválida.', 403);
     const mirada = await conexaoMiradaPelaRenovacao(tx, tentativa.id);
     if (!mirada) throw new WhatsappOnboardingError('WHATSAPP_TENTATIVA_INVALIDA', 'Tentativa de renovação inválida.', 403);
     if (tentativa.status !== 'INICIADA') throw new WhatsappOnboardingError('WHATSAPP_TENTATIVA_CONSUMIDA', 'Esta tentativa já foi utilizada.', 409);
@@ -373,8 +381,10 @@ export async function concluirRenovacaoWhatsapp(raw: unknown, token: string, con
     return { sessao, empresaId, conexao: conexao!, codigo } as const;
   });
   if ('erro' in preparada) throw preparada.erro;
+  const alvo = { tentativaId: input.data.tentativaId, ambiente: config.ambiente, empresaId: preparada.empresaId, usuarioId: preparada.sessao.usuario_id };
+  const falhou = (code: string) => marcarFalha(transacao, alvo, contexto, code, undefined, 'WHATSAPP_RENOVACAO_FALHOU');
   if (preparada.codigo) {
-    await falhou(preparada.sessao.usuario_id, preparada.codigo);
+    await falhou(preparada.codigo);
     throw preparada.codigo === 'WHATSAPP_RENOVACAO_DIVERGENTE' ? RENOVACAO_DIVERGENTE()
       : new WhatsappOnboardingError('WHATSAPP_RENOVACAO_CONEXAO_ALTERADA', 'A conexão do WhatsApp mudou durante a renovação. Atualize a página e tente de novo.', 409);
   }
@@ -388,12 +398,12 @@ export async function concluirRenovacaoWhatsapp(raw: unknown, token: string, con
     }, config);
   } catch (error) {
     const code = error instanceof WhatsappOnboardingError ? error.code : 'META_VALIDACAO_FALHOU';
-    await falhou(preparada.sessao.usuario_id, code);
+    await falhou(code);
     if (error instanceof WhatsappOnboardingError) throw error;
     throw new WhatsappOnboardingError('META_VALIDACAO_FALHOU', 'Não foi possível validar a configuração com a Meta.', 502);
   }
   if (divergenciaRenovacao(atual, config.appId, { wabaId: input.data.wabaId, businessId: validada.businessId, phoneNumberId: validada.phoneNumberId })) {
-    await falhou(preparada.sessao.usuario_id, 'WHATSAPP_RENOVACAO_DIVERGENTE');
+    await falhou('WHATSAPP_RENOVACAO_DIVERGENTE');
     throw RENOVACAO_DIVERGENTE();
   }
   try {
@@ -402,7 +412,7 @@ export async function concluirRenovacaoWhatsapp(raw: unknown, token: string, con
       const { sessao, tenant } = await gestaoTransacional(tx, token, 'renovar');
       const empresaId = tenant.empresaComprovada;
       await lockEmpresa(tx, config.ambiente, empresaId);
-      const tentativa = (await tx.query<Tentativa>('SELECT * FROM whatsapp_onboarding_tentativas WHERE id=$1 FOR UPDATE', [input.data.tentativaId])).rows[0];
+      const tentativa = await bloquearTentativa(tx, input.data.tentativaId, config.ambiente, empresaId);
       if (!tentativa || tentativa.status !== 'VALIDANDO' || !tentativaDaSessao(tentativa, sessao, tenant) || empresaId !== preparada.empresaId) throw new WhatsappOnboardingError('WHATSAPP_TENTATIVA_CONSUMIDA', 'Esta tentativa já foi utilizada.', 409);
       const conexao = (await tx.query<ConexaoRenovavel>(SELECT_CONEXAO_RENOVAVEL, [config.ambiente, empresaId])).rows[0];
       if (!conexao || conexao.id !== atual.id || conexao.revisao !== atual.revisao) throw new WhatsappOnboardingError('WHATSAPP_RENOVACAO_CONEXAO_ALTERADA', 'A conexão do WhatsApp mudou durante a renovação. Atualize a página e tente de novo.', 409);
@@ -423,7 +433,7 @@ export async function concluirRenovacaoWhatsapp(raw: unknown, token: string, con
     });
   } catch (error) {
     const code = error instanceof WhatsappOnboardingError ? error.code : 'WHATSAPP_PERSISTENCIA_FALHOU';
-    await falhou(preparada.sessao.usuario_id, code);
+    await falhou(code);
     throw error;
   }
 }

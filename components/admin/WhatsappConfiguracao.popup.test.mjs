@@ -8,6 +8,7 @@ import * as jsxRuntime from 'react/jsx-runtime';
 // Executa os handlers reais do componente com hooks/transportes sintéticos.
 // Nenhum SDK externo, credencial, servidor ou banco é usado neste teste.
 const ROTA_CONFERIR = '/api/admin/configuracoes/whatsapp/tentativa/conferir';
+const ROTA_CONFIGURACAO = '/api/admin/configuracoes/whatsapp';
 function montar({ expiraEm = new Date(Date.now() + 60_000).toISOString(), reauthOk = true, reautenticar, iniciar, login, eventName = 'FINISH', inicial, relogio, concluirPendente = false, semJanela = false, consulta, conferir, concluirResposta, semSdk = false, montagemReal = false } = {}) {
   const slots = [], listeners = new Set(), chamadas = [], corpos = [], janelas = [];
   let consultas = 0, conferencias = 0, reautenticacoes = 0, popupBloqueado = semJanela;
@@ -82,10 +83,9 @@ function montar({ expiraEm = new Date(Date.now() + 60_000).toISOString(), reauth
           init.signal?.addEventListener('abort', () => reject(init.signal.reason));
         });
       }
-      if (url === '/api/admin/configuracoes/whatsapp') {
+      if (url === ROTA_CONFIGURACAO) {
         consultas++;
-        if (consulta) return consulta(consultas, init);
-        return { json: async () => ({ ok: true, data: estadoInicial }) };
+        return consulta?.(consultas, init) ?? respostaDaConfiguracao(estadoInicial);
       }
       await Promise.resolve();
       return { json: async () => ({ ok: true, data: {
@@ -125,11 +125,13 @@ function montar({ expiraEm = new Date(Date.now() + 60_000).toISOString(), reauth
     primeiroRender = false;
     return encontrados;
   }
-  function clicar(label) {
+  function clicar(label, { ignorarBloqueio = false } = {}) {
     const botao = elementos().find(node => node.type === 'button' && node.props.children === label);
     assert.ok(botao, `Botão ausente: ${label}`);
-    assert.notEqual(botao.props.disabled, true);
-    assert.notEqual(botao.props.carregando, true);
+    if (!ignorarBloqueio) {
+      assert.notEqual(botao.props.disabled, true);
+      assert.notEqual(botao.props.carregando, true);
+    }
     gesto = true;
     try { return botao.props.onClick(); }
     finally { gesto = false; }
@@ -153,12 +155,14 @@ function montar({ expiraEm = new Date(Date.now() + 60_000).toISOString(), reauth
     /** Botão visível (nome exato) e se está desabilitado. */
     botao(label) { return elementos().find(node => node.type === 'button' && node.props.children === label); }, resolverConcluir: (corpo) => resolverConcluir(corpo),
     senha() { elementos().find(node => node.type === 'input').props.onChange({ target: { value: 'senha-sintetica' } }); },
-    preencherDesconexao() { for (const input of elementos().filter(node => node.type === 'input').slice(1)) input.props.onChange({ target: { value: 'valor sintético' } }); },
+    preencherDesconexao() { for (const input of elementos().filter(node => node.type === 'input').slice(-2)) input.props.onChange({ target: { value: 'valor sintético' } }); },
     texto() { return elementos().map(node => typeof node.props?.children === 'string' ? node.props.children : '').join(' '); },
     /** Controles liberados: algum botão de preparar visível e sem carregamento. */
     livre() { return elementos().some(node => node.type === 'button' && /^(Preparar|Renovar credencial)/.test(node.props.children) && node.props.carregando === false); },
   };
 }
+
+const respostaDaConfiguracao = (data) => ({ json: async () => ({ ok: true, data }) });
 
 test('preparação assíncrona não abre login; segundo clique chama o SDK sincronamente', async () => {
   const ui = montar();
@@ -167,7 +171,7 @@ test('preparação assíncrona não abre login; segundo clique chama o SDK sincr
   assert.equal(ui.chamadasLogin, 0);
   assert.equal(ui.clicar('Continuar na Meta'), undefined);
   assert.equal(ui.chamadasLogin, 1);
-  assert.equal(ui.chamadas.length, 1);
+  assert.deepEqual(ui.chamadas, [ROTA_CONFIGURACAO, ROTA_CONFIGURACAO + '/onboarding/iniciar']);
 });
 
 test('reautenticação recusada não inicia onboarding nem abre janela', async () => {
@@ -175,7 +179,7 @@ test('reautenticação recusada não inicia onboarding nem abre janela', async (
   ui.senha();
   await ui.clicar('Preparar conexão');
   assert.match(ui.texto(), /Senha inválida/);
-  assert.equal(ui.chamadas.length, 0);
+  assert.deepEqual(ui.chamadas, [ROTA_CONFIGURACAO]);
   assert.equal(ui.chamadasLogin, 0);
 });
 
@@ -200,7 +204,7 @@ test('callback sem código limpa listener e não mantém instrução contraditó
   assert.ok(ui.botao('Continuar na Meta'), 'Continuar na Meta disponível de novo');
   ui.clicar('Continuar na Meta');
   assert.equal(ui.chamadasLogin, 2);
-  assert.equal(ui.chamadas.length, 1, 'uma única preparação no servidor');
+  assert.equal(ui.chamadas.filter((url) => url.endsWith('/iniciar')).length, 1, 'uma única preparação no servidor');
 });
 
 test('exceção síncrona do SDK libera estado e remove listener', async () => {
@@ -213,7 +217,7 @@ test('exceção síncrona do SDK libera estado e remove listener', async () => {
 });
 
 /** Exclui os prazos da preparação (30 s) e da carga do SDK (20 s). */
-function espera(agendados) { return agendados.filter((item) => item.ms !== 20_000 && item.ms !== 30_000); }
+function espera(agendados) { return agendados.filter((item) => item.fn); }
 
 /** Evento da Meta (`message`) com o nome configurado, entregue aos listeners registrados pela tela. */
 function eventoMeta(ui, data, event = 'FINISH', source = ui.janelas.at(-1)) {
@@ -318,9 +322,10 @@ test('conclusão sem resposta no prazo: resultado incerto, estado consultado ant
   ui.senha();
   await ui.clicar('Renovar credencial');
   ui.clicar('Continuar na Meta');
+  const prazoMeta = espera(agendados)[0];
   eventoMeta(ui, { business_id: '1001', phone_number_id: '7001', waba_id: '2002' });
   await new Promise((resolve) => setTimeout(resolve, 0));
-  assert.equal(espera(agendados)[0].fn, null, 'o prazo da espera pela Meta foi cancelado na conclusão');
+  assert.equal(prazoMeta.fn, null, 'o prazo da espera pela Meta foi cancelado na conclusão');
   const prazo = agendados.find((item) => item.ms === 90_000);
   assert.ok(prazo?.fn, 'prazo próprio da conclusão');
   assert.equal(ui.livre(), false);
@@ -423,7 +428,7 @@ test('conferência sem resposta no prazo próprio: dados possivelmente velhos, n
   const { ui, agendados } = await concluirSemResposta((n, init) => n === 1
     ? pendurada(init)
     : Promise.resolve(estadoCom({ id: 'tentativa-sintetica', status: 'CONCLUIDA', expira_em: '2027-01-01T00:00:00.000Z' })));
-  const prazoConsulta = agendados.find((item) => item.ms === 15_000);
+  const prazoConsulta = agendados.find((item) => item.ms === 15_000 && item.fn);
   assert.ok(prazoConsulta?.fn, 'a consulta tem prazo próprio');
   assert.equal(ui.livre(), false, 'ocupado enquanto a consulta não volta');
   prazoConsulta.fn();
@@ -484,13 +489,13 @@ test('sucesso com atualização da tela pendurada: o prazo da atualização libe
   const agendados = [];
   const relogio = { setTimeout: (fn, ms) => { agendados.push({ fn, ms }); return agendados.length; }, clearTimeout: (id) => { if (agendados[id - 1]) agendados[id - 1].fn = null; } };
   const ui = montar({ login: (callback) => callback({ authResponse: { code: 'codigo-sintetico' } }), inicial: conectada('2027-01-17T00:00:00.000Z'), relogio,
-    consulta: (_, init) => pendurada(init) });
+    consulta: (n, init) => n === 2 ? pendurada(init) : undefined });
   ui.senha();
   await ui.clicar('Renovar credencial');
   ui.clicar('Continuar na Meta');
   eventoMeta(ui, { business_id: '1001', phone_number_id: '7001', waba_id: '2002' });
   for (let i = 0; i < 3; i++) await esperar();
-  const prazoAtualizacao = agendados.find((item) => item.ms === 15_000);
+  const prazoAtualizacao = agendados.find((item) => item.ms === 15_000 && item.fn);
   assert.ok(prazoAtualizacao?.fn, 'a atualização depois do sucesso tem prazo próprio');
   assert.equal(ui.livre(), false, 'ocupado enquanto atualiza');
   prazoAtualizacao.fn();
@@ -508,7 +513,7 @@ test('sucesso com atualização da tela pendurada: o prazo da atualização libe
 
 test('conferência CONCLUIDA com atualização pendurada: prazo próprio, sucesso mantido e aviso para recarregar', async () => {
   const { ui, agendados } = await concluirSemResposta(() => Promise.resolve(estadoCom({ id: 'tentativa-sintetica', status: 'CONCLUIDA', expira_em: '2027-01-01T00:00:00.000Z' })),
-    { consulta: (_, init) => pendurada(init) });
+    { consulta: (n, init) => n === 2 ? pendurada(init) : undefined });
   const prazos = agendados.filter((item) => item.ms === 15_000 && item.fn);
   assert.equal(prazos.length, 1, 'só a atualização pendente');
   prazos[0].fn();
@@ -619,7 +624,7 @@ test('renovação: senha recusada não inicia nem abre a Meta', async () => {
   ui.senha();
   await ui.clicar('Renovar credencial');
   assert.match(ui.texto(), /Senha inválida/);
-  assert.equal(ui.chamadas.length, 0);
+  assert.deepEqual(ui.chamadas, [ROTA_CONFIGURACAO]);
   assert.equal(ui.chamadasLogin, 0);
 });
 
@@ -838,6 +843,7 @@ test('SDK disponível depois do prazo é inicializado antes de abrir a Meta', as
 test('remontar durante VALIDANDO recupera a conferência e impede reautenticação até o estado terminal', async () => {
   const tentativa = { id: 'tentativa-anterior', status: 'VALIDANDO', expira_em: '2027-01-01T00:00:00.000Z' };
   const ui = montar({ montagemReal: true, inicial: { ...conectada(null), tentativa },
+    consulta: (n) => n > 1 ? respostaDaConfiguracao(conectada(null)) : undefined,
     conferir: async (n) => estadoCom(n === 1 ? tentativa : { ...tentativa, status: 'EXPIRADA' }) });
   ui.montarEfeitos();
   await esperar();
@@ -856,6 +862,140 @@ test('remontar durante VALIDANDO recupera a conferência e impede reautenticaç�
   assert.match(ui.texto(), /não foi concluída e nada mudou/);
   assert.equal(ui.botao('Renovar credencial').props.disabled, false);
   assert.equal(ui.botao('Desconectar').props.disabled, false);
+});
+
+test('conferência EXPIRADA do id antigo recupera a nova tentativa em VALIDANDO na atualização', async () => {
+  const nova = { id: 'tentativa-nova', status: 'VALIDANDO' };
+  const ui = await renovarAteConcluir({
+    concluirResposta: recusa({ erro: 'Esta tentativa já foi utilizada.' }),
+    conferir: (n) => estadoCom(n === 1 ? { id: 'tentativa-sintetica', status: 'EXPIRADA' } : nova),
+    consulta: (n) => n > 1 ? respostaDaConfiguracao({ ...conectada(null), tentativa: nova }) : undefined,
+  });
+
+  ui.senha();
+  ui.preencherDesconexao();
+  assert.match(ui.texto(), /ainda está em andamento/);
+  assert.equal(ui.botao('Renovar credencial').props.disabled, true);
+  assert.equal(ui.botao('Desconectar').props.disabled, true);
+  await ui.botao('Renovar credencial').props.onClick();
+  await ui.botao('Desconectar').props.onClick();
+  assert.equal(ui.reautenticacoes, 1);
+  await ui.clicar('Conferir de novo');
+  assert.deepEqual(ui.corpos.slice(-2).map(({ tentativaId }) => tentativaId), ['tentativa-sintetica', nova.id]);
+});
+
+for (const acao of ['Renovar credencial', 'Desconectar']) {
+  test(`aba já montada consulta antes de ${acao} enquanto outra espera a Meta`, async () => {
+    const conexaoAtual = conectada(null);
+    let atual = conexaoAtual;
+    let concluir;
+    const tentativa = { id: 'tentativa-sintetica', status: 'VALIDANDO' };
+    const opcoes = { montagemReal: true, consulta: () => respostaDaConfiguracao(atual) };
+    const abaA = montar({ ...opcoes,
+      login: (callback) => callback({ authResponse: { code: 'codigo-sintetico' } }),
+      concluirResposta: () => {
+        atual = { ...conexaoAtual, tentativa };
+        return new Promise((resolve) => { concluir = resolve; });
+      },
+    });
+    const abaB = montar(opcoes);
+    abaA.montarEfeitos();
+    abaB.montarEfeitos();
+    await esperar();
+
+    abaA.senha();
+    await abaA.clicar('Renovar credencial');
+    abaA.clicar('Continuar na Meta');
+    eventoMeta(abaA, { waba_id: '2002' });
+    assert.equal(typeof concluir, 'function');
+    try {
+      abaB.senha();
+      abaB.preencherDesconexao();
+      await abaB.clicar(acao);
+      assert.deepEqual(abaB.chamadas, [ROTA_CONFIGURACAO, ROTA_CONFIGURACAO]);
+      assert.equal(abaB.reautenticacoes, 0);
+      assert.ok(abaB.botao('Conferir de novo'));
+      assert.equal(abaB.botao('Renovar credencial').props.disabled, true);
+      assert.equal(abaB.botao('Desconectar').props.disabled, true);
+    } finally {
+      atual = conexaoAtual;
+      concluir({ json: async () => ({ ok: true }) });
+      await esperar();
+    }
+  });
+
+  test(`consulta pendente no corpo impede reautenticação para ${acao}`, async () => {
+    const { agendados, relogio } = relogioFalso();
+    let sinal;
+    const ui = montar({ inicial: conectada(null), relogio, consulta: (_, init) => {
+      sinal = init.signal;
+      return { json: () => new Promise(() => {}) };
+    } });
+    ui.senha();
+    ui.preencherDesconexao();
+    const operacao = ui.clicar(acao);
+    await esperar();
+    assert.equal(ui.reautenticacoes, 0);
+    agendados.find((item) => item.ms === 15_000 && item.fn).fn();
+    await operacao;
+    assert.equal(sinal.aborted, true);
+    assert.equal(ui.reautenticacoes, 0);
+    assert.deepEqual(ui.chamadas, [ROTA_CONFIGURACAO]);
+    assert.match(ui.texto(), /Não foi possível confirmar o estado atual/);
+    assert.equal(ui.botao(acao).props.carregando, false);
+  });
+}
+
+test('desconexão com reautenticação pendente bloqueia Continuar na Meta e descarta a preparação ao confirmar', async () => {
+  let reautenticarDesconexao;
+  let numReautenticacoes = 0;
+  const ui = montar({ inicial: conectada(null),
+    reautenticar: () => ++numReautenticacoes === 1 ? Promise.resolve({ ok: true }) : new Promise((resolve) => { reautenticarDesconexao = resolve; }),
+    consulta: (n) => n === 3 ? { json: async () => ({ ok: false }) } : undefined,
+  });
+  ui.senha();
+  await ui.clicar('Renovar credencial');
+  ui.preencherDesconexao();
+  const desconectando = ui.clicar('Desconectar');
+  await esperar();
+  assert.equal(typeof reautenticarDesconexao, 'function');
+  const continuar = ui.botao('Continuar na Meta');
+  assert.equal(continuar.props.disabled, true);
+  ui.clicar('Continuar na Meta', { ignorarBloqueio: true });
+  assert.equal(ui.chamadasLogin, 0);
+  reautenticarDesconexao({ ok: true });
+  await desconectando;
+  assert.match(ui.texto(), /WhatsApp desconectado/);
+  assert.match(ui.texto(), /A tela não foi atualizada/);
+  assert.ok(ui.botao('Renovar credencial'));
+  assert.equal(ui.botao('Continuar na Meta'), undefined);
+  assert.equal(ui.chamadasLogin, 0);
+  assert.equal(ui.chamadas.filter((url) => url.endsWith('/desconectar')).length, 1);
+});
+
+test('carga inicial com corpo pendente vence, permite repetir e descarta a resposta antiga', async () => {
+  const { agendados, relogio } = relogioFalso();
+  const tentativa = { id: 'tentativa-no-retry', status: 'VALIDANDO' };
+  let entregarCorpo, sinal;
+  const ui = montar({ montagemReal: true, relogio, consulta: (n, init) => {
+    if (n > 1) return respostaDaConfiguracao({ ...conectada(null), tentativa });
+    sinal = init.signal;
+    return { json: () => new Promise((resolve) => { entregarCorpo = resolve; }) };
+  } });
+  ui.montarEfeitos();
+  await esperar();
+  assert.match(ui.texto(), /Carregando/);
+  agendados.find((item) => item.ms === 15_000 && item.fn).fn();
+  await esperar();
+  assert.equal(sinal.aborted, true);
+  assert.match(ui.texto(), /Não foi possível carregar/);
+  await ui.clicar('Tentar carregar de novo');
+  entregarCorpo({ ok: true, data: { estado: 'NAO_CONFIGURADA', conexao: null, tentativa: null } });
+  await esperar();
+  assert.equal(ui.botao('Tentar carregar de novo'), undefined);
+  assert.equal(ui.botao('Renovar credencial').props.disabled, true);
+  await ui.clicar('Conferir de novo');
+  assert.equal(ui.corpos.at(-1).tentativaId, tentativa.id);
 });
 
 test('403 de reautenticação permanece na conferência após prazo e libera com INICIADA', async () => {
@@ -904,12 +1044,13 @@ test('reauth tardia no limite do prazo não dispara início', async () => {
   const ui = montar({ relogio, reautenticar: () => new Promise((resolve) => { entregar = resolve; }) });
   ui.senha();
   const preparando = ui.clicar('Preparar conexão');
+  await esperar();
   entregar({ ok: true });
   agendados.find((item) => item.ms === 30_000 && item.fn).fn();
   await preparando;
   await esperar();
   assert.equal(ui.livre(), true);
-  assert.equal(ui.chamadas.length, 0);
+  assert.deepEqual(ui.chamadas, [ROTA_CONFIGURACAO]);
 });
 
 test('desmontar durante a reautenticação impede o retorno de iniciar uma tentativa', async () => {
@@ -917,6 +1058,7 @@ test('desmontar durante a reautenticação impede o retorno de iniciar uma tenta
   const ui = montar({ reautenticar: () => new Promise((resolve) => { entregar = resolve; }) });
   ui.senha();
   const preparando = ui.clicar('Preparar conexão');
+  await esperar();
   ui.desmontar();
   entregar({ ok: true });
   await preparando;
