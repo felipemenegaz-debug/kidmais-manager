@@ -159,8 +159,6 @@ async function main() {
   let integrado = false;
   let fluxoUnico = false;
   const gateUnico = { operacaoId: '00000000-0000-4000-8000-0000000000ab', versao: 1, payloadHash: 'e'.repeat(64), campos: [], avisos: [] };
-  const dialogos = [];                                                             // mensagens de window.confirm
-  let respostaConfirm = false;
   const continuar = process.env.UI_CONTINUAR_APOS_FALHA === '1';                  // só para controle negativo
   const falhas = [];
   const caso = async (nome, fn) => {
@@ -178,7 +176,11 @@ async function main() {
     assert(alvo, 'DevTools do navegador indisponível.');
     cliente = cdp(alvo.webSocketDebuggerUrl); await cliente.aberto;
     cliente.on('Runtime.exceptionThrown', (p) => erros.push(p.exceptionDetails?.exception?.description?.split('\n')[0] ?? p.exceptionDetails?.text));
-    cliente.on('Page.javascriptDialogOpening', (p) => { dialogos.push(p.message); cliente.enviar('Page.handleJavaScriptDialog', { accept: respostaConfirm }).catch((e) => erros.push(`diálogo "${p.type}": ${e.message}`)); });
+    cliente.on('Page.javascriptDialogOpening', async () => {
+      erros.push('Diálogo nativo inesperado');
+      try { await cliente.enviar('Page.handleJavaScriptDialog', { accept: false }); }
+      catch (erro) { erros.push(`Falha ao dispensar diálogo nativo: ${erro.message}`); }
+    });
     cliente.on('Fetch.requestPaused', async (p) => {
       const url = new URL(p.request.url);
       const json = (status, corpo) => cliente.enviar('Fetch.fulfillRequest', { requestId: p.requestId, responseCode: status, responseHeaders: [{ name: 'content-type', value: 'application/json' }], body: Buffer.from(JSON.stringify(corpo)).toString('base64') });
@@ -333,17 +335,29 @@ async function main() {
       assert(outro, 'outro campo com valor');
       await aguardar(`(() => { const d = [...document.querySelectorAll('div')].find(x => x.querySelector(':scope > dt')?.textContent === ${JSON.stringify(outro)}); return !!d && d.textContent.includes('Não localizado no contrato'); })()`, 'campo marcado como não consta');
       // Cancelar: recusar mantém a revisão; aceitar volta ao envio
-      respostaConfirm = false; const d0 = dialogos.length;
       await clicar('Cancelar importação');
-      await aguardar(`true`, 'confirm'); await esperar(300);
-      assert.equal(dialogos.length, d0 + 1, 'confirmação exibida');
-      assert.match(dialogos.at(-1), /Descartar esta revisão\? Nenhum dado será gravado\./);
+      await aguardar(texto('Descartar esta revisão? Nenhum dado será gravado.'), 'confirmação exibida');
+      await clicar('Voltar');
       assert.equal(await existeBotao('Cancelar importação'), true, 'recusar mantém a revisão');
       assert.equal(await avaliar(texto('Valor corrigido na revisão')), true, 'a correção continua');
-      respostaConfirm = true;
+      while (await avaliar(`!!(${botao('Confirmar leitura')})`)) await clicar('Confirmar leitura');
+      await clicar('Confirmar importação');
+      const gatilhoInterno = 'div[role="dialog"][aria-labelledby="confirmar-titulo"] button';
+      assert.equal(await avaliar(`(() => {
+        const gatilho = document.querySelector('${gatilhoInterno}');
+        if (!gatilho || gatilho.textContent.trim() !== 'Cancelar importação') return false;
+        gatilho.click();
+        return true;
+      })()`), true);
+      await aguardar('!!document.querySelector("dialog.janela-confirmacao[open]")', 'descarte aberto sobre a confirmação');
+      await cliente.enviar('Input.dispatchKeyEvent', { type: 'keyDown', key: 'Escape', code: 'Escape', windowsVirtualKeyCode: 27 });
+      await cliente.enviar('Input.dispatchKeyEvent', { type: 'keyUp', key: 'Escape', code: 'Escape', windowsVirtualKeyCode: 27 });
+      await aguardar('!document.querySelector("dialog.janela-confirmacao[open]")', 'um Esc fecha somente o descarte');
+      assert.equal(await avaliar(`document.activeElement === document.querySelector('${gatilhoInterno}') && document.activeElement.textContent.trim() === 'Cancelar importação'`), true, 'confirmação continua aberta e recupera o foco');
+      await clicar('Voltar à revisão');
       await clicar('Cancelar importação');
+      await clicar('Descartar revisão');
       await aguardar(texto('Arraste o contrato para cá'), 'volta ao envio');
-      respostaConfirm = false;
     });
 
     await caso('Modo real: corrigir campo envia a revisão e mostra o valor corrigido', async () => {

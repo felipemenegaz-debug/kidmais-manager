@@ -1,4 +1,5 @@
 'use client';
+import { dialogo } from '@/components/JanelaConfirmacao';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { adminFetch } from '@/lib/http/admin-fetch';
@@ -309,14 +310,19 @@ export default function ModeloContrato() {
       setPublicando(false);
     }
   }
-  const descartar = () => executar(async (vigente) => {
-    if (!rascunho) return;
-    if (!window.confirm('Este rascunho será descartado e não poderá ser publicado. O registro continua guardado no sistema. Descartar?')) return;
-    await lerJson(await adminFetch(`${API}/${rascunho.id}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ acao: 'descartar' }) }));
-    // Se a pessoa já abriu outro rascunho, o descarte deste não fecha o que está aberto agora.
-    if (vigente()) { abrir(null); setAviso('Rascunho descartado.'); }
-    await carregarPainel();
-  });
+  const descartar = (gatilho: HTMLButtonElement) => {
+    if (!rascunho || operacoesRef.current) return;
+    const mesmaAbertura = capturarAbertura();
+    return dialogo.confirmar('Descartar rascunho', 'Este rascunho será descartado e não poderá ser publicado. O registro continua guardado no sistema. Descartar?', async () => {
+      if (!mesmaAbertura() || operacoesRef.current) return;
+      await executar(async (vigente) => {
+        await lerJson(await adminFetch(`${API}/${rascunho.id}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ acao: 'descartar' }) }));
+        // Se a pessoa já abriu outro rascunho, o descarte deste não fecha o que está aberto agora.
+        if (vigente()) { abrir(null); setAviso('Rascunho descartado.'); }
+        await carregarPainel();
+      });
+    }, gatilho);
+  };
   const recarregar = () => executar(async (vigente) => {
     if (!rascunho) return;
     const vale = pedirAbertura(vigente);
@@ -451,7 +457,7 @@ export default function ModeloContrato() {
         <section className={imp.alerta}>{(rascunho.avisos.length ? rascunho.avisos : ['MODELO_INESPERADO']).map((a) => <p key={a}>{mensagemAviso(a)}</p>)}</section>
         <div className={styles.actions}>
           <AdminPrimaryButton carregando={ocupado} onClick={() => void reler()}>Ler de novo</AdminPrimaryButton>
-          <button type="button" onClick={() => void descartar()}>Descartar</button>
+          <button type="button" disabled={ocupado} onClick={(evento) => void descartar(evento.currentTarget)}>Descartar</button>
           <button type="button" onClick={() => abrir(null)}>Voltar</button>
         </div>
       </div>
@@ -546,7 +552,7 @@ export default function ModeloContrato() {
           naoConfirmado={est.naoConfirmado} falhaConferir={est.falhaConferir} salvoEm={hora(est.salvoEm)} onConferir={() => void conferir()} />
         <div className={styles.actions}>
           <button type="button" data-sem-protecao onClick={voltarLista}>Voltar à lista</button>
-          <button type="button" disabled={bloqueado || ocupado} onClick={() => void descartar()}>Descartar rascunho</button>
+          <button type="button" disabled={bloqueado || ocupado} onClick={(evento) => void descartar(evento.currentTarget)}>Descartar rascunho</button>
           <button type="button" disabled={!alterado || est.enviando || est.conferindo || bloqueado} aria-busy={est.enviando || undefined} onClick={() => void salvar()}>Salvar rascunho</button>
         </div>
       </div>

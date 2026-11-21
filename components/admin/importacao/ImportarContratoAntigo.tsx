@@ -1,4 +1,5 @@
 'use client';
+import { dialogo } from '@/components/JanelaConfirmacao';
 import { useEffect, useReducer, useRef, useState } from 'react';
 import Link from 'next/link';
 import { demoContractExtraction } from '@/lib/importacao-contrato/demo-extracao';
@@ -63,6 +64,7 @@ export default function ImportarContratoAntigo() {
     const gatilho = gatilhoModalRef.current;
     modalRef.current?.querySelector<HTMLElement>(FOCAVEIS)?.focus();
     function tecla(evento: KeyboardEvent) {
+      if (!(evento.target instanceof Node) || !modalRef.current?.contains(evento.target)) return;
       if (evento.key === 'Escape') {
         evento.preventDefault();
         despachar({ tipo: 'fecharConfirmacao' });
@@ -201,7 +203,7 @@ export default function ImportarContratoAntigo() {
 
           <aside className={styles.gate} aria-labelledby="gate-titulo">
             <h2 id="gate-titulo">Confirmação humana</h2>
-            <button type="button" className={styles.fantasma} onClick={() => { if (window.confirm('Descartar esta revisão? Nenhum dado será gravado.')) { despachar({ tipo: 'cancelar' }); setEditando(null); } }}>Cancelar importação</button>
+            <button type="button" className={styles.fantasma} onClick={async (evento) => { if (await dialogo.confirmar("Descartar revisão", 'Descartar esta revisão? Nenhum dado será gravado.', undefined, evento.currentTarget)) { despachar({ tipo: 'cancelar' }); setEditando(null); } }}>Cancelar importação</button>
             {extracao.fonte === 'DEMONSTRACAO' && <p className={styles.discreto}>Resumo dos dados de exemplo. O arquivo não foi processado.</p>}
             <Resumo linhas={resumo} />
             <div className={styles.pendencias}>
@@ -222,7 +224,7 @@ export default function ImportarContratoAntigo() {
           <div className={styles.cortina} aria-hidden="true" onClick={() => despachar({ tipo: 'fecharConfirmacao' })} />
           <div ref={modalRef} className={styles.modal} role="dialog" aria-modal="true" aria-labelledby="confirmar-titulo" aria-describedby="confirmar-aviso">
             <h2 id="confirmar-titulo">Confirmar importação</h2>
-            <button type="button" className={styles.fantasma} onClick={() => { if (window.confirm('Descartar esta revisão? Nenhum dado será gravado.')) { despachar({ tipo: 'cancelar' }); setEditando(null); } }}>Cancelar importação</button>
+            <button type="button" className={styles.fantasma} onClick={async (evento) => { if (await dialogo.confirmar("Descartar revisão", 'Descartar esta revisão? Nenhum dado será gravado.', undefined, evento.currentTarget)) { despachar({ tipo: 'cancelar' }); setEditando(null); } }}>Cancelar importação</button>
             <Resumo linhas={resumo} />
             {naoEncontrados.length > 0 && <p className={styles.discreto}>{plural(naoEncontrados.length, 'campo não encontrado ficará', 'campos não encontrados ficarão')} em branco para completar depois.</p>}
             <p id="confirmar-aviso" className={styles.aviso}>Modo demonstração: o arquivo não foi processado e o resumo usa dados de exemplo. Nada é gravado: cliente, contrato, festa e pagamentos continuam como estão. A persistência definitiva será habilitada após validação do Import Engine.</p>

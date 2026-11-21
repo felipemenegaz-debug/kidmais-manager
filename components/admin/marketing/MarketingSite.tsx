@@ -1,4 +1,5 @@
 'use client';
+import { dialogo as janela } from '@/components/JanelaConfirmacao';
 /* eslint-disable @next/next/no-img-element -- Miniaturas servidas pela rota administrativa (WebP já reprocessado), sem otimizador remoto. */
 import { useEffect, useRef, useState, type KeyboardEvent, type ReactNode } from 'react';
 import { ESTILOS_SITE, type ConteudoPublicado, type ConteudoSite, type EstiloSite } from '@/lib/marketing/site/conteudo';
@@ -227,7 +228,7 @@ export default function MarketingSite() {
           {podeEditar && <button type="button" className={styles.secundario} disabled={ocupado || !sujo} onClick={() => void salvar()}>Salvar rascunho</button>}
           {pode('MARKETING_SITE_PUBLICAR') && <AdminPrimaryButton type="button" carregando={ocupado} disabled={sujo || dados.site.pendencias.length > 0}
             title={sujo ? 'Salve o rascunho antes de publicar' : dados.site.pendencias.length ? 'Resolva as pendências (aba Publicação e SEO)' : undefined}
-            onClick={() => { if (window.confirm(`Publicar o rascunho salvo do site da ${nomeUnidade}? Ele passa a ser a página pública.`)) void acao({ acao: 'publicar', siteId: dados.site!.id, rascunhoVersao: versaoRascunho }, 'Site publicado.'); }}>Publicar</AdminPrimaryButton>}
+            onClick={async (evento) => { if (await janela.confirmar("Publicar site", `Publicar o rascunho salvo do site da ${nomeUnidade}? Ele passa a ser a página pública.`, undefined, evento.currentTarget)) void acao({ acao: 'publicar', siteId: dados.site!.id, rascunhoVersao: versaoRascunho }, 'Site publicado.'); }}>Publicar</AdminPrimaryButton>}
         </div>
       </div>
       {!podeEditar && <p className={styles.info}>Seu acesso permite só visualizar o site. Peça à Gestão a permissão de edição em Marketing → Permissões.</p>}
@@ -414,15 +415,18 @@ function AbaFotos({ siteId, imagens, conteudo, editar, podeEditar, aoMudar, rast
     setProgresso(null);
     if (arquivo.current) arquivo.current.value = '';
   }
-  async function remover(id: string) {
-    if (!window.confirm('Remover a foto? Se estiver no site publicado, deixa de ser servida na hora (cópias em cache do navegador podem durar até 5 min).')) return;
-    try {
-      const r = await rastrear(() => enviarMarketing<{ imagens: Imagem[] }>(`/api/admin/marketing/site/imagens/${id}`, { acao: 'remover', siteId }));
-      aoMudar(siteId, r.imagens);
-      // Tira a foto do rascunho EM EDIÇÃO (o mais recente, não uma cópia de antes do envio) e só se ainda for o mesmo site.
-      editar((c) => ({ ...c, identidade: { ...c.identidade, logoImagemId: c.identidade.logoImagemId === id ? null : c.identidade.logoImagemId },
-        galeria: c.galeria.filter((g) => g.imagemId !== id), pacotes: c.pacotes.map((p) => (p.imagemId === id ? { ...p, imagemId: null } : p)) }), siteId);
-    } catch (e) { setErros([e instanceof Error ? e.message : 'Não foi possível remover.']); }
+  async function remover(id: string, gatilho: HTMLButtonElement) {
+    await janela.confirmar('Remover foto', 'Remover a foto? Se estiver no site publicado, deixa de ser servida na hora (cópias em cache do navegador podem durar até 5 min).', async () => {
+      try {
+        const r = await rastrear(() => enviarMarketing<{ imagens: Imagem[] }>(`/api/admin/marketing/site/imagens/${id}`, { acao: 'remover', siteId }));
+        aoMudar(siteId, r.imagens);
+        // Tira a foto do rascunho EM EDIÇÃO (o mais recente, não uma cópia de antes do envio) e só se ainda for o mesmo site.
+        editar((c) => ({ ...c, identidade: { ...c.identidade, logoImagemId: c.identidade.logoImagemId === id ? null : c.identidade.logoImagemId },
+          galeria: c.galeria.filter((g) => g.imagemId !== id), pacotes: c.pacotes.map((p) => (p.imagemId === id ? { ...p, imagemId: null } : p)) }), siteId);
+      } catch (e) {
+        setErros([e instanceof Error ? e.message : 'Não foi possível remover.']);
+      }
+    }, gatilho);
   }
   const pos = (id: string) => conteudo.galeria.findIndex((g) => g.imagemId === id);
   const mover = (id: string, delta: -1 | 1) => editar((c) => {
@@ -459,7 +463,7 @@ function AbaFotos({ siteId, imagens, conteudo, editar, podeEditar, aoMudar, rast
             <button type="button" className={styles.fantasma} onClick={() => editar((c) => ({ ...c, galeria: p >= 0 ? c.galeria.filter((g) => g.imagemId !== i.id) : [...c.galeria, { imagemId: i.id, legenda: '' }].slice(0, 12) }))}>{p >= 0 ? 'Tirar do site' : 'Pôr na galeria'}</button>
             {p > 0 && <button type="button" className={styles.fantasma} aria-label="Mover para antes" onClick={() => mover(i.id, -1)}>←</button>}
             {p >= 0 && p < conteudo.galeria.length - 1 && <button type="button" className={styles.fantasma} aria-label="Mover para depois" onClick={() => mover(i.id, 1)}>→</button>}
-            <button type="button" className={styles.fantasma} onClick={() => void remover(i.id)}>Remover</button>
+            <button type="button" className={styles.fantasma} onClick={(evento) => void remover(i.id, evento.currentTarget)}>Remover</button>
           </div>}
           {p >= 0 && <input aria-label={`Legenda da foto ${n + 1}`} placeholder="Legenda (ajuda quem usa leitor de tela)" maxLength={140} value={conteudo.galeria[p]?.legenda ?? ''} className={styles.link}
             onChange={(e) => editar((c) => ({ ...c, galeria: c.galeria.map((g) => (g.imagemId === i.id ? { ...g, legenda: e.target.value } : g)) }))} />}
@@ -551,7 +555,7 @@ function AbaPublicacao({ dados, conteudo, editar, podeEditar, slug, setSlug, ver
       {site.pendencias.length > 0 && <div className={styles.aviso}><strong>Antes de publicar:</strong><ul>{site.pendencias.map((p) => <li key={p}>{p}</li>)}</ul></div>}
       {dados.previa && dados.previa.avisos.length > 0 && <div className={styles.aviso}><strong>Na publicação:</strong><ul>{dados.previa.avisos.map((p) => <li key={p}>{p}</li>)}</ul></div>}
       {pode('MARKETING_SITE_PUBLICAR') && site.estado === 'PUBLICADO' && <button type="button" className={styles.fantasma} disabled={ocupado}
-        onClick={() => { if (window.confirm('Despublicar? A página deixa de abrir para visitantes (e sai do sitemap).')) void acao({ acao: 'despublicar', siteId: site.id }, 'Site despublicado.'); }}>Despublicar</button>}
+        onClick={async (evento) => { if (await janela.confirmar("Despublicar site", 'Despublicar? A página deixa de abrir para visitantes (e sai do sitemap).', undefined, evento.currentTarget)) void acao({ acao: 'despublicar', siteId: site.id }, 'Site despublicado.'); }}>Despublicar</button>}
     </Secao>
 
     <fieldset disabled={!podeEditar} style={{ border: 0, padding: 0, margin: 0, minWidth: 0 }}>
@@ -605,7 +609,7 @@ function Dominios({ siteId, dominios, ambiente, pode, aoMudar, rastrear }: {
         {d.status !== 'ATIVO' && <button type="button" className={styles.fantasma} disabled={ocupado} onClick={() => void acao({ acao: 'simular-dns', id: d.id })}>Simular DNS configurado</button>}
         <button type="button" className={styles.secundario} disabled={ocupado} onClick={() => void acao({ acao: 'verificar', id: d.id })}>{d.status === 'ATIVO' ? 'Reverificar' : 'Verificar'}</button>
         {!d.principal && <button type="button" className={styles.fantasma} disabled={ocupado} onClick={() => void acao({ acao: 'principal', id: d.id })}>Tornar principal</button>}
-        <button type="button" className={styles.fantasma} disabled={ocupado} onClick={() => { if (window.confirm(`Remover ${d.host}? Deixa de abrir o site na hora; para voltar, cadastre e verifique de novo.`)) void acao({ acao: 'remover', id: d.id }); }}>Remover</button>
+        <button type="button" className={styles.fantasma} disabled={ocupado} onClick={async (evento) => { if (await janela.confirmar("Remover domínio", `Remover ${d.host}? Deixa de abrir o site na hora; para voltar, cadastre e verifique de novo.`, undefined, evento.currentTarget)) void acao({ acao: 'remover', id: d.id }); }}>Remover</button>
       </div>}
     </article>)}
     {pode && <form className={styles.filtros} onSubmit={(e) => { e.preventDefault(); if (host.trim()) void acao({ acao: 'solicitar', siteId, host: host.trim(), incluirWww: www }).then(() => setHost('')); }}>

@@ -28,3 +28,18 @@ body {
 /* Erros de formulário (N1/N2): o controle com erro fica vermelho em qualquer tela; a mensagem fica logo abaixo dele. */
 :where(input, select, textarea)[aria-invalid="true"] { border-color: #f87171 !important; box-shadow: 0 0 0 1px rgba(248, 113, 113, .55); }
 html { scroll-padding-bottom: 96px; }
+
+.janela-confirmacao {
+  position: fixed; inset: 0; margin: auto; width: min(31rem, calc(100% - 2rem));
+  max-height: calc(100dvh - 2rem); overflow: auto; padding: clamp(1.25rem, 4vw, 2rem);
+  color-scheme: dark; color: #eff2ff; background: #151b2e;
+  border: 1px solid #404962; border-radius: 1.25rem; box-shadow: 0 2rem 6rem #0008;
+}
+.janela-confirmacao::backdrop { background: rgb(9 13 27 / 85%); }
+.janela-confirmacao h2 { font-size: 1.35rem; font-weight: 700; }
+.janela-confirmacao p { white-space: pre-line; overflow-wrap: anywhere; color: #c9d1e4; margin: 1rem 0; line-height: 1.55; }
+.janela-confirmacao textarea { width: 100%; min-height: 5rem; padding: .7rem; border-radius: .6rem; background: #090d1b; border: 1px solid #616d8b; }
+.janela-confirmacao > div { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: .65rem; margin-top: 1.5rem; }
+.janela-confirmacao button { min-height: 44px; padding: .5rem 1rem; border-radius: .65rem; border: 1px solid #616d8b; font-weight: 650; cursor: pointer; }
+.janela-confirmacao button:last-child { background: #c5adff; border-color: transparent; color: #17102a; }
+.janela-confirmacao :focus-visible { outline: 2px solid #80f5c4; outline-offset: 3px; }

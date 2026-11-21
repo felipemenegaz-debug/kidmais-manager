@@ -1,3 +1,4 @@
+import { dialogo } from '../JanelaConfirmacao.ts';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import ts from 'typescript';
@@ -75,7 +76,7 @@ export function carregarComponente(arquivo: string, deps: Record<string, unknown
   new Function('require', 'exports', ts.transpileModule(readFileSync('components/identidade/reserva-email.ts', 'utf8'), {
     compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.CommonJS },
   }).outputText)((id: string) => { assert(id === 'react', `dependência não prevista: ${id}`); return hooks; }, reservaEmail);
-  const todos: Record<string, unknown> = { react: hooks, 'react/jsx-runtime': jsx, '@/lib/enderecos/cliente': { enderecoFinal: () => false }, '@/lib/http/busca-na-aba': { lerBuscaDaAba: () => '', guardarBuscaNaAba: () => undefined }, '@/components/identidade/reserva-email': reservaEmail, ...deps };
+  const todos: Record<string, unknown> = { '@/components/JanelaConfirmacao': { dialogo }, react: hooks, 'react/jsx-runtime': jsx, '@/lib/enderecos/cliente': { enderecoFinal: () => false }, '@/lib/http/busca-na-aba': { lerBuscaDaAba: () => '', guardarBuscaNaAba: () => undefined }, '@/components/identidade/reserva-email': reservaEmail, ...deps };
   todos['@/lib/oportunidades/modelo'] ??= modeloOportunidades;
   new Function('require', 'exports', js)((id: string) => { assert(id in todos, `dependência não prevista: ${id}`); return todos[id]; }, modulo);
 

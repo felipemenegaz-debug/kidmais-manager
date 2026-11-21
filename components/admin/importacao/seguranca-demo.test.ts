@@ -9,6 +9,7 @@ import ts from 'typescript';
  * a importação não fala com rede, repositório ou SQL, e a UI de IA só chama o endpoint somente leitura.
  */
 const IMPORTACAO = [
+  'components/JanelaConfirmacao.ts',
   'lib/importacao-contrato/modelo.ts',
   'lib/importacao-contrato/demo-extracao.ts',
   'lib/importacao-contrato/revisao.ts',
@@ -44,7 +45,7 @@ function analisar(arquivo: string) {
 }
 
 test('importação: nenhuma função chama rede, repositório, serviço de domínio ou SQL', () => {
-  const permitido = /^(react|next\/link|\.\/[\w.-]+|@\/lib\/importacao-contrato\/[\w-]+|@\/components\/admin\/importacao\/[\w-]+)$/;
+  const permitido = /^(react|@\/components\/JanelaConfirmacao|next\/link|\.\/[\w.-]+|@\/lib\/importacao-contrato\/[\w-]+|@\/components\/admin\/importacao\/[\w-]+)$/;
   for (const arquivo of IMPORTACAO) {
     const { imports, identificadores, literais } = analisar(arquivo);
     for (const origem of imports) assert.match(origem, permitido, `${arquivo} importa ${origem}`);
