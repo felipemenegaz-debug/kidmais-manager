@@ -29,12 +29,14 @@ export async function destinarSinalFormalizado(tx: DbExecutor, contrato: string,
     [movimento.empresa,movimento.pedido,creditar ? 'FORMALIZACAO' : 'FORMALIZACAO_SEM_CREDITO',creditar ? contrato : null]);
 }
 
-export async function encerrarGarantia(tx: DbExecutor, empresa: string, pedido: string, motivo: 'RECUSA' | 'DESISTENCIA') {
-  if (!await recebimentosInstalados(tx)) return false;
-  const r = await tx.query(`UPDATE pre_reserva_recebimentos SET encerramento=$3, encerrado_em=clock_timestamp()
+export async function encerrarGarantia(tx: DbExecutor, empresa: string, pedido: string, motivo: 'RECUSA' | 'DESISTENCIA', somenteAtiva = false) {
+  if (!await recebimentosInstalados(tx)) return null;
+  const r = await tx.query<{ encerradoEm: string }>(`UPDATE pre_reserva_recebimentos SET encerramento=$3, encerrado_em=clock_timestamp()
     WHERE empresa_id=$1 AND fechamento_id=$2 AND sinal_garantido_centavos IS NOT NULL AND encerramento IS NULL
-    RETURNING fechamento_id`, [empresa,pedido,motivo]);
-  return r.rows.length > 0;
+      AND (NOT $4::boolean OR garantia_ate > clock_timestamp())
+    RETURNING to_char(encerrado_em AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS "encerradoEm"`,
+    [empresa,pedido,motivo,somenteAtiva]);
+  return r.rows[0]?.encerradoEm ?? null;
 }
 
 const semBaixaNoPlano = `NOT EXISTS (SELECT FROM pagamento_recebimentos baixa

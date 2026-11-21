@@ -4,15 +4,27 @@ import { enviarOtpComAmbiente } from '../identidade/delivery';
 import { travarConfiguracaoAgenda } from '../agenda/trava-configuracao.ts';
 import { PacoteAdminError } from '../comercial/pacotes-admin.ts';
 import { encerrarGarantia } from './destinacao.ts';
+import { auditarMovimentoPreReserva } from './auditoria.ts';
+import { exigirSessaoMeuPedido, type SessaoMeuPedido } from './acesso-pedido.ts';
 
-export async function desistirDaGarantia(tx: DbExecutor, empresa: string, pedido: string, provaToken: string) {
-  const identidade = criarIdentityServiceComAmbiente(enviarOtpComAmbiente);
-  const titular = await identidade.resolverClientePorProva(provaToken, tx, 'FECHAMENTO_PUBLICO');
+export async function desistirDaGarantia(tx: DbExecutor, empresa: string, pedido: string, acesso: SessaoMeuPedido | string) {
+  const legado = typeof acesso === 'string';
+  const identidade = legado ? criarIdentityServiceComAmbiente(enviarOtpComAmbiente) : null;
+  const titular = legado ? await identidade!.resolverClientePorProva(acesso, tx, 'FECHAMENTO_PUBLICO')
+    : exigirSessaoMeuPedido(acesso, empresa);
   await travarConfiguracaoAgenda(tx, empresa, { modo: 'COMPARTILHADA', linha: 'KEY_SHARE' });
-  const alvo = await tx.query(`SELECT id FROM fechamentos WHERE empresa_id=$1 AND id=$2 AND cliente_id=$3
-    AND status='AGUARDANDO_CONTRATO' FOR UPDATE`,[empresa,pedido,titular.clienteId]);
-  if (!alvo.rows.length) throw new PacoteAdminError('PEDIDO_INDISPONIVEL','Pedido indisponível para desistência.',404);
-  if (!await encerrarGarantia(tx, empresa, pedido, 'DESISTENCIA'))
-    throw new PacoteAdminError('GARANTIA_INDISPONIVEL','A garantia já foi encerrada ou não existe.',409);
-  await identidade.consumirProvaParaFechamento(provaToken, pedido, tx);
+  const { rows: [alvo] } = await tx.query<{ status: string }>(`SELECT status FROM fechamentos
+    WHERE empresa_id=$1 AND id=$2 AND cliente_id=$3 FOR UPDATE`, [empresa,pedido,titular.clienteId]);
+  if (!legado) exigirSessaoMeuPedido(acesso, empresa);
+  if (!alvo || (legado && alvo.status !== 'AGUARDANDO_CONTRATO'))
+    throw new PacoteAdminError('PEDIDO_INDISPONIVEL','Pedido indisponível para desistência.',404);
+
+  const instante = alvo.status === 'AGUARDANDO_CONTRATO'
+    ? await encerrarGarantia(tx, empresa, pedido, 'DESISTENCIA', !legado) : null;
+  if (!instante) {
+    if (legado) throw new PacoteAdminError('GARANTIA_INDISPONIVEL','A garantia já foi encerrada ou não existe.',409);
+    return;
+  }
+  if (legado) await identidade!.consumirProvaParaFechamento(acesso, pedido, tx);
+  await auditarMovimentoPreReserva(tx, titular, 'PRE_RESERVA_DESISTENCIA', empresa, pedido, 'DESISTENCIA', instante);
 }
