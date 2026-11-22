@@ -185,7 +185,8 @@ const ESTADO_POSTGRES = {
   "lib/whatsapp/atendimento/revogacao-envio.postgres.test.ts": { descartavel: "082" },
   // D2/D3: exclusão (pedido e retenção), PARAR preservado, tarefas pendentes, revogação/troca de link/expiração de arquivos.
   "lib/whatsapp/atendimento/privacidade.postgres.test.ts": { descartavel: "082" },
-  "lib/whatsapp/atendimento/resultado.postgres.test.ts": { descartavel: "atual" },
+  // Modelo 082: o "atual" não tem as tabelas do atendimento nem ia_uso_modelo (055a).
+  "lib/whatsapp/atendimento/resultado.postgres.test.ts": { descartavel: "082" },
   // 12/10: correções da revisão independente de 69dc301 (H2, M1, M5, M3, B2, M4, B1).
   "lib/whatsapp/atendimento/revisao-correcoes.postgres.test.ts": { descartavel: "082" },
   // 12/10: correções da revisão independente de 5699dfc (A1 configuração vigente, M1 posse da retenção, M2 callbacks).
