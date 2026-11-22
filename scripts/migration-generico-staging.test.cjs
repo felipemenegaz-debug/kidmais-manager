@@ -293,6 +293,33 @@ test('P3-1: conexão que não abre: FALHA (2), NAO_COMMITADA, sem unlock, end() 
   assert.equal(p.codigo, 2); assert.equal(p.saida.resultado, 'FALHA'); assert.match(p.saida.limpeza, /^END END_SEM_RESPOSTA/);
 });
 
+test('Astra r2 do código: em processo próprio, end() pendente depois de connect rejeitado mantém o processo até o prazo ⇒ FALHA (2) impressa; end normal sai na hora', () => {
+  const {spawnSync} = require('node:child_process');
+  const env = {...process.env}; delete env.DATABASE_URL; delete env.KIDMAIS_HOMOLOGACAO_DATABASE_URL;
+  const rodar = codigo => spawnSync(process.execPath, ['-e', codigo], {cwd: raiz, env, encoding: 'utf8', timeout: 20000});
+  // O comando da Astra: sem o timer vivo, o processo saía com 0 e sem saída.
+  const e = rodar("require('./scripts/migration-generico-staging.cjs').encerrar({end: () => new Promise(() => {})}, 30)" +
+    ".catch(e => { console.error(e.message); process.exitCode = 2; })");
+  assert.equal(e.status, 2, e.stdout + e.stderr); assert.match(e.stderr, /END_SEM_RESPOSTA/);
+  // O mesmo caminho da CLI (principal + impressão + exitCode), com Client que não conecta e end() que nunca resolve.
+  const cli = prazo => rodar([
+    "const s = require('./scripts/migration-generico-staging.cjs');",
+    "class C { on() {} async connect() { throw new Error('ECONNREFUSED simulado'); } end() { return " + (prazo ? 'new Promise(() => {})' : 'Promise.resolve()') + "; } async query() {} }",
+    'const env = ' + JSON.stringify(ENV_STG) + ';',
+    "s.principal(['--conferir', '120'], env, {Client: C, prazoEnd: " + (prazo ?? 5000) + '}).then(({codigo, saida}) => {',
+    '  (codigo === 0 ? console.log : console.error)(JSON.stringify(saida)); process.exitCode = codigo; });',
+  ].join('\n'));
+  const p = cli(50);
+  assert.equal(p.status, 2, p.stdout + p.stderr);
+  const saida = JSON.parse(p.stderr.trim().split('\n').at(-1));
+  assert.equal(saida.resultado, 'FALHA'); assert.match(saida.limpeza, /^END END_SEM_RESPOSTA/);
+  // end() que resolve: o clearTimeout libera o processo sem esperar os 5 s do prazo padrão.
+  const t0 = Date.now();
+  const n = cli();
+  assert.equal(n.status, 2, n.stdout + n.stderr); assert.equal(JSON.parse(n.stderr.trim().split('\n').at(-1)).limpeza, undefined);
+  assert.ok(Date.now() - t0 < 4000, 'saiu sem esperar o prazo: ' + (Date.now() - t0) + ' ms');
+});
+
 test('identidade de outro banco: FALHA (2) depois da trava, sem escrita, unlock feito', async () => {
   const C = clienteFalso({identidade: {...ID_STG, db: 'kidmais_production'}});
   const {codigo, saida} = await s.principal(['--aplicar-autorizado', '120', '--backup', BACKUP], ENV_STG, {Client: C});

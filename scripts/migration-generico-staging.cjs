@@ -116,10 +116,14 @@ function plano({raiz = raizPadrao} = {}) {
 }
 
 const PRAZO_END_MS = 5000;
-/** end() com prazo: depois de um connect() rejeitado o pg pode nunca resolver; o prazo vira diagnóstico de limpeza. */
+/**
+ * end() com prazo: depois de um connect() rejeitado o pg pode nunca resolver; o prazo vira diagnóstico de limpeza.
+ * O timer NÃO usa unref (Astra r2 do código): é ele que mantém o processo vivo até o prazo, para a CLI imprimir a FALHA e
+ * sair com código 2; o clearTimeout do finally mantém imediato o encerramento normal.
+ */
 function encerrar(db, prazo = PRAZO_END_MS) {
   let t;
-  const tempo = new Promise((_, rej) => { t = setTimeout(() => rej(new Error('END_SEM_RESPOSTA')), prazo); t.unref?.(); });
+  const tempo = new Promise((_, rej) => { t = setTimeout(() => rej(new Error('END_SEM_RESPOSTA')), prazo); });
   return Promise.race([Promise.resolve().then(() => db.end()), tempo]).finally(() => clearTimeout(t));
 }
 
