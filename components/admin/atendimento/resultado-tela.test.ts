@@ -41,10 +41,25 @@ test('resultado: dois meses, entrega confirmada, cobertura em São Paulo e núme
   assert.deepEqual(elementos(tela).filter(e => e.type === 'h2').map(texto), ['dezembro de 2026', 'novembro de 2026']);
   assert.match(texto(tela), /Medidas internas de uso.*A fatura da Meta é separada/);
   assert.match(texto(tela), /30\/11\/2026.*Números de mensagens anteriores a essa data não aparecem/);
-  assert.match(texto(tela), /Sessões de atendimento de 24 h2\.345Mensagens de entrada3\.456/);
+  assert.match(texto(tela), /Sessões de atendimento de 24 h2\.345Mensagens de entrada3\.456/);
+  assert.doesNotMatch(texto(tela), /24 h/, '24 e h ficam juntos na quebra de linha (espaço não separável)');
   assert.equal(achar(tela, 'tr', /ENTREGUEEntrega confirmada1\.23411/).props['data-confirmada'], true);
   assert.equal(achar(tela, 'tr', 'INCERTO08').props['data-confirmada'], false);
-  assert.match(texto(tela), /Custo estimado de IA1\.234 chamadas · 1 com preço ausenteUSD 1\.234,567001BRL 0,000001EUR 0,00/);
+  assert.match(texto(tela), /Custo estimado de IA1\.234 chamadas · 1 com preço ausenteUSD 1\.234,567BRL < 0,0001EUR 0,00/);
+  assert.equal(achar(tela, 'header').props.className, 'topo topoResultado');
+});
+
+test('resultado: custo estimado com 2 a 4 casas, arredondado, e "< 0,0001" acima de zero', async () => {
+  const casos: [string, string][] = [
+    ['1919', 'USD 0,0019'], ['1500000', 'USD 1,50'], ['12345678', 'USD 12,3457'], ['99', 'USD < 0,0001'],
+    ['1', 'USD < 0,0001'], ['100', 'USD 0,0001'], ['149', 'USD 0,0001'], ['150', 'USD 0,0002'], ['0', 'USD 0,00'],
+    ['999950', 'USD 1,00'], ['1234567890123', 'USD 1.234.567,8901'], ['120000', 'USD 0,12'], ['123000', 'USD 0,123'],
+  ];
+  for (const [micros, esperado] of casos) {
+    const { tela } = await montar({ primeiraMensagemEm: null, meses: [{ mes: '2026-12', ...vazio,
+      ia: { chamadas: 1, semPreco: 0, custos: [{ moeda: 'USD', custoEstimadoMicros: micros }] } }] });
+    assert.equal(texto(achar(tela, 'li', /USD/)), esperado, micros);
+  }
 });
 
 test('resultado: estados vazio, preço ausente em todas as chamadas e falha de leitura', async () => {

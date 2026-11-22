@@ -105,8 +105,12 @@
 .saidasResultado{width:100%;border-collapse:collapse;font-size:14px;font-variant-numeric:tabular-nums}
 .saidasResultado caption{text-align:left;font-size:16px;font-weight:700;margin-bottom:8px}
 .saidasResultado th,.saidasResultado td{padding:8px;border-bottom:1px solid var(--km-border);text-align:right;overflow-wrap:anywhere}
+/* Cabeçalhos quebram só entre palavras ("Equipe" inteira; "Wall-e / automática" pode ir para duas linhas). */
+.saidasResultado th{overflow-wrap:normal;word-break:normal;hyphens:none}
 .saidasResultado th[scope=row],.saidasResultado thead th:first-child{text-align:left}
 .saidasResultado tr[data-confirmada=true]{background:color-mix(in srgb,var(--km-teal) 18%,var(--km-card-2));font-weight:700}
 .saidasResultado small{display:block;font-weight:600}
+/* Cabeçalho da tela no padrão das telas vizinhas quando quebram: título e texto em cima, "Voltar ao atendimento" na linha de baixo, à esquerda, longe do "Ajuda desta tela". */
+.topoResultado{flex-direction:column;align-items:flex-start;justify-content:flex-start}
 @media(max-width:900px){.mesesResultado{grid-template-columns:minmax(0,1fr)}}
-@media(max-width:420px){.saidasResultado th,.saidasResultado td{padding:8px 4px}}
+@media(max-width:420px){.saidasResultado{font-size:13px}.saidasResultado th,.saidasResultado td{padding:6px 4px}}

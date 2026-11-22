@@ -11,10 +11,13 @@ const meses = new Intl.DateTimeFormat('pt-BR', { timeZone: 'UTC', month: 'long',
 const dias = new Intl.DateTimeFormat('pt-BR', { timeZone: 'America/Sao_Paulo', dateStyle: 'short' });
 const falha = 'Não foi possível carregar o resultado do atendimento.';
 
+/** Custo em micros com 2 a 4 casas (arredondado). Acima de zero e abaixo de 0,0001 mostra "< 0,0001" para não parecer zero. */
 function formatarCusto(moeda: string, micros: string) {
-  const digitos = micros.padStart(7, '0');
-  const inteiro = numeros.format(BigInt(digitos.slice(0, -6)));
-  const fracao = digitos.slice(-6).replace(/0+$/, '').padEnd(2, '0');
+  const valor = BigInt(micros);
+  if (valor > 0n && valor < 100n) return `${moeda} < 0,0001`;
+  const decimilesimos = (valor + 50n) / 100n;
+  const inteiro = numeros.format(decimilesimos / 10000n);
+  const fracao = (decimilesimos % 10000n).toString().padStart(4, '0').replace(/0{1,2}$/, '');
   return `${moeda} ${inteiro},${fracao}`;
 }
 
@@ -40,7 +43,7 @@ export default function ResultadoAtendimento() {
   }, []);
 
   return <main className={styles.pagina}>
-    <header className={styles.topo}>
+    <header className={`${styles.topo} ${styles.topoResultado}`}>
       <div>
         <h1>Resultado</h1>
         <p>Medidas internas de uso do atendimento. A fatura da Meta é separada.</p>
@@ -60,7 +63,7 @@ export default function ResultadoAtendimento() {
           <h2 id={`resultado-${mes}`}><time dateTime={mes}>{meses.format(new Date(`${mes}-01T00:00:00Z`))}</time></h2>
           {entradas === 0 && saidas.every(saida => saida.equipe === 0 && saida.automatica === 0) && <p>Nenhuma mensagem guardada neste mês.</p>}
           <dl className={styles.totaisResultado}>
-            <div><dt>Sessões de atendimento de 24 h</dt><dd>{numeros.format(sessoes)}</dd></div>
+            <div><dt>{'Sessões de atendimento de 24 h'}</dt><dd>{numeros.format(sessoes)}</dd></div>
             <div><dt>Mensagens de entrada</dt><dd>{numeros.format(entradas)}</dd></div>
           </dl>
           <table className={styles.saidasResultado}>
