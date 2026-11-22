@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto';
+import { urlsMcp } from '../integracoes/mcp/config.ts';
 import { normalizarHost } from '../marketing/dominios/hosts.ts';
 import { avaliarConfiguracao, type AmbienteEnderecos, type CodigoEnderecos, type ModoEfetivo, type ModoSolicitado } from './roteamento.ts';
 
@@ -29,6 +30,13 @@ export type DiagnosticoEndereco = {
   coerencia: CoerenciaEnderecos | null;
   /** Origem efetiva dos links novos de mídia do WhatsApp (F4/M1). Nula sem modo válido em uso. */
   midiaEm: 'A' | 'N' | 'INDETERMINADA' | null;
+  /**
+   * Origem do recurso MCP (F4/M5): A ou N pela origem de MCP_PUBLIC_URL, AUSENTE sem a variável (canal sem URL pública).
+   * Valor que o próprio canal recusa (urlsMcp: query, fragmento, credenciais, fora de HTTPS) ou cujo caminho não é a rota
+   * /api/mcp (barra final aceita, como no canal) é INDETERMINADA, nunca A ou N.
+   * Nula sem modo válido em uso.
+   */
+  mcpEm: 'A' | 'N' | 'INDETERMINADA' | 'AUSENTE' | null;
   mcpRecursoSha256: string;
 };
 
@@ -63,10 +71,16 @@ export function diagnosticarEndereco(host: string | null, env: AmbienteDiagnosti
   const admin = env.ADMIN_AUTH_ORIGIN;
   let coerencia: CoerenciaEnderecos | null = null;
   let midiaEm: DiagnosticoEndereco['midiaEm'] = null;
+  let mcpEm: DiagnosticoEndereco['mcpEm'] = null;
   if (cfg.antiga && cfg.painel) {
     const a = cfg.antiga;
     const midiaEfetiva = env.WHATSAPP_ATENDIMENTO_MIDIA_ORIGEM || admin;
     midiaEm = origemIgual(midiaEfetiva, a) ? 'A' : cfg.nova && origemIgual(midiaEfetiva, cfg.nova) ? 'N' : 'INDETERMINADA';
+    const mcp = env.MCP_PUBLIC_URL;
+    // Mesma leitura do canal, com a regra de produção (sem http em loopback): URL que desliga o MCP não pode parecer coerente.
+    const lidoMcp = mcp ? urlsMcp({ MCP_PUBLIC_URL: mcp, NODE_ENV: 'production' })?.recurso : undefined;
+    const recursoMcp = lidoMcp && new URL(lidoMcp).pathname === '/api/mcp' ? lidoMcp : undefined;
+    mcpEm = !mcp ? 'AUSENTE' : !recursoMcp ? 'INDETERMINADA' : origemIgual(recursoMcp, a) ? 'A' : cfg.nova && origemIgual(recursoMcp, cfg.nova) ? 'N' : 'INDETERMINADA';
     coerencia = {
       convites: origemIgual(env.CONVITES_PUBLIC_ORIGIN || admin, cfg.painel),
       site: origemIgual(env.SITE_URL || admin, cfg.painel),
@@ -74,7 +88,9 @@ export function diagnosticarEndereco(host: string | null, env: AmbienteDiagnosti
       // A, ou N só quando escrita na própria variável (F4/M1): /api nunca é redirecionado, então N serve o arquivo em
       // todos os modos. N herdado de ADMIN_AUTH_ORIGIN, com a variável ausente, segue incoerente (H25: troca sem decisão).
       midia: midiaEm === 'A' || (midiaEm === 'N' && Boolean(env.WHATSAPP_ATENDIMENTO_MIDIA_ORIGEM)),
-      mcp: !env.MCP_PUBLIC_URL || origemIgual(env.MCP_PUBLIC_URL, a),
+      // A ou N (F4/M5): /api e /.well-known nunca são redirecionados, então N serve o recurso e os metadados OAuth em
+      // todos os modos. Trocar a origem invalida os tokens emitidos para a outra (audience): é decisão da M5, não erro.
+      mcp: mcpEm === 'AUSENTE' || mcpEm === 'A' || mcpEm === 'N',
     };
   }
   return {
@@ -87,12 +103,13 @@ export function diagnosticarEndereco(host: string | null, env: AmbienteDiagnosti
     tolerancia,
     coerencia,
     midiaEm,
+    mcpEm,
     mcpRecursoSha256: env.MCP_PUBLIC_URL ? createHash('sha256').update(env.MCP_PUBLIC_URL).digest('hex') : 'AUSENTE',
   };
 }
 
 /** Linha de log, sem valores: os mesmos campos do diagnóstico, menos o que depende do pedido. */
 export function linhaDeLogDoEndereco(env: AmbienteDiagnostico, agora = Date.now()) {
-  const { modoSolicitado, modoEfetivo, codigo, origemAtiva, toleranciaAtiva, tolerancia, coerencia, midiaEm, mcpRecursoSha256 } = diagnosticarEndereco(null, env, agora);
-  return `[Enderecos] ${JSON.stringify({ modoSolicitado, modoEfetivo, codigo, origemAtiva, toleranciaAtiva, tolerancia, coerencia, midiaEm, mcpRecursoSha256 })}`;
+  const { modoSolicitado, modoEfetivo, codigo, origemAtiva, toleranciaAtiva, tolerancia, coerencia, midiaEm, mcpEm, mcpRecursoSha256 } = diagnosticarEndereco(null, env, agora);
+  return `[Enderecos] ${JSON.stringify({ modoSolicitado, modoEfetivo, codigo, origemAtiva, toleranciaAtiva, tolerancia, coerencia, midiaEm, mcpEm, mcpRecursoSha256 })}`;
 }
