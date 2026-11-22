@@ -217,6 +217,13 @@ test('ligação real dos módulos sem env de Render: todo id pendente pela recus
   }
 });
 
+test('P3-2: limpeza do módulo (unlock/end) aparece na linha do id, OK ou pendente, sem trocar o resultado', () => {
+  assert.deepEqual(ca.avaliar('120', 'generico', {resultado: OK, limpeza: 'END end simulado'}), {ok: true, linha: '120 ' + OK + ' limpeza=END end simulado'});
+  const p = ca.avaliar('121', 'generico', {resultado: 'NAO_CONCLUSIVO', motivo: 'EXECUTOR_ATIVO 121', limpeza: 'UNLOCK x'});
+  assert.equal(p.ok, false); assert.match(p.linha, /^121 PENDENTE NAO_CONCLUSIVO EXECUTOR_ATIVO 121 limpeza=UNLOCK x$/);
+  assert.deepEqual(ca.avaliar('120', 'generico', {resultado: OK}), {ok: true, linha: '120 ' + OK});
+});
+
 test('ambiente e argumentos recusados ⇒ código 1', async () => {
   assert.equal((await ca.conferir({ambiente: 'prod', env: {}})).codigo, 1);
   const p = await ca.principal(['--ambiente', 'local'], {});
@@ -230,7 +237,8 @@ test('principal imprime o final; contrato do bootstrap ({codigo, linhas, pendent
   const p = await ca.principal(['--ambiente', 'staging'], {}, {Client: f.Client, ambiente117, conferencias: conferenciasOk(), conferirNoCliente117: async () => ({resultado: OK, chave: 'DESLIGADA'})});
   assert.equal(p.codigo, 0);
   assert.equal(p.linhas.at(-1), 'ANTECESSORAS_OK');
-  const fonte = fs.readFileSync(path.join(__dirname, 'registro-migrations-banco.cjs'), 'utf8');
+  // P3-3: normaliza CRLF (checkout com autocrlf) antes de procurar a quebra de linha do trecho.
+  const fonte = fs.readFileSync(path.join(__dirname, 'registro-migrations-banco.cjs'), 'utf8').replace(/\r\n/g, '\n');
   // O bootstrap repassa ao conferidor o MESMO Client só quando injetado (teste §4.1 com os adaptadores reais); sem injeção, o padrão de cada módulo.
   assert.ok(fonte.includes("require('./conferir-antecessoras.cjs').conferir({ambiente: amb, env: ctx.env, flagFranquia,\n      deps: ctx.clientInjetado ? {Client: ctx.Client} : {}})"));
   assert.match(fonte, /clientInjetado: Boolean\(deps\.Client\)/);

@@ -25,10 +25,12 @@ const linha = (id, v) => ({...Object.fromEntries(g.MIGRATIONS[id].criados.map((_
   ...Object.fromEntries((g.MIGRATIONS[id].removidos ?? []).map((_, i) => ['r' + i, !v]))});
 
 /**
- * Cliente falso multi-id. presentes: ids já aplicados. trava: resposta do pg_try_advisory_lock. falharEm: trecho de SQL que
- * lança. commitPerdido: o COMMIT confirma no servidor mas a resposta some. unlock/end: 'falso' | 'erro'.
+ * Cliente falso multi-id. presentes: ids já aplicados. trava: resposta do pg_try_advisory_lock (booleano, ou objeto por chave
+ * 'staging:<id>' com true por omissão). falharEm: trecho de SQL que lança. precheckNaEscrita: id cujo precheck reprova só dentro
+ * da transação de escrita (a leitura passou e outra sessão mudou o estado). commitPerdido: o COMMIT confirma no servidor mas a
+ * resposta some. unlock/end: 'falso' | 'erro'.
  */
-function clienteFalso({presentes = [], identidade = ID_STG, trava = true, falharEm, commitPerdido = false, unlock, end, connectFalha} = {}) {
+function clienteFalso({presentes = [], identidade = ID_STG, trava = true, falharEm, precheckNaEscrita, commitPerdido = false, unlock, end, connectFalha} = {}) {
   const estado = Object.fromEntries(s.IDS.map(id => [id, presentes.includes(id)]));
   const corpos = Object.fromEntries(s.IDS.map(id => [id, g.carregar(raiz, id)]));
   const log = []; let conexoes = 0, emTransacao = false, pendente = null, fechada = false;
@@ -39,7 +41,7 @@ function clienteFalso({presentes = [], identidade = ID_STG, trava = true, falhar
     async query(sql, params) {
       log.push({sql, params});
       if (falharEm && sql.includes(falharEm)) throw Object.assign(new Error('falha simulada em ' + falharEm), {code: 'P0001'});
-      if (sql === s.SQL.trava) return {rows: [{ok: trava}]};
+      if (sql === s.SQL.trava) return {rows: [{ok: typeof trava === 'object' ? (trava[params[0]] ?? true) : trava}]};
       if (sql === s.SQL.destrava) { if (unlock === 'erro') throw new Error('unlock simulado'); return {rows: [{ok: unlock !== 'falso'}]}; }
       if (sql === 'BEGIN') emTransacao = true;
       if (sql === 'ROLLBACK') { emTransacao = false; pendente = null; return {rows: [], command: 'ROLLBACK'}; }
@@ -53,6 +55,9 @@ function clienteFalso({presentes = [], identidade = ID_STG, trava = true, falhar
         if (sql === g.sqlEstado(id)) return {rows: [linha(id, estado[id])]};
         if (sql === g.sqlPrivilegios(id)) return {rows: [{...PRIV_OK}]};
         if (sql === corpos[id].migration) { assert.ok(emTransacao, 'migration só na transação'); pendente = id; return [{rows: [], command: 'CREATE'}]; }
+        if (sql === corpos[id].precheck && emTransacao && precheckNaEscrita === id) {
+          throw Object.assign(new Error('precheck ' + id + ' reprovado na transação de escrita'), {code: 'P0001'});
+        }
         if (sql === corpos[id].precheck || sql === corpos[id].postcheck) return [{rows: [], command: 'DO'}, {rows: [{aprovado: true}], command: 'SELECT'}];
       }
       return {rows: [], command: 'SET'};
@@ -71,6 +76,17 @@ test('plano: staging, lista fechada 120/121/110/111/115, hashes do genérico, se
   for (const x of saida.ids) assert.deepEqual(x.arquivos.map(a => a.sha256), g.MIGRATIONS[x.id].arquivos.map(a => a[2]));
   assert.equal(saida.ids.find(x => x.id === '111').exige, '110');
   assert.ok(saida.nuncaExecuta.includes('production'));
+  // §7.6/§7.7 (Astra r1 do código P2-2): as paradas objetivas na ordem impressa, entre as migrations certas.
+  const o = saida.ordem;
+  const pos = re => { const i = o.findIndex(x => re.test(x)); assert.ok(i >= 0, String(re)); return i; };
+  const sat = pos(/^PARADA satisfação .*SATISFACAO_PESQUISA_ENABLED.*web de staging.*cron/);
+  const fin = pos(/^PARADA financeiro depois da 121 .*saldoInicialCentavos null.*saldoFinalCentavos null.*SEM_ABERTURA.*financeiro_aberturas com 0 linhas/);
+  const c110 = pos(/^PARADA contagens depois da 110 /), c111 = pos(/^PARADA contagens depois da 111 /);
+  const p = id => pos(new RegExp('^' + id + ': '));
+  assert.ok(sat < p('120') && p('120') < p('121') && p('121') < fin && fin < p('110') && p('110') < c110 && c110 < p('111') && p('111') < c111 && c111 < p('115'), o.join('\n'));
+  for (const c of [o[c110], o[c111]]) assert.ok(c.includes(s.SQL_CONTAGENS_SATISFACAO) && /as três = 0/.test(c), c);
+  for (const tb of ['satisfacao_envios', 'satisfacao_entregas', 'satisfacao_respostas']) assert.match(s.SQL_CONTAGENS_SATISFACAO, new RegExp('FROM ' + tb + '\\b'));
+  assert.ok(saida.paradas.some(x => /satisfação.*financeiro.*contagens/.test(x)));
 });
 
 test('modo: ID_FORA_DA_LISTA, BACKUP_OBRIGATORIO, BACKUP_INVALIDO e argumentos recusados (código 1 pelo cli)', () => {
@@ -81,6 +97,12 @@ test('modo: ID_FORA_DA_LISTA, BACKUP_OBRIGATORIO, BACKUP_INVALIDO e argumentos r
   assert.throws(() => s.modo(['--aplicar-autorizado', '120']), /BACKUP_OBRIGATORIO/);
   assert.throws(() => s.modo(['--aplicar-autorizado', '120', '--backup']), /BACKUP_OBRIGATORIO/);
   assert.throws(() => s.modo(['--aplicar-autorizado', '120', '--backup', 'x;rm']), /BACKUP_INVALIDO/);
+  // P2-4: backup só de espaços ou pontuação, com espaço nas pontas ou fora de texto: recusado nas duas entradas.
+  for (const ruim of ['      ', '------', ' ' + BACKUP, BACKUP + ' ', '.', '']) {
+    assert.throws(() => s.modo(['--aplicar-autorizado', '120', '--backup', ruim]), /BACKUP_INVALIDO/, JSON.stringify(ruim));
+  }
+  assert.throws(() => s.exigirBackup(123456, 'X_RECUSADO'), /X_RECUSADO/);
+  assert.equal(s.exigirBackup(BACKUP, 'X_RECUSADO'), BACKUP);
   assert.throws(() => s.modo(['--conferir']), /ARGUMENTOS_RECUSADOS/);
   assert.deepEqual(s.modo(['--conferir', '115']), {modo: 'conferir', id: '115'});
   assert.deepEqual(s.modo(['--aplicar-autorizado', '111', '--backup', BACKUP]), {modo: 'aplicar', id: '111', backup: BACKUP});
@@ -94,6 +116,10 @@ test('7.3: cada recusa acontece antes de criar o cliente (zero conexões, zero i
     [{env: ENV_STG, id: '128', backup: BACKUP}, /ID_FORA_DA_LISTA/],
     [{env: ENV_STG, id: '120', backup: ''}, /BACKUP_OBRIGATORIO/],
     [{env: ENV_STG, id: '120', backup: undefined}, /BACKUP_OBRIGATORIO/],
+    [{env: ENV_STG, id: '120', backup: '      '}, /BACKUP_OBRIGATORIO/],
+    [{env: ENV_STG, id: '120', backup: '------'}, /BACKUP_OBRIGATORIO/],
+    [{env: ENV_STG, id: '120', backup: 123456}, /BACKUP_OBRIGATORIO/],
+    [{env: ENV_STG, id: '120', backup: ' ' + BACKUP}, /BACKUP_OBRIGATORIO/],
     [{env: ENV_PROD, id: '120', backup: BACKUP}, /SERVICO_RECUSADO|AMBIENTE_RECUSADO/],
     [{env: {...ENV_STG, KIDMAIS_DEPLOY_ENV: 'production'}, id: '120', backup: BACKUP}, /AMBIENTE_RECUSADO/],
     [{env: {...ENV_STG, PGOPTIONS: '-c x=1'}, id: '120', backup: BACKUP}, /AMBIENTE_PG_RECUSADO/],
@@ -157,6 +183,35 @@ test('111 sem a 110: ANTECESSORA_PENDENTE 110 (3), nenhuma escrita; com a 110 ap
   const D = clienteFalso({presentes: ['110']});
   const ok = await s.principal(['--aplicar-autorizado', '111', '--backup', BACKUP], ENV_STG, {Client: D});
   assert.equal(ok.codigo, 0); assert.equal(ok.saida.resultado, 'APLICADA_POSTCHECK_PASS'); assert.equal(D.estado['111'], true);
+  // A 111 segura staging:111 e staging:110, nessa ordem, antes de ler; solta na ordem inversa.
+  assert.deepEqual(D.log.filter(x => x.sql === s.SQL.trava).map(x => x.params[0]), ['staging:111', 'staging:110']);
+  assert.deepEqual(D.log.filter(x => x.sql === s.SQL.destrava).map(x => x.params[0]), ['staging:110', 'staging:111']);
+  assert.deepEqual(s.travasDe('111'), ['111', '110']); assert.deepEqual(s.travasDe('120'), ['120']);
+});
+
+test('P2-1: --conferir 111 aplica a mesma regra da antecessora (3); com a 110 aplicada, confere a 111', async () => {
+  const C = clienteFalso();
+  const r = await s.principal(['--conferir', '111'], ENV_STG, {Client: C});
+  assert.equal(r.codigo, 3); assert.equal(r.saida.resultado, 'ANTECESSORA_PENDENTE');
+  assert.match(r.saida.motivo, /^ANTECESSORA_PENDENTE 110 PRONTA_PARA_APLICAR/);
+  assert.ok(!C.log.some(x => x.sql === g.sqlEstado('111')), 'a 111 não foi lida');
+  const D = clienteFalso({presentes: ['110']});
+  const ok = await s.principal(['--conferir', '111'], ENV_STG, {Client: D});
+  assert.equal(ok.codigo, 0); assert.equal(ok.saida.resultado, 'PRONTA_PARA_APLICAR');
+  const J = clienteFalso({presentes: ['110', '111']});
+  assert.equal((await s.principal(['--conferir', '111'], ENV_STG, {Client: J})).saida.resultado, 'JA_APLICADA_POSTCHECK_PASS');
+});
+
+test('P2-1: trava staging:110 ocupada ⇒ 111 sem leitura nenhuma: conferir NAO_CONCLUSIVO (2) e aplicar EXECUTOR_ATIVO (3)', async () => {
+  const C = clienteFalso({presentes: ['110'], trava: {'staging:110': false}});
+  const c = await s.principal(['--conferir', '111'], ENV_STG, {Client: C});
+  assert.equal(c.codigo, 2); assert.equal(c.saida.resultado, 'NAO_CONCLUSIVO'); assert.equal(c.saida.motivo, 'EXECUTOR_ATIVO 110');
+  const a = await s.principal(['--aplicar-autorizado', '111', '--backup', BACKUP], ENV_STG, {Client: C});
+  assert.equal(a.codigo, 3); assert.equal(a.saida.resultado, 'EXECUTOR_ATIVO'); assert.equal(a.saida.motivo, 'EXECUTOR_ATIVO 110');
+  assert.equal(C.estado['111'], false);
+  // Só travas e o unlock da staging:111 obtida: nem identidade, nem estado.
+  assert.deepEqual(C.log.map(x => [x.sql === s.SQL.trava ? 'trava' : x.sql === s.SQL.destrava ? 'destrava' : x.sql, x.params?.[0]]),
+    [['trava', 'staging:111'], ['trava', 'staging:110'], ['destrava', 'staging:111'], ['trava', 'staging:111'], ['trava', 'staging:110'], ['destrava', 'staging:111']]);
 });
 
 test('7.4: recusa do conferir interno → RECUSARIA (3), NAO_COMMITADA, sem transação de escrita', async () => {
@@ -185,6 +240,19 @@ test('7.4: falha dentro da transação → FALHA (2), NAO_COMMITADA; COMMIT perd
   assert.equal(D.log.at(-1).sql, s.SQL.destrava);
 });
 
+test('P2-6 (§7.4): leitura passa, outra sessão muda o estado e o precheck da escrita reprova ⇒ FALHA (2), NAO_COMMITADA, sem objetos', async () => {
+  for (const id of ['120', '115']) {
+    const C = clienteFalso({precheckNaEscrita: id});
+    const {codigo, saida} = await s.principal(['--aplicar-autorizado', id, '--backup', BACKUP], ENV_STG, {Client: C});
+    assert.equal(codigo, 2, JSON.stringify(saida)); assert.equal(saida.resultado, 'FALHA'); assert.equal(saida.commit, 'NAO_COMMITADA');
+    assert.match(saida.mensagem, /reprovado na transação de escrita/);
+    assert.equal(saida.estadoAntes?.situacao, 'ausente', 'a leitura tinha passado');
+    assert.equal(C.estado[id], false, 'nenhum objeto');
+    assert.ok(C.log.some(x => x.sql === 'BEGIN') && C.log.some(x => x.sql === 'ROLLBACK') && !C.log.some(x => x.sql === 'COMMIT'));
+    assert.ok(!C.log.some(x => x.sql === g.carregar(raiz, id).migration), 'a migration não foi enviada');
+  }
+});
+
 test('7.4: exceção depois do COMMIT confirmado → FALHA (2) com commit=CONFIRMADO', async () => {
   const C = clienteFalso();
   const orig = C.prototype.query;
@@ -210,11 +278,19 @@ test('8.3: erro no unlock, unlock falso e erro no end viram o campo limpeza e n�
   assert.equal(codigo, 2); assert.equal(saida.commit, 'INDETERMINADO'); assert.match(saida.limpeza, /UNLOCK .*; END /);
 });
 
-test('conexão que não abre: FALHA (2), NAO_COMMITADA, sem unlock nem end', async () => {
+test('P3-1: conexão que não abre: FALHA (2), NAO_COMMITADA, sem unlock, end() tentado; erro ou demora do end vira limpeza', async () => {
   const C = clienteFalso({connectFalha: true});
   const {codigo, saida} = await s.principal(['--aplicar-autorizado', '120', '--backup', BACKUP], ENV_STG, {Client: C});
   assert.equal(codigo, 2); assert.equal(saida.etapa, 'CONEXAO'); assert.equal(saida.commit, 'NAO_COMMITADA');
-  assert.equal(C.log.length, 0); assert.equal(C.fechada(), false);
+  assert.equal(C.log.length, 0); assert.equal(C.fechada(), true); assert.equal(saida.limpeza, undefined);
+  const E = clienteFalso({connectFalha: true, end: 'erro'});
+  const e = await s.principal(['--conferir', '120'], ENV_STG, {Client: E});
+  assert.equal(e.codigo, 2); assert.equal(e.saida.resultado, 'FALHA'); assert.match(e.saida.limpeza, /^END end simulado/);
+  // end() que nunca resolve: o prazo encerra e vira limpeza, sem trocar o resultado.
+  const P = clienteFalso({connectFalha: true});
+  P.prototype.end = () => new Promise(() => {});
+  const p = await s.principal(['--conferir', '120'], ENV_STG, {Client: P, prazoEnd: 30});
+  assert.equal(p.codigo, 2); assert.equal(p.saida.resultado, 'FALHA'); assert.match(p.saida.limpeza, /^END END_SEM_RESPOSTA/);
 });
 
 test('identidade de outro banco: FALHA (2) depois da trava, sem escrita, unlock feito', async () => {

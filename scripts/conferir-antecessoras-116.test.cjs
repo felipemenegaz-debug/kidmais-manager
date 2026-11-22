@@ -146,6 +146,30 @@ test('8.1: declaração de outro ambiente no conferidor ⇒ código 1 antes de c
   }
 });
 
+test('P2-3: conferir116 exportado valida a declaração (texto) contra o ambiente e o alvo antes de criar o cliente', async () => {
+  const casos = [
+    ['staging', ENV_STG, DECL_PRD, /^Error: FLAG_DECLARADA_OUTRO_AMBIENTE /],
+    ['production', ENV_PRD, DECL_STG, /^Error: FLAG_DECLARADA_OUTRO_AMBIENTE /],
+    ['staging', ENV_PRD, DECL_STG, /^Error: FLAG_DECLARADA_OUTRO_AMBIENTE /],
+    ['staging', ENV_STG, true, /^Error: FLAG_DECLARACAO_INVALIDA/],
+    ['staging', ENV_STG, {ambiente: 'staging', registro: 'x', texto: DECL_STG}, /^Error: FLAG_DECLARACAO_INVALIDA/],
+    ['staging', ENV_STG, 'staging      ', /^Error: FLAG_DECLARACAO_INVALIDA/],
+    ['local', ENV_STG, DECL_STG, /^Error: AMBIENTE_RECUSADO/],
+  ];
+  for (const [ambiente, env, declaracao, re] of casos) {
+    const f = fabricaClient();
+    await assert.rejects(ca.conferir116({ambiente, env, declaracao, deps: {Client: f.Client, ambiente116, conferirNoCliente116: async () => dados(MOTIVO_CICLO)}}), re, String(declaracao));
+    assert.equal(f.instancias.length, 0, 'nenhum cliente criado');
+  }
+  // A operação não é exportada: só se chega a ela pela declaração validada.
+  assert.equal(ca.operacao116, undefined);
+  const f = fabricaClient();
+  const ok = await ca.conferir116({ambiente: 'staging', env: ENV_STG, declaracao: DECL_STG, deps: {Client: f.Client, ambiente116, conferirNoCliente116: async () => dados(MOTIVO_CICLO)}});
+  assert.equal(ok.linha, `116 PRESENTE_OPERACAO_PASS flag=declarada "${DECL_STG}"`);
+  const sem = await ca.conferir116({ambiente: 'staging', env: ENV_STG, deps: {Client: fabricaClient().Client, ambiente116, conferirNoCliente116: async () => dados(MOTIVO_CICLO)}});
+  assert.equal(sem.linha, '116 PENDENTE FLAG_NAO_DECLARADA ' + MOTIVO_CICLO);
+});
+
 test('principal do conferidor: --franquia-flag-ligada só depois de --ambiente; outros formatos recusados', async () => {
   assert.deepEqual(ca.modo(['--ambiente', 'staging', '--franquia-flag-ligada', DECL_STG]), {ambiente: 'staging', flagFranquia: DECL_STG});
   for (const argv of [['--franquia-flag-ligada', DECL_STG, '--ambiente', 'staging'], ['--ambiente', 'staging', '--franquia-flag-ligada'], ['--ambiente', 'staging', '--flag', DECL_STG]])

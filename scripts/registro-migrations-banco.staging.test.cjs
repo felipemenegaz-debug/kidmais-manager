@@ -293,35 +293,85 @@ test('§7.1 trava real: staging:120 segura em outra sessão ⇒ conferir NAO_CON
   } finally { await outra.end(); }
 });
 
-test('§7.4/§8.3 resposta do COMMIT perdida (proxy) ⇒ FALHA 2 commit=INDETERMINADO, último r guardado e limpeza; --conferir reconcilia', {skip: pular}, async () => {
-  const b = await banco();
+/**
+ * P2-5 (Astra r1 do código): COMMIT retido no proxy com o backend da 1ª sessão VIVO (transação aberta e a trava de sessão
+ * presa). O aplicador perde a conexão: FALHA 2 commit=INDETERMINADO. Enquanto a 1ª sessão vive, a conferência numa 2ª sessão
+ * dá NAO_CONCLUSIVO (EXECUTOR_ATIVO) sem ler nada; só depois de liberar o COMMIT retido ao servidor a conferência reconcilia.
+ */
+async function commitRetido(b, id, {antes} = {}) {
   const px = await apoio.proxy(P);
   try {
-    px.regra = (cx, d) => apoio.ehComando(d, 'COMMIT') ? 'cortarResposta' : 'passar';
-    const s = await aplicar(b, '120', {porta: px.porta});
+    px.regra = (cx, d) => apoio.ehComando(d, 'COMMIT') ? 'reter' : 'passar';
+    const s = await aplicar(b, id, {porta: px.porta});
     assert.equal(s.codigo, 2, JSON.stringify(s.saida));
     assert.equal(s.saida.resultado, 'FALHA');
     assert.equal(s.saida.commit, 'INDETERMINADO');
     assert.ok(s.saida.ultimo?.etapas?.length > 0, 'último registro guardado: ' + JSON.stringify(s.saida));
-    assert.match(s.saida.reconciliar, /não repetir; rodar --conferir 120/);
+    assert.match(s.saida.reconciliar, new RegExp('não repetir; rodar --conferir ' + id));
     assert.match(s.saida.limpeza ?? '', /UNLOCK/, 'a falha do unlock (conexão morta) vira o campo limpeza');
-    assert.ok(px.cortada, 'a resposta do COMMIT foi de fato cortada');
+    assert.ok(px.retida, 'o COMMIT ficou retido com o backend vivo');
+    // 1ª sessão viva: a trava staging:<id> continua presa no servidor.
+    const log = [];
+    const c = await conferirId(b, id, {log});
+    assert.equal(c.saida.resultado, 'NAO_CONCLUSIVO', JSON.stringify(c.saida));
+    assert.equal(c.saida.motivo, 'EXECUTOR_ATIVO ' + id);
+    assert.equal(c.codigo, 2);
+    assert.ok(log.every(q => q === reg.SQL.travaSessao), 'só a tentativa da trava: ' + log.join(' | '));
+    if (antes) await antes();
+    await px.liberar(px.retida); // o servidor recebe o COMMIT e a sessão termina (a trava cai com ela)
   } finally { await px.fechar(); }
-  // O servidor confirmou: a conferência reconcilia (e a trava foi liberada com o fim do backend).
   let c;
   for (let i = 0; i < 20; i++) {
-    c = (await conferirId(b, '120')).saida;
+    c = (await conferirId(b, id)).saida;
     if (c.resultado !== 'NAO_CONCLUSIVO') break;
     await new Promise(r => setTimeout(r, 250));
   }
   assert.equal(c.resultado, 'JA_APLICADA_POSTCHECK_PASS', JSON.stringify(c));
+}
+
+test('§7.4/§8.3 P2-5: COMMIT da 120 retido com a 1ª sessão viva ⇒ FALHA 2 INDETERMINADO; 2ª sessão NAO_CONCLUSIVO; liberado ⇒ reconcilia', {skip: pular}, async () => {
+  const b = await banco();
+  await commitRetido(b, '120', {antes: async () => {
+    // Antes de liberar, nada da 120 é visível fora da transação retida.
+    assert.equal(await existe(b, "to_regclass('public.financeiro_entradas_liquidacoes') IS NULL"), true);
+  }});
+});
+
+test('§7.4/§7.5 P2-5: 115 com os índices da 054 e da 115 coexistindo e COMMIT retido ⇒ NAO_CONCLUSIVO com a sessão viva; liberado ⇒ só o da 115', {skip: pular}, async () => {
+  const b = await banco();
+  await sql(b, 'CREATE INDEX fechamentos_115_empresa_data_idx ON public.fechamentos (empresa_id, data_evento)');
+  const dois = "to_regclass('public.fechamentos_054_empresa_idx') IS NOT NULL AND to_regclass('public.fechamentos_115_empresa_data_idx') IS NOT NULL";
+  assert.equal(await existe(b, dois), true);
+  assert.equal((await conferirId(b, '115')).saida.resultado, 'PRONTA_PARA_APLICAR');
+  await commitRetido(b, '115', {antes: async () => assert.equal(await existe(b, dois), true, 'os dois índices seguem visíveis até o COMMIT')});
+  assert.equal(await existe(b, "to_regclass('public.fechamentos_054_empresa_idx') IS NULL AND to_regclass('public.fechamentos_115_empresa_data_idx') IS NOT NULL"), true);
+});
+
+test('P2-1 trava real: staging:110 presa em outra sessão ⇒ 111 conferir NAO_CONCLUSIVO e aplicar EXECUTOR_ATIVO, sem leitura', {skip: pular}, async () => {
+  const b = await banco();
+  const outra = await apoio.conectar(P, b, 'kidmais-registro-outro-executor-110');
+  try {
+    assert.equal((await outra.query(reg.SQL.travaSessao, [gs.chave('110')])).rows[0].ok, true);
+    const log = [];
+    const c = await conferirId(b, '111', {log});
+    assert.equal(c.saida.resultado, 'NAO_CONCLUSIVO', JSON.stringify(c.saida));
+    assert.equal(c.saida.motivo, 'EXECUTOR_ATIVO 110');
+    assert.equal(c.codigo, 2);
+    const a = await aplicar(b, '111', {log});
+    assert.equal(a.saida.resultado, 'EXECUTOR_ATIVO');
+    assert.equal(a.codigo, 3);
+    assert.ok(log.every(q => q === reg.SQL.travaSessao || q === gs.SQL.destrava), 'só travas e o unlock da 111: ' + log.join(' | '));
+  } finally { await outra.end(); }
+  // Sem a trava presa, a 111 conferida sem a 110 aplicada: a mesma regra da antecessora do aplicar (código 3).
+  const sem = await conferirId(b, '111');
+  assert.equal(sem.saida.resultado, 'ANTECESSORA_PENDENTE');
+  assert.equal(sem.codigo, 3);
 });
 
 test('§4.4/§8.2 116: íntegra (vazia ou pendência legítima) = OK com ou sem declaração nos dois ambientes; dados ⇒ declaração; anomalias pendentes', {skip: pular}, async () => {
   const b = await banco();
   const so116 = async (amb, decl) => {
-    const flag = ca.lerDeclaracaoFlag(decl, amb, envDe(amb));
-    return (await ca.conferir116({ambiente: amb, env: envDe(amb), flag, deps: {Client: clienteSimulado(b, amb)}})).linha;
+    return (await ca.conferir116({ambiente: amb, env: envDe(amb), declaracao: decl, deps: {Client: clienteSimulado(b, amb)}})).linha;
   };
   const nucleo = async () => {
     const comum = require('./migration-116-comum.cjs');

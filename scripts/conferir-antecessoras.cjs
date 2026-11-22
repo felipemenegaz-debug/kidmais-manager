@@ -84,8 +84,8 @@ async function genericoStaging({id, env, deps}) {
  */
 function lerDeclaracaoFlag(texto, ambiente, env = {}) {
   if (texto === undefined || texto === null) return null;
-  const m = /^(production|staging) (.+)$/.exec(String(texto));
-  if (!m || !REGISTRO_FLAG.test(m[2]) || m[2] !== m[2].trim()) throw new Error('FLAG_DECLARACAO_INVALIDA (uso: ' + FLAG_FRANQUIA + ' "<ambiente> <registro>")');
+  const m = typeof texto === 'string' ? /^(production|staging) (.+)$/.exec(texto) : null;
+  if (!m || !REGISTRO_FLAG.test(m[2]) || m[2] !== m[2].trim() || !/[A-Za-z0-9]/.test(m[2])) throw new Error('FLAG_DECLARACAO_INVALIDA (uso: ' + FLAG_FRANQUIA + ' "<ambiente> <registro>")');
   const servico = require(`./migration-116-${m[1]}.cjs`).ALVO.servico;
   if (m[1] !== ambiente || env.KIDMAIS_DEPLOY_ENV !== m[1] || env.RENDER_SERVICE_ID !== servico)
     throw new Error(`FLAG_DECLARADA_OUTRO_AMBIENTE declarada=${m[1]} chamada=${String(ambiente).slice(0, 20)} alvo=${String(env.KIDMAIS_DEPLOY_ENV ?? 'ausente').slice(0, 20)}`);
@@ -113,8 +113,10 @@ function avaliar(id, tipo, r) {
     if (r?.codigo === 0 && r?.saida?.resultado === OK) return {ok: true, linha: `${id} ${OK}`};
     return pendente(id, `codigo=${r?.codigo} ${r?.saida?.resultado ?? 'SEM_RESULTADO'} ${curta(r?.saida?.falha?.mensagem ?? '')}`.trim());
   }
-  if (r?.resultado === OK) return {ok: true, linha: `${id} ${OK}`};
-  return pendente(id, `${r?.resultado ?? 'SEM_RESULTADO'} ${curta(r?.motivo ?? r?.mensagem ?? '')}`.trim());
+  // Diagnóstico de limpeza do adaptador (unlock/end) segue na linha do id, sem mudar o resultado nem o código.
+  const lp = r?.limpeza ? ` limpeza=${curta(r.limpeza)}` : '';
+  if (r?.resultado === OK) return {ok: true, linha: `${id} ${OK}${lp}`};
+  return pendente(id, `${r?.resultado ?? 'SEM_RESULTADO'} ${curta(r?.motivo ?? r?.mensagem ?? '')}`.trim() + lp);
 }
 
 /**
@@ -168,7 +170,7 @@ async function conferir117({ambiente, env, deps}) {
 async function conferirId({id, tipo, ambiente, env, deps, flag}) {
   try {
     if (tipo === 'm117' && !deps.conferencias?.['117']) return await conferir117({ambiente, env, deps});
-    if (tipo === 'm116' && !deps.conferencias?.['116']) return await conferir116({ambiente, env, deps, flag});
+    if (tipo === 'm116' && !deps.conferencias?.['116']) return await conferir116({ambiente, env, deps, declaracao: flag?.texto});
     const f = deps.conferencias?.[id];
     const r = f ? await f({id, tipo, ambiente, env, flag}) : await conferenciaPadrao({id, tipo, ambiente, env, deps});
     if (tipo === 'm117' || tipo === 'm116') return r?.linha ? {ok: r.ok === true, linha: r.linha} : avaliar(id, tipo, r);
@@ -192,8 +194,14 @@ async function operacao116(db, flag, {raiz, corpoSomenteLeitura}) {
   return {ok: true, linha: `116 PRESENTE_OPERACAO_PASS flag=declarada "${flag.texto}"`};
 }
 
-/** 116: conexão aberta aqui com alvo/identidade/SQL_IDENTIDADE do módulo do ambiente; núcleo de migration-116-comum.cjs. */
-async function conferir116({ambiente, env, deps, flag}) {
+/**
+ * 116: conexão aberta aqui com alvo/identidade/SQL_IDENTIDADE do módulo do ambiente; núcleo de migration-116-comum.cjs.
+ * `declaracao` é o TEXTO "<ambiente> <registro>" (ou ausente), validado aqui contra `ambiente` e `env` antes de criar o
+ * cliente (Astra r1 do código): esta entrada exportada não confia em validação feita por quem chama.
+ */
+async function conferir116({ambiente, env, deps, declaracao}) {
+  if (!AMBIENTES.includes(ambiente)) throw new Error(`AMBIENTE_RECUSADO ${String(ambiente).slice(0, 20)}`);
+  const flag = lerDeclaracaoFlag(declaracao, ambiente, env);
   const comum = require('./migration-116-comum.cjs');
   const conferirNoCliente = deps.conferirNoCliente116 ?? comum.conferirNoCliente;
   const m = deps.ambiente116?.[ambiente] ?? require(`./migration-116-${ambiente}.cjs`);
@@ -247,4 +255,4 @@ function cli() {
 }
 if (require.main === module) cli();
 module.exports = {AMBIENTES, TABELA, IDS, MOTIVO_RODIZIO, MOTIVO_CHAVE_LIGADA, ESTRUTURA_117, MOTIVOS_DADOS_116, OPERACAO_116, FLAG_FRANQUIA,
-  lerDeclaracaoFlag, ramoDados116, operacao116, conferir116, ramo117, avaliar, estrutural117, conferir117, conferir, modo, principal, cli};
+  lerDeclaracaoFlag, ramoDados116, conferir116, ramo117, avaliar, estrutural117, conferir117, conferir, modo, principal, cli};
