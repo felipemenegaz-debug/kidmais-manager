@@ -11,7 +11,7 @@ import { apiPublica } from "@/lib/fechamentos/rota-publica";
 import { TEXTO_CONFERENCIA_PIX } from "@/lib/pre-reserva/termos";
 import {
   acoesDoPedido, CODIGO_VENCIDO, corpoAceite, corpoCodigo, corpoDesistencia, corpoEntrada,
-  formatarValidade, iniciarLeitura, MOTIVOS_OFERTA, PEDIDO_COMUM, relogioDoServidor, rotuloDinheiro, rotuloErro,
+  formatarValidade, iniciarLeitura, limiteDoAceite, MOTIVOS_OFERTA, PEDIDO_COMUM, relogioDoServidor, rotuloDinheiro, rotuloErro,
   rotuloGarantia, rotuloPedido, SESSAO_ENCERRADA, termosDaOferta, vencimentoDaGarantia,
   type CanalEntrada, type Desafio, type Oferta, type Pedido, type PedidosDaSessao, type Pix,
 } from "./meu-pedido";
@@ -103,22 +103,23 @@ export default function MeuPedido({ empresa, logo }: { empresa: string | null; l
     if (!sessao) return;
     const { dados, relogio } = sessao;
     const expiraEm = Date.parse(dados.expiraEm);
-    const proximaGarantia = dados.pedidos.reduce((maisProxima, pedido) =>
-      Math.min(maisProxima, vencimentoDaGarantia(pedido) ?? Infinity), Infinity);
     const agendar = (prazo: number, atualizar: () => void) =>
       setTimeout(atualizar, Math.max(0, Math.ceil(prazo - relogio())));
-    const sessaoTimer = agendar(expiraEm, () => {
+    const timers = [agendar(expiraEm, () => {
       encerrarSessao(true);
       void carregar(true);
-    });
-    const garantiaTimer = proximaGarantia < expiraEm ? agendar(proximaGarantia, () => {
-      setAgoraExibido(Math.max(proximaGarantia, relogio()));
-      void carregar();
-    }) : undefined;
-    return () => {
-      clearTimeout(sessaoTimer);
-      clearTimeout(garantiaTimer);
-    };
+    })];
+    for (const pedido of dados.pedidos) {
+      for (const prazo of [vencimentoDaGarantia(pedido), limiteDoAceite(pedido)]) {
+        if (prazo === null || prazo >= expiraEm) continue;
+        timers.push(agendar(prazo, () => {
+          const agora = Math.max(prazo, relogio());
+          setAgoraExibido(anterior => Math.max(anterior, agora));
+          void carregar();
+        }));
+      }
+    }
+    return () => { timers.forEach(timer => clearTimeout(timer)); };
   }, [sessao, carregar, encerrarSessao]);
 
   function agoraParaAgir() {
@@ -130,7 +131,9 @@ export default function MeuPedido({ empresa, logo }: { empresa: string | null; l
   async function gravar(pedido: Pedido, acao: Acao) {
     const corpo = acao.tipo === "aceite" ? corpoAceite(acao.oferta) : corpoDesistencia(acao.confirmado);
     const agora = agoraParaAgir();
-    if (!corpo || agora === null || (acao.tipo === "desistencia" && !acoesDoPedido(pedido, agora).desistir)) return;
+    if (!corpo || agora === null) return;
+    const acoes = acoesDoPedido(pedido, agora);
+    if (!(acao.tipo === "aceite" ? acoes.aceitar : acoes.desistir)) return;
     iniciarLeitura(leitura);
     gravando.current = true;
     setOcupado(true);
@@ -153,7 +156,8 @@ export default function MeuPedido({ empresa, logo }: { empresa: string | null; l
 
   async function verPix(pedido: Pedido) {
     const aceite = pedido.preReserva.aceite;
-    if (!aceite || agoraParaAgir() === null) return;
+    const agora = agoraParaAgir();
+    if (!aceite || agora === null || !acoesDoPedido(pedido, agora).pix) return;
     const atual = iniciarLeitura(leitura);
     setErroAcao(null);
     setPix({ pedidoId: pedido.id, dados: null });
@@ -235,7 +239,7 @@ export function Entrada({ empresa, aviso, aoEntrar }: { empresa: string | null; 
   const campoErro = useId();
   const enviando = useRef(false);
   const [cpf, setCpf] = useState("");
-  const [canal, setCanal] = useState<CanalEntrada | "">("");
+  const [canal, setCanal] = useState<CanalEntrada>("WHATSAPP");
   const [desafio, setDesafio] = useState<Desafio | null>(null);
   const [codigo, setCodigo] = useState("");
   const [erro, setErro] = useState("");
@@ -253,7 +257,7 @@ export function Entrada({ empresa, aviso, aoEntrar }: { empresa: string | null; 
         if (resposta.ok) await aoEntrar();
         else if (resposta.codigo === "CODIGO_NAO_CONFIRMADO" && resposta.relogio && Date.parse(desafio.expiraEm) <= resposta.relogio()) setErro(CODIGO_VENCIDO);
         else setErro(rotuloErro(resposta.codigo));
-      } else if (canal) {
+      } else {
         const resposta = await requisitar<Desafio>(apiPublica(`${BASE}/entrada/iniciar`, empresa), corpoEntrada(cpf, canal));
         if (resposta.ok) setDesafio(resposta.data);
         else setErro(resposta.codigo === "DADOS_INVALIDOS" ? "Confira se o CPF está correto." : rotuloErro(resposta.codigo));
@@ -278,30 +282,21 @@ export function Entrada({ empresa, aviso, aoEntrar }: { empresa: string | null; 
             onChange={e => setCodigo(e.target.value.replace(/\D/g, ""))} />
         </label>
       ) : (
-        <>
-          <label key="cpf" className={familia.campo}>
-            CPF
-            <input inputMode="numeric" autoComplete="off" value={cpf} maxLength={14} required disabled={ocupado}
-              aria-invalid={Boolean(erro)} aria-describedby={erro ? campoErro : undefined}
-              onChange={e => setCpf(e.target.value)} />
-          </label>
-          <label className={familia.campo}>
-            Como você quer receber o código?
-            <select className={styles.canal} value={canal} required disabled={ocupado} onChange={e => {
-              const valor = e.target.value;
-              setCanal(valor === "WHATSAPP" || valor === "EMAIL" ? valor : "");
-            }}>
-              <option value="" disabled>Escolha um canal</option>
-              <option value="WHATSAPP">WhatsApp</option>
-              <option value="EMAIL">E-mail</option>
-            </select>
-          </label>
-        </>
+        <label key="cpf" className={familia.campo}>
+          CPF
+          <input inputMode="numeric" autoComplete="off" value={cpf} maxLength={14} required disabled={ocupado}
+            aria-invalid={Boolean(erro)} aria-describedby={erro ? campoErro : undefined}
+            onChange={e => setCpf(e.target.value)} />
+        </label>
       )}
       {erro && <p id={campoErro} className={familia.erro} role="alert">{erro}</p>}
-      <button className={familia.botao} type="submit" disabled={ocupado || (desafio ? codigo.length !== 6 : !cpf.trim() || !canal)}>
-        {desafio ? "Entrar" : "Receber código"}
+      <button className={familia.botao} type="submit" disabled={ocupado || (desafio ? codigo.length !== 6 : !cpf.trim())}>
+        {desafio ? "Entrar" : canal === "WHATSAPP" ? "Receber código por WhatsApp" : "Receber código por e-mail"}
       </button>
+      {!desafio && <button className={`${familia.secundario} ${styles.canal}`} type="button" disabled={ocupado}
+        onClick={() => setCanal(anterior => anterior === "WHATSAPP" ? "EMAIL" : "WHATSAPP")}>
+        {canal === "WHATSAPP" ? "Prefiro receber por e-mail" : "Prefiro receber por WhatsApp"}
+      </button>}
       {desafio && <button className={familia.secundario} type="button" disabled={ocupado} onClick={() => {
         setDesafio(null);
         setCodigo("");
@@ -325,6 +320,8 @@ export function CartaoPedido({ pedido, agora, ocupado, erro, pix, gravar, verPix
   const acoes = acoesDoPedido(pedido, agora);
   const vencimento = vencimentoDaGarantia(pedido);
   const atualizandoGarantia = vencimento !== null && vencimento <= agora;
+  const limite = limiteDoAceite(pedido);
+  const atualizandoOferta = limite !== null && limite <= agora;
   const sinais = atualizandoGarantia ? dinheiro.filter(sinal => sinal.situacao !== "EM_GARANTIA") : dinheiro;
   const validade = garantia?.ate ? formatarValidade(garantia.ate) : null;
   const erroId = useId();
@@ -363,7 +360,8 @@ export function CartaoPedido({ pedido, agora, ocupado, erro, pix, gravar, verPix
       {!oferta.disponivel && (oferta.motivo !== "GARANTIA_EXISTENTE" || !garantia) && (
         <p className={familia.texto}>{MOTIVOS_OFERTA[oferta.motivo]}</p>
       )}
-      {novoAceiteNecessario && (
+      {atualizandoOferta && <p className={familia.texto} role="status">Atualizando a situação da oferta…</p>}
+      {novoAceiteNecessario && !atualizandoOferta && (
         <p className={familia.texto}>A oferta mudou ou foi reaberta. O QR Code só fica disponível após o novo aceite.</p>
       )}
       {acoes.aceitar && oferta.disponivel && (

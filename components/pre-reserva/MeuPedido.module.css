@@ -32,15 +32,9 @@
 }
 
 .canal {
-  width: 100%;
-  min-width: 0;
-  min-height: 50px;
-  padding: 0 16px;
-  border: 1px solid var(--line-2);
-  border-radius: 14px;
-  background: #0a1430;
-  color: var(--text);
-  font: inherit;
+  width: auto;
+  border-color: transparent;
+  background: transparent;
 }
 
 .codigoPix {

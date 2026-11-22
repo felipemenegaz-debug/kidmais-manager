@@ -1,4 +1,5 @@
 import type { StatusFechamento } from "../clientes/types";
+import { instanteComOffsetSP } from "../../lib/pre-reserva/apresentacao-admin.ts";
 import type { listarMeuPedido, pixMeuPedido } from "../../lib/pre-reserva/meu-pedido";
 import { TERMOS_PRE_RESERVA, VERSAO_TERMOS_PRE_RESERVA } from "../../lib/pre-reserva/termos.ts";
 
@@ -117,12 +118,25 @@ export function vencimentoDaGarantia({ preReserva: { garantia } }: Pedido) {
   return Number.isFinite(vencimento) ? vencimento : null;
 }
 
+export function limiteDoAceite({ oferta, data, inicio }: Pedido) {
+  if (!oferta.disponivel) return null;
+  const [hora, fracao = ""] = inicio.split(".");
+  try {
+    const instante = Date.parse(instanteComOffsetSP(data, hora)) + Number(fracao.padEnd(3, "0").slice(0, 3));
+    // O servidor ainda permite o aceite quando faltam exatamente 24 horas.
+    return instante - 24 * 3_600_000 + 1;
+  } catch {
+    return null;
+  }
+}
+
 export function acoesDoPedido(pedido: Pedido, agora: number) {
-  const { status, oferta, preReserva } = pedido;
+  const { status, preReserva } = pedido;
   const { aguardandoConferencia, garantia, aceite, novoAceiteNecessario } = preReserva;
   const vencimento = vencimentoDaGarantia(pedido);
+  const limite = limiteDoAceite(pedido);
   return {
-    aceitar: oferta.disponivel && status === "AGUARDANDO_CONTRATO"
+    aceitar: limite !== null && agora < limite && status === "AGUARDANDO_CONTRATO"
       && !garantia?.ate && !aguardandoConferencia && (novoAceiteNecessario || !aceite),
     pix: status === "AGUARDANDO_CONTRATO" && !garantia?.ate && !novoAceiteNecessario
       && aguardandoConferencia && Boolean(aceite?.recebedor.cidade),

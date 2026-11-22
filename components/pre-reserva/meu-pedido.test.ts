@@ -73,6 +73,16 @@ test("a validade usa a data e a hora de São Paulo, inclusive na virada do dia",
   assert.equal(modelo.formatarValidade("inválido"), null);
 });
 
+test("o limite da oferta em São Paulo começa no primeiro milissegundo com menos de 24 horas", () => {
+  const ofertaDaNoite = { ...pedido, inicio: "23:30:00" };
+  const ultimas24Horas = Date.parse("2026-12-03T02:30:00.000Z");
+  assert.equal(modelo.limiteDoAceite(ofertaDaNoite), ultimas24Horas + 1);
+  assert.equal(modelo.acoesDoPedido(ofertaDaNoite, ultimas24Horas).aceitar, true);
+  assert.equal(modelo.acoesDoPedido(ofertaDaNoite, ultimas24Horas + 1).aceitar, false);
+  assert.equal(modelo.limiteDoAceite({ ...ofertaDaNoite, inicio: "23:30:00.125456" }), ultimas24Horas + 126);
+  assert.equal(modelo.limiteDoAceite(indisponivel), null);
+});
+
 test("ações seguem a oferta, o aceite vigente e a garantia em cada pedido", () => {
   assert.deepEqual(modelo.acoesDoPedido(pedido, instanteServidor), { aceitar: true, pix: false, desistir: false });
   assert.deepEqual(modelo.acoesDoPedido(novaOferta, instanteServidor), { aceitar: true, pix: false, desistir: false });
@@ -140,9 +150,13 @@ function controlarTempo(t: TestContext, diferencaDoAparelho: number) {
   let decorrido = 0;
   t.mock.timers.enable({ apis: ["Date", "setTimeout"], now: instanteServidor + diferencaDoAparelho });
   t.mock.method(performance, "now", () => decorrido);
-  return (milissegundos: number) => {
-    decorrido += milissegundos;
-    t.mock.timers.tick(milissegundos);
+  return {
+    passar(milissegundos: number) {
+      decorrido += milissegundos;
+      t.mock.timers.tick(milissegundos);
+    },
+    adiantarRelogio(milissegundos: number) { decorrido += milissegundos; },
+    dispararTimers(milissegundos: number) { t.mock.timers.tick(milissegundos); },
   };
 }
 
@@ -216,7 +230,7 @@ test("desistência só grava depois da confirmação que explica a liberação e
 });
 
 test("o vencimento da primeira garantia bloqueia a confirmação em aberto e atualiza o destino pela releitura", async (t) => {
-  const passar = controlarTempo(t, -20 * 60_000);
+  const { passar } = controlarTempo(t, -20 * 60_000);
   const tela = carregarTela();
   const confirmacao = Promise.withResolvers<boolean>();
   const cartao = carregarTela(() => confirmacao.promise);
@@ -274,9 +288,60 @@ test("o vencimento da primeira garantia bloqueia a confirmação em aberto e atu
   assert.equal(leituras, 3);
 });
 
+test("cada garantia atualiza ao vencer, mesmo com o GET da garantia anterior pendente", async (t) => {
+  const { passar } = controlarTempo(t, 20 * 60_000);
+  const tela = carregarTela();
+  const cartao = carregarTela();
+  const primeiraLeitura = Promise.withResolvers<Response>();
+  const segundaLeitura = Promise.withResolvers<Response>();
+  const outraGarantia: Pedido = {
+    ...garantia, id: "22222222-2222-4222-8222-222222222222",
+    preReserva: { ...garantia.preReserva, garantia: { situacao: "ATIVA", ate: new Date(instanteServidor + 45_000).toISOString() } },
+  };
+  let leituras = 0;
+  t.mock.method(globalThis, "fetch", async () => {
+    leituras++;
+    if (leituras === 1) return respostaDaSessao([garantia, outraGarantia]);
+    return leituras === 2 ? primeiraLeitura.promise : segundaLeitura.promise;
+  });
+  const render = () => tela.render("default", { empresa: null });
+  function renderCartao(id: string) {
+    const props = elementos(render()).find(e => e.type === tela.modulo.CartaoPedido && (e.props.pedido as Pedido).id === id)?.props;
+    assert.ok(props);
+    return cartao.render("CartaoPedido", props);
+  }
+  render();
+  tela.efeitos();
+  await tique();
+  render();
+  tela.efeitos();
+
+  passar(30_000);
+  assert.equal(leituras, 2);
+  assert.match(texto(renderCartao(garantia.id)), /Atualizando a situação da garantia/);
+  assert.match(texto(renderCartao(outraGarantia.id)), /Horário garantido.*Vinculado à garantia/);
+  passar(15_000);
+  assert.equal(leituras, 3);
+  for (const id of [garantia.id, outraGarantia.id]) {
+    const vencido = renderCartao(id);
+    assert.match(texto(vencido), /Atualizando a situação da garantia/);
+    assert.doesNotMatch(texto(vencido), /Horário garantido|Vinculado à garantia/);
+    assert.equal(talvez(vencido, "button", "Desistir da garantia"), undefined);
+  }
+
+  const expiraram = [garantia, outraGarantia].map(p => ({ ...p, preReserva: { ...p.preReserva,
+    garantia: { situacao: "EXPIRADA", ate: p.preReserva.garantia?.ate ?? null }, dinheiro: [],
+  } }));
+  segundaLeitura.resolve(respostaDaSessao(expiraram, instanteServidor + 45_000));
+  await tique();
+  primeiraLeitura.resolve(respostaDaSessao([garantia, outraGarantia], instanteServidor + 30_000));
+  await tique();
+  for (const p of expiraram) assert.match(texto(renderCartao(p.id)), /A garantia venceu/);
+});
+
 for (const diferenca of [20, -20]) {
   test(`a sessão é relida no prazo do servidor com aparelho ${diferenca > 0 ? "adiantado" : "atrasado"}`, async (t) => {
-    const passar = controlarTempo(t, diferenca * 60_000);
+    const { passar } = controlarTempo(t, diferenca * 60_000);
     const tela = carregarTela();
     const releitura = Promise.withResolvers<Response>();
     let leituras = 0;
@@ -313,7 +378,59 @@ test("o formulário exige marcar os termos integrais e desmarca depois do envio"
   assert.equal(achar(render(), "button", "Aceitar pré-reserva").props.disabled, true);
 });
 
-test("a escolha do canal e a mensagem são iguais com ou sem cadastro ou contato", async (t) => {
+test("termos marcados antes das 24 horas não permitem enviar o aceite depois do limite", async (t) => {
+  const { adiantarRelogio, dispararTimers } = controlarTempo(t, -20 * 60_000);
+  const tela = carregarTela();
+  const cartao = carregarTela();
+  const formulario = carregarTela();
+  const releitura = Promise.withResolvers<Response>();
+  const antesDoLimite = Date.parse("2026-12-02T18:59:00.000Z");
+  const expiraEm = antesDoLimite + 15 * 60_000;
+  let leituras = 0;
+  let posts = 0;
+  t.mock.method(globalThis, "fetch", async (_url: string, init?: RequestInit) => {
+    if (init?.method === "POST") {
+      posts++;
+      return Response.json({ ok: true });
+    }
+    return ++leituras === 1 ? respostaDaSessao([pedido], antesDoLimite, expiraEm) : releitura.promise;
+  });
+  const render = () => tela.render("default", { empresa: null });
+  const renderCartao = () => cartao.render("CartaoPedido", achar(render(), tela.modulo.CartaoPedido).props);
+  const renderFormulario = () => formulario.render("AceitarOferta", achar(renderCartao(), cartao.modulo.AceitarOferta).props);
+  render();
+  tela.efeitos();
+  await tique();
+  const antes = renderFormulario();
+  tela.efeitos();
+  alterar(antes, { checked: true });
+  const marcado = renderFormulario();
+  assert.equal(achar(marcado, "button", "Aceitar pré-reserva").props.disabled, false);
+  adiantarRelogio(120_000);
+  // O clique pode chegar antes do temporizador, por exemplo ao voltar para esta aba.
+  submeter(marcado);
+  assert.equal(posts, 0);
+  assert.equal(leituras, 1);
+
+  dispararTimers(60_000);
+  assert.equal(leituras, 1);
+  dispararTimers(1);
+  assert.equal(leituras, 2);
+  const durante = renderCartao();
+  assert.match(texto(durante), /Atualizando a situação da oferta/);
+  assert.ok(!elementos(durante).some(e => e.type === cartao.modulo.AceitarOferta));
+
+  const semOferta: Pedido = { ...pedido, oferta: { disponivel: false, motivo: "MENOS_DE_24_HORAS" } };
+  releitura.resolve(respostaDaSessao([semOferta], antesDoLimite + 120_000, expiraEm));
+  await tique();
+  const depois = renderCartao();
+  assert.match(texto(depois), /Faltam menos de 24 horas para a festa/);
+  assert.doesNotMatch(texto(depois), /Atualizando a situação da oferta/);
+  assert.ok(!elementos(depois).some(e => e.type === cartao.modulo.AceitarOferta));
+  assert.equal(posts, 0);
+});
+
+test("WhatsApp é o padrão, e-mail é opcional e a mensagem independe de cadastro e canal", async (t) => {
   const cpfComWhatsApp = "12345678909";
   const cpfSemWhatsApp = "52998224725";
   const cpfSemCadastro = "11144477735";
@@ -332,7 +449,6 @@ test("a escolha do canal e a mensagem são iguais com ou sem cadastro ou contato
     return Response.json({ ok: true });
   });
 
-  const opcoes = [["", "Escolha um canal"], ["WHATSAPP", "WhatsApp"], ["EMAIL", "E-mail"]];
   const cenarios = [cpfComWhatsApp, cpfSemWhatsApp, cpfSemCadastro]
     .flatMap(cpf => ["WHATSAPP", "EMAIL"].map(canal => ({ cpf, canal })));
   const mensagens: string[] = [];
@@ -341,14 +457,19 @@ test("a escolha do canal e a mensagem são iguais com ou sem cadastro ou contato
     const tela = carregarTela();
     const render = () => tela.render("Entrada", { empresa: "buffet", aviso: "", aoEntrar: async () => { entradas++; } });
     alterar(render(), { value: cpf });
-    assert.deepEqual(elementos(render()).filter(e => e.type === "option").map(e => [e.props.value, texto(e)]), opcoes);
-    assert.equal(achar(render(), "button", "Receber código").props.disabled, true);
-    (achar(render(), "select").props.onChange as (e: object) => void)({ target: { value: canal } });
-    assert.equal(achar(render(), "button", "Receber código").props.disabled, false);
+    assert.equal(achar(render(), "button", "Receber código por WhatsApp").props.disabled, false);
+    assert.equal(achar(render(), "button", "Prefiro receber por e-mail").props.type, "button");
+    if (canal === "EMAIL") {
+      clicar(render(), "Prefiro receber por e-mail");
+      assert.equal(achar(render(), "button", "Receber código por e-mail").props.disabled, false);
+      clicar(render(), "Prefiro receber por WhatsApp");
+      assert.equal(achar(render(), "button", "Receber código por WhatsApp").props.disabled, false);
+      clicar(render(), "Prefiro receber por e-mail");
+    }
     await submeter(render());
     const etapaCodigo = render();
     mensagens.push(texto(etapaCodigo));
-    assert.ok(!elementos(etapaCodigo).some(e => e.type === "select"));
+    assert.equal(talvez(etapaCodigo, "button", "Prefiro receber por e-mail"), undefined);
 
     if (cpf === cpfSemWhatsApp && canal === "EMAIL") {
       alterar(render(), { value: "012345" });
@@ -381,7 +502,6 @@ test("a entrada envia a confirmação mesmo com o aparelho adiantado e distingue
   let entradas = 0;
   const render = () => tela.render("Entrada", { empresa: "buffet", aviso: "", aoEntrar: async () => { entradas++; } });
   alterar(render(), { value: "123.456.789-00" });
-  (achar(render(), "select").props.onChange as (e: object) => void)({ target: { value: "WHATSAPP" } });
   await submeter(render());
   alterar(render(), { value: "012345" });
   await submeter(render());
