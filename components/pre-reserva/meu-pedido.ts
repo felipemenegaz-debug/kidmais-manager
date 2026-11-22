@@ -14,6 +14,7 @@ export type Pedido = Omit<PedidoLido, "oferta"> & { oferta: Oferta | OfertaIndis
 export type Pix = Awaited<ReturnType<typeof pixMeuPedido>>;
 export type PedidosDaSessao = { pedidos: Pedido[]; expiraEm: string };
 export type Desafio = { desafio: string; expiraEm: string };
+export type CanalEntrada = "WHATSAPP" | "EMAIL";
 
 const SITUACOES_PEDIDO = {
   RASCUNHO: "Rascunho",
@@ -134,7 +135,7 @@ export function termosDaOferta(oferta: Oferta) {
   return oferta.termos.versao === VERSAO_TERMOS_PRE_RESERVA ? TERMOS_PRE_RESERVA : oferta.termos.texto;
 }
 
-export const corpoEntrada = (cpf: string) => ({ cpf: cpf.replace(/\D/g, "") });
+export const corpoEntrada = (cpf: string, canal: CanalEntrada) => ({ cpf: cpf.replace(/\D/g, ""), canal });
 export const corpoCodigo = (desafio: string, codigo: string) => ({ desafio, codigo: codigo.trim() });
 export const corpoAceite = (oferta: Oferta) => ({ termosVersao: oferta.termos.versao, versaoOferta: oferta.versaoOferta });
 export const corpoDesistencia = (confirmado: boolean) => confirmado ? { confirmarLiberacao: true } : null;

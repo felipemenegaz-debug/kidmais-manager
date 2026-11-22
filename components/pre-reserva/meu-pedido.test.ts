@@ -87,7 +87,9 @@ test("ações seguem a oferta, o aceite vigente e a garantia em cada pedido", ()
 });
 
 test("corpos incluem exatamente os campos das rotas e os termos correspondem à versão exibida", () => {
-  assert.deepEqual(modelo.corpoEntrada("123.456.789-00"), { cpf: "12345678900" });
+  for (const canal of ["WHATSAPP", "EMAIL"] as const) {
+    assert.deepEqual(modelo.corpoEntrada("123.456.789-00", canal), { cpf: "12345678900", canal });
+  }
   assert.deepEqual(modelo.corpoCodigo("desafio-opaco", " 012345 "), { desafio: "desafio-opaco", codigo: "012345" });
   assert.equal(modelo.termosDaOferta(oferta), termos.TERMOS_PRE_RESERVA);
   const atualizada = { ...oferta, versaoOferta: "nova-oferta", termos: { versao: "nova-versao", texto: "Termos atualizados da API." } };
@@ -311,6 +313,57 @@ test("o formulário exige marcar os termos integrais e desmarca depois do envio"
   assert.equal(achar(render(), "button", "Aceitar pré-reserva").props.disabled, true);
 });
 
+test("a escolha do canal e a mensagem são iguais com ou sem cadastro ou contato", async (t) => {
+  const cpfComWhatsApp = "12345678909";
+  const cpfSemWhatsApp = "52998224725";
+  const cpfSemCadastro = "11144477735";
+  const pedidosDeCodigo: unknown[] = [];
+  let confirmacoes = 0;
+  t.mock.method(globalThis, "fetch", async (url: string, init?: RequestInit) => {
+    const corpo = JSON.parse(String(init?.body));
+    if (url === "/api/meu-pedido/entrada/iniciar?empresa=buffet") {
+      pedidosDeCodigo.push(corpo);
+      const desafio = corpo.cpf === cpfSemWhatsApp && corpo.canal === "EMAIL" ? "desafio-email" : "outro-desafio";
+      return Response.json({ ok: true, data: { desafio, expiraEm: ate } }, { status: 202 });
+    }
+    assert.equal(url, "/api/meu-pedido/entrada/confirmar?empresa=buffet");
+    assert.deepEqual(corpo, { desafio: "desafio-email", codigo: "012345" });
+    confirmacoes++;
+    return Response.json({ ok: true });
+  });
+
+  const opcoes = [["", "Escolha um canal"], ["WHATSAPP", "WhatsApp"], ["EMAIL", "E-mail"]];
+  const cenarios = [cpfComWhatsApp, cpfSemWhatsApp, cpfSemCadastro]
+    .flatMap(cpf => ["WHATSAPP", "EMAIL"].map(canal => ({ cpf, canal })));
+  const mensagens: string[] = [];
+  let entradas = 0;
+  for (const { cpf, canal } of cenarios) {
+    const tela = carregarTela();
+    const render = () => tela.render("Entrada", { empresa: "buffet", aviso: "", aoEntrar: async () => { entradas++; } });
+    alterar(render(), { value: cpf });
+    assert.deepEqual(elementos(render()).filter(e => e.type === "option").map(e => [e.props.value, texto(e)]), opcoes);
+    assert.equal(achar(render(), "button", "Receber código").props.disabled, true);
+    (achar(render(), "select").props.onChange as (e: object) => void)({ target: { value: canal } });
+    assert.equal(achar(render(), "button", "Receber código").props.disabled, false);
+    await submeter(render());
+    const etapaCodigo = render();
+    mensagens.push(texto(etapaCodigo));
+    assert.ok(!elementos(etapaCodigo).some(e => e.type === "select"));
+
+    if (cpf === cpfSemWhatsApp && canal === "EMAIL") {
+      alterar(render(), { value: "012345" });
+      await submeter(render());
+    }
+  }
+  assert.deepEqual(pedidosDeCodigo, cenarios);
+  assert.deepEqual([...new Set(mensagens)], [
+    "Se for possível enviar o código para este CPF, ele chegará pelo canal escolhido. Se o envio pelo WhatsApp falhar, o código poderá chegar por e-mail." +
+      "Código de seis númerosEntrarPedir outro código",
+  ]);
+  assert.equal(confirmacoes, 1);
+  assert.equal(entradas, 1);
+});
+
 test("a entrada envia a confirmação mesmo com o aparelho adiantado e distingue a recusa por prazo", async (t) => {
   t.mock.timers.enable({ apis: ["Date"], now: instanteServidor + 20 * 60_000 });
   const tela = carregarTela();
@@ -328,9 +381,8 @@ test("a entrada envia a confirmação mesmo com o aparelho adiantado e distingue
   let entradas = 0;
   const render = () => tela.render("Entrada", { empresa: "buffet", aviso: "", aoEntrar: async () => { entradas++; } });
   alterar(render(), { value: "123.456.789-00" });
+  (achar(render(), "select").props.onChange as (e: object) => void)({ target: { value: "WHATSAPP" } });
   await submeter(render());
-  const mensagem = /Se houver um cadastro para este CPF, o código será enviado/;
-  assert.match(texto(render()), mensagem);
   alterar(render(), { value: "012345" });
   await submeter(render());
   assert.match(texto(render()), /Código incorreto ou vencido/);

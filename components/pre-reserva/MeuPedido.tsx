@@ -13,13 +13,13 @@ import {
   acoesDoPedido, CODIGO_VENCIDO, corpoAceite, corpoCodigo, corpoDesistencia, corpoEntrada,
   formatarValidade, iniciarLeitura, MOTIVOS_OFERTA, PEDIDO_COMUM, relogioDoServidor, rotuloDinheiro, rotuloErro,
   rotuloGarantia, rotuloPedido, SESSAO_ENCERRADA, termosDaOferta, vencimentoDaGarantia,
-  type Desafio, type Oferta, type Pedido, type PedidosDaSessao, type Pix,
+  type CanalEntrada, type Desafio, type Oferta, type Pedido, type PedidosDaSessao, type Pix,
 } from "./meu-pedido";
 import familia from "../area-familia/AreaFamilia.module.css";
 import styles from "./MeuPedido.module.css";
 
 const BASE = "/api/meu-pedido";
-const MENSAGEM_CODIGO = "Se houver um cadastro para este CPF, o código será enviado para o WhatsApp informado ao buffet.";
+const MENSAGEM_CODIGO = "Se for possível enviar o código para este CPF, ele chegará pelo canal escolhido. Se o envio pelo WhatsApp falhar, o código poderá chegar por e-mail.";
 
 type Relogio = ReturnType<typeof relogioDoServidor>;
 type Resposta<T> = ({ ok: true; data: T } | { ok: false; codigo: string; status: number }) & { relogio: Relogio };
@@ -235,6 +235,7 @@ export function Entrada({ empresa, aviso, aoEntrar }: { empresa: string | null; 
   const campoErro = useId();
   const enviando = useRef(false);
   const [cpf, setCpf] = useState("");
+  const [canal, setCanal] = useState<CanalEntrada | "">("");
   const [desafio, setDesafio] = useState<Desafio | null>(null);
   const [codigo, setCodigo] = useState("");
   const [erro, setErro] = useState("");
@@ -252,8 +253,8 @@ export function Entrada({ empresa, aviso, aoEntrar }: { empresa: string | null; 
         if (resposta.ok) await aoEntrar();
         else if (resposta.codigo === "CODIGO_NAO_CONFIRMADO" && resposta.relogio && Date.parse(desafio.expiraEm) <= resposta.relogio()) setErro(CODIGO_VENCIDO);
         else setErro(rotuloErro(resposta.codigo));
-      } else {
-        const resposta = await requisitar<Desafio>(apiPublica(`${BASE}/entrada/iniciar`, empresa), corpoEntrada(cpf));
+      } else if (canal) {
+        const resposta = await requisitar<Desafio>(apiPublica(`${BASE}/entrada/iniciar`, empresa), corpoEntrada(cpf, canal));
         if (resposta.ok) setDesafio(resposta.data);
         else setErro(resposta.codigo === "DADOS_INVALIDOS" ? "Confira se o CPF está correto." : rotuloErro(resposta.codigo));
       }
@@ -277,15 +278,28 @@ export function Entrada({ empresa, aviso, aoEntrar }: { empresa: string | null; 
             onChange={e => setCodigo(e.target.value.replace(/\D/g, ""))} />
         </label>
       ) : (
-        <label key="cpf" className={familia.campo}>
-          CPF
-          <input inputMode="numeric" autoComplete="off" value={cpf} maxLength={14} required disabled={ocupado}
-            aria-invalid={Boolean(erro)} aria-describedby={erro ? campoErro : undefined}
-            onChange={e => setCpf(e.target.value)} />
-        </label>
+        <>
+          <label key="cpf" className={familia.campo}>
+            CPF
+            <input inputMode="numeric" autoComplete="off" value={cpf} maxLength={14} required disabled={ocupado}
+              aria-invalid={Boolean(erro)} aria-describedby={erro ? campoErro : undefined}
+              onChange={e => setCpf(e.target.value)} />
+          </label>
+          <label className={familia.campo}>
+            Como você quer receber o código?
+            <select className={styles.canal} value={canal} required disabled={ocupado} onChange={e => {
+              const valor = e.target.value;
+              setCanal(valor === "WHATSAPP" || valor === "EMAIL" ? valor : "");
+            }}>
+              <option value="" disabled>Escolha um canal</option>
+              <option value="WHATSAPP">WhatsApp</option>
+              <option value="EMAIL">E-mail</option>
+            </select>
+          </label>
+        </>
       )}
       {erro && <p id={campoErro} className={familia.erro} role="alert">{erro}</p>}
-      <button className={familia.botao} type="submit" disabled={ocupado || (desafio ? codigo.length !== 6 : !cpf.trim())}>
+      <button className={familia.botao} type="submit" disabled={ocupado || (desafio ? codigo.length !== 6 : !cpf.trim() || !canal)}>
         {desafio ? "Entrar" : "Receber código"}
       </button>
       {desafio && <button className={familia.secundario} type="button" disabled={ocupado} onClick={() => {
