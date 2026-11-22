@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import test from "node:test";
+import test, { type TestContext } from "node:test";
 import { achar, carregarComponente, cssFalso, elementos, talvez, texto, tique } from "../admin/teste-componente.ts";
 import * as formato from "../../lib/area-familia/formato.ts";
 import * as rotas from "../../lib/fechamentos/rota-publica.ts";
@@ -17,6 +17,7 @@ const pedido: Pedido = {
   preReserva: { aceite: null, aguardandoConferencia: false, novoAceiteNecessario: false, garantia: null, dinheiro: [], mensagemConferencia: null },
 };
 const ate = "2026-12-02T02:30:00.000Z";
+const instanteServidor = Date.parse(ate) - 30_000;
 const garantia: Pedido = {
   ...pedido, oferta: { disponivel: false, motivo: "GARANTIA_EXISTENTE" },
   preReserva: {
@@ -40,6 +41,12 @@ const novaOferta: Pedido = {
 };
 const pilotoDesligado = { disponivel: false, motivo: "PILOTO_DESLIGADO" } as const;
 const indisponivel = { ...pedido, oferta: pilotoDesligado };
+
+function respostaDaSessao(pedidos: Pedido[], agora = instanteServidor, expiraEm = instanteServidor + 60_000) {
+  return Response.json({ ok: true, data: { pedidos, expiraEm: new Date(expiraEm) } }, {
+    headers: { Date: new Date(agora).toUTCString() },
+  });
+}
 
 test("rótulos da família e motivos da oferta são em português", () => {
   assert.equal(modelo.rotuloPedido("AGUARDANDO_CONTRATO"), "Aguardando contrato");
@@ -67,15 +74,16 @@ test("a validade usa a data e a hora de São Paulo, inclusive na virada do dia",
 });
 
 test("ações seguem a oferta, o aceite vigente e a garantia em cada pedido", () => {
-  assert.deepEqual(modelo.acoesDoPedido(pedido), { aceitar: true, pix: false, desistir: false });
-  assert.deepEqual(modelo.acoesDoPedido(novaOferta), { aceitar: true, pix: false, desistir: false });
-  assert.deepEqual(modelo.acoesDoPedido(garantia), { aceitar: false, pix: false, desistir: true });
-  assert.deepEqual(modelo.acoesDoPedido(indisponivel), { aceitar: false, pix: false, desistir: false });
-  assert.deepEqual(modelo.acoesDoPedido({ ...aguardando, oferta: pilotoDesligado }), { aceitar: false, pix: true, desistir: false });
-  assert.deepEqual(modelo.acoesDoPedido({ ...garantia, oferta: pilotoDesligado }), { aceitar: false, pix: false, desistir: true });
+  assert.deepEqual(modelo.acoesDoPedido(pedido, instanteServidor), { aceitar: true, pix: false, desistir: false });
+  assert.deepEqual(modelo.acoesDoPedido(novaOferta, instanteServidor), { aceitar: true, pix: false, desistir: false });
+  assert.deepEqual(modelo.acoesDoPedido(garantia, instanteServidor), { aceitar: false, pix: false, desistir: true });
+  assert.deepEqual(modelo.acoesDoPedido(garantia, Date.parse(ate)), { aceitar: false, pix: false, desistir: false });
+  assert.deepEqual(modelo.acoesDoPedido(indisponivel, instanteServidor), { aceitar: false, pix: false, desistir: false });
+  assert.deepEqual(modelo.acoesDoPedido({ ...aguardando, oferta: pilotoDesligado }, instanteServidor), { aceitar: false, pix: true, desistir: false });
+  assert.deepEqual(modelo.acoesDoPedido({ ...garantia, oferta: pilotoDesligado }, instanteServidor), { aceitar: false, pix: false, desistir: true });
   assert.deepEqual(modelo.acoesDoPedido({
     ...garantia, preReserva: { ...garantia.preReserva, garantia: { situacao: "EXPIRADA", ate } },
-  }), { aceitar: false, pix: false, desistir: false });
+  }, instanteServidor), { aceitar: false, pix: false, desistir: false });
 });
 
 test("corpos incluem exatamente os campos das rotas e os termos correspondem à versão exibida", () => {
@@ -126,10 +134,20 @@ function alterar(arvore: unknown, target: object) {
   (achar(arvore, "input").props.onChange as (e: object) => void)({ target });
 }
 
+function controlarTempo(t: TestContext, diferencaDoAparelho: number) {
+  let decorrido = 0;
+  t.mock.timers.enable({ apis: ["Date", "setTimeout"], now: instanteServidor + diferencaDoAparelho });
+  t.mock.method(performance, "now", () => decorrido);
+  return (milissegundos: number) => {
+    decorrido += milissegundos;
+    t.mock.timers.tick(milissegundos);
+  };
+}
+
 test("novo aceite oculta QR, garantia existente oculta oferta e indisponibilidade oculta todas as ações", () => {
   const tela = carregarTela();
   const props = {
-    ocupado: false, erro: "", gravar: async () => {}, verPix: async () => {},
+    agora: instanteServidor, ocupado: false, erro: "", gravar: async () => {}, verPix: async () => {},
     pix: { pedidoId: pedido.id, dados: { aceiteSequencia: 1, valorCentavos: 10000, qrSvg: "<svg/>", copiaECola: "pix-sintetico" } },
   };
   const renovado = tela.render("CartaoPedido", { ...props, pedido: novaOferta });
@@ -153,7 +171,7 @@ test("sessão encerrada no Pix volta para a entrada com aviso, e schema ausente 
   const tela = carregarTela();
   t.mock.method(globalThis, "fetch", async (url: string) => url.endsWith("/pix")
     ? Response.json({ ok: false, codigo: "SESSAO_ENCERRADA" }, { status: 401 })
-    : Response.json({ ok: true, data: { pedidos: [aguardando], expiraEm: new Date(Date.now() + 60000) } }));
+    : respostaDaSessao([aguardando]));
   const render = () => tela.render("default", { empresa: null });
   render();
   tela.efeitos();
@@ -183,7 +201,7 @@ test("desistência só grava depois da confirmação que explica a liberação e
     return confirmar;
   });
   const render = () => tela.render("CartaoPedido", {
-    pedido: garantia, ocupado: false, erro: "", pix: null,
+    pedido: garantia, agora: instanteServidor, ocupado: false, erro: "", pix: null,
     gravar: async (acao: unknown) => { envios.push(acao); },
   });
   clicar(render(), "Desistir da garantia");
@@ -194,6 +212,90 @@ test("desistência só grava depois da confirmação que explica a liberação e
   await tique();
   assert.deepEqual(envios, [{ tipo: "desistencia", confirmado: true }]);
 });
+
+test("o vencimento da primeira garantia bloqueia a confirmação em aberto e atualiza o destino pela releitura", async (t) => {
+  const passar = controlarTempo(t, -20 * 60_000);
+  const tela = carregarTela();
+  const confirmacao = Promise.withResolvers<boolean>();
+  const cartao = carregarTela(() => confirmacao.promise);
+  const releitura = Promise.withResolvers<Response>();
+  const expirado: Pedido = { ...garantia, preReserva: { ...garantia.preReserva,
+    garantia: { situacao: "EXPIRADA", ate }, dinheiro: [{ situacao: "A_DEVOLVER", valorCentavos: 10000, devolverDesde: ate }],
+  } };
+  const outro: Pedido = { ...garantia, id: "22222222-2222-4222-8222-222222222222", preReserva: { ...garantia.preReserva,
+    garantia: { situacao: "ATIVA", ate: new Date(instanteServidor + 45_000).toISOString() },
+  } };
+  let leituras = 0;
+  const posts: { url: string; referrerPolicy?: ReferrerPolicy; corpo: unknown }[] = [];
+  t.mock.method(globalThis, "fetch", async (url: string, init?: RequestInit) => {
+    if (init?.method === "POST") {
+      posts.push({ url, referrerPolicy: init.referrerPolicy, corpo: JSON.parse(String(init.body)) });
+      return Response.json({ ok: true });
+    }
+    leituras++;
+    if (leituras === 1) return respostaDaSessao([outro, garantia]);
+    if (leituras === 2) return releitura.promise;
+    return respostaDaSessao([expirado], Date.parse(ate));
+  });
+  const render = () => tela.render("default", { empresa: null });
+  function renderCartao(id: string) {
+    const props = elementos(render()).find(e => e.type === tela.modulo.CartaoPedido && (e.props.pedido as Pedido).id === id)?.props;
+    assert.ok(props);
+    return cartao.render("CartaoPedido", props);
+  }
+  render();
+  tela.efeitos();
+  await tique();
+  const antes = renderCartao(pedido.id);
+  tela.efeitos();
+  clicar(antes, "Desistir da garantia");
+  passar(29_999);
+  assert.equal(leituras, 1);
+  passar(1);
+  assert.equal(leituras, 2);
+  const durante = renderCartao(pedido.id);
+  assert.match(texto(durante), /Atualizando a situação da garantia/);
+  assert.doesNotMatch(texto(durante), /Horário garantido|Vinculado à garantia|A devolver/);
+  assert.equal(talvez(durante, "button", "Desistir da garantia"), undefined);
+  releitura.resolve(respostaDaSessao([outro, expirado], Date.parse(ate)));
+  await tique();
+  const depois = renderCartao(pedido.id);
+  assert.match(texto(depois), /A garantia venceu.*A devolver/);
+  assert.equal(talvez(depois, "button", "Desistir da garantia"), undefined);
+  confirmacao.resolve(true);
+  await tique();
+  assert.deepEqual(posts, []);
+
+  clicar(renderCartao(outro.id), "Desistir da garantia");
+  await tique();
+  assert.deepEqual(posts, [{ url: `/api/meu-pedido/${outro.id}/desistencia`, referrerPolicy: "same-origin", corpo: { confirmarLiberacao: true } }]);
+  assert.equal(leituras, 3);
+});
+
+for (const diferenca of [20, -20]) {
+  test(`a sessão é relida no prazo do servidor com aparelho ${diferenca > 0 ? "adiantado" : "atrasado"}`, async (t) => {
+    const passar = controlarTempo(t, diferenca * 60_000);
+    const tela = carregarTela();
+    const releitura = Promise.withResolvers<Response>();
+    let leituras = 0;
+    t.mock.method(globalThis, "fetch", async () => ++leituras === 1 ? respostaDaSessao([pedido]) : releitura.promise);
+    const render = () => tela.render("default", { empresa: null });
+    render();
+    tela.efeitos();
+    await tique();
+    assert.ok(achar(render(), tela.modulo.CartaoPedido));
+    tela.efeitos();
+    passar(59_999);
+    assert.equal(leituras, 1);
+    assert.ok(achar(render(), tela.modulo.CartaoPedido));
+    passar(1);
+    assert.equal(leituras, 2);
+    assert.ok(!elementos(render()).some(e => e.type === tela.modulo.CartaoPedido));
+    releitura.resolve(Response.json({ ok: false, codigo: "SESSAO_ENCERRADA" }, { status: 401 }));
+    await tique();
+    assert.equal(achar(render(), tela.modulo.Entrada).props.aviso, modelo.SESSAO_ENCERRADA);
+  });
+}
 
 test("o formulário exige marcar os termos integrais e desmarca depois do envio", () => {
   const tela = carregarTela();
@@ -209,17 +311,22 @@ test("o formulário exige marcar os termos integrais e desmarca depois do envio"
   assert.equal(achar(render(), "button", "Aceitar pré-reserva").props.disabled, true);
 });
 
-test("a entrada usa mensagem genérica, distingue o desafio vencido e associa falhas ao campo", async (t) => {
+test("a entrada envia a confirmação mesmo com o aparelho adiantado e distingue a recusa por prazo", async (t) => {
+  t.mock.timers.enable({ apis: ["Date"], now: instanteServidor + 20 * 60_000 });
   const tela = carregarTela();
-  let expirado = false;
-  const requisicoes: string[] = [];
-  t.mock.method(globalThis, "fetch", async (url: string) => {
-    requisicoes.push(url);
+  let agora = instanteServidor;
+  let confirmou = false;
+  const requisicoes: { url: string; referrerPolicy?: ReferrerPolicy }[] = [];
+  t.mock.method(globalThis, "fetch", async (url: string, init?: RequestInit) => {
+    requisicoes.push({ url, referrerPolicy: init?.referrerPolicy });
+    const headers = { Date: new Date(agora).toUTCString() };
     return url.includes("/iniciar")
-      ? Response.json({ ok: true, data: { desafio: "opaco", expiraEm: new Date(Date.now() + (expirado ? -1000 : 60000)) } })
-      : Response.json({ ok: false, codigo: "CODIGO_NAO_CONFIRMADO" }, { status: 401 });
+      ? Response.json({ ok: true, data: { desafio: "opaco", expiraEm: ate } }, { headers })
+      : confirmou ? Response.json({ ok: true }, { headers })
+        : Response.json({ ok: false, codigo: "CODIGO_NAO_CONFIRMADO" }, { status: 401, headers });
   });
-  const render = () => tela.render("Entrada", { empresa: "buffet", aviso: "", aoEntrar: async () => {} });
+  let entradas = 0;
+  const render = () => tela.render("Entrada", { empresa: "buffet", aviso: "", aoEntrar: async () => { entradas++; } });
   alterar(render(), { value: "123.456.789-00" });
   await submeter(render());
   const mensagem = /Se houver um cadastro para este CPF, o código será enviado/;
@@ -228,16 +335,17 @@ test("a entrada usa mensagem genérica, distingue o desafio vencido e associa fa
   await submeter(render());
   assert.match(texto(render()), /Código incorreto ou vencido/);
   assert.equal(achar(render(), "input").props["aria-describedby"], achar(render(), "p", /Código incorreto/).props.id);
-  clicar(render(), "Pedir outro código");
-  expirado = true;
+  confirmou = true;
   await submeter(render());
-  assert.match(texto(render()), mensagem);
-  alterar(render(), { value: "012345" });
+  assert.equal(entradas, 1);
+  confirmou = false;
+  agora = Date.parse(ate);
+  t.mock.timers.setTime(agora - 20 * 60_000);
   await submeter(render());
   assert.match(texto(render()), /O código venceu/);
   assert.deepEqual(requisicoes, [
-    "/api/meu-pedido/entrada/iniciar?empresa=buffet", "/api/meu-pedido/entrada/confirmar?empresa=buffet",
-    "/api/meu-pedido/entrada/iniciar?empresa=buffet",
+    { url: "/api/meu-pedido/entrada/iniciar?empresa=buffet", referrerPolicy: "same-origin" },
+    ...Array.from({ length: 3 }, () => ({ url: "/api/meu-pedido/entrada/confirmar?empresa=buffet", referrerPolicy: "same-origin" })),
   ]);
 });
 
@@ -246,16 +354,15 @@ test("409 de aceite recarrega e mostra a nova versão, sem envio duplo nem QR de
   const pixAtrasado = Promise.withResolvers<Response>();
   const mudanca = Promise.withResolvers<Response>();
   const ofertaAtual = { ...oferta, versaoOferta: "nova-oferta" };
-  const pedidos = (lista: Pedido[]) => Response.json({ ok: true, data: { pedidos: lista, expiraEm: new Date(Date.now() + 60000) } });
-  const chamadas: { url: string; corpo?: unknown }[] = [];
+  const chamadas: { url: string; corpo?: unknown; referrerPolicy?: ReferrerPolicy }[] = [];
   let leituras = 0;
   const outro = { ...aguardando, id: "22222222-2222-4222-8222-222222222222" };
   t.mock.method(globalThis, "fetch", async (url: string, init?: RequestInit) => {
-    chamadas.push({ url, corpo: init?.body ? JSON.parse(String(init.body)) : undefined });
+    chamadas.push({ url, corpo: init?.body ? JSON.parse(String(init.body)) : undefined, referrerPolicy: init?.referrerPolicy });
     if (url.includes("/pix?")) return pixAtrasado.promise;
     if (url.includes("/aceite?")) return mudanca.promise;
     leituras++;
-    return pedidos(leituras === 1 ? [pedido, outro] : [{ ...novaOferta, oferta: ofertaAtual }, outro]);
+    return respostaDaSessao(leituras === 1 ? [pedido, outro] : [{ ...novaOferta, oferta: ofertaAtual }, outro]);
   });
   const render = () => tela.render("default", { empresa: "buffet" });
   render();
@@ -280,9 +387,9 @@ test("409 de aceite recarrega e mostra a nova versão, sem envio duplo nem QR de
   assert.equal(nova.versaoOferta, ofertaAtual.versaoOferta);
   assert.match(String(atual.erro), /A oferta mudou/);
   assert.deepEqual(chamadas, [
-    { url: "/api/meu-pedido?empresa=buffet", corpo: undefined },
-    { url: `/api/meu-pedido/${outro.id}/pix?empresa=buffet`, corpo: undefined },
-    { url: `/api/meu-pedido/${pedido.id}/aceite?empresa=buffet`, corpo: modelo.corpoAceite(oferta) },
-    { url: "/api/meu-pedido?empresa=buffet", corpo: undefined },
+    { url: "/api/meu-pedido?empresa=buffet", corpo: undefined, referrerPolicy: undefined },
+    { url: `/api/meu-pedido/${outro.id}/pix?empresa=buffet`, corpo: undefined, referrerPolicy: undefined },
+    { url: `/api/meu-pedido/${pedido.id}/aceite?empresa=buffet`, corpo: modelo.corpoAceite(oferta), referrerPolicy: "same-origin" },
+    { url: "/api/meu-pedido?empresa=buffet", corpo: undefined, referrerPolicy: undefined },
   ]);
 });

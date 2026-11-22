@@ -103,14 +103,29 @@ export function formatarValidade(instante: string) {
   return Number.isFinite(data.getTime()) ? dataHoraSP.format(data) : null;
 }
 
-export function acoesDoPedido({ status, oferta, preReserva }: Pedido) {
+export function relogioDoServidor(dataHttp: string | null) {
+  const instante = dataHttp === null ? NaN : Date.parse(dataHttp);
+  if (!Number.isFinite(instante)) return null;
+  const recebidoEm = performance.now();
+  return () => instante + (performance.now() - recebidoEm);
+}
+
+export function vencimentoDaGarantia({ preReserva: { garantia } }: Pedido) {
+  if (garantia?.situacao !== "ATIVA" || !garantia.ate) return null;
+  const vencimento = Date.parse(garantia.ate);
+  return Number.isFinite(vencimento) ? vencimento : null;
+}
+
+export function acoesDoPedido(pedido: Pedido, agora: number) {
+  const { status, oferta, preReserva } = pedido;
   const { aguardandoConferencia, garantia, aceite, novoAceiteNecessario } = preReserva;
+  const vencimento = vencimentoDaGarantia(pedido);
   return {
     aceitar: oferta.disponivel && status === "AGUARDANDO_CONTRATO"
       && !garantia?.ate && !aguardandoConferencia && (novoAceiteNecessario || !aceite),
     pix: status === "AGUARDANDO_CONTRATO" && !garantia?.ate && !novoAceiteNecessario
       && aguardandoConferencia && Boolean(aceite?.recebedor.cidade),
-    desistir: status === "AGUARDANDO_CONTRATO" && garantia?.situacao === "ATIVA" && Boolean(garantia.ate),
+    desistir: status === "AGUARDANDO_CONTRATO" && vencimento !== null && agora < vencimento,
   };
 }
 

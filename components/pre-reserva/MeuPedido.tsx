@@ -11,8 +11,8 @@ import { apiPublica } from "@/lib/fechamentos/rota-publica";
 import { TEXTO_CONFERENCIA_PIX } from "@/lib/pre-reserva/termos";
 import {
   acoesDoPedido, CODIGO_VENCIDO, corpoAceite, corpoCodigo, corpoDesistencia, corpoEntrada,
-  formatarValidade, iniciarLeitura, MOTIVOS_OFERTA, PEDIDO_COMUM, rotuloDinheiro, rotuloErro,
-  rotuloGarantia, rotuloPedido, SESSAO_ENCERRADA, termosDaOferta,
+  formatarValidade, iniciarLeitura, MOTIVOS_OFERTA, PEDIDO_COMUM, relogioDoServidor, rotuloDinheiro, rotuloErro,
+  rotuloGarantia, rotuloPedido, SESSAO_ENCERRADA, termosDaOferta, vencimentoDaGarantia,
   type Desafio, type Oferta, type Pedido, type PedidosDaSessao, type Pix,
 } from "./meu-pedido";
 import familia from "../area-familia/AreaFamilia.module.css";
@@ -21,7 +21,9 @@ import styles from "./MeuPedido.module.css";
 const BASE = "/api/meu-pedido";
 const MENSAGEM_CODIGO = "Se houver um cadastro para este CPF, o código será enviado para o WhatsApp informado ao buffet.";
 
-type Resposta<T> = { ok: true; data: T } | { ok: false; codigo: string; status: number };
+type Relogio = ReturnType<typeof relogioDoServidor>;
+type Resposta<T> = ({ ok: true; data: T } | { ok: false; codigo: string; status: number }) & { relogio: Relogio };
+type Sessao = { dados: PedidosDaSessao; relogio: NonNullable<Relogio> };
 type Acao = { tipo: "aceite"; oferta: Oferta } | { tipo: "desistencia"; confirmado: boolean };
 type PixDoPedido = { pedidoId: string; dados: Pix | null };
 
@@ -29,11 +31,13 @@ async function requisitar<T>(url: string, corpo?: object): Promise<Resposta<T>> 
   const resposta = await fetch(url, {
     credentials: "same-origin",
     cache: "no-store",
-    ...(corpo && { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(corpo) }),
+    // Com no-referrer, o navegador pode enviar Origin: null e o servidor recusa o POST.
+    ...(corpo && { method: "POST", referrerPolicy: "same-origin", headers: { "Content-Type": "application/json" }, body: JSON.stringify(corpo) }),
   }).catch(() => null);
+  const relogio = relogioDoServidor(resposta?.headers.get("Date") ?? null);
   const json = await resposta?.json().catch(() => null) as { ok?: boolean; data: T; codigo?: string } | null;
-  if (resposta?.ok && json?.ok) return { ok: true, data: json.data };
-  return { ok: false, codigo: json?.codigo ?? "", status: resposta?.status ?? 0 };
+  if (resposta?.ok && json?.ok) return { ok: true, data: json.data, relogio };
+  return { ok: false, codigo: json?.codigo ?? "", status: resposta?.status ?? 0, relogio };
 }
 
 export default function MeuPedido({ empresa, logo }: { empresa: string | null; logo?: string | null }) {
@@ -43,19 +47,21 @@ export default function MeuPedido({ empresa, logo }: { empresa: string | null; l
   const lendoPedidos = useRef(false);
   const gravando = useRef(false);
   const sessaoAtiva = useRef(false);
-  const [dados, setDados] = useState<PedidosDaSessao | null>(null);
+  const [sessao, setSessao] = useState<Sessao | null>(null);
+  const [agoraExibido, setAgoraExibido] = useState(0);
   const [carregando, setCarregando] = useState(true);
   const [ocupado, setOcupado] = useState(false);
   const [avisoEntrada, setAvisoEntrada] = useState("");
   const [erroLeitura, setErroLeitura] = useState("");
   const [erroAcao, setErroAcao] = useState<{ pedidoId: string; mensagem: string } | null>(null);
   const [pix, setPix] = useState<PixDoPedido | null>(null);
+  const dados = sessao?.dados;
 
   const encerrarSessao = useCallback((avisar: boolean) => {
     iniciarLeitura(leitura);
     lendoPedidos.current = false;
     sessaoAtiva.current = false;
-    setDados(null);
+    setSessao(null);
     setPix(null);
     setErroAcao(null);
     setCarregando(false);
@@ -72,16 +78,17 @@ export default function MeuPedido({ empresa, logo }: { empresa: string | null; l
     if (!atual()) return;
     lendoPedidos.current = false;
     setCarregando(false);
-    if (resposta.ok) {
-      if (Date.parse(resposta.data.expiraEm) <= Date.now()) return encerrarSessao(true);
+    if (resposta.ok && resposta.relogio) {
       sessaoAtiva.current = true;
-      setDados(resposta.data);
+      setSessao({ dados: resposta.data, relogio: resposta.relogio });
+      setAgoraExibido(resposta.relogio());
       setAvisoEntrada("");
-    } else if (resposta.codigo === "SESSAO_ENCERRADA") {
+    } else if (!resposta.ok && resposta.codigo === "SESSAO_ENCERRADA") {
       encerrarSessao(aposEntrada || sessaoAtiva.current);
     } else {
-      setDados(null);
-      setErroLeitura(rotuloErro(resposta.codigo));
+      // Sem uma referência do servidor, não há como limitar a exibição à vigência da sessão.
+      setSessao(null);
+      setErroLeitura(rotuloErro(resposta.ok ? "" : resposta.codigo));
     }
   }, [empresa, encerrarSessao]);
 
@@ -92,16 +99,38 @@ export default function MeuPedido({ empresa, logo }: { empresa: string | null; l
     return () => { iniciarLeitura(leitura); };
   }, [carregar]);
 
-  const expiraEm = dados?.expiraEm;
   useEffect(() => {
-    if (!expiraEm) return;
-    const timer = window.setTimeout(() => encerrarSessao(true), Date.parse(expiraEm) - Date.now());
-    return () => window.clearTimeout(timer);
-  }, [expiraEm, encerrarSessao]);
+    if (!sessao) return;
+    const { dados, relogio } = sessao;
+    const expiraEm = Date.parse(dados.expiraEm);
+    const proximaGarantia = dados.pedidos.reduce((maisProxima, pedido) =>
+      Math.min(maisProxima, vencimentoDaGarantia(pedido) ?? Infinity), Infinity);
+    const agendar = (prazo: number, atualizar: () => void) =>
+      setTimeout(atualizar, Math.max(0, Math.ceil(prazo - relogio())));
+    const sessaoTimer = agendar(expiraEm, () => {
+      encerrarSessao(true);
+      void carregar(true);
+    });
+    const garantiaTimer = proximaGarantia < expiraEm ? agendar(proximaGarantia, () => {
+      setAgoraExibido(Math.max(proximaGarantia, relogio()));
+      void carregar();
+    }) : undefined;
+    return () => {
+      clearTimeout(sessaoTimer);
+      clearTimeout(garantiaTimer);
+    };
+  }, [sessao, carregar, encerrarSessao]);
+
+  function agoraParaAgir() {
+    if (!sessao || !sessaoAtiva.current || lendoPedidos.current || gravando.current) return null;
+    const agora = sessao.relogio();
+    return agora < Date.parse(sessao.dados.expiraEm) ? agora : null;
+  }
 
   async function gravar(pedido: Pedido, acao: Acao) {
     const corpo = acao.tipo === "aceite" ? corpoAceite(acao.oferta) : corpoDesistencia(acao.confirmado);
-    if (!corpo || !sessaoAtiva.current || gravando.current || lendoPedidos.current) return;
+    const agora = agoraParaAgir();
+    if (!corpo || agora === null || (acao.tipo === "desistencia" && !acoesDoPedido(pedido, agora).desistir)) return;
     iniciarLeitura(leitura);
     gravando.current = true;
     setOcupado(true);
@@ -124,7 +153,7 @@ export default function MeuPedido({ empresa, logo }: { empresa: string | null; l
 
   async function verPix(pedido: Pedido) {
     const aceite = pedido.preReserva.aceite;
-    if (!aceite || !sessaoAtiva.current || lendoPedidos.current || gravando.current) return;
+    if (!aceite || agoraParaAgir() === null) return;
     const atual = iniciarLeitura(leitura);
     setErroAcao(null);
     setPix({ pedidoId: pedido.id, dados: null });
@@ -180,6 +209,7 @@ export default function MeuPedido({ empresa, logo }: { empresa: string | null; l
                     <li key={pedido.id} className={familia.parcela}>
                       <CartaoPedido
                         pedido={pedido}
+                        agora={agoraExibido}
                         ocupado={carregando || ocupado}
                         erro={erroAcao?.pedidoId === pedido.id ? erroAcao.mensagem : ""}
                         pix={pix?.pedidoId === pedido.id ? pix : null}
@@ -213,10 +243,6 @@ export function Entrada({ empresa, aviso, aoEntrar }: { empresa: string | null; 
   async function enviar(evento: FormEvent) {
     evento.preventDefault();
     if (enviando.current) return;
-    if (desafio && Date.parse(desafio.expiraEm) <= Date.now()) {
-      setErro(CODIGO_VENCIDO);
-      return;
-    }
     enviando.current = true;
     setOcupado(true);
     setErro("");
@@ -224,7 +250,7 @@ export function Entrada({ empresa, aviso, aoEntrar }: { empresa: string | null; 
       if (desafio) {
         const resposta = await requisitar(apiPublica(`${BASE}/entrada/confirmar`, empresa), corpoCodigo(desafio.desafio, codigo));
         if (resposta.ok) await aoEntrar();
-        else if (resposta.codigo === "CODIGO_NAO_CONFIRMADO" && Date.parse(desafio.expiraEm) <= Date.now()) setErro(CODIGO_VENCIDO);
+        else if (resposta.codigo === "CODIGO_NAO_CONFIRMADO" && resposta.relogio && Date.parse(desafio.expiraEm) <= resposta.relogio()) setErro(CODIGO_VENCIDO);
         else setErro(rotuloErro(resposta.codigo));
       } else {
         const resposta = await requisitar<Desafio>(apiPublica(`${BASE}/entrada/iniciar`, empresa), corpoEntrada(cpf));
@@ -271,8 +297,9 @@ export function Entrada({ empresa, aviso, aoEntrar }: { empresa: string | null; 
   );
 }
 
-export function CartaoPedido({ pedido, ocupado, erro, pix, gravar, verPix }: {
+export function CartaoPedido({ pedido, agora, ocupado, erro, pix, gravar, verPix }: {
   pedido: Pedido;
+  agora: number;
   ocupado: boolean;
   erro: string;
   pix: PixDoPedido | null;
@@ -281,7 +308,10 @@ export function CartaoPedido({ pedido, ocupado, erro, pix, gravar, verPix }: {
 }) {
   const { oferta, preReserva } = pedido;
   const { aceite, garantia, dinheiro, aguardandoConferencia, novoAceiteNecessario } = preReserva;
-  const acoes = acoesDoPedido(pedido);
+  const acoes = acoesDoPedido(pedido, agora);
+  const vencimento = vencimentoDaGarantia(pedido);
+  const atualizandoGarantia = vencimento !== null && vencimento <= agora;
+  const sinais = atualizandoGarantia ? dinheiro.filter(sinal => sinal.situacao !== "EM_GARANTIA") : dinheiro;
   const validade = garantia?.ate ? formatarValidade(garantia.ate) : null;
   const erroId = useId();
 
@@ -303,15 +333,15 @@ export function CartaoPedido({ pedido, ocupado, erro, pix, gravar, verPix }: {
       </dl>
       <h3 className={familia.subtitulo}>Pré-reserva</h3>
       {erro && <p id={erroId} className={familia.erro} role="alert">{erro}</p>}
-      {garantia && (
+      {atualizandoGarantia ? <p className={familia.texto} role="status">Atualizando a situação da garantia…</p> : garantia && (
         <p className={familia.texto}>
           <strong>{rotuloGarantia(garantia.situacao)}</strong>
           {garantia.situacao === "ATIVA" && validade ? <> até <time dateTime={garantia.ate ?? undefined}>{validade}</time> (horário de Brasília).</> : null}
         </p>
       )}
-      {dinheiro.length > 0 && (
+      {sinais.length > 0 && (
         <dl className={familia.lista}>
-          {dinheiro.map((sinal, indice) => (
+          {sinais.map((sinal, indice) => (
             <div key={indice}><dt>{rotuloDinheiro(sinal.situacao)}</dt><dd>{reais(sinal.valorCentavos)}</dd></div>
           ))}
         </dl>
