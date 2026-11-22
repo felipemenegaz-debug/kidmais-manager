@@ -59,15 +59,20 @@ const PADRAO: DependenciasCotacao = { recursoIncluido, lerEstadoComercial, escop
 /**
  * Resolve a empresa da cotação pública. `escrita` (envio do fechamento) exige situação comercial COMPLETA;
  * consulta aceita também SOMENTE_LEITURA. BLOQUEADO nunca atende.
+ * `acompanharPedido` resolve apenas a empresa do endereço, para pedidos cuja titularidade será conferida por sessão.
  */
 export async function escopoCotacaoPublica(
   conexao: () => DbExecutor,
   codigo: string | null,
-  opcoes: { escrita?: boolean } = {},
+  opcoes: { escrita?: boolean; acompanharPedido?: boolean } = {},
   env: AmbienteCotacaoPublica = process.env as AmbienteCotacaoPublica,
   deps: DependenciasCotacao = PADRAO,
 ): Promise<EscopoCotacaoPublica> {
   if (codigo === null) {
+    if (opcoes.acompanharPedido) {
+      const { empresaId } = await deps.escopoCatalogoPublico(conexao, { AGENDA_PUBLICA_EMPRESA_ID: env.AGENDA_PUBLICA_EMPRESA_ID });
+      return { empresaId, estabelecimentoId: null, porCodigo: false };
+    }
     const escopo = await deps.escopoCatalogoPublico(conexao, env);
     return { ...escopo, porCodigo: false };
   }
@@ -81,6 +86,10 @@ export async function escopoCotacaoPublica(
   )).rows;
   if (empresa.length !== 1) throw indisponivel();
   const empresaId = empresa[0].id;
+  if (opcoes.acompanharPedido) {
+    confirmarEmpresaPublica(codigo, empresaId);
+    return { empresaId, estabelecimentoId: null, porCodigo: true };
+  }
   try {
     if (!(await deps.recursoIncluido(db, empresaId, "ORCAMENTO_ONLINE"))) throw indisponivel();
     const { acesso } = await deps.lerEstadoComercial(db, empresaId);

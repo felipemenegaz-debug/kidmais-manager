@@ -1689,6 +1689,7 @@ export default function FechamentoWizard({ empresa = null, logo = null }: { empr
           </p>
           </>}
           {!marca.kidmais && <ContatoEmpresa nome={marca.nome} contato={marca.contato} titulo={`Fale com ${marca.nome}`} />}
+          {!origemInterna && <a className={`${styles.secondaryButton} ${styles.smallMuted}`} href={empresa ? `/b/${encodeURIComponent(empresa)}/meu-pedido` : "/meu-pedido"}>Meu pedido</a>}
         </section>
       </main>
     );
