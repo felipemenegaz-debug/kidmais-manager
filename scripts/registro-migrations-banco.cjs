@@ -39,6 +39,10 @@ const ARQUIVOS_129 = Object.freeze([
 const BACKUP = /^[A-Za-z0-9:._/ -]{6,120}$/;
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 const AMBIENTES_VALIDOS = Object.freeze(['production', 'staging']);
+/** Chave da trava advisory (sessão ou transação) de uma migration: a mesma para o registro e para o adaptador genérico de staging. */
+const chaveTrava = (amb, id) => { assert.ok(AMBIENTES_VALIDOS.includes(amb), 'AMBIENTE_INVALIDO'); return amb + ':' + id; };
+/** Chaves que o registro trava (129 no bootstrap, 130 e 131 pela ORDEM), nos dois ambientes: insumo do teste de colisão de hashtext. */
+const CHAVES_TRAVA = Object.freeze(AMBIENTES_VALIDOS.flatMap(a => ['129', ...ORDEM].map(id => chaveTrava(a, id))));
 const raizPadrao = path.resolve(__dirname, '..');
 const curta = e => String(e?.message ?? e).replace(/postgres(?:ql)?:\/\/\S+/gi, '<url>').replace(/\s+/g, ' ').slice(0, 300);
 
@@ -277,7 +281,7 @@ async function conferirRegistro(ctx, {tentativas = [], ids = ORDEM}) {
   // Sessão Registro: trava da 129 primeiro; depois sondagem, estrutura, linha da 129 e uuids, cada uma só se a anterior concluiu.
   const itensRegistro = ['REGISTRO', ...tentativas.map(u => 'tentativa=' + u)];
   const sr = await abrirSessaoLeitura(ctx, 'REGISTRO', async s => {
-    const t = await s.instrucao('TRAVA_129', SQL.travaTransacao, [`${amb}:129`]);
+    const t = await s.instrucao('TRAVA_129', SQL.travaTransacao, [chaveTrava(amb, '129')]);
     if (t.rows?.[0]?.ok !== true) {
       s.fato('REGISTRO_NAO_CONCLUSIVO EXECUTOR_ATIVO 129', 2); s.responder('REGISTRO');
       for (const u of tentativas) { s.fato('TENTATIVA_NAO_CONCLUSIVA tentativa=' + u, 2); s.responder('tentativa=' + u); }
@@ -382,7 +386,7 @@ async function conferirTentativa(ctx, {id, tentativa: u}) {
   const s = await abrirSessaoLeitura(ctx, '', async s => {
     const r1 = await rodada(s);
     if (responder(r1, s)) return;
-    const t = await s.instrucao('TRAVA', SQL.travaTransacao, [`${amb}:${id}`]);
+    const t = await s.instrucao('TRAVA', SQL.travaTransacao, [chaveTrava(amb, id)]);
     if (t.rows?.[0]?.ok !== true) { resposta = {texto: `AUSENTE_NAO_CONCLUSIVO EXECUTOR_ATIVO tentativa=${u}`, codigo: 2}; return; }
     const r2 = await rodada(s);
     if (responder(r2, s)) return;
@@ -444,7 +448,7 @@ async function exigirRegistro(ctx, db, {estrutural = false} = {}) {
   return l;
 }
 async function travar(ctx, db, id) {
-  const ok = (await db.query(SQL.travaSessao, [`${ctx.ambiente.nome}:${id}`])).rows?.[0]?.ok;
+  const ok = (await db.query(SQL.travaSessao, [chaveTrava(ctx.ambiente.nome, id)])).rows?.[0]?.ok;
   if (ok !== true) throw recusa(`EXECUTOR_ATIVO ${ctx.ambiente.nome}:${id}`, 1);
 }
 /** Postcheck READ ONLY em C → {aprovado, motivo}; P0001 = reprovação; outro erro propaga. */
@@ -640,7 +644,7 @@ async function escreverPosCommit(ctx, db, o, id, linha, novaSituacao, detalhe) {
 }
 
 // ---------------------------------------------------------------- bootstrap da 129 (§3.4)
-async function bootstrap129(ctx, {backup}) {
+async function bootstrap129(ctx, {backup, flagFranquia}) {
   const o = saida(ctx);
   const amb = ctx.ambiente.nome;
   const g = ctx.ganchos ?? {};
@@ -651,7 +655,9 @@ async function bootstrap129(ctx, {backup}) {
     await identidadeEmC(ctx, db);                        // 1. identidade em C antes da trava e de qualquer DDL
     await travar(ctx, db, '129');                        // trava de sessão, até o processo terminar
     await g.depoisDaTrava129?.({db});
-    const ant = await (ctx.antecessoras ?? (() => require('./conferir-antecessoras.cjs').conferir({ambiente: amb, env: ctx.env, deps: ctx.clientInjetado ? {Client: ctx.Client} : {}})))(amb); // 2
+    // 2. antecessoras; a declaração da flag da franquia (já validada contra o ambiente em principal) só pesa no ramo de dados da 116.
+    const ant = await (ctx.antecessoras ?? (() => require('./conferir-antecessoras.cjs').conferir({ambiente: amb, env: ctx.env, flagFranquia,
+      deps: ctx.clientInjetado ? {Client: ctx.Client} : {}})))(amb, {flagFranquia});
     for (const l of ant?.linhas ?? []) o.linha('ANTECESSORA ' + l, 0);
     if (ant?.codigo !== 0) { o.linha('ANTECESSORAS_PENDENTES ' + (ant?.pendentes ?? []).join(','), 3); return fim(o); }
     const estado = await estadoEmC(db, '129');           // 3
@@ -816,7 +822,7 @@ async function conferirId(ctx, {id}) {
   const si = await abrirSessaoLeitura(ctx, 'CONFERIR ' + id, async s => {
     linha = (await s.instrucao('LINHA', SQL.ativa, [amb, id])).rows?.[0] ?? null;
     s.fato(linha ? `LINHA_ATIVA ${id} tentativa=${linha.tentativa} ${descreverLinha(linha)}` : `LINHA_ATIVA ${id} nenhuma`, 0);
-    const t = await s.instrucao('TRAVA', SQL.travaOcupada, [`${amb}:${id}`]);
+    const t = await s.instrucao('TRAVA', SQL.travaOcupada, [chaveTrava(amb, id)]);
     s.fato(`TRAVA ${amb}:${id} ${t.rows?.[0]?.ocupada ? 'OCUPADA' : 'livre'}`, 0);
     const e = await estadoComPostcheck(ctx, s, id, corpos);
     const cl = classificar(id, e, linha, e.postcheck ?? null);
@@ -869,9 +875,11 @@ function modo(argv) {
     return {ambiente, modo: 'arquivar', id: exigirId(r[1], r[0]), tentativa: exigirUuid(r[3]), motivo};
   }
   if (r[0] === '--aplicar-129-bootstrap-autorizado') {
-    assert.ok(r.length === 3 && r[1] === '--backup', 'BACKUP_OBRIGATORIO');
+    assert.ok((r.length === 3 || r.length === 5) && r[1] === '--backup', 'BACKUP_OBRIGATORIO');
     assert.match(r[2], BACKUP, 'BACKUP_INVALIDO');
-    return {ambiente, modo: 'bootstrap', backup: r[2]};
+    if (r.length === 3) return {ambiente, modo: 'bootstrap', backup: r[2]};
+    assert.ok(r[3] === '--franquia-flag-ligada', 'ARGUMENTOS_RECUSADOS');
+    return {ambiente, modo: 'bootstrap', backup: r[2], flagFranquia: r[4]};
   }
   let m = /^--aplicar-([0-9]{3}[a-z]?)(?:-autorizado)?$/.exec(r[0] ?? '');
   if (m) {
@@ -893,6 +901,8 @@ async function principal(argv, env, deps = {}) {
   try { m = modo(argv); } catch (e) { const t = e?.saida ?? 'RECUSADO ' + curta(e); (deps.out ?? (() => {}))(t); return {codigo: 1, linhas: [t]}; }
   let ctx;
   try {
+    // §8.1: declaração da flag presa ao ambiente da chamada e do alvo; diferente = recusa antes de conectar (código 1).
+    if (m.flagFranquia !== undefined) require('./conferir-antecessoras.cjs').lerDeclaracaoFlag(m.flagFranquia, m.ambiente, env);
     ctx = {env, raiz: deps.raiz ?? raizPadrao, Client: deps.Client ?? require('pg').Client, ambiente: ambienteDe(m.ambiente, env, deps), ganchos: deps.ganchos,
       out: deps.out, uuid: deps.uuid, agora: deps.agora, antecessoras: deps.antecessoras, prazoRollback: deps.prazoRollback, prazoDescarte: deps.prazoDescarte,
       prazoLiquidacao: deps.prazoLiquidacao, prazoCommit: deps.prazoCommit, prazoEscrita: deps.prazoEscrita, clientInjetado: Boolean(deps.Client)};
@@ -915,7 +925,7 @@ function cli() {
     .catch(e => { console.error('RECUSADO ' + curta(e)); process.exitCode = 1; });
 }
 if (require.main === module) cli();
-module.exports = {ORDEM, ANTECESSORA, ARQUIVOS_129, SQL, BACKUP, carregar129, lerDivergencias, avaliarPostcheck, sqlstateDe, fatal, abrirSessaoLeitura,
+module.exports = {ORDEM, chaveTrava, CHAVES_TRAVA, ANTECESSORA, ARQUIVOS_129, SQL, BACKUP, carregar129, lerDivergencias, avaliarPostcheck, sqlstateDe, fatal, abrirSessaoLeitura,
   conferirRegistro, conferirTentativa, conferirId, aplicar, bootstrap129, arquivar, concluirVerificacao, classificar, modo, principal, ambienteDe, cli,
   /** Só para testes unitários (cliente falso). */
   _teste: {lerEmC, postcheckEmC}};

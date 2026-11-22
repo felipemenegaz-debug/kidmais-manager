@@ -284,6 +284,10 @@ jobs:
         run: node --test scripts/migration-127-staging.test.cjs
       - name: Aplicador da 128 em staging (adaptador do genérico)
         run: node --test scripts/migration-128-staging.test.cjs
+      # Plano "Staging em dia antes da 129" (22/11/2026): genérico de staging para as 5 nunca aplicadas e conferência das
+      # antecessoras com o ramo m116 e a declaração da flag da franquia. Cliente simulado; os testes em PG descartável pulam sem a porta.
+      - name: Aplicador genérico de staging (120, 121, 110, 111, 115) e conferência das antecessoras
+        run: node --test scripts/migration-generico-staging.test.cjs scripts/conferir-antecessoras.test.cjs scripts/conferir-antecessoras-116.test.cjs
       - name: Cópia do disco para o banco (128)
         run: node --test scripts/disco-para-banco-128.test.cjs
       - name: Promoção de production — blocos de Shell da 112 a 118 e do genérico
