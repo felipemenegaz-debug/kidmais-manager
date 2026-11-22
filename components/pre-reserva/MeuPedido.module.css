@@ -16,6 +16,11 @@
   min-width: 0;
 }
 
+.termos {
+  padding: 12px 0;
+  cursor: pointer;
+}
+
 .aceite {
   min-height: 44px;
   cursor: pointer;

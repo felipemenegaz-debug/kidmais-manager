@@ -8,6 +8,7 @@ import { fonteTexto, fonteTitulo } from "@/components/site/fonte";
 import { PausaGlobal } from "@/components/site/PausaGlobal";
 import { dataPorExtenso, reais } from "@/lib/area-familia/formato";
 import { apiPublica } from "@/lib/fechamentos/rota-publica";
+import { POLITICA_PRE_RESERVA } from "@/lib/pre-reserva/politica";
 import { TEXTO_CONFERENCIA_PIX } from "@/lib/pre-reserva/termos";
 import {
   acoesDoPedido, CODIGO_VENCIDO, corpoAceite, corpoCodigo, corpoDesistencia, corpoEntrada,
@@ -88,7 +89,9 @@ export default function MeuPedido({ empresa, logo }: { empresa: string | null; l
     const expiraEm = resposta.ok ? Date.parse(resposta.data.expiraEm) : NaN;
     if (resposta.ok && resposta.relogio && Number.isFinite(expiraEm)) {
       sessaoAtiva.current = true;
-      sessaoAtual.current = { dados: resposta.data, expiraEm, relogio: resposta.relogio };
+      const pedidos = [...resposta.data.pedidos].sort((a, b) =>
+        a.data.localeCompare(b.data) || a.inicio.localeCompare(b.inicio) || a.protocolo.localeCompare(b.protocolo));
+      sessaoAtual.current = { dados: { ...resposta.data, pedidos }, expiraEm, relogio: resposta.relogio };
       setSessao(sessaoAtual.current);
       setAgoraExibido(resposta.relogio());
       setAvisoEntrada("");
@@ -355,16 +358,17 @@ export function CartaoPedido({ pedido, agora, ocupado, erro, pix, gravar, verPix
   const sinais = atualizandoGarantia ? dinheiro.filter(sinal => sinal.situacao !== "EM_GARANTIA") : dinheiro;
   const validade = garantia?.ate ? formatarValidade(garantia.ate) : null;
   const erroId = useId();
+  const titulo = useRef<HTMLHeadingElement>(null);
 
-  async function desistir(gatilho: HTMLButtonElement) {
+  async function desistir() {
     const confirmado = await dialogo.confirmar("Confirmar desistência da garantia",
-      "O horário será liberado e o sinal ficará a devolver. Seu pedido pode seguir em negociação.", undefined, gatilho);
+      "O horário será liberado e o sinal ficará a devolver. Seu pedido pode seguir em negociação.", undefined, titulo.current);
     if (confirmado) await gravar({ tipo: "desistencia", confirmado });
   }
 
   return (
     <>
-      <h2 className={styles.protocolo}>{pedido.protocolo}</h2>
+      <h2 ref={titulo} tabIndex={-1} className={styles.protocolo}>{pedido.protocolo}</h2>
       <dl className={familia.lista}>
         <div><dt>Data</dt><dd>{dataPorExtenso(pedido.data)}</dd></div>
         <div><dt>Horário</dt><dd>{pedido.inicio.slice(0, 5)} às {pedido.fim.slice(0, 5)}</dd></div>
@@ -383,7 +387,15 @@ export function CartaoPedido({ pedido, agora, ocupado, erro, pix, gravar, verPix
       {sinais.length > 0 && (
         <dl className={familia.lista}>
           {sinais.map((sinal, indice) => (
-            <div key={indice}><dt>{rotuloDinheiro(sinal.situacao)}</dt><dd>{reais(sinal.valorCentavos)}</dd></div>
+            <div key={indice}>
+              <dt>
+                {rotuloDinheiro(sinal.situacao)}
+                {(sinal.situacao === "A_DEVOLVER" || sinal.situacao === "EM_DEVOLUCAO") && (
+                  <><br />Prazo de devolução {POLITICA_PRE_RESERVA.prazoDevolucao}.</>
+                )}
+              </dt>
+              <dd>{reais(sinal.valorCentavos)}</dd>
+            </div>
           ))}
         </dl>
       )}
@@ -409,7 +421,7 @@ export function CartaoPedido({ pedido, agora, ocupado, erro, pix, gravar, verPix
         </div>
       )}
       {acoes.desistir && (
-        <button type="button" className={familia.secundario} disabled={ocupado} onClick={e => void desistir(e.currentTarget)}>
+        <button type="button" className={familia.secundario} disabled={ocupado} onClick={() => void desistir()}>
           Desistir da garantia
         </button>
       )}
@@ -433,8 +445,11 @@ export function AceitarOferta({ oferta, ocupado, erroId, aceitar }: {
         <div><dt>Valor do sinal</dt><dd>{reais(oferta.sinalCentavos)}</dd></div>
         <div><dt>Quem recebe</dt><dd>{oferta.recebedor.nome} · {oferta.recebedor.cidade}</dd></div>
       </dl>
-      <h4 className={styles.protocolo}>Termos da pré-reserva</h4>
-      <p className={`${familia.texto} ${familia.textoLivre}`}>{termosDaOferta(oferta)}</p>
+      <p className={familia.texto}>{TEXTO_CONFERENCIA_PIX}</p>
+      <details>
+        <summary className={`${styles.protocolo} ${styles.termos}`}>Ler os termos da pré-reserva</summary>
+        <p className={`${familia.texto} ${familia.textoLivre}`}>{termosDaOferta(oferta)}</p>
+      </details>
       <label className={`${familia.lembrar} ${styles.aceite}`}>
         <input type="checkbox" checked={aceitou} required disabled={ocupado} aria-describedby={erroId} onChange={e => setAceitou(e.target.checked)} />
         Li e aceito os termos da pré-reserva

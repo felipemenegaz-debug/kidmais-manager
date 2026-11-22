@@ -1,12 +1,14 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test, { type TestContext } from "node:test";
+import { dialogo } from "../JanelaConfirmacao.ts";
 import { achar, carregarComponente, cssFalso, elementos, talvez, texto, tique } from "../admin/teste-componente.ts";
 import * as formato from "../../lib/area-familia/formato.ts";
 import { origemPublicaValida } from "../../lib/area-familia/regras-http.ts";
 import { decidirEndereco, type AmbienteEnderecos } from "../../lib/enderecos/roteamento.ts";
 import * as rotas from "../../lib/fechamentos/rota-publica.ts";
 import { rotear } from "../../lib/marketing/dominios/hosts.ts";
+import * as politica from "../../lib/pre-reserva/politica.ts";
 import * as termos from "../../lib/pre-reserva/termos.ts";
 import * as modelo from "./meu-pedido.ts";
 import type { Oferta, Pedido } from "./meu-pedido.ts";
@@ -134,7 +136,7 @@ test("uma leitura anterior perde o direito de aplicar a resposta ao iniciar outr
   assert.equal(anterior(), false);
 });
 
-function carregarTela(confirmar: (titulo: string, mensagem: string) => Promise<boolean> = async () => false) {
+function carregarTela(confirmar: typeof dialogo.confirmar = async () => false) {
   return carregarComponente("components/pre-reserva/MeuPedido.tsx", {
     "@/components/JanelaConfirmacao": { dialogo: { confirmar } },
     "@/components/fechamento/MarcaPublica": { useMarcaPublica: () => ({ nome: "Buffet local", kidmais: false }) },
@@ -143,6 +145,7 @@ function carregarTela(confirmar: (titulo: string, mensagem: string) => Promise<b
     "@/components/site/PausaGlobal": { PausaGlobal: "pausa" },
     "@/lib/area-familia/formato": formato,
     "@/lib/fechamentos/rota-publica": rotas,
+    "@/lib/pre-reserva/politica": politica,
     "@/lib/pre-reserva/termos": termos,
     "./meu-pedido": modelo,
     "../area-familia/AreaFamilia.module.css": cssFalso,
@@ -312,6 +315,45 @@ test("novo aceite oculta QR, garantia existente oculta oferta e indisponibilidad
   assert.match(texto(bloqueado), /pedido comum segue normalmente/);
   assert.equal(talvez(bloqueado, tela.modulo.AceitarOferta, ""), undefined);
   for (const botao of ["Desistir da garantia", "Ver Pix do sinal"]) assert.equal(talvez(bloqueado, "button", botao), undefined);
+});
+
+test("Meus pedidos ordena a resposta por data, início e protocolo, preservando empates completos", async (t) => {
+  const entrada = [
+    { ...pedido, id: "1", data: "2026-12-04", inicio: "08:00:00", protocolo: "KM-A" },
+    { ...pedido, id: "2", inicio: "10:00:00", protocolo: "KM-A" },
+    { ...pedido, id: "3", inicio: "09:00:00.5", protocolo: "KM-B" },
+    { ...pedido, id: "4", inicio: "09:00:00", protocolo: "KM-C" },
+    { ...pedido, id: "5", inicio: "09:00:00", protocolo: "KM-B" },
+    { ...pedido, id: "6", inicio: "09:00:00", protocolo: "KM-B" },
+  ];
+  t.mock.method(globalThis, "fetch", async () => respostaDaSessao(entrada));
+  const tela = carregarTela();
+  const render = () => tela.render("default", { empresa: null });
+  render();
+  tela.efeitos();
+  await tique();
+  const ids = elementos(render()).filter(e => e.type === tela.modulo.CartaoPedido).map(e => (e.props.pedido as Pedido).id);
+  assert.deepEqual(ids, ["5", "6", "4", "3", "2", "1"]);
+});
+
+test("cada sinal a devolver ou em devolução mostra o prazo da política junto ao valor", () => {
+  const tela = carregarTela();
+  const situacoes = ["A_DEVOLVER", "EM_DEVOLUCAO", "DEVOLVIDO", "CREDITO_CONTRATO", "EM_GARANTIA"];
+  const arvore = tela.render("CartaoPedido", {
+    agora: instanteServidor, ocupado: false, erro: "", pix: null, gravar: async () => {}, verPix: async () => {},
+    pedido: { ...garantia, preReserva: { ...garantia.preReserva, dinheiro: situacoes.map(situacao => ({
+      situacao, valorCentavos: oferta.sinalCentavos, devolverDesde: ate,
+    })) } },
+  });
+  const linhas = elementos(arvore).filter(e => e.type === "div" && elementos(e).some(filho => filho.type === "dt"));
+  for (const situacao of situacoes) {
+    const rotulo = modelo.rotuloDinheiro(situacao);
+    const linha = linhas.find(e => texto(e).startsWith(rotulo));
+    assert.ok(linha, rotulo);
+    assert.equal(texto(linha).includes(`Prazo de devolução ${politica.POLITICA_PRE_RESERVA.prazoDevolucao}.`),
+      situacao === "A_DEVOLVER" || situacao === "EM_DEVOLUCAO", rotulo);
+    assert.equal(texto(achar(linha, "dd")), formato.reais(oferta.sinalCentavos));
+  }
 });
 
 test("sessão encerrada no Pix volta para a entrada com aviso, e schema ausente informa sobre o pedido comum", async (t) => {
@@ -504,6 +546,85 @@ test("o vencimento da primeira garantia bloqueia a confirmação em aberto e atu
   assert.equal(leituras, 3);
 });
 
+test("o diálogo real confirma após a remoção do botão e o cartão avisa que a desistência não foi registrada", async (t) => {
+  const { passar } = controlarTempo(t, 0);
+  const focados: ElementoDoDialogo[] = [];
+  class ElementoDoDialogo {
+    filhos: ElementoDoDialogo[] = [];
+    isConnected = true;
+    open = false;
+    value = "";
+    textContent = "";
+    onclick?: () => Promise<void>;
+    append(...filhos: ElementoDoDialogo[]) { this.filhos.push(...filhos); }
+    setAttribute() {}
+    showModal() { this.open = true; }
+    close() { this.open = false; }
+    remove() { this.isConnected = false; }
+    focus() { focados.push(this); }
+  }
+  const gatilho = new ElementoDoDialogo();
+  const titulo = new ElementoDoDialogo();
+  const body = new ElementoDoDialogo();
+  gatilho.focus();
+  const globais = {
+    HTMLElement: ElementoDoDialogo,
+    document: { body, get activeElement() { return focados.at(-1); }, createElement: () => new ElementoDoDialogo() },
+    location: { href: "https://buffet.example.test/meu-pedido" },
+    window: new EventTarget(),
+  };
+  for (const [nome, value] of Object.entries(globais)) {
+    const anterior = Object.getOwnPropertyDescriptor(globalThis, nome);
+    Object.defineProperty(globalThis, nome, { configurable: true, value });
+    t.after(() => { if (anterior) Object.defineProperty(globalThis, nome, anterior); else Reflect.deleteProperty(globalThis, nome); });
+  }
+
+  const tela = carregarTela();
+  const cartao = carregarTela(dialogo.confirmar);
+  const releitura = Promise.withResolvers<Response>();
+  let leituras = 0;
+  let posts = 0;
+  t.mock.method(globalThis, "fetch", async (_url: string, init?: RequestInit) => {
+    if (init?.method === "POST") { posts++; return Response.json({ ok: true }); }
+    return ++leituras === 1 ? respostaDaSessao([garantia]) : releitura.promise;
+  });
+  const render = () => tela.render("default", { empresa: null });
+  const renderCartao = () => cartao.render("CartaoPedido", achar(render(), tela.modulo.CartaoPedido).props);
+  render();
+  tela.efeitos();
+  await tique();
+  const antes = renderCartao();
+  tela.efeitos();
+  const cabecalho = achar(antes, "h2", garantia.protocolo);
+  const ref = cabecalho.props.ref as { current: ElementoDoDialogo | null } | undefined;
+  if (ref) ref.current = titulo; // O renderizador de testes não monta os elementos no DOM.
+  const botao = achar(antes, "button", "Desistir da garantia");
+  (botao.props.onClick as (e: object) => void)({ currentTarget: gatilho });
+  const janela = body.filhos[0];
+  const confirmar = janela.filhos.flatMap(e => e.filhos).find(e => e.textContent === "Confirmar desistência da garantia");
+  assert.ok(janela.open && confirmar?.onclick);
+
+  passar(14_000);
+  assert.equal(leituras, 2);
+  assert.equal(talvez(renderCartao(), "button", "Desistir da garantia"), undefined);
+  gatilho.isConnected = false;
+  await confirmar.onclick();
+  await tique();
+  const aviso = /A desistência não foi registrada.*confirme novamente/;
+  assert.equal(achar(renderCartao(), "p", aviso).props.role, "alert");
+  assert.equal(janela.open, false);
+  assert.equal(focados.at(-1), titulo);
+  assert.equal(cabecalho.props.tabIndex, -1);
+  assert.equal(posts, 0);
+
+  const expirado: Pedido = { ...garantia, preReserva: { ...garantia.preReserva, garantia: { situacao: "EXPIRADA", ate } } };
+  releitura.resolve(respostaDaSessao([expirado], Date.parse(ate)));
+  await tique();
+  assert.match(texto(renderCartao()), /A garantia venceu/);
+  assert.match(texto(renderCartao()), aviso);
+  assert.equal(posts, 0);
+});
+
 test("cada garantia atualiza ao vencer, mesmo com o GET da garantia anterior pendente", async (t) => {
   const { passar } = controlarTempo(t, 20 * 60_000);
   const tela = carregarTela();
@@ -650,6 +771,23 @@ test("o formulário exige marcar os termos integrais e desmarca depois do envio"
   submeter(render());
   assert.equal(envios, 1);
   assert.equal(achar(render(), "button", "Aceitar pré-reserva").props.disabled, true);
+});
+
+test("os termos integrais começam recolhidos e a oferta e o aceite permanecem visíveis", () => {
+  const tela = carregarTela();
+  const arvore = tela.render("AceitarOferta", { oferta, ocupado: false, aceitar: async () => {} });
+  const detalhes = achar(arvore, "details");
+  assert.ok(!detalhes.props.open);
+  assert.ok(achar(detalhes, "summary", "Ler os termos da pré-reserva"));
+  assert.ok(achar(detalhes, "p", termos.TERMOS_PRE_RESERVA));
+  for (const [tipo, rotulo] of [
+    ["dd", formato.reais(oferta.sinalCentavos)], ["dd", `${oferta.recebedor.nome} · ${oferta.recebedor.cidade}`],
+    ["p", termos.TEXTO_CONFERENCIA_PIX], ["label", "Li e aceito os termos da pré-reserva"], ["button", "Aceitar pré-reserva"],
+  ]) {
+    assert.ok(achar(arvore, tipo, rotulo));
+    assert.equal(talvez(detalhes, tipo, rotulo), undefined);
+  }
+  assert.equal(achar(arvore, "input").props.required, true);
 });
 
 test("termos marcados antes das 24 horas não permitem enviar o aceite depois do limite", async (t) => {
