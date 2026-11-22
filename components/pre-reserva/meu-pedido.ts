@@ -105,12 +105,18 @@ export function formatarValidade(instante: string) {
   return Number.isFinite(data.getTime()) ? dataHoraSP.format(data) : null;
 }
 
-export function relogioDoServidor(dataHttp: string | null) {
+export const MARGEM_PRAZO_MS = 15_000;
+
+export function relogioDoServidor(dataHttp: string | null, iniciadoEm: number) {
   const instante = dataHttp === null ? NaN : Date.parse(dataHttp);
   if (!Number.isFinite(instante)) return null;
-  const recebidoEm = performance.now();
-  return () => instante + (performance.now() - recebidoEm);
+  // Some o segundo de precisão do Date e todo o tempo desde o início do GET,
+  // incluindo o trânsito até os cabeçalhos e o tempo de leitura do corpo.
+  return () => instante + 1_000 + (performance.now() - iniciadoEm);
 }
+
+export const tempoAteMargem = (prazo: number, agora: number) => prazo - agora - MARGEM_PRAZO_MS;
+export const prazoSeguro = (prazo: number, agora: number) => tempoAteMargem(prazo, agora) > 0;
 
 export function vencimentoDaGarantia({ preReserva: { garantia } }: Pedido) {
   if (garantia?.situacao !== "ATIVA" || !garantia.ate) return null;
@@ -136,11 +142,11 @@ export function acoesDoPedido(pedido: Pedido, agora: number) {
   const vencimento = vencimentoDaGarantia(pedido);
   const limite = limiteDoAceite(pedido);
   return {
-    aceitar: limite !== null && agora < limite && status === "AGUARDANDO_CONTRATO"
+    aceitar: limite !== null && prazoSeguro(limite, agora) && status === "AGUARDANDO_CONTRATO"
       && !garantia?.ate && !aguardandoConferencia && (novoAceiteNecessario || !aceite),
     pix: status === "AGUARDANDO_CONTRATO" && !garantia?.ate && !novoAceiteNecessario
       && aguardandoConferencia && Boolean(aceite?.recebedor.cidade),
-    desistir: status === "AGUARDANDO_CONTRATO" && vencimento !== null && agora < vencimento,
+    desistir: status === "AGUARDANDO_CONTRATO" && vencimento !== null && prazoSeguro(vencimento, agora),
   };
 }
 

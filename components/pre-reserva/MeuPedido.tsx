@@ -11,8 +11,9 @@ import { apiPublica } from "@/lib/fechamentos/rota-publica";
 import { TEXTO_CONFERENCIA_PIX } from "@/lib/pre-reserva/termos";
 import {
   acoesDoPedido, CODIGO_VENCIDO, corpoAceite, corpoCodigo, corpoDesistencia, corpoEntrada,
-  formatarValidade, iniciarLeitura, limiteDoAceite, MOTIVOS_OFERTA, PEDIDO_COMUM, relogioDoServidor, rotuloDinheiro, rotuloErro,
-  rotuloGarantia, rotuloPedido, SESSAO_ENCERRADA, termosDaOferta, vencimentoDaGarantia,
+  formatarValidade, iniciarLeitura, limiteDoAceite, MARGEM_PRAZO_MS, MOTIVOS_OFERTA, PEDIDO_COMUM, prazoSeguro,
+  relogioDoServidor, rotuloDinheiro, rotuloErro, rotuloGarantia, rotuloPedido, SESSAO_ENCERRADA, tempoAteMargem,
+  termosDaOferta, vencimentoDaGarantia,
   type CanalEntrada, type Desafio, type Oferta, type Pedido, type PedidosDaSessao, type Pix,
 } from "./meu-pedido";
 import familia from "../area-familia/AreaFamilia.module.css";
@@ -22,22 +23,24 @@ const BASE = "/api/meu-pedido";
 const MENSAGEM_CODIGO = "Se for possível enviar o código para este CPF, ele chegará pelo canal escolhido. Se o envio pelo WhatsApp falhar, o código poderá chegar por e-mail.";
 
 type Relogio = ReturnType<typeof relogioDoServidor>;
-type Resposta<T> = ({ ok: true; data: T } | { ok: false; codigo: string; status: number }) & { relogio: Relogio };
-type Sessao = { dados: PedidosDaSessao; relogio: NonNullable<Relogio> };
+type Resposta<T> = ({ ok: true; data: T } | { ok: false; codigo: string; status: number }) & { relogio: Relogio; dataHttp: string | null };
+type Sessao = { dados: PedidosDaSessao; expiraEm: number; relogio: NonNullable<Relogio> };
 type Acao = { tipo: "aceite"; oferta: Oferta } | { tipo: "desistencia"; confirmado: boolean };
 type PixDoPedido = { pedidoId: string; dados: Pix | null };
 
 async function requisitar<T>(url: string, corpo?: object): Promise<Resposta<T>> {
+  const iniciadoEm = performance.now();
   const resposta = await fetch(url, {
     credentials: "same-origin",
     cache: "no-store",
     // Com no-referrer, o navegador pode enviar Origin: null e o servidor recusa o POST.
     ...(corpo && { method: "POST", referrerPolicy: "same-origin", headers: { "Content-Type": "application/json" }, body: JSON.stringify(corpo) }),
   }).catch(() => null);
-  const relogio = relogioDoServidor(resposta?.headers.get("Date") ?? null);
+  const dataHttp = resposta?.headers.get("Date") ?? null;
+  const relogio = relogioDoServidor(dataHttp, iniciadoEm);
   const json = await resposta?.json().catch(() => null) as { ok?: boolean; data: T; codigo?: string } | null;
-  if (resposta?.ok && json?.ok) return { ok: true, data: json.data, relogio };
-  return { ok: false, codigo: json?.codigo ?? "", status: resposta?.status ?? 0, relogio };
+  if (resposta?.ok && json?.ok) return { ok: true, data: json.data, relogio, dataHttp };
+  return { ok: false, codigo: json?.codigo ?? "", status: resposta?.status ?? 0, relogio, dataHttp };
 }
 
 export default function MeuPedido({ empresa, logo }: { empresa: string | null; logo?: string | null }) {
@@ -47,6 +50,8 @@ export default function MeuPedido({ empresa, logo }: { empresa: string | null; l
   const lendoPedidos = useRef(false);
   const gravando = useRef(false);
   const sessaoAtiva = useRef(false);
+  const sessaoAtual = useRef<Sessao | null>(null);
+  const ultimaRevalidacao = useRef(new Map<number, number>());
   const [sessao, setSessao] = useState<Sessao | null>(null);
   const [agoraExibido, setAgoraExibido] = useState(0);
   const [carregando, setCarregando] = useState(true);
@@ -55,12 +60,14 @@ export default function MeuPedido({ empresa, logo }: { empresa: string | null; l
   const [erroLeitura, setErroLeitura] = useState("");
   const [erroAcao, setErroAcao] = useState<{ pedidoId: string; mensagem: string } | null>(null);
   const [pix, setPix] = useState<PixDoPedido | null>(null);
-  const dados = sessao?.dados;
+  const dados = sessao && prazoSeguro(sessao.expiraEm, agoraExibido) ? sessao.dados : null;
 
   const encerrarSessao = useCallback((avisar: boolean) => {
     iniciarLeitura(leitura);
     lendoPedidos.current = false;
     sessaoAtiva.current = false;
+    sessaoAtual.current = null;
+    ultimaRevalidacao.current.clear();
     setSessao(null);
     setPix(null);
     setErroAcao(null);
@@ -78,15 +85,18 @@ export default function MeuPedido({ empresa, logo }: { empresa: string | null; l
     if (!atual()) return;
     lendoPedidos.current = false;
     setCarregando(false);
-    if (resposta.ok && resposta.relogio) {
+    const expiraEm = resposta.ok ? Date.parse(resposta.data.expiraEm) : NaN;
+    if (resposta.ok && resposta.relogio && Number.isFinite(expiraEm)) {
       sessaoAtiva.current = true;
-      setSessao({ dados: resposta.data, relogio: resposta.relogio });
+      sessaoAtual.current = { dados: resposta.data, expiraEm, relogio: resposta.relogio };
+      setSessao(sessaoAtual.current);
       setAgoraExibido(resposta.relogio());
       setAvisoEntrada("");
     } else if (!resposta.ok && resposta.codigo === "SESSAO_ENCERRADA") {
       encerrarSessao(aposEntrada || sessaoAtiva.current);
     } else {
       // Sem uma referência do servidor, não há como limitar a exibição à vigência da sessão.
+      sessaoAtual.current = null;
       setSessao(null);
       setErroLeitura(rotuloErro(resposta.ok ? "" : resposta.codigo));
     }
@@ -99,39 +109,51 @@ export default function MeuPedido({ empresa, logo }: { empresa: string | null; l
     return () => { iniciarLeitura(leitura); };
   }, [carregar]);
 
+  const revalidarPrazo = useCallback((prazo: number, agora: number) => {
+    setAgoraExibido(anterior => Math.max(anterior, agora));
+    const momento = performance.now();
+    const ultima = ultimaRevalidacao.current.get(prazo);
+    if (ultima !== undefined && momento - ultima < MARGEM_PRAZO_MS) return;
+    ultimaRevalidacao.current.set(prazo, momento);
+    void carregar();
+  }, [carregar]);
+
   useEffect(() => {
     if (!sessao) return;
-    const { dados, relogio } = sessao;
-    const expiraEm = Date.parse(dados.expiraEm);
-    const agendar = (prazo: number, atualizar: () => void) =>
-      setTimeout(atualizar, Math.max(0, Math.ceil(prazo - relogio())));
-    const timers = [agendar(expiraEm, () => {
-      encerrarSessao(true);
-      void carregar(true);
-    })];
+    const { dados, expiraEm, relogio } = sessao;
+    const prazos = new Set([expiraEm]);
     for (const pedido of dados.pedidos) {
       for (const prazo of [vencimentoDaGarantia(pedido), limiteDoAceite(pedido)]) {
-        if (prazo === null || prazo >= expiraEm) continue;
-        timers.push(agendar(prazo, () => {
-          const agora = Math.max(prazo, relogio());
-          setAgoraExibido(anterior => Math.max(anterior, agora));
-          void carregar();
-        }));
+        if (prazo !== null && prazo < expiraEm) prazos.add(prazo);
       }
     }
+    const timers = [...prazos].map(prazo => {
+      // Se o servidor ainda devolver o mesmo estado dentro da margem, evite uma sequência imediata de GETs.
+      const ultima = ultimaRevalidacao.current.get(prazo);
+      const espera = ultima === undefined ? 0 : ultima + MARGEM_PRAZO_MS - performance.now();
+      const atraso = Math.max(espera, tempoAteMargem(prazo, relogio()));
+      return setTimeout(() => revalidarPrazo(prazo, relogio()), Math.ceil(atraso));
+    });
     return () => { timers.forEach(timer => clearTimeout(timer)); };
-  }, [sessao, carregar, encerrarSessao]);
+  }, [sessao, revalidarPrazo]);
 
   function agoraParaAgir() {
-    if (!sessao || !sessaoAtiva.current || lendoPedidos.current || gravando.current) return null;
-    const agora = sessao.relogio();
-    return agora < Date.parse(sessao.dados.expiraEm) ? agora : null;
+    const atual = sessaoAtual.current;
+    if (!atual || lendoPedidos.current || gravando.current) return null;
+    const agora = atual.relogio();
+    if (prazoSeguro(atual.expiraEm, agora)) return agora;
+    revalidarPrazo(atual.expiraEm, agora);
+    return null;
   }
 
-  async function gravar(pedido: Pedido, acao: Acao) {
+  async function gravar(pedidoId: string, acao: Acao) {
     const corpo = acao.tipo === "aceite" ? corpoAceite(acao.oferta) : corpoDesistencia(acao.confirmado);
+    // A confirmação de desistência pode ficar aberta enquanto chega uma leitura mais recente.
+    const pedido = sessaoAtual.current?.dados.pedidos.find(p => p.id === pedidoId);
     const agora = agoraParaAgir();
-    if (!corpo || agora === null) return;
+    if (!corpo || !pedido || agora === null) return;
+    const prazo = acao.tipo === "aceite" ? limiteDoAceite(pedido) : vencimentoDaGarantia(pedido);
+    if (prazo !== null && !prazoSeguro(prazo, agora)) return revalidarPrazo(prazo, agora);
     const acoes = acoesDoPedido(pedido, agora);
     if (!(acao.tipo === "aceite" ? acoes.aceitar : acoes.desistir)) return;
     iniciarLeitura(leitura);
@@ -147,8 +169,8 @@ export default function MeuPedido({ empresa, logo }: { empresa: string | null; l
         setErroAcao({ pedidoId: pedido.id, mensagem: rotuloErro(resposta.codigo) });
       }
     } finally {
-      // O estado depois de qualquer tentativa de gravação sempre vem de uma nova leitura.
-      await carregar();
+      // A releitura toma o bloqueio ao começar. Só a resposta do GET mais recente pode liberá-lo.
+      void carregar();
       gravando.current = false;
       setOcupado(false);
     }
@@ -163,12 +185,12 @@ export default function MeuPedido({ empresa, logo }: { empresa: string | null; l
     setPix({ pedidoId: pedido.id, dados: null });
     const resposta = await requisitar<Pix>(apiPublica(`${BASE}/${encodeURIComponent(pedido.id)}/pix`, empresa));
     if (!atual()) return;
+    if (!resposta.ok && resposta.codigo === "SESSAO_ENCERRADA") return encerrarSessao(true);
     if (resposta.ok && resposta.data.aceiteSequencia === aceite.sequencia) {
-      setPix({ pedidoId: pedido.id, dados: resposta.data });
+      if (agoraParaAgir() !== null) setPix({ pedidoId: pedido.id, dados: resposta.data });
       return;
     }
     setPix(null);
-    if (!resposta.ok && resposta.codigo === "SESSAO_ENCERRADA") return encerrarSessao(true);
     const mensagem = resposta.ok ? "O aceite do Pix mudou. Confira o estado atualizado do pedido." : rotuloErro(resposta.codigo);
     setErroAcao({ pedidoId: pedido.id, mensagem });
     if (resposta.ok || resposta.status === 409) await carregar();
@@ -191,7 +213,7 @@ export default function MeuPedido({ empresa, logo }: { empresa: string | null; l
       <div className={dados ? familia.shell : `${familia.shell} ${familia.shellEstreito}`}>
         <section className={familia.cartao} aria-labelledby="titulo-meu-pedido">
           <h1 id="titulo-meu-pedido" className={familia.titulo}>{dados ? "Meus pedidos" : "Meu pedido"}</h1>
-          {carregando && <p className={familia.texto} role="status">Carregando pedidos…</p>}
+          {(carregando || (sessao && !dados)) && <p className={familia.texto} role="status">Carregando pedidos…</p>}
           {erroAcao && !dados?.pedidos.some(pedido => pedido.id === erroAcao.pedidoId)
             ? <p className={familia.erro} role="alert">{erroAcao.mensagem}</p> : null}
           {erroLeitura && (
@@ -200,7 +222,7 @@ export default function MeuPedido({ empresa, logo }: { empresa: string | null; l
               <button type="button" className={familia.secundario} disabled={ocupado} onClick={() => void carregar()}>Tentar novamente</button>
             </>
           )}
-          {!carregando && !dados && !erroLeitura && (
+          {!carregando && !sessao && !erroLeitura && (
             <Entrada empresa={empresa} aviso={avisoEntrada} aoEntrar={() => carregar(true)} />
           )}
           {dados && (
@@ -217,7 +239,7 @@ export default function MeuPedido({ empresa, logo }: { empresa: string | null; l
                         ocupado={carregando || ocupado}
                         erro={erroAcao?.pedidoId === pedido.id ? erroAcao.mensagem : ""}
                         pix={pix?.pedidoId === pedido.id ? pix : null}
-                        gravar={(acao) => gravar(pedido, acao)}
+                        gravar={(acao) => gravar(pedido.id, acao)}
                         verPix={() => verPix(pedido)}
                       />
                     </li>
@@ -255,7 +277,7 @@ export function Entrada({ empresa, aviso, aoEntrar }: { empresa: string | null; 
       if (desafio) {
         const resposta = await requisitar(apiPublica(`${BASE}/entrada/confirmar`, empresa), corpoCodigo(desafio.desafio, codigo));
         if (resposta.ok) await aoEntrar();
-        else if (resposta.codigo === "CODIGO_NAO_CONFIRMADO" && resposta.relogio && Date.parse(desafio.expiraEm) <= resposta.relogio()) setErro(CODIGO_VENCIDO);
+        else if (resposta.codigo === "CODIGO_NAO_CONFIRMADO" && resposta.dataHttp && Date.parse(desafio.expiraEm) <= Date.parse(resposta.dataHttp)) setErro(CODIGO_VENCIDO);
         else setErro(rotuloErro(resposta.codigo));
       } else {
         const resposta = await requisitar<Desafio>(apiPublica(`${BASE}/entrada/iniciar`, empresa), corpoEntrada(cpf, canal));
@@ -319,9 +341,9 @@ export function CartaoPedido({ pedido, agora, ocupado, erro, pix, gravar, verPix
   const { aceite, garantia, dinheiro, aguardandoConferencia, novoAceiteNecessario } = preReserva;
   const acoes = acoesDoPedido(pedido, agora);
   const vencimento = vencimentoDaGarantia(pedido);
-  const atualizandoGarantia = vencimento !== null && vencimento <= agora;
+  const atualizandoGarantia = vencimento !== null && !prazoSeguro(vencimento, agora);
   const limite = limiteDoAceite(pedido);
-  const atualizandoOferta = limite !== null && limite <= agora;
+  const atualizandoOferta = limite !== null && !prazoSeguro(limite, agora);
   const sinais = atualizandoGarantia ? dinheiro.filter(sinal => sinal.situacao !== "EM_GARANTIA") : dinheiro;
   const validade = garantia?.ate ? formatarValidade(garantia.ate) : null;
   const erroId = useId();

@@ -1,6 +1,8 @@
 import type { Metadata } from "next";
-import { notFound } from "next/navigation";
+import { headers } from "next/headers";
+import { notFound, redirect } from "next/navigation";
 import MeuPedido from "@/components/pre-reserva/MeuPedido";
+import { destinoMeuPedido } from "@/components/pre-reserva/origem-meu-pedido";
 import { MarcaPublicaProvider } from "@/components/fechamento/MarcaPublica";
 import { escopoCotacaoPublica } from "@/lib/comercial/cotacao-publica";
 import { REGRAS_LEGADAS } from "@/lib/comercial/regras-pagamento";
@@ -18,6 +20,9 @@ export const metadata: Metadata = {
 
 export default async function MeuPedidoDaEmpresaPage({ params }: { params: Promise<{ empresa: string }> }) {
   const { empresa } = await params;
+  const destino = destinoMeuPedido(await headers(), empresa);
+  if (destino.tipo === "INDISPONIVEL") notFound();
+  if (destino.tipo === "REDIRECIONAR") redirect(destino.destino);
   const escopo = await escopoCotacaoPublica(db, empresa, { acompanharPedido: true }).catch(() => null);
   if (!escopo) notFound();
   const nome = await nomePublicoDaEmpresa(db(), escopo.empresaId).catch(() => null);

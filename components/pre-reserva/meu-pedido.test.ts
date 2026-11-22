@@ -2,10 +2,13 @@ import assert from "node:assert/strict";
 import test, { type TestContext } from "node:test";
 import { achar, carregarComponente, cssFalso, elementos, talvez, texto, tique } from "../admin/teste-componente.ts";
 import * as formato from "../../lib/area-familia/formato.ts";
+import { origemPublicaValida } from "../../lib/area-familia/regras-http.ts";
+import { decidirEndereco } from "../../lib/enderecos/roteamento.ts";
 import * as rotas from "../../lib/fechamentos/rota-publica.ts";
 import * as termos from "../../lib/pre-reserva/termos.ts";
 import * as modelo from "./meu-pedido.ts";
 import type { Oferta, Pedido } from "./meu-pedido.ts";
+import { destinoMeuPedido } from "./origem-meu-pedido.ts";
 
 const oferta: Oferta = {
   disponivel: true, sinalCentavos: 10000, recebedor: { nome: "Buffet", cidade: "São Paulo" }, salao: null,
@@ -77,10 +80,21 @@ test("o limite da oferta em São Paulo começa no primeiro milissegundo com meno
   const ofertaDaNoite = { ...pedido, inicio: "23:30:00" };
   const ultimas24Horas = Date.parse("2026-12-03T02:30:00.000Z");
   assert.equal(modelo.limiteDoAceite(ofertaDaNoite), ultimas24Horas + 1);
-  assert.equal(modelo.acoesDoPedido(ofertaDaNoite, ultimas24Horas).aceitar, true);
-  assert.equal(modelo.acoesDoPedido(ofertaDaNoite, ultimas24Horas + 1).aceitar, false);
+  assert.equal(modelo.acoesDoPedido(ofertaDaNoite, ultimas24Horas - modelo.MARGEM_PRAZO_MS).aceitar, true);
+  assert.equal(modelo.acoesDoPedido(ofertaDaNoite, ultimas24Horas + 1 - modelo.MARGEM_PRAZO_MS).aceitar, false);
   assert.equal(modelo.limiteDoAceite({ ...ofertaDaNoite, inicio: "23:30:00.125456" }), ultimas24Horas + 126);
   assert.equal(modelo.limiteDoAceite(indisponivel), null);
+});
+
+test("relógio pessimista soma o trânsito desde o início do GET e a precisão do Date", (t) => {
+  const { adiantarRelogio } = controlarTempo(t, 20 * 60_000);
+  const iniciadoEm = performance.now();
+  adiantarRelogio(5_000);
+  const relogio = modelo.relogioDoServidor(new Date(instanteServidor).toUTCString(), iniciadoEm);
+  assert.equal(relogio?.(), instanteServidor + 6_000);
+  adiantarRelogio(100);
+  assert.equal(relogio?.(), instanteServidor + 6_100);
+  assert.equal(modelo.relogioDoServidor(null, iniciadoEm), null);
 });
 
 test("ações seguem a oferta, o aceite vigente e a garantia em cada pedido", () => {
@@ -159,6 +173,64 @@ function controlarTempo(t: TestContext, diferencaDoAparelho: number) {
     dispararTimers(milissegundos: number) { t.mock.timers.tick(milissegundos); },
   };
 }
+
+test("PREPARACAO leva os dois caminhos ao host onde a API aceita o POST, antes de mostrar a entrada", async () => {
+  const antiga = "https://kidmais.example.test";
+  const nova = "https://iafest.demerzellabs.com.br";
+  const env = { ENDERECOS_MODO: "PREPARACAO", ENDERECOS_ORIGEM_ANTIGA: antiga, ENDERECOS_ORIGEM_NOVA: nova, ADMIN_AUTH_ORIGIN: antiga };
+  const hostNovo = new URL(nova).host;
+  const hostAntigo = new URL(antiga).host;
+  const cabecalhos = (host: string, proto = "https") => new Headers({ host, "x-forwarded-proto": proto });
+  const postAceito = (origem: string) => origemPublicaValida(new Request(`${origem}/api/meu-pedido/entrada/iniciar`, {
+    method: "POST", headers: { origin: origem, "sec-fetch-site": "same-origin" },
+  }), env);
+  assert.equal(postAceito(nova), false);
+  assert.equal(postAceito(antiga), true);
+
+  for (const empresa of [null, "buffet-teste"]) {
+    const pathname = empresa ? `/b/${empresa}/meu-pedido` : "/meu-pedido";
+    const arquivo = empresa ? "app/b/[empresa]/meu-pedido/page.tsx" : "app/meu-pedido/page.tsx";
+    const destino = `${antiga}${pathname}`;
+    const rotear = (host: string) => decidirEndereco({ metodo: "GET", host, pathname, search: "" }, env);
+    assert.deepEqual(rotear(hostNovo), empresa ? { tipo: "PASSAR" } : { tipo: "REDIRECIONAR", destino });
+    assert.deepEqual(rotear(hostAntigo), { tipo: "PASSAR" });
+    let host = hostNovo;
+    let proto = "https";
+    let consultas = 0;
+    const pagina = carregarComponente(arquivo, {
+      "next/headers": { headers: async () => cabecalhos(host, proto) },
+      "next/navigation": {
+        notFound: () => { throw new Error("404"); },
+        redirect: (url: string) => { throw new Error(url); },
+      },
+      "@/components/pre-reserva/MeuPedido": { default: "meu-pedido" },
+      "@/components/pre-reserva/origem-meu-pedido": { destinoMeuPedido: (headers: Headers, empresa: string | null) => destinoMeuPedido(headers, empresa, env) },
+      "@/components/fechamento/MarcaPublica": { MarcaPublicaProvider: "marca" },
+      "@/lib/comercial/cotacao-publica": { escopoCotacaoPublica: async (_db: unknown, codigo: string) => {
+        consultas++;
+        assert.equal(codigo, empresa);
+        return { empresaId: "id-buffet" };
+      } },
+      "@/lib/comercial/regras-pagamento": { REGRAS_LEGADAS: {} },
+      "@/lib/db/postgres": { db: () => ({}) },
+      "@/lib/perfil/nome-publico": { nomePublicoDaEmpresa: async () => "Buffet de teste" },
+      "../empresa-publica": { logoDoAssistente: async () => null },
+    });
+    const render = () => pagina.render("default", { params: Promise.resolve({ empresa }) }) as Promise<unknown>;
+    await assert.rejects(render(), { message: destino });
+    host = hostAntigo;
+    proto = "http";
+    await assert.rejects(render(), { message: destino });
+    assert.equal(consultas, 0);
+    proto = "https";
+    assert.equal(achar(await render(), "meu-pedido").props.empresa, empresa);
+  }
+  const comOrigemPublica = { ...env, AREA_FAMILIA_PUBLIC_ORIGIN: nova };
+  assert.deepEqual(destinoMeuPedido(cabecalhos(hostAntigo), "buffet-teste", comOrigemPublica), {
+    tipo: "REDIRECIONAR", destino: `${nova}/b/buffet-teste/meu-pedido`,
+  });
+  assert.deepEqual(destinoMeuPedido(cabecalhos(hostAntigo), null, comOrigemPublica), { tipo: "INDISPONIVEL" });
+});
 
 test("novo aceite oculta QR, garantia existente oculta oferta e indisponibilidade oculta todas as ações", () => {
   const tela = carregarTela();
@@ -239,7 +311,7 @@ test("o vencimento da primeira garantia bloqueia a confirmação em aberto e atu
     garantia: { situacao: "EXPIRADA", ate }, dinheiro: [{ situacao: "A_DEVOLVER", valorCentavos: 10000, devolverDesde: ate }],
   } };
   const outro: Pedido = { ...garantia, id: "22222222-2222-4222-8222-222222222222", preReserva: { ...garantia.preReserva,
-    garantia: { situacao: "ATIVA", ate: new Date(instanteServidor + 45_000).toISOString() },
+    garantia: { situacao: "ATIVA", ate: new Date(instanteServidor + 60_000).toISOString() },
   } };
   let leituras = 0;
   const posts: { url: string; referrerPolicy?: ReferrerPolicy; corpo: unknown }[] = [];
@@ -265,7 +337,7 @@ test("o vencimento da primeira garantia bloqueia a confirmação em aberto e atu
   const antes = renderCartao(pedido.id);
   tela.efeitos();
   clicar(antes, "Desistir da garantia");
-  passar(29_999);
+  passar(13_999);
   assert.equal(leituras, 1);
   passar(1);
   assert.equal(leituras, 2);
@@ -316,7 +388,7 @@ test("cada garantia atualiza ao vencer, mesmo com o GET da garantia anterior pen
   render();
   tela.efeitos();
 
-  passar(30_000);
+  passar(14_000);
   assert.equal(leituras, 2);
   assert.match(texto(renderCartao(garantia.id)), /Atualizando a situação da garantia/);
   assert.match(texto(renderCartao(outraGarantia.id)), /Horário garantido.*Vinculado à garantia/);
@@ -332,11 +404,39 @@ test("cada garantia atualiza ao vencer, mesmo com o GET da garantia anterior pen
   const expiraram = [garantia, outraGarantia].map(p => ({ ...p, preReserva: { ...p.preReserva,
     garantia: { situacao: "EXPIRADA", ate: p.preReserva.garantia?.ate ?? null }, dinheiro: [],
   } }));
-  segundaLeitura.resolve(respostaDaSessao(expiraram, instanteServidor + 45_000));
+  segundaLeitura.resolve(respostaDaSessao(expiraram, instanteServidor + 45_000, instanteServidor + 120_000));
   await tique();
   primeiraLeitura.resolve(respostaDaSessao([garantia, outraGarantia], instanteServidor + 30_000));
   await tique();
   for (const p of expiraram) assert.match(texto(renderCartao(p.id)), /A garantia venceu/);
+});
+
+test("uma confirmação aberta confere a margem usando o relógio da leitura mais recente", async (t) => {
+  const { passar } = controlarTempo(t, 0);
+  const tela = carregarTela();
+  const cartao = carregarTela();
+  const releitura = Promise.withResolvers<Response>();
+  let leituras = 0;
+  let posts = 0;
+  t.mock.method(globalThis, "fetch", async (_url: string, init?: RequestInit) => {
+    if (init?.method === "POST") posts++;
+    if (++leituras === 1) return respostaDaSessao([garantia]);
+    return releitura.promise;
+  });
+  const render = () => tela.render("default", { empresa: null });
+  render();
+  tela.efeitos();
+  await tique();
+  const gravar = achar(render(), tela.modulo.CartaoPedido).props.gravar as (acao: object) => Promise<void>;
+  clicar(render(), "Atualizar pedidos");
+  passar(8_000);
+  releitura.resolve(respostaDaSessao([garantia], instanteServidor + 8_000));
+  await tique();
+  const atual = cartao.render("CartaoPedido", achar(render(), tela.modulo.CartaoPedido).props);
+  assert.match(texto(atual), /Atualizando a situação da garantia/);
+  await gravar({ tipo: "desistencia", confirmado: true });
+  assert.equal(posts, 0);
+  assert.equal(leituras, 3);
 });
 
 for (const diferenca of [20, -20]) {
@@ -352,7 +452,7 @@ for (const diferenca of [20, -20]) {
     await tique();
     assert.ok(achar(render(), tela.modulo.CartaoPedido));
     tela.efeitos();
-    passar(59_999);
+    passar(43_999);
     assert.equal(leituras, 1);
     assert.ok(achar(render(), tela.modulo.CartaoPedido));
     passar(1);
@@ -363,6 +463,36 @@ for (const diferenca of [20, -20]) {
     assert.equal(achar(render(), tela.modulo.Entrada).props.aviso, modelo.SESSAO_ENCERRADA);
   });
 }
+
+test("a sessão dentro da margem aguarda o servidor sem exibir pedidos ou iniciar GETs em sequência", async (t) => {
+  const { passar } = controlarTempo(t, 0);
+  const tela = carregarTela();
+  const expiraEm = instanteServidor + 60_000;
+  let leituras = 0;
+  t.mock.method(globalThis, "fetch", async () => {
+    leituras++;
+    const agora = instanteServidor + performance.now();
+    return agora < expiraEm ? respostaDaSessao([pedido], agora, expiraEm)
+      : Response.json({ ok: false, codigo: "SESSAO_ENCERRADA" }, { status: 401 });
+  });
+  const render = () => tela.render("default", { empresa: null });
+  const efeitos = () => { render(); tela.efeitos(); };
+  efeitos();
+  await tique();
+  efeitos();
+  passar(44_000);
+  await tique();
+  efeitos();
+  assert.equal(leituras, 2);
+  assert.match(texto(render()), /Carregando pedidos/);
+  assert.ok(!elementos(render()).some(e => [tela.modulo.CartaoPedido, tela.modulo.Entrada].includes(e.type)));
+  passar(14_999);
+  assert.equal(leituras, 2);
+  passar(1_001);
+  await tique();
+  assert.equal(leituras, 3);
+  assert.equal(achar(render(), tela.modulo.Entrada).props.aviso, modelo.SESSAO_ENCERRADA);
+});
 
 test("o formulário exige marcar os termos integrais e desmarca depois do envio", () => {
   const tela = carregarTela();
@@ -410,11 +540,9 @@ test("termos marcados antes das 24 horas não permitem enviar o aceite depois do
   // O clique pode chegar antes do temporizador, por exemplo ao voltar para esta aba.
   submeter(marcado);
   assert.equal(posts, 0);
-  assert.equal(leituras, 1);
+  assert.equal(leituras, 2);
 
-  dispararTimers(60_000);
-  assert.equal(leituras, 1);
-  dispararTimers(1);
+  dispararTimers(60_001);
   assert.equal(leituras, 2);
   const durante = renderCartao();
   assert.match(texto(durante), /Atualizando a situação da oferta/);
@@ -428,6 +556,85 @@ test("termos marcados antes das 24 horas não permitem enviar o aceite depois do
   assert.doesNotMatch(texto(depois), /Atualizando a situação da oferta/);
   assert.ok(!elementos(depois).some(e => e.type === cartao.modulo.AceitarOferta));
   assert.equal(posts, 0);
+});
+
+test("primeiro GET entregue depois do limite do aceite bloqueia a oferta e dispara releitura", async (t) => {
+  const { passar } = controlarTempo(t, 20 * 60_000);
+  const tela = carregarTela();
+  const cartao = carregarTela();
+  const primeira = Promise.withResolvers<Response>();
+  const segunda = Promise.withResolvers<Response>();
+  const limite = Date.parse("2026-12-02T19:00:00.000Z");
+  const expiraEm = limite + 60_000;
+  let leituras = 0;
+  t.mock.method(globalThis, "fetch", async (_url: string, init?: RequestInit) => {
+    assert.equal(init?.method, undefined);
+    return ++leituras === 1 ? primeira.promise : segunda.promise;
+  });
+  const render = () => tela.render("default", { empresa: null });
+  const renderCartao = () => cartao.render("CartaoPedido", achar(render(), tela.modulo.CartaoPedido).props);
+  render();
+  tela.efeitos();
+  passar(5_000);
+  primeira.resolve(respostaDaSessao([pedido], limite - 2_000, expiraEm));
+  await tique();
+  const durante = renderCartao();
+  assert.match(texto(durante), /Atualizando a situação da oferta/);
+  assert.ok(!elementos(durante).some(e => e.type === cartao.modulo.AceitarOferta));
+  tela.efeitos();
+  passar(1);
+  assert.equal(leituras, 2);
+  segunda.resolve(respostaDaSessao([{ ...pedido, oferta: { disponivel: false, motivo: "MENOS_DE_24_HORAS" } }], limite + 3_000, expiraEm));
+  await tique();
+  assert.match(texto(renderCartao()), /Faltam menos de 24 horas para a festa/);
+});
+
+test("depois do aceite, o GET mais recente libera ações com a primeira releitura ainda pendente", async (t) => {
+  const { passar } = controlarTempo(t, -20 * 60_000);
+  const tela = carregarTela();
+  const cartao = carregarTela();
+  const primeiraReleitura = Promise.withResolvers<Response>();
+  const segundaReleitura = Promise.withResolvers<Response>();
+  const outro = { ...garantia, id: "22222222-2222-4222-8222-222222222222" };
+  const expirado: Pedido = { ...outro, preReserva: { ...outro.preReserva, garantia: { situacao: "EXPIRADA", ate } } };
+  let leituras = 0;
+  let pix = 0;
+  t.mock.method(globalThis, "fetch", async (url: string, init?: RequestInit) => {
+    if (init?.method === "POST") {
+      assert.equal(url, `/api/meu-pedido/${pedido.id}/aceite`);
+      return Response.json({ ok: true });
+    }
+    if (url.endsWith("/pix")) {
+      pix++;
+      return Response.json({ ok: true, data: { aceiteSequencia: 1 } });
+    }
+    leituras++;
+    if (leituras === 1) return respostaDaSessao([pedido, outro], instanteServidor, instanteServidor + 120_000);
+    return leituras === 2 ? primeiraReleitura.promise : segundaReleitura.promise;
+  });
+  const render = () => tela.render("default", { empresa: null });
+  const props = () => achar(render(), tela.modulo.CartaoPedido).props;
+  render();
+  tela.efeitos();
+  await tique();
+  const gravar = props().gravar as (acao: object) => Promise<void>;
+  tela.efeitos();
+  void gravar({ tipo: "aceite", oferta });
+  await tique();
+  assert.equal(leituras, 2);
+  assert.equal(props().ocupado, true);
+  passar(14_000);
+  assert.equal(leituras, 3);
+  passar(16_000);
+  segundaReleitura.resolve(respostaDaSessao([aguardando, expirado], Date.parse(ate), instanteServidor + 120_000));
+  await tique();
+  const atual = props();
+  assert.equal(achar(cartao.render("CartaoPedido", atual), "button", "Ver Pix do sinal").props.disabled, false);
+  await (atual.verPix as () => Promise<void>)();
+  assert.equal(pix, 1);
+  primeiraReleitura.resolve(respostaDaSessao([pedido, outro]));
+  await tique();
+  assert.equal((props().pedido as Pedido).preReserva.aguardandoConferencia, true);
 });
 
 test("WhatsApp é o padrão, e-mail é opcional e a mensagem independe de cadastro e canal", async (t) => {
