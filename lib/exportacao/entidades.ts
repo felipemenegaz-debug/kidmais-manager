@@ -369,6 +369,8 @@ export const FORA_DO_ESCOPO: Readonly<Record<string, string>> = {
     // 110: caixa de saída simulada do e-mail (só ambiente local/teste; o texto contém o link da pesquisa).
     satisfacao_email_simulado: 'Simulação técnica local de envio de e-mail da pesquisa (contém o link); não existe envio real.',
     kidmais107_reparos: 'Registro técnico da migration 107 (nomes de índices, CHECKs e gatilhos reparados); não é dado da empresa.',
+    // 129 (registro de migrations no banco, 21/11/2026): tentativas de aplicação de migration, global e sem empresa.
+    operacao_migration_tentativas: 'Registro técnico global das tentativas de aplicar migration (ambiente, backup, situação); não é dado da empresa.',
     // Canal MCP (105): delegação OAuth a assistentes externos — mesmo critério das sessões (credenciais e segurança).
     mcp_oauth_clientes: 'Canal MCP: cache global dos metadados públicos dos aplicativos (ChatGPT, Claude); não é dado da empresa.',
     mcp_oauth_pedidos: 'Canal MCP: pedidos de autorização pendentes (hash de segredo, minutos de vida).',
