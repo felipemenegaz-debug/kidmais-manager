@@ -1,9 +1,25 @@
 import { NextResponse, type NextRequest } from "next/server";
+import { classificarHost, criarContagem, grupoDaRota, type ResultadoProxy } from "./lib/enderecos/contagem";
 import { decidirEndereco } from "./lib/enderecos/roteamento";
 import { rotear } from "./lib/marketing/dominios/hosts";
 import { pareceListaDeContratos, urlSemBuscaAntiga } from "./components/admin/contrato-url";
 
 const PAGINA_NEUTRA = '<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><meta name="robots" content="noindex"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Endereço em ajuste</title></head><body style="font-family:system-ui,sans-serif;margin:0;display:grid;place-items:center;min-height:100vh;background:#090D1B;color:#F4F4F8;padding:24px;text-align:center"><p>Estamos ajustando o endereço. Tente de novo em alguns minutos.</p></body></html>';
+
+const contagem = criarContagem(process.env);
+
+function comContagem(resposta: NextResponse, request: NextRequest, host: string | null, resultado: ResultadoProxy) {
+  if (!contagem.ligada) return resposta;
+  try {
+    const classe = classificarHost(host, process.env);
+    const grupo = grupoDaRota(request.method, request.nextUrl.pathname);
+    const linha = contagem.registrar(`${classe}.${grupo}.${resultado}`, Date.now());
+    if (linha) console.log(linha);
+  } catch {
+    // A contagem é auxiliar e não deve interferir na resposta.
+  }
+  return resposta;
+}
 
 /** Staging não deve aparecer em buscas. Isso trata indexação, não é controle de acesso. */
 function comIndexacao<T extends NextResponse>(resposta: T): T {
@@ -31,23 +47,26 @@ export function proxy(request: NextRequest) {
   // a página não consegue responder 307: o AdminShell só monta a tela depois da sessão, e a resposta já saiu como 200.
   // O destino é sempre o caminho canônico: uma variante como `//admin/contratos` nunca vira Location para outro host.
   const limpa = pareceListaDeContratos(request.nextUrl.pathname) ? urlSemBuscaAntiga("/admin/contratos", request.nextUrl.searchParams) : null;
-  if (limpa) return NextResponse.redirect(new URL(limpa, request.url), { status: 307, headers: { "Cache-Control": "no-store" } });
+  if (limpa) {
+    return comContagem(NextResponse.redirect(new URL(limpa, request.url), { status: 307, headers: { "Cache-Control": "no-store" } }), request, host, "limpeza");
+  }
   const endereco = decidirEndereco({ metodo: request.method, host, pathname: request.nextUrl.pathname, search: request.nextUrl.search }, process.env);
   if (endereco.tipo === "REDIRECIONAR") {
-    return comIndexacao(new NextResponse(null, { status: 307, headers: { Location: endereco.destino, "Cache-Control": "no-store" } }));
+    return comContagem(comIndexacao(new NextResponse(null, { status: 307, headers: { Location: endereco.destino, "Cache-Control": "no-store" } })), request, host, "redirecionar");
   }
   if (endereco.tipo === "NEUTRA") {
-    return new NextResponse(PAGINA_NEUTRA, {
+    const resposta = new NextResponse(PAGINA_NEUTRA, {
       status: 503,
       headers: { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store", "Retry-After": "300", "X-Robots-Tag": "noindex" },
     });
+    return comContagem(resposta, request, host, "neutra");
   }
   const rota = rotear(host, request.nextUrl.pathname, process.env);
-  if (rota.tipo !== "DOMINIO") return comIndexacao(NextResponse.next());
+  if (rota.tipo !== "DOMINIO") return comContagem(comIndexacao(NextResponse.next()), request, host, "passar");
   // Reescrita interna (mesma origem do servidor). Atenção local: com `next dev --hostname 127.0.0.1` o Next troca
   // 127.0.0.1 por localhost na URL e passa a tratar toda reescrita do proxy como externa; use --hostname localhost.
   const destino = new URL(`${rota.destino}${request.nextUrl.search}`, request.url);
-  return comIndexacao(NextResponse.rewrite(destino));
+  return comContagem(comIndexacao(NextResponse.rewrite(destino)), request, host, "dominio");
 }
 
 export const config = {
