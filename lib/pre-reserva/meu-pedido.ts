@@ -194,7 +194,7 @@ async function prepararOferta(tx: DbExecutor, sessao: SessaoMeuPedido, pedido: P
   } as const;
   // Só o POST que gerou o aceite vigente pode ser repetido com a sequência imediatamente anterior.
   const versaoRepeticao = mesmoAceite ? assinatura(retrato, sequencia - 1, podeRenovarOferta(sinaisConferidos(sinais, sequencia - 1))) : null;
-  return { disponivel: true, oferta, retrato, mesmoAceite, versaoRepeticao } as const;
+  return { disponivel: true, oferta, retrato, mesmoAceite, versaoRepeticao, renovar } as const;
 }
 
 async function destinoMudou(tx: DbExecutor, empresaId: string, pedido: Pedido, aceite: AceiteDoPedido | null) {
@@ -217,7 +217,7 @@ export async function listarMeuPedido(tx: DbExecutor, empresaId: string, acesso:
     const { aceite, sinais } = await lerAceiteESinais(tx, sessao, pedido.id);
     const atual = await prepararOferta(tx, sessao, pedido, aceite, sinais, config, pepper, false);
     const preReserva = apresentarSituacao(pedido.status, aceite, sinais, {
-      destinoMudou: await destinoMudou(tx, empresaId, pedido, aceite), ofertaDisponivel: atual.disponivel,
+      destinoMudou: await destinoMudou(tx, empresaId, pedido, aceite), oferta: atual,
     });
     saida.push({
       id: pedido.id, protocolo: 'KM-' + pedido.id.slice(0, 8).toUpperCase(), status: pedido.status,
@@ -289,7 +289,8 @@ export async function desistirMeuPedido(tx: DbExecutor, empresaId: string, acess
   const pedido = await lerPedidoDoTitular(tx, acesso, pedidoId);
   const { aceite, sinais } = await lerAceiteESinais(tx, acesso, pedidoId);
   const mudou = await destinoMudou(tx, empresaId, pedido, aceite);
-  const ofertaDisponivel = mudou && !sinais.some(s => s.garantiaAte !== null) &&
-    (await prepararOferta(tx, acesso, pedido, aceite, sinais, await configuracaoDaOferta(tx, empresaId, false), pepper, false)).disponivel;
-  return { status: pedido.status, preReserva: apresentarSituacao(pedido.status, aceite, sinais, { destinoMudou: mudou, ofertaDisponivel }) };
+  const oferta = (mudou || (aceite && sinalJaConferido(aceite, sinais))) && !sinais.some(s => s.garantiaAte !== null)
+    ? await prepararOferta(tx, acesso, pedido, aceite, sinais, await configuracaoDaOferta(tx, empresaId, false), pepper, false)
+    : null;
+  return { status: pedido.status, preReserva: apresentarSituacao(pedido.status, aceite, sinais, { destinoMudou: mudou, oferta }) };
 }

@@ -90,12 +90,38 @@ test('mudança de destino deixa de apresentar o aceite como pendente, preservand
     valorCentavos: '5000', aceiteSequencia: aceite.sequencia, motivoSemGarantia: 'VALOR_DIVERGENTE',
   };
   assert.equal(apresentarSituacao(base.status, aceite, [divergente]).aguardandoConferencia, true);
-  const mudanca = apresentarSituacao(base.status, aceite, [divergente], { destinoMudou: true, ofertaDisponivel: true });
+  const mudanca = apresentarSituacao(base.status, aceite, [divergente], {
+    destinoMudou: true, oferta: { disponivel: true, renovar: false },
+  });
   assert.equal(mudanca.aceite, null);
   assert.equal(mudanca.novoAceiteNecessario, true);
   assert.equal(mudanca.aguardandoConferencia, false);
   assert.equal(mudanca.dinheiro[0].valorCentavos, 5000);
-  const semOferta = apresentarSituacao(base.status, aceite, [divergente], { destinoMudou: true, ofertaDisponivel: false });
+  const semOferta = apresentarSituacao(base.status, aceite, [divergente], { destinoMudou: true, oferta: { disponivel: false } });
   assert.equal(semOferta.novoAceiteNecessario, false);
   assert.deepEqual(semOferta.dinheiro, mudanca.dinheiro);
+});
+
+test('oferta reaberta pede novo aceite e mantém o histórico da devolução integral', () => {
+  const sinais: SituacaoDoSinal[] = [{
+    garantia: 'SEM_GARANTIA', garantiaAte: null, dinheiro: 'DEVOLVIDO', devolverDesde: base.agora,
+    valorCentavos: '6000', aceiteSequencia: aceite.sequencia, motivoSemGarantia: 'HORARIO_INDISPONIVEL',
+  }];
+  const fechada = apresentarSituacao(base.status, aceite, sinais, { oferta: { disponivel: false } });
+  assert.equal(fechada.aceite?.sequencia, aceite.sequencia);
+  assert.equal(fechada.novoAceiteNecessario, false);
+
+  const reaberta = apresentarSituacao(base.status, aceite, sinais, { oferta: { disponivel: true, renovar: true } });
+  assert.equal(reaberta.aceite, null);
+  assert.equal(reaberta.novoAceiteNecessario, true);
+  assert.equal(reaberta.aguardandoConferencia, false);
+  assert.equal(reaberta.mensagemConferencia, null);
+  assert.deepEqual(reaberta.garantia, fechada.garantia);
+  assert.deepEqual(reaberta.dinheiro, [{ situacao: 'DEVOLVIDO', valorCentavos: 6000, devolverDesde: base.agora }]);
+
+  const novo = apresentarSituacao(base.status, { ...aceite, sequencia: 2 }, sinais, { oferta: { disponivel: true, renovar: false } });
+  assert.equal(novo.aceite?.sequencia, 2);
+  assert.equal(novo.novoAceiteNecessario, false);
+  assert.equal(novo.aguardandoConferencia, true);
+  assert.deepEqual(novo.dinheiro, reaberta.dinheiro);
 });

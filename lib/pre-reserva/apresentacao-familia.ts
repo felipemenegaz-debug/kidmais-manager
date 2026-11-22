@@ -92,15 +92,18 @@ export function apresentarAceite(a: AceiteDoPedido) {
   };
 }
 
+type ResultadoDaOferta = { disponivel: false } | { disponivel: true; renovar: boolean };
+
 export function apresentarSituacao(status: string, aceite: AceiteDoPedido | null, sinais: SituacaoDoSinal[],
-  { destinoMudou = false, ofertaDisponivel = false } = {}) {
-  const vigente = destinoMudou ? null : aceite;
+  { destinoMudou = false, oferta }: { destinoMudou?: boolean; oferta?: ResultadoDaOferta | null } = {}) {
+  const precisaSubstituirAceite = destinoMudou || (oferta?.disponivel === true && oferta.renovar);
+  const vigente = precisaSubstituirAceite ? null : aceite;
   const aguardandoConferencia = status === 'AGUARDANDO_CONTRATO' && vigente !== null &&
     !sinais.some(s => s.garantiaAte !== null) && !sinalJaConferido(vigente, sinais);
   const garantia = sinais.find(s => s.garantiaAte !== null) ?? sinais.find(s => s.aceiteSequencia === aceite?.sequencia);
   return {
     aceite: vigente && apresentarAceite(vigente),
-    novoAceiteNecessario: destinoMudou && ofertaDisponivel,
+    novoAceiteNecessario: precisaSubstituirAceite && oferta?.disponivel === true,
     aguardandoConferencia,
     mensagemConferencia: aguardandoConferencia ? TEXTO_CONFERENCIA_PIX : null,
     garantia: garantia ? { situacao: garantia.garantia, ate: garantia.garantiaAte } : null,

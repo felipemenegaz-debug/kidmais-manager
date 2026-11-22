@@ -392,7 +392,10 @@ test('Meu pedido: CPF e código, escopo, oferta, Pix, desistência, auditoria e 
         assert.deepEqual((await leitura()).oferta, { disponivel: false, motivo: 'PIX_NAO_PENDENTE' });
         await tx.query('UPDATE empresa_pix_recebimento SET chave=$2 WHERE empresa_id=$1', [empresa, PIX_NOVO]);
         await devolucao.assumirDevolucao(tx, gestor, referencia);
-        assert.deepEqual((await leitura()).oferta, { disponivel: false, motivo: 'PIX_NAO_PENDENTE' });
+        const emDevolucao = await leitura();
+        assert.deepEqual(emDevolucao.oferta, { disponivel: false, motivo: 'PIX_NAO_PENDENTE' });
+        assert.equal(emDevolucao.preReserva.novoAceiteNecessario, false);
+        await assert.rejects(servico.pixMeuPedido(tx, empresa, sess, pedido, PEPPER), { code: 'PIX_NAO_PENDENTE' });
         const { rows: [agora] } = await tx.query<{ instante: string }>(
           `SELECT to_char(clock_timestamp() AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS instante`);
         await devolucao.confirmarDevolucao(tx, gestor, referencia, {
@@ -401,13 +404,22 @@ test('Meu pedido: CPF e código, escopo, oferta, Pix, desistência, auditoria e 
 
         const atual = await leitura();
         assert.ok(atual.oferta.disponivel);
+        assert.equal(atual.preReserva.aceite, null);
+        assert.equal(atual.preReserva.novoAceiteNecessario, true);
+        assert.equal(atual.preReserva.aguardandoConferencia, false);
         assert.ok(atual.preReserva.dinheiro.some(s => s.valorCentavos === 12000 && s.situacao === 'DEVOLVIDO'));
+        assert.deepEqual((await servico.desistirMeuPedido(tx, empresa, sess, pedido, PEPPER)).preReserva, atual.preReserva);
         await assert.rejects(servico.pixMeuPedido(tx, empresa, sess, pedido, PEPPER), { code: 'PIX_NAO_PENDENTE' });
         await assert.rejects(aceitarNaTransacao(dadosAntigos), { code: 'OFERTA_DESATUALIZADA' });
         const dadosNovos = corpoAceite(atual.oferta);
         const novo = await aceitarNaTransacao(dadosNovos);
         assert.equal(novo.sequencia, 3);
         assert.equal((await servico.pixMeuPedido(tx, empresa, sess, pedido, PEPPER)).aceiteSequencia, 3);
+        const renovada = (await leitura()).preReserva;
+        assert.equal(renovada.aceite?.sequencia, novo.sequencia);
+        assert.equal(renovada.novoAceiteNecessario, false);
+        assert.equal(renovada.aguardandoConferencia, true);
+        assert.deepEqual(renovada.dinheiro, atual.preReserva.dinheiro);
         assert.deepEqual(await aceitarNaTransacao(dadosNovos), novo);
         await assert.rejects(aceitarNaTransacao(dadosAntigos), { code: 'OFERTA_DESATUALIZADA' });
         assert.equal((await aud(a, pedido, 'PRE_RESERVA_ACEITE')).length, 3);
@@ -441,13 +453,22 @@ test('Meu pedido: CPF e código, escopo, oferta, Pix, desistência, auditoria e 
         });
         const atual = await leitura();
         assert.ok(atual.oferta.disponivel);
+        assert.equal(atual.preReserva.aceite, null);
+        assert.equal(atual.preReserva.novoAceiteNecessario, true);
         assert.equal(atual.preReserva.aguardandoConferencia, false);
         assert.ok(atual.preReserva.dinheiro.some(s => s.valorCentavos === 12000 && s.situacao === 'DEVOLVIDO'));
         await assert.rejects(servico.pixMeuPedido(tx, empresa, sess, pedido, PEPPER), { code: 'PIX_NAO_PENDENTE' });
         await assert.rejects(aceitarNaTransacao(dadosAntigos), { code: 'OFERTA_DESATUALIZADA' });
         const dadosNovos = corpoAceite(atual.oferta);
-        assert.deepEqual(await aceitarNaTransacao(dadosNovos), await aceitarNaTransacao(dadosNovos));
-        assert.equal((await servico.pixMeuPedido(tx, empresa, sess, pedido, PEPPER)).aceiteSequencia, 3);
+        const novo = await aceitarNaTransacao(dadosNovos);
+        assert.deepEqual(await aceitarNaTransacao(dadosNovos), novo);
+        assert.equal(novo.sequencia, 3);
+        assert.equal((await servico.pixMeuPedido(tx, empresa, sess, pedido, PEPPER)).aceiteSequencia, novo.sequencia);
+        const renovada = (await leitura()).preReserva;
+        assert.equal(renovada.aceite?.sequencia, novo.sequencia);
+        assert.equal(renovada.novoAceiteNecessario, false);
+        assert.equal(renovada.aguardandoConferencia, true);
+        assert.deepEqual(renovada.dinheiro, atual.preReserva.dinheiro);
         await assert.rejects(aceitarNaTransacao(dadosAntigos), { code: 'OFERTA_DESATUALIZADA' });
       } finally { await a.query('ROLLBACK'); }
     });
