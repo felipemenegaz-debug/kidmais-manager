@@ -3,8 +3,15 @@ import { randomBytes } from 'node:crypto';
 import test from 'node:test';
 import { carregarComponente } from '../../../components/admin/teste-componente.ts';
 import { conectarDescartavel } from '../../comercial/postgres-descartavel.ts';
-import type { SessaoParaTenant } from '../../saas/provar-tenant.ts';
-import { carregarAtendimento, cod } from './harness-postgres.ts';
+import type { DbExecutor } from '../../db/contracts.ts';
+import * as preferencias from '../../marketing/automacoes/preferencias.ts';
+import { executarNoTenant, type SessaoParaTenant } from '../../saas/provar-tenant.ts';
+import * as supressao from '../../satisfacao/supressao.ts';
+import * as arquivos from './arquivos.ts';
+import * as core from './core.ts';
+import { cod, db, withTransaction } from './harness-postgres.ts';
+import * as multiempresa from './multiempresa.ts';
+import * as entendimento from './walle/entendimento.ts';
 
 const SENHA = `scrypt$v=1$N=131072$r=8$p=1$${'A'.repeat(22)}==$${'B'.repeat(86)}==`;
 const AGORA = new Date('2027-01-20T15:00:00Z');
@@ -38,7 +45,14 @@ test('resultado: sessões de 24 h, virada, custos e isolamento de empresa e ambi
     const a = await empresa('REPRESENTANTE_AUTORIZADO');
     const b = await empresa('ADMINISTRATIVO');
     const vazia = await empresa('REPRESENTANTE_AUTORIZADO');
-    const { servico } = carregarAtendimento(a.empresa_ativa_id);
+    // Só o serviço REAL (guarda de empresa ativa, direito e papel), com uma conexão por transação e a prova real de
+    // tenant. O worker e a biblioteca do harness não participam desta suíte.
+    const configuracao = { ambienteAtendimento: () => 'staging', empresaPiloto: () => a.empresa_ativa_id, atendimentoAtivo: () => true, recepcaoAtiva: () => true, receptorDoNumero: () => true, contatoPermitido: () => true, entendimentoSoRegras: () => true, origemMidia: () => 'https://midia.kidmais.example' };
+    const tenant = { withTenantTransaction: (s: SessaoParaTenant, e: string, w: Parameters<typeof executarNoTenant>[3]) => withTransaction((tx: DbExecutor) => executarNoTenant(tx, s, e, w)) };
+    const servico = carregarComponente('lib/whatsapp/atendimento/service.ts', {
+      '../../db/postgres.ts': { withTransaction, db }, '../../saas/provar-tenant.ts': tenant, './configuracao.ts': configuracao, './core.ts': core, './arquivos.ts': arquivos,
+      './walle/entendimento.ts': entendimento, './multiempresa.ts': multiempresa, '../../satisfacao/supressao.ts': supressao, '../../marketing/automacoes/preferencias.ts': preferencias,
+    }).modulo as typeof import('./service.ts');
     const { resultadoAtendimento } = carregarComponente('lib/whatsapp/atendimento/resultado.ts', {
       './service.ts': servico,
       './configuracao.ts': { ambienteAtendimento: () => 'staging' },

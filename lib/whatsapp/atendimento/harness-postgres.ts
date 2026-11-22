@@ -19,8 +19,6 @@ import * as entendimento from "./walle/entendimento.ts";
 import * as supressao from "../../satisfacao/supressao.ts";
 import * as preferencias from "../../marketing/automacoes/preferencias.ts";
 import * as multiempresa from "./multiempresa.ts";
-// 22/11: o worker importa o motivo seguro desde a #481; sem ele aqui, todo carregarAtendimento falhava.
-import * as motivoFalha from "./motivo-falha.ts";
 import * as mappers from "../../clientes/repositories/mappers.ts";
 import * as normalizers from "../../clientes/repositories/normalizers.ts";
 import * as cnpj from "../../cadastro/cnpj.ts";
@@ -69,7 +67,7 @@ export function carregarAtendimento(empresaPiloto: string, ambiente = "staging")
     "./configuracao.ts": configuracao, "./core.ts": core, "./arquivos.ts": arquivos,
   }).modulo as typeof import("./privacidade.ts");
   const worker = carregarComponente("lib/whatsapp/atendimento/worker.ts", {
-    "../../db/postgres.ts": postgres, "./configuracao.ts": configuracao, "./core.ts": core, "./service.ts": servico, "./transporte.ts": transporteSemRede, "./arquivos.ts": arquivos, "./multiempresa.ts": multiempresa, "./motivo-falha.ts": motivoFalha,
+    "../../db/postgres.ts": postgres, "./configuracao.ts": configuracao, "./core.ts": core, "./service.ts": servico, "./transporte.ts": transporteSemRede, "./arquivos.ts": arquivos, "./multiempresa.ts": multiempresa,
   }).modulo as typeof import("./worker.ts");
   // Repositório REAL de clientes (mesma consulta da aplicação), com a conexão da transação.
   const clientes = carregarComponente("lib/clientes/repositories/cliente.repository.ts", {
