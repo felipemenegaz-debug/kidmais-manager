@@ -102,6 +102,9 @@ const APLICADORES = [
   // Ensaio local da promoção (12/11/2026), modo --retrato-da-copia (D-ENS-1): CREATE/DROP DATABASE dos gêmeos num cluster local
   // descartável e um cliente que só repassa as consultas dos núcleos. Mesma forma de ensaio-lancamento-local.cjs.
   "ensaio-promocao-local.cjs",
+  // Registro de migrations no banco (129, 21/11/2026): aplicador/bootstrap e apoio de PG descartável leem database/*.sql
+  // (sha256 fixado) e a identidade do adaptador; a conferência das antecessoras só lê o catálogo em READ ONLY.
+  "registro-migrations-banco.cjs", "registro-migrations-banco.pg-apoio.cjs", "conferir-antecessoras.cjs",
 ];
 const DIAGNOSTICOS = [
   "catalogo-021.integration.cjs", "conferencia-b5-producao.cjs", "contrato-revisao-inicial.integration.mjs",
