@@ -1,10 +1,12 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import test, { type TestContext } from "node:test";
 import { achar, carregarComponente, cssFalso, elementos, talvez, texto, tique } from "../admin/teste-componente.ts";
 import * as formato from "../../lib/area-familia/formato.ts";
 import { origemPublicaValida } from "../../lib/area-familia/regras-http.ts";
-import { decidirEndereco } from "../../lib/enderecos/roteamento.ts";
+import { decidirEndereco, type AmbienteEnderecos } from "../../lib/enderecos/roteamento.ts";
 import * as rotas from "../../lib/fechamentos/rota-publica.ts";
+import { rotear } from "../../lib/marketing/dominios/hosts.ts";
 import * as termos from "../../lib/pre-reserva/termos.ts";
 import * as modelo from "./meu-pedido.ts";
 import type { Oferta, Pedido } from "./meu-pedido.ts";
@@ -174,6 +176,30 @@ function controlarTempo(t: TestContext, diferencaDoAparelho: number) {
   };
 }
 
+function carregarPagina(empresa: string | null, headers: () => Headers, env: AmbienteEnderecos, consultar = () => {}) {
+  const arquivo = empresa ? "app/b/[empresa]/meu-pedido/page.tsx" : "app/meu-pedido/page.tsx";
+  const pagina = carregarComponente(arquivo, {
+    "next/headers": { headers },
+    "next/navigation": {
+      notFound: () => { throw new Error("404"); },
+      redirect: (url: string) => { throw new Error(url); },
+    },
+    "@/components/pre-reserva/MeuPedido": { default: "meu-pedido" },
+    "@/components/pre-reserva/origem-meu-pedido": { destinoMeuPedido: (headers: Headers, empresa: string | null) => destinoMeuPedido(headers, empresa, env) },
+    "@/components/fechamento/MarcaPublica": { MarcaPublicaProvider: "marca" },
+    "@/lib/comercial/cotacao-publica": { escopoCotacaoPublica: async (_db: unknown, codigo: string) => {
+      consultar();
+      assert.equal(codigo, empresa);
+      return { empresaId: "id-buffet" };
+    } },
+    "@/lib/comercial/regras-pagamento": { REGRAS_LEGADAS: {} },
+    "@/lib/db/postgres": { db: () => ({}) },
+    "@/lib/perfil/nome-publico": { nomePublicoDaEmpresa: async () => "Buffet de teste" },
+    "../empresa-publica": { logoDoAssistente: async () => null },
+  });
+  return () => pagina.render("default", { params: Promise.resolve({ empresa }) }) as Promise<unknown>;
+}
+
 test("PREPARACAO leva os dois caminhos ao host onde a API aceita o POST, antes de mostrar a entrada", async () => {
   const antiga = "https://kidmais.example.test";
   const nova = "https://iafest.demerzellabs.com.br";
@@ -189,7 +215,6 @@ test("PREPARACAO leva os dois caminhos ao host onde a API aceita o POST, antes d
 
   for (const empresa of [null, "buffet-teste"]) {
     const pathname = empresa ? `/b/${empresa}/meu-pedido` : "/meu-pedido";
-    const arquivo = empresa ? "app/b/[empresa]/meu-pedido/page.tsx" : "app/meu-pedido/page.tsx";
     const destino = `${antiga}${pathname}`;
     const rotear = (host: string) => decidirEndereco({ metodo: "GET", host, pathname, search: "" }, env);
     assert.deepEqual(rotear(hostNovo), empresa ? { tipo: "PASSAR" } : { tipo: "REDIRECIONAR", destino });
@@ -197,26 +222,7 @@ test("PREPARACAO leva os dois caminhos ao host onde a API aceita o POST, antes d
     let host = hostNovo;
     let proto = "https";
     let consultas = 0;
-    const pagina = carregarComponente(arquivo, {
-      "next/headers": { headers: async () => cabecalhos(host, proto) },
-      "next/navigation": {
-        notFound: () => { throw new Error("404"); },
-        redirect: (url: string) => { throw new Error(url); },
-      },
-      "@/components/pre-reserva/MeuPedido": { default: "meu-pedido" },
-      "@/components/pre-reserva/origem-meu-pedido": { destinoMeuPedido: (headers: Headers, empresa: string | null) => destinoMeuPedido(headers, empresa, env) },
-      "@/components/fechamento/MarcaPublica": { MarcaPublicaProvider: "marca" },
-      "@/lib/comercial/cotacao-publica": { escopoCotacaoPublica: async (_db: unknown, codigo: string) => {
-        consultas++;
-        assert.equal(codigo, empresa);
-        return { empresaId: "id-buffet" };
-      } },
-      "@/lib/comercial/regras-pagamento": { REGRAS_LEGADAS: {} },
-      "@/lib/db/postgres": { db: () => ({}) },
-      "@/lib/perfil/nome-publico": { nomePublicoDaEmpresa: async () => "Buffet de teste" },
-      "../empresa-publica": { logoDoAssistente: async () => null },
-    });
-    const render = () => pagina.render("default", { params: Promise.resolve({ empresa }) }) as Promise<unknown>;
+    const render = carregarPagina(empresa, () => cabecalhos(host, proto), env, () => { consultas++; });
     await assert.rejects(render(), { message: destino });
     host = hostAntigo;
     proto = "http";
@@ -231,6 +237,59 @@ test("PREPARACAO leva os dois caminhos ao host onde a API aceita o POST, antes d
   });
   assert.deepEqual(destinoMeuPedido(cabecalhos(hostAntigo), null, comOrigemPublica), { tipo: "INDISPONIVEL" });
 });
+
+for (const empresa of [null, "buffet-teste"]) {
+  const caminho = empresa ? `/b/${empresa}/meu-pedido` : "/meu-pedido";
+  test(`ATIVA leva o link de ${caminho} ao formulário com origem aceita no POST`, async (t) => {
+    const antiga = "https://kidmais.example.test";
+    const nova = "https://iafest.demerzellabs.com.br";
+    const env = {
+      ENDERECOS_MODO: "ATIVA", ENDERECOS_ORIGEM_ANTIGA: antiga, ENDERECOS_ORIGEM_NOVA: nova,
+      ADMIN_AUTH_ORIGIN: nova, AREA_FAMILIA_PUBLIC_ORIGIN: nova,
+      SITE_URL: antiga, MARKETING_DOMINIOS_PERSONALIZADOS: "true",
+    };
+    const wizard = readFileSync(new URL("../fechamento/FechamentoWizard.tsx", import.meta.url), "utf8");
+    assert.match(wizard, /\{!origemInterna && <a [^>]*href=\{empresa \? `\/b\/\$\{encodeURIComponent\(empresa\)\}\/meu-pedido` : "\/meu-pedido"\}>Meu pedido<\/a>\}/);
+    const fechamento = new URL(rotas.paginaPublica("/fechamento", empresa), empresa ? nova : antiga);
+    const decidir = (url: URL, metodo = "GET") => decidirEndereco({ metodo, host: url.host, pathname: url.pathname, search: url.search }, env);
+    assert.deepEqual(decidir(fechamento), { tipo: "PASSAR" });
+    assert.deepEqual(rotear(fechamento.host, fechamento.pathname, env), { tipo: "PLATAFORMA" });
+
+    const link = new URL(caminho, fechamento);
+    const redirecionamento = decidir(link);
+    assert.deepEqual(redirecionamento, empresa ? { tipo: "PASSAR" } : { tipo: "REDIRECIONAR", destino: `${nova}${caminho}` });
+    const destino = redirecionamento.tipo === "REDIRECIONAR" ? new URL(redirecionamento.destino) : link;
+    assert.deepEqual(decidir(destino), { tipo: "PASSAR" });
+    assert.deepEqual(rotear(destino.host, destino.pathname, env), { tipo: "PLATAFORMA" });
+    const pagina = carregarPagina(empresa, () => new Headers({ host: destino.host, "x-forwarded-proto": "https" }), env);
+    const props = achar(await pagina(), "meu-pedido").props;
+    assert.equal(props.empresa, empresa);
+
+    const tela = carregarTela();
+    const entrada = carregarTela();
+    const posts: string[] = [];
+    t.mock.method(globalThis, "fetch", async (url: string, init?: RequestInit) => {
+      if (init?.method !== "POST") return Response.json({ ok: false, codigo: "SESSAO_ENCERRADA" }, { status: 401 });
+      const api = new URL(url, destino);
+      posts.push(api.href);
+      assert.deepEqual(decidir(api, "POST"), { tipo: "PASSAR" });
+      assert.deepEqual(rotear(api.host, api.pathname, env), { tipo: "PLATAFORMA" });
+      assert.equal(init.referrerPolicy, "same-origin");
+      const request = new Request(api, { ...init, headers: { origin: destino.origin, "sec-fetch-site": "same-origin" } });
+      assert.equal(origemPublicaValida(request, env), true);
+      return Response.json({ ok: true, data: { desafio: "opaco", expiraEm: ate } }, { status: 202 });
+    });
+    tela.render("default", props);
+    tela.efeitos();
+    await tique();
+    const propsEntrada = achar(tela.render("default", props), tela.modulo.Entrada).props;
+    const renderEntrada = () => entrada.render("Entrada", propsEntrada);
+    alterar(renderEntrada(), { value: "12345678909" });
+    await submeter(renderEntrada());
+    assert.ok(achar(renderEntrada(), "button", "Entrar"));
+    assert.deepEqual(posts, [`${nova}/api/meu-pedido/entrada/iniciar${empresa ? `?empresa=${empresa}` : ""}`]);
+  });
+}
 
 test("novo aceite oculta QR, garantia existente oculta oferta e indisponibilidade oculta todas as ações", () => {
   const tela = carregarTela();
@@ -300,6 +359,91 @@ test("desistência só grava depois da confirmação que explica a liberação e
   await tique();
   assert.deepEqual(envios, [{ tipo: "desistencia", confirmado: true }]);
 });
+
+for (const acao of ["desistencia", "aceite"] as const) {
+  test(`uma releitura pelo prazo de outro pedido avisa que ${acao} não foi registrado e exige nova confirmação`, async (t) => {
+    const { passar } = controlarTempo(t, 0);
+    const tela = carregarTela();
+    const confirmacao = Promise.withResolvers<boolean>();
+    let confirmacoes = 0;
+    const cartao = carregarTela(() => ++confirmacoes === 1 ? confirmacao.promise : Promise.resolve(true));
+    const formulario = carregarTela();
+    const releitura = Promise.withResolvers<Response>();
+    const cliente: Pedido = {
+      ...(acao === "aceite" ? pedido : garantia),
+      id: "22222222-2222-4222-8222-222222222222", protocolo: "KM-22222222",
+      ...(acao === "desistencia" && { preReserva: { ...garantia.preReserva,
+        garantia: { situacao: "ATIVA", ate: new Date(instanteServidor + 90_000).toISOString() },
+      } }),
+    };
+    const vencido = { ...garantia, preReserva: { ...garantia.preReserva, garantia: { situacao: "EXPIRADA", ate } } } as const;
+    const expiraEm = instanteServidor + 120_000;
+    const atualizada = () => respostaDaSessao([vencido, cliente], Date.parse(ate), expiraEm);
+    const posts: { url: string; corpo: unknown }[] = [];
+    let leituras = 0;
+    t.mock.method(globalThis, "fetch", async (url: string, init?: RequestInit) => {
+      if (init?.method === "POST") {
+        posts.push({ url, corpo: JSON.parse(String(init.body)) });
+        return Response.json({ ok: true });
+      }
+      if (++leituras === 1) return respostaDaSessao([garantia, cliente], instanteServidor, expiraEm);
+      return leituras === 2 ? releitura.promise : atualizada();
+    });
+    const render = () => tela.render("default", { empresa: null });
+    const renderCartao = (id = cliente.id) => {
+      const props = elementos(render()).find(e => e.type === tela.modulo.CartaoPedido && (e.props.pedido as Pedido).id === id)?.props;
+      assert.ok(props);
+      return cartao.render("CartaoPedido", props);
+    };
+    const renderFormulario = () => formulario.render("AceitarOferta", achar(renderCartao(), cartao.modulo.AceitarOferta).props);
+    const aviso = acao === "aceite" ? /O aceite não foi registrado.*confirme novamente/ : /A desistência não foi registrada.*confirme novamente/;
+    const rotulo = acao === "aceite" ? "Aceitar pré-reserva" : "Desistir da garantia";
+    render();
+    tela.efeitos();
+    await tique();
+    render();
+    tela.efeitos();
+    let formularioConfirmado: unknown;
+    if (acao === "desistencia") clicar(renderCartao(), rotulo);
+    else {
+      alterar(renderFormulario(), { checked: true });
+      formularioConfirmado = renderFormulario();
+      assert.equal(achar(formularioConfirmado, "button", rotulo).props.disabled, false);
+    }
+    passar(14_000);
+    assert.equal(leituras, 2);
+    assert.match(texto(renderCartao(garantia.id)), /Atualizando a situação da garantia/);
+    if (acao === "desistencia") confirmacao.resolve(true);
+    else submeter(formularioConfirmado);
+    await tique();
+    assert.deepEqual(posts, []);
+    assert.equal(achar(renderCartao(), "p", aviso).props.role, "alert");
+    assert.doesNotMatch(texto(renderCartao(garantia.id)), aviso);
+    assert.equal(achar(acao === "aceite" ? renderFormulario() : renderCartao(), "button", rotulo).props.disabled, true);
+
+    passar(16_000);
+    releitura.resolve(atualizada());
+    await tique();
+    assert.match(texto(renderCartao()), aviso);
+    assert.deepEqual(posts, []);
+    if (acao === "desistencia") {
+      assert.equal(achar(renderCartao(), "button", rotulo).props.disabled, false);
+      clicar(renderCartao(), rotulo);
+      assert.equal(confirmacoes, 2);
+    } else {
+      const formularioAtual = renderFormulario();
+      assert.equal(achar(formularioAtual, "input").props.checked, false);
+      assert.equal(achar(formularioAtual, "button", rotulo).props.disabled, true);
+      alterar(formularioAtual, { checked: true });
+      submeter(renderFormulario());
+    }
+    await tique();
+    assert.deepEqual(posts, [{
+      url: `/api/meu-pedido/${cliente.id}/${acao}`,
+      corpo: acao === "aceite" ? modelo.corpoAceite(oferta) : modelo.corpoDesistencia(true),
+    }]);
+  });
+}
 
 test("o vencimento da primeira garantia bloqueia a confirmação em aberto e atualiza o destino pela releitura", async (t) => {
   const { passar } = controlarTempo(t, -20 * 60_000);

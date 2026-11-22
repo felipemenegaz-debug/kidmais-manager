@@ -148,14 +148,22 @@ export default function MeuPedido({ empresa, logo }: { empresa: string | null; l
 
   async function gravar(pedidoId: string, acao: Acao) {
     const corpo = acao.tipo === "aceite" ? corpoAceite(acao.oferta) : corpoDesistencia(acao.confirmado);
+    if (!corpo || gravando.current) return;
+    function informarAcaoNaoRegistrada() {
+      const mensagem = acao.tipo === "aceite" ? "O aceite não foi registrado." : "A desistência não foi registrada.";
+      setErroAcao({ pedidoId, mensagem: `${mensagem} Confira o pedido atualizado e confirme novamente se a opção estiver disponível.` });
+    }
     // A confirmação de desistência pode ficar aberta enquanto chega uma leitura mais recente.
     const pedido = sessaoAtual.current?.dados.pedidos.find(p => p.id === pedidoId);
     const agora = agoraParaAgir();
-    if (!corpo || !pedido || agora === null) return;
+    if (!pedido || agora === null) return informarAcaoNaoRegistrada();
     const prazo = acao.tipo === "aceite" ? limiteDoAceite(pedido) : vencimentoDaGarantia(pedido);
-    if (prazo !== null && !prazoSeguro(prazo, agora)) return revalidarPrazo(prazo, agora);
+    if (prazo !== null && !prazoSeguro(prazo, agora)) {
+      revalidarPrazo(prazo, agora);
+      return informarAcaoNaoRegistrada();
+    }
     const acoes = acoesDoPedido(pedido, agora);
-    if (!(acao.tipo === "aceite" ? acoes.aceitar : acoes.desistir)) return;
+    if (!(acao.tipo === "aceite" ? acoes.aceitar : acoes.desistir)) return informarAcaoNaoRegistrada();
     iniciarLeitura(leitura);
     gravando.current = true;
     setOcupado(true);
@@ -416,7 +424,7 @@ export function AceitarOferta({ oferta, ocupado, erroId, aceitar }: {
   return (
     <form onSubmit={evento => {
       evento.preventDefault();
-      if (!aceitou || ocupado) return;
+      if (!aceitou) return;
       setAceitou(false);
       void aceitar();
     }}>
