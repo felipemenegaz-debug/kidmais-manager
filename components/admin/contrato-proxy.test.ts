@@ -3,6 +3,7 @@ import { readFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import test from 'node:test';
 import ts from 'typescript';
+import * as contagem from '../../lib/enderecos/contagem.ts';
 import * as roteamento from '../../lib/enderecos/roteamento.ts';
 import * as hosts from '../../lib/marketing/dominios/hosts.ts';
 import * as contratoUrl from './contrato-url.ts';
@@ -22,6 +23,7 @@ function carregarProxy(): (pedido: unknown) => Response {
   }).outputText;
   const deps: Record<string, unknown> = {
     'next/server': servidor,
+    './lib/enderecos/contagem': contagem,
     './lib/enderecos/roteamento': roteamento,
     './lib/marketing/dominios/hosts': hosts,
     './components/admin/contrato-url': contratoUrl,

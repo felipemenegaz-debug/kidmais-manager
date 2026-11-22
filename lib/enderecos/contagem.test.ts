@@ -87,11 +87,13 @@ test('limita as chaves, preserva contadores conhecidos e zera o excedente na prÃ
 
 test('sÃ³ o valor literal false desliga a contagem', () => {
   const desativada = criarContagem({ ENDERECOS_CONTAGEM: 'false' });
+  assert.equal(desativada.ligada, false);
   assert.equal(desativada.registrar('A.pagina.passar', 0), undefined);
   assert.equal(desativada.registrar('A.pagina.passar', 15 * MINUTO), undefined);
 
   for (const valor of [undefined, 'true', '0', 'FALSE', ' false ']) {
-    const { registrar } = criarContagem({ ENDERECOS_CONTAGEM: valor });
+    const { ligada, registrar } = criarContagem({ ENDERECOS_CONTAGEM: valor });
+    assert.equal(ligada, true);
     assert.equal(registrar('A.pagina.passar', 0), undefined);
     assert.match(registrar('A.pagina.passar', 15 * MINUTO) ?? '', / total=1 A\.pagina\.passar=1$/);
   }

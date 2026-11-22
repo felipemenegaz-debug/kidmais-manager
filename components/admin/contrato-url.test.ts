@@ -96,7 +96,9 @@ test('O-1: o termo de busca de links antigos é ignorado e nunca regravado', () 
 test('O-1: o proxy redireciona o link antigo antes de a aplicação ser entregue, e só nesta rota', () => {
   const proxy = readFileSync('proxy.ts', 'utf8');
   assert.match(proxy, /pareceListaDeContratos\(request\.nextUrl\.pathname\) \? urlSemBuscaAntiga\("\/admin\/contratos", request\.nextUrl\.searchParams\) : null/);
-  assert.match(proxy, /if \(limpa\) return NextResponse\.redirect\(new URL\(limpa, request\.url\), \{ status: 307, headers: \{ "Cache-Control": "no-store" \} \}\);/);
+  const limpeza = proxy.search(/if \(limpa\) \{\s*return comContagem\(NextResponse\.redirect\(new URL\(limpa, request\.url\), \{ status: 307, headers: \{ "Cache-Control": "no-store" \} \}\), request, host, "limpeza"\);\s*\}/);
+  assert.ok(limpeza >= 0, 'a limpeza redireciona com 307 e no-store');
+  assert.ok(limpeza < proxy.indexOf('const endereco = decidirEndereco('), 'a limpeza ocorre antes da decisão de endereço');
   assert.equal(urlSemBuscaAntiga('/admin/contratos', new URLSearchParams(`returnTo=a&busca=lucas&busca=theo&contratoId=${A}`)), `/admin/contratos?returnTo=a&contratoId=${A}`);
   assert.equal(urlSemBuscaAntiga('/admin/contratos', new URLSearchParams('busca=')), '/admin/contratos', 'busca vazia também sai');
 });

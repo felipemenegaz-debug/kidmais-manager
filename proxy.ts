@@ -9,6 +9,7 @@ const PAGINA_NEUTRA = '<!doctype html><html lang="pt-BR"><head><meta charset="ut
 const contagem = criarContagem(process.env);
 
 function comContagem(resposta: NextResponse, request: NextRequest, host: string | null, resultado: ResultadoProxy) {
+  if (!contagem.ligada) return resposta;
   try {
     const classe = classificarHost(host, process.env);
     const grupo = grupoDaRota(request.method, request.nextUrl.pathname);

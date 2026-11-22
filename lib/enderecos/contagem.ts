@@ -51,6 +51,7 @@ export function criarContagem(env: AmbienteContagem) {
   let excedente = 0;
 
   return {
+    ligada,
     registrar(chave: ChaveContagem, agora: number): string | undefined {
       if (!ligada) return;
 
