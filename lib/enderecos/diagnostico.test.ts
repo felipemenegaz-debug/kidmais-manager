@@ -75,7 +75,11 @@ test('coerência: cada origem errada derruba só o seu item, sem mudar o modo', 
     [{ WHATSAPP_ATENDIMENTO_MIDIA_ORIGEM: 'https://u:s@iafest.demerzellabs.com.br' }, 'midia'],
     [{ WHATSAPP_ATENDIMENTO_MIDIA_ORIGEM: 'https://u@manager.kidmaisfestas.com' }, 'midia'],
     [{ WHATSAPP_ATENDIMENTO_MIDIA_ORIGEM: '   ' }, 'midia'],
-    [{ MCP_PUBLIC_URL: `${N}/api/mcp` }, 'mcp'],
+    [{ MCP_PUBLIC_URL: 'https://outro.example/api/mcp' }, 'mcp'],
+    [{ MCP_PUBLIC_URL: `https://u:s@${hN}/api/mcp` }, 'mcp'],
+    [{ MCP_PUBLIC_URL: `http://${hN}/api/mcp` }, 'mcp'],
+    [{ MCP_PUBLIC_URL: `${N}/api/errado` }, 'mcp'],
+    [{ MCP_PUBLIC_URL: A }, 'mcp'],
     [{ MCP_PUBLIC_URL: 'não é url' }, 'mcp'],
   ];
   for (const [mudanca, item] of casos) {
@@ -108,6 +112,37 @@ test('mídia (F4/M1): N escrita na variável é coerente em qualquer modo; N her
   assert.equal(diag(hA, { ADMIN_AUTH_ORIGIN: A }).midiaEm, null, 'sem modo válido');
 });
 
+test('MCP (F4/M5): A ou N pela origem de MCP_PUBLIC_URL é coerente em qualquer modo; outra origem não', () => {
+  const emN = diag(hA, { ...ATIVA, MCP_PUBLIC_URL: `${N}/api/mcp` });
+  assert.equal(emN.coerencia!.mcp, true);
+  assert.equal(emN.mcpEm, 'N');
+  assert.equal(diag(hA, ATIVA).mcpEm, 'A');
+  assert.equal(diag(hN, { ...ATIVA, MCP_PUBLIC_URL: `${N}/api/mcp` }).mcpEm, 'N', 'não depende do host do pedido');
+  for (const modo of ['REVERSAO', 'PREPARACAO'] as const) {
+    const d = diag(hA, { ...REVERSAO, ENDERECOS_MODO: modo, MCP_PUBLIC_URL: `${N}/api/mcp` });
+    assert.equal(d.modoEfetivo, modo);
+    assert.equal(d.coerencia!.mcp, true, '/api e /.well-known livres em N também em ' + modo);
+    assert.equal(d.mcpEm, 'N');
+  }
+  for (const v of [undefined, '']) {
+    const d = diag(hA, { ...ATIVA, MCP_PUBLIC_URL: v });
+    assert.equal(d.mcpEm, 'AUSENTE');
+    assert.equal(d.coerencia!.mcp, true, 'canal sem URL pública segue coerente');
+  }
+  for (const v of ['https://outro.example/api/mcp', 'não é url', `https://u:s@${hN}/api/mcp`, `http://${hN}/api/mcp`,
+    `${N}/api/mcp?x=1`, `${N}/api/mcp#f`, `${A}/api/mcp?x=1`, `https://u@${hA}/api/mcp`, `http://localhost/api/mcp`,
+    `${N}/api/errado`, `${A}/api/mcpx`, `${A}/api/mcp/extra`, `${N}/api/MCP`, N, A]) {
+    const d = diag(hA, { ...ATIVA, MCP_PUBLIC_URL: v });
+    assert.equal(d.mcpEm, 'INDETERMINADA', v);
+    assert.equal(d.coerencia!.mcp, false, v);
+  }
+  assert.equal(diag(hA, { ADMIN_AUTH_ORIGIN: A, MCP_PUBLIC_URL: `${N}/api/mcp` }).mcpEm, null, 'sem modo válido');
+  const hash = (v: string) => createHash('sha256').update(v).digest('hex');
+  assert.equal(emN.mcpRecursoSha256, hash(`${N}/api/mcp`), 'o hash segue prendendo o valor exato');
+  assert.equal(diag(hA, { ...ATIVA, MCP_PUBLIC_URL: `${N}/api/mcp/` }).mcpEm, 'N', 'barra final: o canal aceita');
+  assert.equal(diag(hA, { ...ATIVA, MCP_PUBLIC_URL: `${A}/api/mcp//` }).mcpEm, 'A', 'barras finais: o canal normaliza');
+});
+
 test('coerência segue o fallback dos consumidores: ausente ou vazia cai em ADMIN_AUTH_ORIGIN', () => {
   // REVERSAO com tudo ausente: as origens efetivas são A.
   const semNada: AmbienteDiagnostico = { ENDERECOS_MODO: 'REVERSAO', ENDERECOS_ORIGEM_ANTIGA: A, ENDERECOS_ORIGEM_NOVA: N, ADMIN_AUTH_ORIGIN: A };
@@ -128,7 +163,7 @@ test('MCP: hash do valor bruto detecta mudança só de caminho; ausência é exp
   const hash = (v: string) => createHash('sha256').update(v).digest('hex');
   assert.equal(diag(hA, ATIVA).mcpRecursoSha256, hash(`${A}/api/mcp`));
   const soCaminho = diag(hA, { ...ATIVA, MCP_PUBLIC_URL: A });
-  assert.equal(soCaminho.coerencia!.mcp, true, 'a origem segue certa');
+  assert.equal(soCaminho.coerencia!.mcp, false, 'F4/M5 r2: sem a rota /api/mcp o recurso não serve');
   assert.notEqual(soCaminho.mcpRecursoSha256, diag(hA, ATIVA).mcpRecursoSha256, 'o hash denuncia');
   assert.equal(diag(hA, { ...ATIVA, MCP_PUBLIC_URL: undefined }).mcpRecursoSha256, 'AUSENTE');
   assert.equal(diag(hA, { ...ATIVA, MCP_PUBLIC_URL: '' }).mcpRecursoSha256, 'AUSENTE');

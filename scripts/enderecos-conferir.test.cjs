@@ -57,7 +57,35 @@ test('--midia (F4/M1): exige a origem efetiva da mídia; sem a opção, não con
     assert.equal(argumentos([...base, '--midia', 'N']).midia, 'N');
     assert.equal(argumentos(base).midia, undefined);
     assert.throws(() => argumentos([...base, '--midia', 'X']), /MIDIA_INVALIDA/);
-    assert.throws(() => argumentos([...base, '--midia']), /MIDIA_INVALIDA/);
+    assert.throws(() => argumentos([...base, '--midia']), /ARGUMENTO_SEM_VALOR/);
+});
+
+test('--mcp (F4/M5): exige a origem do recurso MCP; sem a opção, não confere', () => {
+    assert.deepEqual(avaliar('A', leitura({ mcpEm: 'N' }), { ...esperado, mcp: 'N' }), []);
+    assert.deepEqual(avaliar('A', leitura({ mcpEm: 'A' }), { ...esperado, mcp: 'N' }), ['A:MCP_ORIGEM_DIVERGENTE']);
+    assert.deepEqual(avaliar('A', leitura({ mcpEm: 'AUSENTE' }), { ...esperado, mcp: 'A' }), ['A:MCP_ORIGEM_DIVERGENTE']);
+    assert.deepEqual(avaliar('A', leitura(), { ...esperado, mcp: 'A' }), ['A:MCP_ORIGEM_DIVERGENTE'], 'campo ausente (web antigo) reprova');
+    assert.deepEqual(avaliar('A', leitura({ mcpEm: 'INDETERMINADA' }), esperado), []);
+    assert.deepEqual(avaliar('N', leitura({ mcpEm: 'N', painelNesteHost: true }), { ...esperado, mcp: 'N' }), []);
+    const base = ['--antiga', A, '--nova', N, '--modo', 'ATIVA', '--mcp-sha256', HASH];
+    assert.equal(argumentos([...base, '--mcp', 'N']).mcp, 'N');
+    assert.equal(argumentos(base).mcp, undefined, '--mcp-sha256 não conta como --mcp');
+    assert.equal(argumentos(base).mcpSha256, HASH);
+    assert.throws(() => argumentos([...base, '--mcp', 'X']), /MCP_ORIGEM_INVALIDA/);
+    assert.throws(() => argumentos([...base, '--mcp']), /ARGUMENTO_SEM_VALOR/);
+});
+
+test('argumentos: opção desconhecida, repetida ou com = reprova em vez de ser ignorada', () => {
+    const base = ['--antiga', A, '--nova', N, '--modo', 'ATIVA', '--mcp-sha256', HASH];
+    for (const extra of [['--mcp=N'], ['--midia=N'], ['--mcps', 'N'], ['N'], ['--exige-toleranca']]) assert.throws(() => argumentos([...base, ...extra]), /ARGUMENTO_DESCONHECIDO/, extra.join(' '));
+    assert.throws(() => argumentos([...base, '--mcp', 'A', '--mcp', 'N']), /ARGUMENTO_REPETIDO/);
+    assert.throws(() => argumentos([...base, '--sem-nova', '--sem-nova']), /ARGUMENTO_REPETIDO/);
+    const semNova = ['--antiga', A, '--modo', 'ATIVA', '--mcp-sha256', HASH];
+    assert.throws(() => argumentos([...semNova, '--sem-nova', '--nova', '--mcp=N']), /ARGUMENTO_SEM_VALOR/, 'r2: --nova engolia --mcp=N');
+    assert.throws(() => argumentos([...base, '--mcp', '--midia', 'N']), /ARGUMENTO_SEM_VALOR/);
+    assert.throws(() => argumentos([...base, '--mcp']), /ARGUMENTO_SEM_VALOR/);
+    assert.equal(argumentos([...semNova, '--sem-nova']).semNova, true);
+    assert.equal(argumentos([...base, '--exige-tolerancia', '--sem-nova', '--midia', 'N', '--mcp', 'N']).mcp, 'N');
 });
 
 test('argumentos: origem exata, modo conhecido, hash formatado', () => {
