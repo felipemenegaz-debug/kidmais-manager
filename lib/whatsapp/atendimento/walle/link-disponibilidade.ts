@@ -1,5 +1,6 @@
 import { escopoCotacaoPublica } from '../../../comercial/cotacao-publica.ts';
 import type { DbExecutor } from '../../../db/contracts.ts';
+import { codigoKidmaisEmN, type AmbienteKidmaisEmN } from '../../../enderecos/roteamento.ts';
 import { enderecoPublicoAbsoluto } from '../../../fechamentos/rota-publica.ts';
 
 /**
@@ -13,7 +14,7 @@ import { enderecoPublicoAbsoluto } from '../../../fechamentos/rota-publica.ts';
  * Enviar o link não reserva nada: a data só fica garantida com a contratação concluída.
  */
 /** AGENDA_PUBLICA_ORIGEM: endereço da página pública, quando difere do sistema (senão, ADMIN_AUTH_ORIGIN). */
-export type AmbienteLinkDisponibilidade = { AGENDA_PUBLICA_EMPRESA_ID?: string; AGENDA_PUBLICA_ORIGEM?: string; ADMIN_AUTH_ORIGIN?: string; SITE_URL?: string };
+export type AmbienteLinkDisponibilidade = AmbienteKidmaisEmN & { AGENDA_PUBLICA_EMPRESA_ID?: string; AGENDA_PUBLICA_ORIGEM?: string; ADMIN_AUTH_ORIGIN?: string; SITE_URL?: string };
 export type EstadoLinkDisponibilidade =
   | { ok: true; link: string }
   | { ok: false; motivo: 'OUTRA_EMPRESA' | 'NAO_CONFIGURADO' | 'ORIGEM_NAO_SEGURA' };
@@ -56,7 +57,12 @@ export async function linkDisponibilidadeDaEmpresa(
 ): Promise<EstadoLinkDisponibilidade | { ok: false; motivo: 'PAGINA_INDISPONIVEL' }> {
   const publica = env.AGENDA_PUBLICA_EMPRESA_ID?.trim();
   const empresa = empresaId.trim().toLowerCase();
-  if (publica && publica.toLowerCase() === empresa) return linkDisponibilidadePublica(empresaId, env);
+  if (publica && publica.toLowerCase() === empresa) {
+    const codigo = codigoKidmaisEmN(env);
+    if (!codigo) return linkDisponibilidadePublica(empresaId, env);
+    const link = enderecoPublicoAbsoluto(env.SITE_URL || env.ADMIN_AUTH_ORIGIN, codigo, '/disponibilidade');
+    return link ? { ok: true, link } : { ok: false, motivo: 'ORIGEM_NAO_SEGURA' };
+  }
 
   const indisponivel = { ok: false, motivo: 'PAGINA_INDISPONIVEL' } as const;
   try {
@@ -75,6 +81,8 @@ export async function linkDisponibilidadeDaEmpresa(
 /** Só as variáveis usadas para escolher o endereço do link. */
 export const ambienteDoLink = (): AmbienteLinkDisponibilidade => ({
   AGENDA_PUBLICA_EMPRESA_ID: process.env.AGENDA_PUBLICA_EMPRESA_ID,
+  AGENDA_PUBLICA_EMPRESA_CODIGO: process.env.AGENDA_PUBLICA_EMPRESA_CODIGO,
+  ENDERECOS_KIDMAIS_EM_N: process.env.ENDERECOS_KIDMAIS_EM_N,
   AGENDA_PUBLICA_ORIGEM: process.env.AGENDA_PUBLICA_ORIGEM,
   ADMIN_AUTH_ORIGIN: process.env.ADMIN_AUTH_ORIGIN,
   SITE_URL: process.env.SITE_URL,
