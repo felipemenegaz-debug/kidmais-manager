@@ -17,6 +17,7 @@ const AVISO_PENDENTE_AGENDA = 'Há alterações da agenda ainda não salvas. Sal
 const AVISO_PENDENTE_UNIDADE = 'Há alterações da agenda ainda não salvas. Salve ou descarte (Cancelar) antes de trocar de unidade.';
 import css from './agenda-configuracao.module.css';
 import ws from './workspace.module.css';
+import { PreReservaConfiguracao } from './PreReservaConfiguracao';
 
 export type DadosAgenda = { instalada: boolean; gestao: boolean; escopos: EscopoConfiguravel[]; agenda: AgendaEscopo | null };
 
@@ -389,6 +390,8 @@ export default function AgendaConfiguracao({ vitrine }: { vitrine?: { dados: Dad
             <AdminPrimaryButton carregando={salvando} disabled={carregando} onClick={() => void salvar()}>Salvar configurações</AdminPrimaryButton>
           </div>)}
       </>}
+      {/* 23/11/2026: a pré-reserva da empresa mora aqui (bloqueia a agenda); só Gestão, como a API. Fora da vitrine. */}
+      {dados?.gestao && !vitrine && <PreReservaConfiguracao />}
     </div>
 
     {desativar && <div className={css.overlay} role="presentation">

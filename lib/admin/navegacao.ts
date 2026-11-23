@@ -62,10 +62,12 @@ const DEVOLUCOES_PRE_RESERVA: ItemNavegacao = {
  *   - `plataforma`: recurso da instalação inteira (temAutoridadeDePlataforma, F1) — nunca o papel de empresa.
  */
 const CONFIGURACAO: Array<ItemNavegacao & { autoridade: 'empresa' | 'plataforma' }> = [
-    { href: '/admin/configuracoes/origens', rotulo: 'Opções de origem', grupo: 'Configurações', autoridade: 'empresa' },
+    // 23/11/2026 (pedido de Felipe): Perfil da empresa abre o grupo, e a Pré-reserva saiu do menu para dentro da Agenda,
+    // porque a pré-reserva bloqueia a agenda. A rota antiga leva à seção da Agenda (app/admin/configuracoes/pre-reserva).
     { href: '/admin/configuracoes/perfil-empresa', rotulo: 'Perfil da empresa', grupo: 'Configurações', autoridade: 'empresa' },
-    { href: '/admin/configuracoes/pre-reserva', rotulo: 'Pré-reserva', grupo: 'Configurações', autoridade: 'empresa' },
-    // 093: a agenda da unidade. O assistente da primeira entrada é de qualquer usuário; a tela, de Gestão.
+    { href: '/admin/configuracoes/origens', rotulo: 'Opções de origem', grupo: 'Configurações', autoridade: 'empresa' },
+    // 093: a agenda da unidade e, desde 23/11/2026, a pré-reserva da empresa. O assistente da primeira entrada é de
+    // qualquer usuário; a tela, de Gestão (as duas APIs exigem Gestão).
     { href: '/admin/configuracoes/agenda', rotulo: 'Agenda', grupo: 'Configurações', autoridade: 'empresa' },
     // 102: apresentação dos salões ao cliente (fotos, itens, declaração). Ler: membership; gravar: Gestão (sem exceção).
     { href: '/admin/configuracoes/saloes', rotulo: 'Salões', grupo: 'Configurações', autoridade: 'empresa' },
