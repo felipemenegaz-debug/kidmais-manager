@@ -27,7 +27,7 @@ function carregarPorta(regras: () => boolean) {
       juntarSinais: (a: unknown) => a,
     },
     './fontes-postgres.ts': { catalogosWallE: async () => ({}), fontesPostgres: () => ({}) },
-    './link-disponibilidade.ts': { ambienteDoLink: () => 'staging', linkDisponibilidadePublica: () => ({ ok: false }) },
+    './link-disponibilidade.ts': { ambienteDoLink: () => ({}), linkDisponibilidadeDaEmpresa: async () => ({ ok: false }) },
     './resolver.ts': { resolverWallE: async (e: { entendimento: { origem: string } }) => { registro.origem.push(e.entendimento.origem); return { saidas: [], contexto: {}, passagem: null }; } },
   }).modulo as typeof import('./porta.ts');
   return { modulo, registro };
