@@ -7,12 +7,13 @@ import * as transporte from './transporte.ts';
 import * as arquivos from './arquivos.ts';
 import * as multiempresa from './multiempresa.ts';
 import * as motivoFalha from './motivo-falha.ts';
+import * as oportunidade from './walle/oportunidade.ts';
 import type { Conversa, Mensagem } from './service.ts';
 
 const agora = new Date();
 const conversa: Conversa = {id:'c',empresa_id:'e',ambiente:'staging',contato:'5561999999999',estado:'IA',responsavel_id:null,nao_contatar:false,versao:3,ultima_entrada_em:agora.toISOString(),interesse:{data:null,convidados:null}};
 const mensagem: Mensagem = {id:'m',conversa_id:'c',empresa_id:'e',ambiente:'staging',direcao:'SAIDA',origem_id:'entrada',autor_usuario_id:null,texto:'Resposta aprovada',estado:'PENDENTE',versao_conversa:3,criada_em:agora.toISOString()};
-const modoRegras={ativo:false}; let limpezas=0; const correlacoes:string[]=[];
+const modoRegras={ativo:false}; let limpezas=0; const capturasDoFunil:string[]=[]; const correlacoes:string[]=[];
 type Cfg = {ativo:boolean;nome:string;perguntas:{id:string;pergunta:string;resposta:string}[];limites:{respostasPor24h:number}};
 const RELEITURA_ESTADO = "SELECT m.estado,to_jsonb(m)->>'motivo_cancelamento' AS motivo FROM whatsapp_atendimento_mensagens m WHERE m.id=$1 FOR UPDATE";
 function carregar(consulta: (sql: string, args?: unknown[]) => Promise<{rows: unknown[]}>, ativo=true, permitido=true, limite=20, cfg?: (travar:boolean)=>Cfg|null) {
@@ -24,6 +25,8 @@ function carregar(consulta: (sql: string, args?: unknown[]) => Promise<{rows: un
     './multiempresa.ts':multiempresa,
     './core.ts':core,
     './motivo-falha.ts':motivoFalha,
+    // Wall-e 1a: a captura do funil ao fim do lote tem prova própria em PG; aqui só se registra que ela roda depois das tarefas.
+    './walle/oportunidade.ts':{...oportunidade,capturarOportunidadesPendentes:async(_l:unknown,_t:unknown,ambiente:string)=>{capturasDoFunil.push(ambiente);return {capturas:0,falhas:[],resultados:[]};}},
     './service.ts':{registroDaPausa:(texto:string,em:string)=>({motivo:'PARAR_A_CONFIRMAR',motivos:['PARAR_A_CONFIRMAR'],em,coletado:{data:null,turno:null,convidados:null,pacote:null,unidade:null,tema:null},enviados:[],pendentes:[],ultimaMensagem:texto.slice(0,500)}),configuracao:async(_tx:unknown,_e:string,travar=false)=>cfg?cfg(travar):({ativo:true,nome:'Kidmais',perguntas:[],limites:{respostasPor24h:limite}}),recuperarTrabalhosInterrompidos:async()=>{},limparStatusExpirados:async()=>{limpezas++;},correlacionarStatus:async(_tx:unknown,_e:string,_a:string,id:string)=>{correlacoes.push(id);},tem082:async()=>false,suprimirPesquisasDoContato:async()=>{}},
     './modelo.ts':{interpretarMensagem:async()=>{throw Error('modelo real proibido no teste');}},
     // Funções puras reais (montagem do conteúdo); a rede continua proibida.
@@ -215,7 +218,7 @@ test('recusa do provedor termina FALHOU; timeout continua INCERTO; nenhum reenvi
 
 test('lote esvazia a fila numa chamada: entrada e saída da mesma resposta sem esperar o próximo ciclo',async()=>{
   const fila=[{...mensagem,id:'entrada',direcao:'ENTRADA',origem_id:null,texto:'Onde fica?'},{...mensagem,id:'saida'}];
-  let envios=0; limpezas=0; correlacoes.length=0;
+  let envios=0; limpezas=0; correlacoes.length=0; capturasDoFunil.length=0;
   const worker=carregar(async(sql)=>{
     if(sql.includes("SELECT id FROM empresas")) return {rows:[{id:'e'}]};
     if(sql.includes('SELECT m.*')) { const proxima=fila.shift(); return {rows:proxima?[proxima]:[]}; }
@@ -225,6 +228,8 @@ test('lote esvazia a fila numa chamada: entrada e saída da mesma resposta sem e
   const deps={interpretar:async()=>({intencao:'OUTRO' as const,perguntaId:null,data:null,convidados:null}),enviar:async()=>{envios++;return 'provedor-1';}};
   assert.deepEqual(await worker.processarLote(deps),{estado:'SEM_TAREFA',tarefas:2});
   assert.equal(envios,1); assert.equal(limpezas,1); assert.deepEqual(correlacoes,['provedor-1']);
+  // Wall-e 1a: a captura do funil roda uma vez, depois das tarefas do lote, no ambiente do processo.
+  assert.deepEqual(capturasDoFunil,['staging']);
 });
 test('lote para no limite de tarefas ou de tempo e devolve LIMITE para o worker chamar de novo',async()=>{
   const worker=carregar(async(sql)=>{
@@ -237,7 +242,9 @@ test('lote para no limite de tarefas ou de tempo e devolve LIMITE para o worker 
   // Mensagens obsoletas são canceladas sem modelo nem envio e não encerram o lote.
   assert.deepEqual(await worker.processarLote(deps,{maxTarefas:3}),{estado:'LIMITE',tarefas:3});
   let t=0; assert.deepEqual(await worker.processarLote(deps,{prazoMs:10,relogio:()=>(t+=6)}),{estado:'LIMITE',tarefas:1});
+  capturasDoFunil.length=0;
   assert.deepEqual(await carregar(async()=>{throw Error('banco proibido');},false).processarLote(deps),{estado:'DESLIGADO',tarefas:0});
+  assert.deepEqual(capturasDoFunil,[],'atendimento desligado: sem captura do funil');
 });
 test('destino fora da lista permitida é cancelado antes do provedor',async()=>{
   let envios=0;

@@ -6,6 +6,7 @@ import { conteudoDaMensagem, type ConteudoSaida } from './transporte.ts';
 import { motivoSeguro } from './motivo-falha.ts';
 import { ARQUIVO_DISPONIVEL_SQL, urlPublicaArquivo } from './arquivos.ts';
 import type { Passagem, ResultadoWallE } from './walle/tipos.ts';
+import { capturarOportunidadesPendentes, marcarPendente, qualificaPedidoFesta } from './walle/oportunidade.ts';
 import type { DbExecutor } from '../../db/contracts.ts';
 import { CHAVE_RODIZIO, eTransitorio, ehPilotoDe, empresaOperaAtendimento, empresasNaOrdemDoRodizio, lerPortao, modoEfetivo, pilotoOpcional, registrarVezDoRodizio, travarProvedor } from './multiempresa.ts';
 
@@ -132,14 +133,29 @@ export async function processarLote(deps: DependenciasWorker, opcoes: { maxTaref
   await limparStatusExpirados();
   const inicio = relogio();
   let tarefas = 0;
+  let estado: 'DESLIGADO' | 'SEM_TAREFA' | 'LIMITE' = 'LIMITE';
   while (tarefas < max && relogio() - inicio < prazo) {
     const resultado = await processarAtendimento(deps);
-    if (resultado === 'DESLIGADO' || resultado === 'SEM_TAREFA') return { estado: resultado, tarefas };
+    if (resultado === 'DESLIGADO' || resultado === 'SEM_TAREFA') { estado = resultado; break; }
     tarefas++;
     // E-ME1: leitura transitória (plano, conexão) devolveu a tarefa à fila: o lote para aqui e o próximo ciclo tenta de novo.
-    if (resultado === 'ADIADA') return { estado: 'LIMITE' as const, tarefas };
+    if (resultado === 'ADIADA') break;
   }
-  return { estado: 'LIMITE' as const, tarefas };
+  // Wall-e 1a: depois das respostas e envios do lote, os cartões do funil das conversas marcadas (recuperação própria).
+  if (estado !== 'DESLIGADO') await capturarOportunidadesDoLote();
+  return { estado, tarefas };
+}
+/**
+ * Wall-e 1a: captura dos cartões do funil marcados pela resposta. Nunca lança: falha fica no log (só o código) e a marca
+ * fica para o próximo lote.
+ */
+async function capturarOportunidadesDoLote() {
+  try {
+    const r = await capturarOportunidadesPendentes(db(), withTransaction, ambienteAtendimento());
+    for (const codigo of r.falhas) console.warn('[Atendimento WhatsApp] cartão do funil não gravado (%s); tenta no próximo lote.', codigo);
+  } catch (erro) {
+    console.warn('[Atendimento WhatsApp] cartão do funil não gravado (%s); tenta no próximo lote.', motivoSeguro(erro));
+  }
 }
 export async function processarAtendimento(deps: DependenciasWorker) {
   if (!atendimentoAtivo()) return 'DESLIGADO';
@@ -588,6 +604,8 @@ async function responderWallE(porta: PortaWallE, mensagem: Mensagem, conversa: C
       [atual.id, empresa, ambiente, ordem === 0 ? mensagem.id : null, mensagem.id, ordem, a ? a.legenda : s.texto, atual.versao, a?.tipo ?? null, a && !a.arquivoId ? a.midiaUrl : null, a?.arquivoId ?? null, a?.arquivoId ? a.nome : null, a?.prontaId ?? null, a?.versao ?? null,
         JSON.stringify({ tipo: 'WALLE', fontes: s.fontes }), base, `${ordem} milliseconds`]);
     }
+    // Wall-e 1a: pedido de festa nova só MARCA a conversa (savepoint); o cartão é gravado ao fim do lote, fora desta transação.
+    if (qualificaPedidoFesta(resultado) && !(await marcarPendente(tx, atual.id))) console.warn('[Atendimento WhatsApp] cartão do funil não marcado (%s); a resposta segue.', 'OPORTUNIDADE_MARCA');
   });
   return 'PROCESSADA' as const;
 }
