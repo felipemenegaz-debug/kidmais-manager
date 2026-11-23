@@ -23,6 +23,7 @@ import * as fontesWallE from "./walle/fontes-postgres.ts";
 import * as linkWallE from "./walle/link-disponibilidade.ts";
 import * as resolverWallE from "./walle/resolver.ts";
 import * as multiempresa from "./multiempresa.ts";
+import * as motivoFalha from "./motivo-falha.ts";
 import * as mappers from "../../clientes/repositories/mappers.ts";
 import * as normalizers from "../../clientes/repositories/normalizers.ts";
 import * as cnpj from "../../cadastro/cnpj.ts";
@@ -129,6 +130,7 @@ export function carregarMultiempresa() {
   }).modulo as typeof import("./privacidade.ts");
   const worker = carregarComponente("lib/whatsapp/atendimento/worker.ts", {
     "../../db/postgres.ts": postgres, "./configuracao.ts": configuracao, "./core.ts": core, "./service.ts": servico, "./transporte.ts": transporteSemRede, "./arquivos.ts": arquivos, "./multiempresa.ts": multiempresa,
+    "./motivo-falha.ts": motivoFalha,
   }).modulo as typeof import("./worker.ts");
   const meta = carregarComponente("lib/whatsapp/atendimento/meta.ts", {
     "../../db/postgres.ts": postgres, "../credencial.ts": credencial, "./configuracao.ts": configuracao, "./core.ts": core, "./service.ts": servico, "./transporte.ts": transporteSemRede, "./multiempresa.ts": multiempresa,
@@ -147,6 +149,7 @@ export function carregarMultiempresa() {
   const portaWallE = carregarComponente("lib/whatsapp/atendimento/walle/porta.ts", {
     "../../../db/postgres.ts": postgres, "../../../clientes/repositories/cliente.repository": clientes, "../../../fechamentos/contratacoes.ts": { listarContratacoes },
     "../core.ts": core, "../configuracao.ts": configuracao, "../prontas-link.ts": prontasLink, "./contexto.ts": contextoWallE, "./entendimento.ts": entendimento,
+    "../multiempresa.ts": multiempresa, "../motivo-falha.ts": motivoFalha,
     "./fontes-postgres.ts": fontesWallE, "./link-disponibilidade.ts": linkWallE, "./resolver.ts": resolverWallE,
   }).modulo as typeof import("./walle/porta.ts");
   return { servico, worker, meta, privacidade, biblioteca, portaWallE };
