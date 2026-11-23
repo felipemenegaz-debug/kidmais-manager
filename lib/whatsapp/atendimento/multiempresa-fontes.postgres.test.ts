@@ -28,7 +28,7 @@ import type { AlvoEnvio, DependenciasWorker } from "./worker.ts";
  *  10-G  agenda: o dia bloqueado em A está livre em B e o bloqueado em B está ocupado só em B (fonte AGENDA de cada uma);
  *  10-C  contratos: o MESMO número é cliente nas duas, cada uma com a sua contratação liberada: o link seguro que B manda é o
  *        do contrato de B; número que só é cliente de A não recebe link em B (passa à equipe);
- *  10-L  link público de disponibilidade: só A (I-8: a página pública é da empresa configurada no servidor); B nunca;
+ *  10-L  link público de disponibilidade: A usa a agenda global e B usa a página pública com seu próprio código;
  *  10-F  fontes registradas nas saídas de B: nenhum id de A (pacotes, tabelas, contrato);
  *  10-M  (mutante documentado) o worker chamando a porta com a empresa errada é pego por estas asserções.
  */
@@ -42,6 +42,7 @@ const chave = (v: string | undefined) => { if (v === undefined) delete process.e
 const PLANO: Interpretacao = { intencao: "INTERESSE", perguntaId: null, data: null, convidados: null } as Interpretacao;
 const ORIGEM_AGENDA = "https://agenda.kidmais.example/";
 const ORIGEM_CONTRATO = "https://atendimento.kidmais.example";
+const ORIGEM_SITE = "https://site.iafest.example";
 const hoje = new Intl.DateTimeFormat("sv-SE", { timeZone: "America/Sao_Paulo" }).format(new Date());
 const somarDias = (iso: string, d: number) => new Date(Date.parse(`${iso}T12:00:00Z`) + d * 86400000).toISOString().slice(0, 10);
 const br = (iso: string) => iso.split("-").reverse().join("/");
@@ -103,21 +104,25 @@ test("E-ME1 r3: caso 10 completo — pacotes, preços, orçamento, agenda, contr
   const c = await conectarDescartavel();
   const q = (sql: string, v: unknown[] = []) => c.query(sql, v);
   const ex = c as unknown as DbExecutor;
-  const antes = { agenda: process.env.AGENDA_PUBLICA_EMPRESA_ID, origem: process.env.AGENDA_PUBLICA_ORIGEM, auth: process.env.ADMIN_AUTH_ORIGIN };
-  const restaurar = (k: string, v: string | undefined) => { if (v === undefined) delete process.env[k]; else process.env[k] = v; };
+  const chavesLink = ["AGENDA_PUBLICA_EMPRESA_ID", "AGENDA_PUBLICA_ORIGEM", "ADMIN_AUTH_ORIGIN", "SITE_URL", "COTACAO_PUBLICA_POR_EMPRESA"];
+  const antes = chavesLink.map((k) => [k, process.env[k]] as const);
   try {
     await q(UP); await q(POS);
     chave("true");
     const criarUsuario = async (papel: string) => (await q(`INSERT INTO usuarios_administrativos (email, nome, senha_hash, papel, ativo) VALUES ($1, 'Harness fontes', $2, $3, true) RETURNING id`, [`${cod("u")}@example.test`, SENHA, papel])).rows[0].id as string;
     const f = fixturesMultiempresa(q, criarUsuario);
     const A = await f.empresa("A piloto"), B = await f.empresa("B");
+    const codigoB = (await q("SELECT codigo FROM public.empresas WHERE id=$1", [B])).rows[0].codigo as string;
     flags.piloto = A; flags.kproc = true; flags.regras = true;
     const sA = await f.sessao(A), sB = await f.sessao(B);
     for (const e of [A, B]) await f.conectar(e, sA.usuario_id);
     await f.isentar(B, sA.usuario_id);
     const { servico, worker, meta, biblioteca, portaWallE } = carregarMultiempresa();
     for (const s of [sA, sB]) await servico.salvarConfiguracao(s as never, { ativo: true, nome: "Buffet sintético", perguntas: [], limites: { respostasPor24h: 50 }, wallE: { ativo: true } });
-    Object.assign(process.env, { AGENDA_PUBLICA_EMPRESA_ID: A, AGENDA_PUBLICA_ORIGEM: ORIGEM_AGENDA, ADMIN_AUTH_ORIGIN: ORIGEM_CONTRATO });
+    Object.assign(process.env, {
+      AGENDA_PUBLICA_EMPRESA_ID: A, AGENDA_PUBLICA_ORIGEM: ORIGEM_AGENDA, ADMIN_AUTH_ORIGIN: ORIGEM_CONTRATO,
+      SITE_URL: ORIGEM_SITE, COTACAO_PUBLICA_POR_EMPRESA: "true",
+    });
 
     // ——— Dados DISTINTOS de A e B pelos serviços do domínio ———
     const turnos = (await q("SELECT id, codigo, horario_inicio_padrao::text AS inicio, horario_fim_padrao::text AS fim FROM configuracao_agenda WHERE ativo ORDER BY horario_inicio_padrao")).rows as { id: string; codigo: string; inicio: string; fim: string }[];
@@ -239,11 +244,14 @@ test("E-ME1 r3: caso 10 completo — pacotes, preços, orçamento, agenda, contr
     assert.doesNotMatch(gB.a, /já está ocupado/, "10-G: o bloqueio de B não ocupa A" + diag(gB));
     assert.ok(gA.fb.some((x) => x.tipo === "AGENDA" && x.data === dA) && gB.fb.some((x) => x.tipo === "AGENDA" && x.data === dB), "10-G: fonte AGENDA registrada em B");
 
-    // 10-L link público de disponibilidade: só A
+    // 10-L link público de disponibilidade de cada empresa
     const tudoA = envios.filter((x) => x.alvo.empresaId === A).map(textoDe).join("\n");
     const tudoB = envios.filter((x) => x.alvo.empresaId === B).map(textoDe).join("\n");
-    assert.ok(tudoA.includes("agenda.kidmais.example"), "10-L: controle — A recebe o link público");
-    assert.ok(!tudoB.includes("agenda.kidmais.example") && !todasFontesB.some((x) => x.tipo === "LINK_DISPONIBILIDADE"), "10-L: B nunca recebe o link público de A");
+    const linkA = `${ORIGEM_AGENDA}disponibilidade`;
+    const linkB = `${ORIGEM_SITE}/b/${codigoB}/disponibilidade`;
+    assert.ok(tudoA.includes(linkA) && !tudoA.includes(ORIGEM_SITE), "10-L: A recebe só o link público global");
+    assert.ok(tudoB.includes(linkB) && !tudoB.includes(ORIGEM_AGENDA), "10-L: B recebe só seu endereço público");
+    assert.ok(todasFontesB.some((x) => x.tipo === "LINK_DISPONIBILIDADE"), "10-L: fonte do link registrada em B");
 
     // 10-C contratos
     const k = await perguntar("Quero ver meu contrato", [A, B], ctContrato);
@@ -263,7 +271,10 @@ test("E-ME1 r3: caso 10 completo — pacotes, preços, orçamento, agenda, contr
   } finally {
     semGanchos();
     chave(undefined);
-    restaurar("AGENDA_PUBLICA_EMPRESA_ID", antes.agenda); restaurar("AGENDA_PUBLICA_ORIGEM", antes.origem); restaurar("ADMIN_AUTH_ORIGIN", antes.auth);
+    for (const [k, v] of antes) {
+      if (v === undefined) delete process.env[k];
+      else process.env[k] = v;
+    }
     await c.end();
   }
 });
