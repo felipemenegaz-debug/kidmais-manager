@@ -4,7 +4,7 @@ import { createElement, type ComponentType } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { readFileSync, readdirSync } from 'node:fs';
 import { adicionais, comercial, custoPorFesta, descricaoPlano, filtrar, modulos, paineis, passos, perguntas, planos, precoExibido, recursos, tituloFluxo, valorPlano, visivel, type RecursoId } from './catalogo.ts';
-import { configuracaoSite, linkEmail, linkWhatsApp, CADASTRO_FECHADO } from './configuracao.ts';
+import { configuracaoSite, linkEmail, linkWhatsApp, AGENDAR_DEMONSTRACAO, CADASTRO_FECHADO } from './configuracao.ts';
 import { robotsDaPlataforma, sitemapDaPlataforma } from './indexacao.ts';
 import { carregarModulo } from '../acessos/teste-carregador.ts';
 import { textoFundador } from './fundador.ts';
@@ -25,7 +25,8 @@ const render = (c: ComponentType<Record<string, unknown>>, props: Record<string,
 /** Texto visível + atributos (alt, aria-label, title), em minúsculas, para procurar promessas. */
 function textoDaPagina(html: string) {
     const atributos = [...html.matchAll(/(?:alt|aria-label|title)="([^"]*)"/g)].map(m => m[1]);
-    return (html.replace(/<[^>]+>/g, ' ') + ' ' + atributos.join(' ')).replace(/&amp;/g, '&').replace(/&quot;/g, '"').replace(/&#x27;/g, "'").toLowerCase();
+    // O verbo do botão "Agendar demonstração" não promete a Agenda do sistema: sai antes da busca pelos termos ("agenda" casaria com "agendar").
+    return (html.replace(/<[^>]+>/g, ' ') + ' ' + atributos.join(' ')).replace(/&amp;/g, '&').replace(/&quot;/g, '"').replace(/&#x27;/g, "'").toLowerCase().replace(/agendar (uma )?demonstração/g, ' ');
 }
 /** Toda a vitrine que o visitante vê, nos dois estados do preço e do cadastro. Com `cache`, usa o catálogo já carregado (e alterado) nele. */
 function vitrineCompleta(cache = new Map<string, Record<string, unknown>>()) {
@@ -108,9 +109,9 @@ test('cards do ciclo: com tudo ligado, atendimento, fechamento e mensagens abrem
     // 3 + convite (fileira inteira) + parcelas/ajuda/marca: duas fileiras de 3, sem card sozinho.
     assert.deepEqual(larguras, [['atendimento', 'g2'], ['assinatura', 'g2'], ['mensagens', 'g2'], ['convite', 'g6'], ['parcelas', 'g2'], ['ajuda', 'g2'], ['marca', 'g2']]);
     assert.match(html, /Área da Família/);
-    // Catálogo real: com 2 cards g2 no fim (parcelas e ajuda), cada um ocupa metade da fileira; o vídeo real aparece na ajuda.
+    // Catálogo real (Wall-e ligado em 23/11): atendimento e fechamento dividem a 1ª fileira, convite inteiro, parcelas e ajuda dividem a última.
     const real = render(secao('Paineis'));
-    assert.deepEqual([...real.matchAll(/<article class="bentoItem ?([^"]*)"[^>]*data-painel="([a-z]+)"/g)].map(m => [m[2], m[1]]), [['assinatura', 'g6'], ['convite', 'g6'], ['parcelas', ''], ['ajuda', '']]);
+    assert.deepEqual([...real.matchAll(/<article class="bentoItem ?([^"]*)"[^>]*data-painel="([a-z]+)"/g)].map(m => [m[2], m[1]]), [['atendimento', ''], ['assinatura', ''], ['convite', 'g6'], ['parcelas', ''], ['ajuda', '']]);
     const video = real.match(/<video [^>]*>[\s\S]*?<\/video>/)?.[0] ?? '';
     assert.match(video, /src="\/ajuda\/videos\/do-fechamento-ao-contrato\.mp4"/);
     // Achado P3 do Astra r1: capa leve e nada do MP4 antes de tocar.
@@ -177,13 +178,13 @@ test('vídeo do card de ajuda: título, player e passo a passo somem juntos com 
 });
 
 test('lançamento: o teste pega a promessa — ligar um recurso oculto faz o termo dele aparecer', () => {
-    // Prova de que a guarda acima não passa por acaso: com o Wall-e "disponível", a seção e a dúvida dele aparecem.
+    // Prova de que a guarda acima não passa por acaso: com o MCP "disponível", a dúvida dele aparece.
     const cache = new Map<string, Record<string, unknown>>();
     const catalogo = carregarModulo('lib/site/catalogo.ts', dubles, cache) as { recursos: Record<string, { status: string }> };
-    catalogo.recursos.walle_whatsapp.status = 'disponivel';
+    catalogo.recursos.mcp.status = 'disponivel';
     const ligado = carregarModulo('components/site/secoes.tsx', dubles, cache) as Record<string, ComponentType<Record<string, unknown>>>;
-    assert.match(textoDaPagina(render(ligado.WallE) + render(ligado.Duvidas)), /wall-e/);
-    assert.equal(render(secao('WallE')), '', 'no catálogo real o Wall-e segue oculto');
+    assert.match(textoDaPagina(render(ligado.Duvidas)), /chatgpt/);
+    assert.doesNotMatch(textoDaPagina(render(secao('Duvidas'))), /chatgpt/, 'no catálogo real o MCP segue oculto');
 });
 
 test('sem selo "Em breve" em nenhum lugar: fonte da vitrine e página renderizada', () => {
@@ -196,7 +197,7 @@ test('sem selo "Em breve" em nenhum lugar: fonte da vitrine e página renderizad
 });
 
 test('catálogo: blocos seguem os recursos — painéis, abas, fluxo e planos só com recurso disponível', () => {
-    assert.deepEqual(filtrar(paineis).map(p => p.id), ['assinatura', 'convite', 'parcelas', 'ajuda']);
+    assert.deepEqual(filtrar(paineis).map(p => p.id), ['atendimento', 'assinatura', 'convite', 'parcelas', 'ajuda']);
     assert.deepEqual(filtrar(modulos).map(m => m.id), ['agenda', 'contratos', 'financeiro', 'convites', 'equipe']);
     assert.deepEqual(filtrar(passos).map(p => p.titulo), ['Fecha a festa', 'Assina por código', 'Paga as parcelas', 'Convida os amigos', 'Acompanha os recebimentos']);
     assert.equal(tituloFluxo(), 'Uma festa, do fechamento ao dia da festa.');
@@ -210,8 +211,11 @@ test('catálogo: blocos seguem os recursos — painéis, abas, fluxo e planos s�
         const exibido = filtrar(plano.itens).includes(item);
         assert.equal(exibido, visivel(item.recursos), `${plano.id}: ${item.texto}`);
     }
-    // Enquanto o orçamento e o financeiro completo estão ocultos, a linha do plano não os promete.
-    assert.deepEqual(planos.map(descricaoPlano).map(d => d.split('.')[0]), ['Organize', 'Cresça', 'Sem limite de equipe']);
+    // Enquanto o orçamento e o financeiro completo estão ocultos, a linha do plano não os promete; o Premium já tem o Wall-e (23/11).
+    assert.deepEqual(planos.map(descricaoPlano).map(d => d.split('.')[0]), ['Organize', 'Cresça', 'Atenda 24 h']);
+    // Wall-e em production (18/11): seção e dúvida aparecem; a marca segue oculta (o painel promete logo e cores).
+    assert.match(textoDaPagina(render(secao('WallE')) + render(secao('Duvidas'))), /wall-e/);
+    assert.equal(recursos.marca.status, 'oculto');
 });
 
 test('abas WAI: tablist, aria-selected, aria-controls, roving tabindex e painéis ocultos', () => {
@@ -307,8 +311,8 @@ test('rodapé sem configuração: lacunas explícitas e links para seções lega
     assert.equal((html.match(/a definir/g) || []).length, 5);
     assert.doesNotMatch(html, /WhatsApp:|Horário:|Encarregado de dados:/, 'opcionais não configurados não aparecem');
     assert.match(html, /\/termos#cancelamento/); assert.match(html, /\/privacidade#tratamento-de-dados/);
-    // Links do rodapé só para seções que existem.
-    assert.doesNotMatch(html, /#wall-e/);
+    // Links do rodapé só para seções que existem (Wall-e em production desde 18/11).
+    assert.match(html, /#wall-e/);
 });
 
 test('rodapé com dados da empresa só por variável SITE_* (nada fixo no código)', () => {
@@ -337,10 +341,29 @@ test('WhatsApp só existe com número configurado e mensagem codificada', () => 
 test('cadastro fechado não expõe CTA; aberto mantém /cadastro', () => {
     const fechado = render(Cadastro, { aberto: false });
     assert.ok(fechado.includes(CADASTRO_FECHADO)); assert.doesNotMatch(fechado, /href=/);
+    assert.doesNotMatch(fechado, /em breve/i, 'sem "abre em breve" (23/11/2026)');
     assert.match(render(Cadastro, { aberto: true }), /href="\/cadastro"/);
     const hero = render(secao('Hero'), { aberto: false, config: configuracaoSite({}) });
     assert.doesNotMatch(hero, /href="\/cadastro"/);
     assert.doesNotMatch(render(Planos, { publicado: true, aberto: false, contato: configuracaoSite({}) }), /href="\/cadastro"/);
+});
+
+test('cadastro fechado: "Agendar demonstração" pelo WhatsApp comercial, e-mail sem WhatsApp, aviso sem canal', () => {
+    const whatsapp = configuracaoSite({ SITE_ATENDIMENTO_WHATSAPP: '+55 (61) 90000-0000', SITE_ATENDIMENTO_EMAIL: 'contato@exemplo.com.br' });
+    const porWhatsapp = render(Cadastro, { aberto: false, contato: whatsapp });
+    assert.match(porWhatsapp, new RegExp(AGENDAR_DEMONSTRACAO));
+    assert.match(porWhatsapp, /href="https:\/\/wa\.me\/5561900000000\?text=[^"]*demonstra%C3%A7%C3%A3o/); assert.match(porWhatsapp, /noopener noreferrer/);
+    const soEmail = render(Cadastro, { aberto: false, contato: configuracaoSite({ SITE_ATENDIMENTO_EMAIL: 'contato@exemplo.com.br' }) });
+    assert.match(soEmail, /href="mailto:contato@exemplo\.com\.br\?subject=[^"]*demonstra%C3%A7%C3%A3o/); assert.match(soEmail, new RegExp(AGENDAR_DEMONSTRACAO));
+    assert.ok(render(Cadastro, { aberto: false, contato: configuracaoSite({}) }).includes(CADASTRO_FECHADO));
+    // Cadastro aberto continua com o teste grátis, mesmo com WhatsApp.
+    assert.match(render(Cadastro, { aberto: true, contato: whatsapp }), /href="\/cadastro"/);
+    // Planos: um botão por plano, nunca /cadastro; topo sem botão repetido para o mesmo canal.
+    const planosHtml = render(Planos, { publicado: true, aberto: false, contato: whatsapp });
+    assert.equal(planosHtml.split('data-agendar-demonstracao').length - 1, planos.length); assert.doesNotMatch(planosHtml, /href="\/cadastro"/);
+    const hero = render(secao('Hero'), { aberto: false, config: whatsapp });
+    assert.match(hero, new RegExp(AGENDAR_DEMONSTRACAO)); assert.doesNotMatch(hero, /Falar com a equipe/);
+    assert.match(render(secao('Hero'), { aberto: true, config: whatsapp }), /Falar com a equipe/);
 });
 
 test('barra fixa do celular: some sem cadastro e sem contato; nunca inventa canal', () => {
@@ -421,15 +444,16 @@ test('planos iA.Fest (01/11): decisões D-PL preservadas no catálogo, mesmo com
     // Franquia maior/ampla do convite depende dos créditos: oculta enquanto não houver compra.
     for (const id of ['profissional', 'premium']) assert.ok(incluido(id, 'convite')[0].recursos.includes('creditos'));
     assert.equal(excluido('essencial', 'copiloto').length, 0);
-    // D-PL-1: WhatsApp.IA — Essencial exclui explicitamente; Profissional só como adicional; Premium incluído.
+    // D-OF-1 (13/11, substitui a D-PL-1): Wall-e só no Premium. Essencial exclui explicitamente; Profissional sem adicional.
     assert.equal(excluido('essencial', 'walle_whatsapp').length, 1);
     assert.equal(incluido('essencial', 'walle_whatsapp').length, 0);
-    assert.match(incluido('profissional', 'walle_whatsapp')[0].texto, /adicional/);
+    assert.equal(incluido('profissional', 'walle_whatsapp').length, 0);
+    assert.equal(adicionais.some(a => a.recursos.includes('walle_whatsapp')), false);
     const premiumWalle = incluido('premium', 'walle_whatsapp').find(i => /uso justo/.test(i.texto))!.texto;
     assert.match(premiumWalle, /incluído/); assert.doesNotMatch(premiumWalle, /\d|franquia/);
-    const adicional = adicionais.find(a => a.recursos.includes('walle_whatsapp'))!;
-    assert.match(adicional.descricao, /Para o Profissional/); assert.match(adicional.descricao, /uso justo/); assert.doesNotMatch(adicional.descricao, /franquia|pacote/);
-    assert.doesNotMatch(adicional.descricao, /cobrado por uso\./, 'nenhum excedente cobrado automaticamente (D-C6)');
+    for (const adicional of adicionais) assert.doesNotMatch(adicional.descricao, /cobrado por uso\./, 'nenhum excedente cobrado automaticamente (D-C6)');
+    // D-LAN-4 (23/11): teste grátis com tudo do Premium, aberto a todos.
+    assert.ok(porId.premium.itens.some(i => i.recursos.length === 0 && i.texto === 'Teste grátis de ' + comercial.testeDias + ' dias com tudo do Premium, aberto a todos os buffets'));
     // D-LOTE-6: 5 na implantação, 10/mês, 30/mês.
     const importacao = (id: string) => incluido(id, 'importacao')[0].texto;
     assert.match(importacao('essencial'), /até 5 documentos/); assert.match(importacao('profissional'), /até 10 documentos por mês/); assert.match(importacao('premium'), /até 30 documentos por mês/);
@@ -456,7 +480,8 @@ test('dúvidas: só perguntas com recurso disponível, mais o Plano Fundador', (
     assert.equal((html.match(/<summary>/g) || []).length, esperadas.length + 1);
     assert.match(html, /O que é o Plano Fundador\?/);
     assert.match(html, /A implantação é cobrada\?/);
-    for (const oculta of ['ChatGPT', 'Wall-e', 'PDFs']) assert.doesNotMatch(html, new RegExp(oculta));
+    for (const oculta of ['ChatGPT', 'PDFs']) assert.doesNotMatch(html, new RegExp(oculta));
+    assert.match(html, /O que é o Wall-e\?/);
 });
 
 test('Fundador: campanha encerrada ou vagas em confirmação não anunciam preço Fundador, percentual nem contato', () => {
@@ -539,7 +564,7 @@ test('descrição dos planos pelo catálogo: sem permissões, nenhum plano prome
         }
         for (const plano of cat.planos) assert.ok(texto.includes(plano.descricaoMinima.toLowerCase()), plano.id + ': linha mínima');
     }
-    // Com permissões disponível, a promessa do Premium volta.
+    // Com permissões disponível, a promessa do Premium volta (com o Wall-e ligado, a linha completa: "equipe grande").
     const real = textoDaPagina(render(carregarModulo('components/site/Planos.tsx', { ...dubles, 'next': {} }).default as ComponentType<Record<string, unknown>>, { publicado: true, aberto: true, contato: configuracaoSite({}) }));
-    assert.ok(real.includes('sem limite de equipe'));
+    assert.ok(real.includes('equipe grande'));
 });
