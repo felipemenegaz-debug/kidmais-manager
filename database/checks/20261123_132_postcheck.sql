@@ -23,6 +23,19 @@ BEGIN
       IS DISTINCT FROM 'CREATE TRIGGER kidmais132_oportunidade_guarda BEFORE INSERT OR DELETE OR UPDATE ON public.whatsapp_atendimento_oportunidades FOR EACH ROW EXECUTE FUNCTION kidmais132_oportunidade_guarda()' THEN
     RAISE EXCEPTION '132: gatilho de guarda divergente';
   END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_proc WHERE oid = to_regprocedure('public.kidmais132_oportunidade_guarda()')
+      AND prosrc LIKE '%(NEW.conversa_id IS NOT NULL AND NEW.conversa_id IS DISTINCT FROM OLD.conversa_id)%') THEN
+    RAISE EXCEPTION '132: guarda não impede trocar a conversa do vínculo';
+  END IF;
+  -- Índices: presentes, válidos e prontos, com as colunas e o predicado parcial esperados (definição exata).
+  IF (SELECT pg_get_indexdef(i.indexrelid) FROM pg_index i WHERE i.indexrelid = to_regclass('public.walle_oportunidades_conversa_idx') AND i.indisvalid AND i.indisready)
+      IS DISTINCT FROM 'CREATE INDEX walle_oportunidades_conversa_idx ON public.whatsapp_atendimento_oportunidades USING btree (empresa_id, ambiente, conversa_id)' THEN
+    RAISE EXCEPTION '132: índice do vínculo por conversa ausente, inválido ou divergente';
+  END IF;
+  IF (SELECT pg_get_indexdef(i.indexrelid) FROM pg_index i WHERE i.indexrelid = to_regclass('public.walle_conversas_oportunidade_pendente_idx') AND i.indisvalid AND i.indisready)
+      IS DISTINCT FROM 'CREATE INDEX walle_conversas_oportunidade_pendente_idx ON public.whatsapp_atendimento_conversas USING btree (oportunidade_pendente_em) WHERE (oportunidade_pendente_em IS NOT NULL)' THEN
+    RAISE EXCEPTION '132: índice parcial da pendência ausente, inválido ou divergente';
+  END IF;
   IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgrelid = 'public.marketing_contatos'::regclass AND tgname = 'marketing_contatos_tenant' AND tgenabled = 'O') THEN
     RAISE EXCEPTION '132: guarda da 085 em marketing_contatos ausente';
   END IF;

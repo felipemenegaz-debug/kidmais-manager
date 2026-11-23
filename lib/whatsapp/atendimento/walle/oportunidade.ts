@@ -8,10 +8,11 @@ import type { MotivoPassagem, ResultadoWallE, TipoIntencao } from './tipos.ts';
  * WHATSAPP), com o vínculo na 132 (whatsapp_atendimento_oportunidades).
  *
  * - O modelo só classifica: a qualificação lê códigos e entidades validados, nunca grava texto do cliente no cartão.
- * - A resposta só grava a MARCA (oportunidade_pendente_em) sob um savepoint; o cartão é gravado depois, ao fim do lote do
- *   worker, em transação própria por conversa. Falha na captura nunca impede nem atrasa a resposta, e a marca é a fila de
- *   recuperação (o próximo lote tenta de novo, sem depender de nova mensagem).
- * - Um cartão ABERTO por telefone (empresa e ambiente), sob trava consultiva; cartão novo só depois de o anterior fechar.
+ * - A resposta grava a MARCA (oportunidade_pendente_em) na mesma instrução que grava a memória da conversa (r2): a marca só
+ *   se perde se a resposta inteira for desfeita. O cartão é gravado depois, ao fim do lote do worker, em transação própria
+ *   por conversa; falha na captura nunca impede nem atrasa a resposta, e a conversa que falhou é adiada (não trava a fila).
+ * - Um cartão ABERTO por telefone (empresa e ambiente), sob a trava consultiva por telefone que o registro manual e o site
+ *   também tomam (lib/marketing/contatos.ts); cartão novo só depois de o anterior fechar.
  * - Nenhuma atribuição, evento de histórico, autorização de contato ou automação de Marketing é criada (1b).
  * Dependências mínimas (só tipos e node:crypto): as provas em PG montam este módulo dentro do worker e da privacidade.
  */
@@ -26,6 +27,8 @@ const PASSAGENS_BLOQUEIAM: readonly MotivoPassagem[] = ['CONTRATO_PROPRIO', 'PAG
 export const FECHAMENTO_ABERTO = ['RASCUNHO', 'AGUARDANDO_APROVACAO', 'APROVADO', 'AGUARDANDO_CONTRATO', 'CONTRATO_ASSINADO', 'AGUARDANDO_PAGAMENTO'] as const;
 export const NOME_ANONIMIZADO = 'Contato anonimizado';
 export const TELEFONE_ANONIMIZADO = '0000000000';
+/** Espera antes de tentar de novo uma conversa cuja captura falhou (as outras seguem no mesmo lote). */
+export const ESPERA_PADRAO_SEGUNDOS = 300;
 
 /** D-WA-2: só pedido de festa NOVA (data, convidados, orçamento ou visita) qualifica. Função pura, sem banco. */
 export function qualificaPedidoFesta(resultado: Pick<ResultadoWallE, 'contexto' | 'passagem' | 'parar' | 'silencio'>): boolean {
@@ -60,35 +63,39 @@ export function variantesDoTelefone(digitos: string): string[] {
   if (/^\d{10,11}$/.test(digitos)) v.add(`55${digitos}`);
   return [...v];
 }
-/** Forma única do número para a trava (com e sem 55 caem na mesma trava). */
-function telefoneCanonico(digitos: string) {
-  return /^55\d{10,11}$/.test(digitos) ? digitos.slice(2) : digitos;
+/**
+ * Trava consultiva do telefone no funil, por empresa (sem ambiente; com e sem 55 caem na mesma). A MESMA chave de
+ * lib/marketing/contatos.ts (site e registro manual; paridade em teste): a captura nunca decide "não há cartão aberto"
+ * enquanto outra origem grava um cartão do mesmo telefone.
+ */
+export function chaveTravaTelefone(empresaId: string, digitos: string) {
+  return `funil-telefone|${empresaId}|${/^55\d{10,11}$/.test(digitos) ? digitos.slice(2) : digitos}`;
 }
-/** Chave de idempotência do cartão: n-ésimo cartão do Wall-e desta conversa (reentrega e corrida não duplicam). */
-export function chaveDoCartao(empresa: string, ambiente: string, conversa: string, n: number) {
-  return `wa${createHash('sha256').update(`${empresa}|${ambiente}|${conversa}|${n}`).digest('hex').slice(0, 40)}`;
+/**
+ * Chave de idempotência do cartão: a conversa e o instante da MARCA que o pediu (durável: reentrega e corrida da mesma
+ * marca não duplicam; marca nova, inclusive depois de desfazer e reaplicar a 132, nunca reaproveita chave antiga).
+ */
+export function chaveDoCartao(empresa: string, ambiente: string, conversa: string, marca: string) {
+  return `wa${createHash('sha256').update(`${empresa}|${ambiente}|${conversa}|${marca}`).digest('hex').slice(0, 40)}`;
 }
 
-/** Marca de pendência gravada na transação da resposta, sob savepoint: qualquer falha volta ao savepoint e a resposta segue. */
-export async function marcarPendente(tx: DbExecutor, conversaId: string): Promise<boolean> {
-  await tx.query('SAVEPOINT walle_oportunidade');
-  try {
-    await tx.query('UPDATE whatsapp_atendimento_conversas SET oportunidade_pendente_em=clock_timestamp() WHERE id=$1', [conversaId]);
-    await tx.query('RELEASE SAVEPOINT walle_oportunidade');
-    return true;
-  } catch {
-    await tx.query('ROLLBACK TO SAVEPOINT walle_oportunidade');
-    await tx.query('RELEASE SAVEPOINT walle_oportunidade');
-    return false;
-  }
+/** Trecho da instrução da resposta que grava a memória da conversa (worker): marca quando o 6º parâmetro é verdadeiro. */
+export const SQL_MARCA_PENDENTE = ',oportunidade_pendente_em=CASE WHEN $6::boolean THEN clock_timestamp() ELSE oportunidade_pendente_em END';
+/** A coluna da marca chega com a 132; sem ela (ou depois do rollback) a resposta segue sem marcar. Catálogo a cada uso. */
+export async function temMarcaPendente(tx: DbExecutor) {
+  return !!(await tx.query<{ ok: boolean }>(`SELECT EXISTS(SELECT 1 FROM pg_attribute WHERE attrelid=to_regclass('public.whatsapp_atendimento_conversas')
+    AND attname='oportunidade_pendente_em' AND NOT attisdropped) AS ok`)).rows[0]?.ok;
 }
 
 export type ResultadoCaptura = 'CRIADO' | 'ATUALIZADO' | 'SEM_MUDANCA' | 'JA_ABERTO' | 'IGNORADO' | 'SEM_PENDENCIA';
-type ConversaCaptura = { id: string; empresa_id: string; ambiente: string; contato: string; nao_contatar: boolean; contexto: Record<string, unknown> | null;
-  interesse: { data?: unknown; convidados?: unknown } | null; nome_perfil?: string | null; oportunidade_pendente_em: string | null };
+type ConversaCaptura = { id: string; empresa_id: string; ambiente: string; contato: string; interesse: { data?: unknown; convidados?: unknown } | null;
+  nome_perfil?: string | null; oportunidade_pendente_em: string | null };
 
 function dataValida(v: unknown) { return typeof v === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(v) && !Number.isNaN(Date.parse(`${v}T12:00:00Z`)) ? v : null; }
 function convidadosValidos(v: unknown) { const n = typeof v === 'number' ? v : typeof v === 'string' && /^\d{1,4}$/.test(v) ? Number(v) : NaN; return Number.isInteger(n) && n >= 1 && n <= 5000 ? n : null; }
+function travarTelefone(tx: DbExecutor, empresaId: string, digitos: string) {
+  return tx.query('SELECT pg_advisory_xact_lock(hashtextextended($1, 0))', [chaveTravaTelefone(empresaId, digitos)]);
+}
 
 /**
  * Captura de UMA conversa marcada, na transação de quem chama (uma por conversa). A conversa é travada (SKIP LOCKED:
@@ -99,29 +106,36 @@ export async function capturarOportunidade(tx: DbExecutor, conversaId: string): 
   if (!linha) return 'SEM_PENDENCIA';
   const c = linha.c;
   const limpar = () => tx.query('UPDATE whatsapp_atendimento_conversas SET oportunidade_pendente_em=NULL WHERE id=$1', [c.id]);
-  const semAutomatico = !!c.contexto && typeof c.contexto.semAutomatico === 'object' && c.contexto.semAutomatico !== null;
-  const parar = (await tx.query("SELECT 1 FROM whatsapp_atendimento_controles_contato WHERE empresa_id=$1 AND ambiente=$2 AND contato=$3 AND nao_contatar LIMIT 1", [c.empresa_id, c.ambiente, c.contato])).rows.length > 0;
-  // nao_contatar (ou pedido de parar herdado) nunca vira cartão; número fora do formato do funil também não.
-  if (c.nao_contatar || semAutomatico || parar || !/^[0-9]{10,15}$/.test(c.contato)) { await limpar(); return 'IGNORADO'; }
+  // Número fora do formato do funil nunca vira cartão.
+  if (!/^[0-9]{10,15}$/.test(c.contato)) { await limpar(); return 'IGNORADO'; }
   const variantes = variantesDoTelefone(c.contato);
-  await tx.query('SELECT pg_advisory_xact_lock(hashtextextended($1, 0))', [`walle-oportunidade|${c.empresa_id}|${c.ambiente}|${telefoneCanonico(c.contato)}`]);
+  await travarTelefone(tx, c.empresa_id, c.contato);
+  // nao_contatar ou pausa em QUALQUER variante do número (com e sem 55), na conversa ou nos controles guardados depois de
+  // uma exclusão, na mesma empresa e ambiente: nunca vira cartão.
+  const bloqueado = (await tx.query(`SELECT 1 FROM whatsapp_atendimento_conversas WHERE empresa_id=$1 AND ambiente=$2 AND contato = ANY($3::text[])
+       AND (nao_contatar OR jsonb_typeof(contexto->'semAutomatico')='object')
+     UNION ALL SELECT 1 FROM whatsapp_atendimento_controles_contato WHERE empresa_id=$1 AND ambiente=$2 AND contato = ANY($3::text[]) AND nao_contatar
+     LIMIT 1`, [c.empresa_id, c.ambiente, variantes])).rows.length > 0;
+  if (bloqueado) { await limpar(); return 'IGNORADO'; }
   const data = dataValida(c.interesse?.data), convidados = convidadosValidos(c.interesse?.convidados);
-  // Cartão aberto de qualquer origem: contato em aberto sem negociação, ou contato com negociação aberta (cartões do Wall-e
-  // de outro ambiente e anonimizados não contam).
-  const aberto = (await tx.query<{ id: string; walle: boolean; novo_contato: boolean; data: string | null; convidados: number | null }>(
+  // Cartões abertos de qualquer origem: contato em aberto sem negociação, ou contato com negociação aberta (cartões do Wall-e
+  // de outro ambiente e anonimizados não contam). Todos travados (FOR UPDATE, sem LIMIT): a equipe que fecha um cartão agora
+  // é esperada e a condição é conferida de novo sobre a versão confirmada.
+  const abertos = (await tx.query<{ id: string; walle: boolean; novo_contato: boolean; data: string | null; convidados: number | null }>(
     `SELECT k.id, o.contato_id IS NOT NULL AS walle, (k.fechamento_id IS NULL AND k.status IN ('NOVO','EM_ATENDIMENTO')) AS novo_contato,
        k.data_desejada::text AS data, k.convidados
      FROM marketing_contatos k LEFT JOIN whatsapp_atendimento_oportunidades o ON o.contato_id=k.id
      WHERE k.empresa_id=$1 AND k.telefone = ANY($2::text[]) AND (o.contato_id IS NULL OR (o.ambiente=$3 AND o.anonimizado_em IS NULL))
        AND ((k.fechamento_id IS NULL AND k.status IN ('NOVO','EM_ATENDIMENTO'))
          OR EXISTS (SELECT 1 FROM fechamentos f WHERE f.empresa_id=k.empresa_id AND f.id=k.fechamento_id AND f.status = ANY($4::text[])))
-     ORDER BY (o.conversa_id = $5::uuid) DESC NULLS LAST, k.recebido_em DESC, k.id LIMIT 1`, [c.empresa_id, variantes, c.ambiente, FECHAMENTO_ABERTO, c.id])).rows[0];
+     ORDER BY (o.conversa_id = $5::uuid) DESC NULLS LAST, k.recebido_em DESC, k.id FOR UPDATE OF k`, [c.empresa_id, variantes, c.ambiente, FECHAMENTO_ABERTO, c.id])).rows;
+  const aberto = abertos[0];
   if (aberto) {
     // Só o cartão do Wall-e ainda em "Novo contato" é atualizado; cartão do site, manual ou em negociação é da equipe.
     if (aberto.walle && aberto.novo_contato && ((data && data !== aberto.data) || (convidados && convidados !== aberto.convidados))) {
-      await tx.query('UPDATE marketing_contatos SET data_desejada=COALESCE($2::date,data_desejada),convidados=COALESCE($3::int,convidados),atualizado_em=clock_timestamp() WHERE id=$1 AND empresa_id=$4',
-        [aberto.id, data, convidados, c.empresa_id]);
-      await limpar(); return 'ATUALIZADO';
+      const r = await tx.query(`UPDATE marketing_contatos SET data_desejada=COALESCE($2::date,data_desejada),convidados=COALESCE($3::int,convidados),atualizado_em=clock_timestamp()
+        WHERE id=$1 AND empresa_id=$4 AND status IN ('NOVO','EM_ATENDIMENTO') AND fechamento_id IS NULL RETURNING id`, [aberto.id, data, convidados, c.empresa_id]);
+      if (r.rows.length) { await limpar(); return 'ATUALIZADO'; }
     }
     await limpar(); return aberto.walle && aberto.novo_contato ? 'SEM_MUDANCA' : 'JA_ABERTO';
   }
@@ -134,11 +148,18 @@ export async function capturarOportunidade(tx: DbExecutor, conversaId: string): 
   const clientes = (await tx.query<{ id: string }>(`SELECT DISTINCT id::text FROM clientes WHERE empresa_id=$1 AND status='ATIVO'
      AND (telefone = ANY($2::text[]) OR whatsapp = ANY($2::text[])) LIMIT 2`, [c.empresa_id, variantes])).rows;
   const clienteId = clientes.length === 1 ? clientes[0].id : null;
-  const n = Number((await tx.query<{ n: string }>('SELECT count(*) AS n FROM whatsapp_atendimento_oportunidades WHERE empresa_id=$1 AND ambiente=$2 AND conversa_id=$3', [c.empresa_id, c.ambiente, c.id])).rows[0]?.n ?? 0) + 1;
+  const chave = chaveDoCartao(c.empresa_id, c.ambiente, c.id, String(c.oportunidade_pendente_em));
   const criado = (await tx.query<{ id: string }>(`INSERT INTO marketing_contatos(empresa_id,cliente_id,canal_atendimento,nome,telefone,data_desejada,convidados,chave_idempotencia,vinculo_cliente,status)
      VALUES($1,$2,'WHATSAPP',$3,$4,$5::date,$6::int,$7,$8,'NOVO') ON CONFLICT (empresa_id, chave_idempotencia) DO NOTHING RETURNING id::text`,
-    [c.empresa_id, clienteId, nomeDoCartao(c.nome_perfil, c.contato), c.contato, data, convidados, chaveDoCartao(c.empresa_id, c.ambiente, c.id, n), clienteId ? 'EXISTENTE_CONTATO' : 'SEM_CLIENTE'])).rows[0];
-  if (!criado) { await limpar(); return 'JA_ABERTO'; }
+    [c.empresa_id, clienteId, nomeDoCartao(c.nome_perfil, c.contato), c.contato, data, convidados, chave, clienteId ? 'EXISTENTE_CONTATO' : 'SEM_CLIENTE'])).rows[0];
+  if (!criado) {
+    // Só limpa quando a chave é do vínculo DESTA conversa; outro dono da chave = falha (a conversa é adiada e a marca nova
+    // gera outra chave), nunca uma pendência apagada às cegas.
+    const dono = (await tx.query<{ conversa: string | null }>(`SELECT o.conversa_id::text AS conversa FROM marketing_contatos k
+       JOIN whatsapp_atendimento_oportunidades o ON o.contato_id=k.id AND o.empresa_id=k.empresa_id WHERE k.empresa_id=$1 AND k.chave_idempotencia=$2`, [c.empresa_id, chave])).rows[0];
+    if (dono?.conversa === c.id) { await limpar(); return 'SEM_MUDANCA'; }
+    throw new Error('OPORTUNIDADE_CHAVE_EM_USO');
+  }
   await tx.query('INSERT INTO whatsapp_atendimento_oportunidades(contato_id,empresa_id,ambiente,conversa_id) VALUES($1,$2,$3,$4)', [criado.id, c.empresa_id, c.ambiente, c.id]);
   await limpar();
   return 'CRIADO';
@@ -147,52 +168,76 @@ export async function capturarOportunidade(tx: DbExecutor, conversaId: string): 
 export type Transacao = <T>(trabalho: (tx: DbExecutor) => Promise<T>) => Promise<T>;
 /** Código seguro de uma falha (nunca a mensagem, que pode carregar dado do banco). */
 function codigoFalha(erro: unknown) {
-  const code = (erro as { code?: unknown } | null)?.code;
-  return typeof code === 'string' && /^[0-9A-Z]{5}$/.test(code) ? `SQLSTATE_${code}` : 'ERRO_INTERNO';
+  const e = erro as { code?: unknown; message?: unknown } | null;
+  if (typeof e?.message === 'string' && /^OPORTUNIDADE_[A-Z_]+$/.test(e.message)) return e.message;
+  return typeof e?.code === 'string' && /^[0-9A-Z]{5}$/.test(e.code) ? `SQLSTATE_${e.code}` : 'ERRO_INTERNO';
 }
 
 /**
- * Recuperação independente: ao fim de cada lote do worker, até `limite` conversas marcadas do ambiente, uma transação por
- * conversa, com falha isolada (a marca fica e o próximo lote tenta de novo). Sem a 132 (coluna ausente) não faz nada.
+ * Recuperação independente: ao fim de cada lote do worker, até `limite` conversas VENCIDAS do ambiente, uma por vez, cada
+ * uma escolhida e capturada na MESMA transação (FOR UPDATE SKIP LOCKED). A que falha é adiada em transação separada
+ * (marca = agora + espera) e não volta neste lote: conversas que falham sempre não travam as outras. Sem a 132, nada.
  */
-export async function capturarOportunidadesPendentes(leitor: DbExecutor, transacao: Transacao, ambiente: string, limite = 10) {
-  const saida = { capturas: 0, falhas: [] as string[], resultados: [] as ResultadoCaptura[] };
-  let ids: string[];
-  try {
-    ids = (await leitor.query<{ id: string }>('SELECT id::text FROM whatsapp_atendimento_conversas WHERE oportunidade_pendente_em IS NOT NULL AND ambiente=$1 ORDER BY oportunidade_pendente_em, id LIMIT $2', [ambiente, limite])).rows.map(r => r.id);
-  } catch (erro) {
-    if ((erro as { code?: string }).code === '42703') return saida; // 132 ainda não aplicada
-    saida.falhas.push(codigoFalha(erro)); return saida;
-  }
-  for (const id of ids) {
+export async function capturarOportunidadesPendentes(transacao: Transacao, ambiente: string, opcoes: { limite?: number; esperaSegundos?: number } = {}) {
+  const limite = opcoes.limite ?? 10, espera = opcoes.esperaSegundos ?? ESPERA_PADRAO_SEGUNDOS;
+  const saida = { capturas: 0, adiadas: 0, falhas: [] as string[], resultados: [] as ResultadoCaptura[] };
+  const tentadas: string[] = [];
+  while (tentadas.length < limite) {
+    const vez: { id: string | null } = { id: null };
     try {
-      const r = await transacao(tx => capturarOportunidade(tx, id));
+      const r = await transacao(async tx => {
+        vez.id = (await tx.query<{ id: string }>(`SELECT id::text FROM whatsapp_atendimento_conversas WHERE oportunidade_pendente_em <= clock_timestamp() AND ambiente=$1
+           AND NOT (id = ANY($2::uuid[])) ORDER BY oportunidade_pendente_em, id LIMIT 1 FOR UPDATE SKIP LOCKED`, [ambiente, tentadas])).rows[0]?.id ?? null;
+        return vez.id ? capturarOportunidade(tx, vez.id) : null;
+      });
+      if (r === null) break;
+      tentadas.push(vez.id!);
       saida.resultados.push(r);
       if (r !== 'SEM_PENDENCIA') saida.capturas++;
-    } catch (erro) { saida.falhas.push(codigoFalha(erro)); }
+    } catch (erro) {
+      if (!vez.id) {
+        if ((erro as { code?: string }).code !== '42703') saida.falhas.push(codigoFalha(erro)); // 42703: 132 ainda não aplicada
+        break;
+      }
+      tentadas.push(vez.id);
+      saida.falhas.push(codigoFalha(erro));
+      try {
+        await transacao(tx => tx.query('UPDATE whatsapp_atendimento_conversas SET oportunidade_pendente_em=clock_timestamp()+make_interval(secs => $2) WHERE id=$1 AND oportunidade_pendente_em IS NOT NULL',
+          [vez.id, espera]));
+        saida.adiadas++;
+      } catch (falhaAoAdiar) { saida.falhas.push(codigoFalha(falhaAoAdiar)); }
+    }
   }
   return saida;
 }
 
 /**
- * D-WA-3, dentro da exclusão a pedido do titular (antes de apagar a conversa): o cartão do Wall-e desta conversa SEM
- * cliente e SEM negociação é anonimizado (nome e telefone trocados por texto neutro, demais dados pessoais nulos) e fica
- * só como número na estatística; DELETE segue proibido pela 085. Cartão com cliente ou negociação (já convertido) fica
- * intacto: segue a Guarda dos clientes. Sem a 132, nada a fazer.
+ * D-WA-3, dentro da exclusão a pedido do titular (antes de apagar a conversa). Alcança os cartões do Wall-e do TITULAR na
+ * empresa e ambiente: os desta conversa e os do mesmo número com e sem 55 (inclusive os que perderam a conversa pela
+ * retenção). Cartão sem negociação é anonimizado: nome e telefone neutros, demais dados pessoais nulos, o cliente
+ * desvinculado (o cadastro do cliente não muda) e as observações das ações do funil apagadas; fica só como número na
+ * estatística (DELETE segue proibido pela 085). Cartão com negociação (convertido de fato) fica intacto: Guarda dos
+ * clientes. Correspondência de telefone com um cliente NÃO é conversão. Sem a 132, nada a fazer.
  */
-export async function anonimizarOportunidadesDaConversa(tx: DbExecutor, empresa: string, ambiente: string, conversaId: string) {
+export async function anonimizarOportunidadesDaConversa(tx: DbExecutor, empresa: string, ambiente: string, conversaId: string, contato: string) {
   if (!(await tx.query<{ ok: boolean }>("SELECT to_regclass('public.whatsapp_atendimento_oportunidades') IS NOT NULL AS ok")).rows[0]?.ok) return { anonimizados: 0, preservados: 0 };
-  const vinculos = (await tx.query<{ contato_id: string; convertido: boolean }>(`SELECT o.contato_id::text, (k.cliente_id IS NOT NULL OR k.fechamento_id IS NOT NULL) AS convertido
+  if (/^[0-9]{10,15}$/.test(contato)) await travarTelefone(tx, empresa, contato);
+  const vinculos = (await tx.query<{ contato_id: string; convertido: boolean }>(`SELECT o.contato_id::text, k.fechamento_id IS NOT NULL AS convertido
      FROM whatsapp_atendimento_oportunidades o JOIN marketing_contatos k ON k.id=o.contato_id AND k.empresa_id=o.empresa_id
-     WHERE o.empresa_id=$1 AND o.ambiente=$2 AND o.conversa_id=$3 AND o.anonimizado_em IS NULL ORDER BY o.contato_id FOR UPDATE OF o, k`, [empresa, ambiente, conversaId])).rows;
-  // perda_observacao chega com a 122; sem ela, o resto da anonimização vale igual.
+     WHERE o.empresa_id=$1 AND o.ambiente=$2 AND o.anonimizado_em IS NULL AND (o.conversa_id=$3 OR k.telefone = ANY($4::text[]))
+     ORDER BY o.contato_id FOR UPDATE OF o, k`, [empresa, ambiente, conversaId, variantesDoTelefone(contato)])).rows;
+  // perda_observacao e as ações chegam com a 122; sem ela, o resto da anonimização vale igual.
   const comPerda = (await tx.query<{ ok: boolean }>("SELECT EXISTS(SELECT 1 FROM pg_attribute WHERE attrelid=to_regclass('public.marketing_contatos') AND attname='perda_observacao' AND NOT attisdropped) AS ok")).rows[0]?.ok;
-  const perda = comPerda ? 'perda_observacao=NULL,' : '';
+  const comAcoes = (await tx.query<{ ok: boolean }>("SELECT to_regclass('public.oportunidades_acoes') IS NOT NULL AS ok")).rows[0]?.ok;
   let anonimizados = 0;
   for (const v of vinculos) {
     if (v.convertido) continue;
-    await tx.query(`UPDATE marketing_contatos SET nome=$3,telefone=$4,email=NULL,mensagem=NULL,data_desejada=NULL,convidados=NULL,${perda}atualizado_em=clock_timestamp()
-      WHERE id=$1 AND empresa_id=$2`, [v.contato_id, empresa, NOME_ANONIMIZADO, TELEFONE_ANONIMIZADO]);
+    await tx.query(comPerda
+      ? `UPDATE marketing_contatos SET nome=$3,telefone=$4,email=NULL,mensagem=NULL,data_desejada=NULL,convidados=NULL,cliente_id=NULL,vinculo_cliente='SEM_CLIENTE',perda_observacao=NULL,atualizado_em=clock_timestamp()
+        WHERE id=$1 AND empresa_id=$2 AND fechamento_id IS NULL`
+      : `UPDATE marketing_contatos SET nome=$3,telefone=$4,email=NULL,mensagem=NULL,data_desejada=NULL,convidados=NULL,cliente_id=NULL,vinculo_cliente='SEM_CLIENTE',atualizado_em=clock_timestamp()
+        WHERE id=$1 AND empresa_id=$2 AND fechamento_id IS NULL`, [v.contato_id, empresa, NOME_ANONIMIZADO, TELEFONE_ANONIMIZADO]);
+    if (comAcoes) await tx.query('UPDATE oportunidades_acoes SET observacao=NULL WHERE empresa_id=$1 AND contato_id=$2 AND observacao IS NOT NULL', [empresa, v.contato_id]);
     await tx.query('UPDATE whatsapp_atendimento_oportunidades SET anonimizado_em=clock_timestamp() WHERE contato_id=$1', [v.contato_id]);
     anonimizados++;
   }

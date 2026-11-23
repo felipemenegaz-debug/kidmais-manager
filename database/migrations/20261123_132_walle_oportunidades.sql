@@ -31,13 +31,14 @@ CREATE TABLE whatsapp_atendimento_oportunidades (
 CREATE INDEX walle_oportunidades_conversa_idx ON whatsapp_atendimento_oportunidades (empresa_id, ambiente, conversa_id);
 
 -- Mesma empresa no contato e na conversa; contato, empresa, ambiente e criação imutáveis; anonimização sem volta; sem DELETE.
+-- A conversa do vínculo só pode ser solta (ID -> NULL, pelo ON DELETE SET NULL): nunca trocada por outra nem religada.
 CREATE FUNCTION kidmais132_oportunidade_guarda() RETURNS trigger LANGUAGE plpgsql SET search_path = public, pg_catalog AS $$
 BEGIN
   IF TG_OP = 'DELETE' THEN RAISE EXCEPTION '132: vínculo do Wall-e não é apagado.'; END IF;
   IF TG_OP = 'UPDATE' AND (NEW.contato_id IS DISTINCT FROM OLD.contato_id OR NEW.empresa_id IS DISTINCT FROM OLD.empresa_id
       OR NEW.ambiente IS DISTINCT FROM OLD.ambiente OR NEW.criado_em IS DISTINCT FROM OLD.criado_em
       OR (OLD.anonimizado_em IS NOT NULL AND NEW.anonimizado_em IS DISTINCT FROM OLD.anonimizado_em)
-      OR (OLD.conversa_id IS NULL AND NEW.conversa_id IS NOT NULL)) THEN
+      OR (NEW.conversa_id IS NOT NULL AND NEW.conversa_id IS DISTINCT FROM OLD.conversa_id)) THEN
     RAISE EXCEPTION '132: vínculo do Wall-e é imutável.';
   END IF;
   IF NOT EXISTS (SELECT 1 FROM marketing_contatos k WHERE k.id = NEW.contato_id AND k.empresa_id = NEW.empresa_id AND k.canal_atendimento = 'WHATSAPP') THEN

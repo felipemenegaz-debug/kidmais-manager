@@ -4,8 +4,10 @@ import { readFileSync } from "node:fs";
 import { conectarDescartavel } from "../../../comercial/postgres-descartavel.ts";
 import { carregarComponente } from "../../../../components/admin/teste-componente.ts";
 import * as atribuicao from "../../../marketing/atribuicao.ts";
+import { comercial, executor, fechamento } from "../../../marketing/harness-postgres.ts";
+import { travarConfiguracaoAgenda } from "../../../agenda/trava-configuracao.ts";
 import * as modeloOportunidades from "../../../oportunidades/modelo.ts";
-import { carregarAtendimento, cod, db, withTransaction } from "../harness-postgres.ts";
+import { carregarAtendimento, cod, withTransaction } from "../harness-postgres.ts";
 import type { ConteudoSaida } from "../transporte.ts";
 import type { PortaWallE } from "../worker.ts";
 import { NOME_ANONIMIZADO, TELEFONE_ANONIMIZADO, capturarOportunidade, capturarOportunidadesPendentes } from "./oportunidade.ts";
@@ -30,7 +32,13 @@ import type { Entendimento, ResultadoWallE, TipoIntencao } from "./tipos.ts";
  *  F10 exclusão a pedido sem negociação anonimiza (nome e telefone somem; DELETE segue proibido pela 085);
  *  F11 exclusão de já convertido (cliente vinculado) preserva cartão e cliente; decisão da empresa só solta o vínculo;
  *  F12 cliente vinculado só com correspondência ÚNICA (dois clientes com o número = sem cliente);
- *  F13 funil e tela de atendimento: canal WhatsApp e origem Wall-e no cartão, anonimizado fora, indicador na conversa.
+ *  F13 funil e tela de atendimento: canal WhatsApp e origem Wall-e no cartão, anonimizado fora, indicador na conversa;
+ *      r2: colunas, conversões e perdas do mês cortadas por ambiente (cartão do Wall-e do outro ambiente fora).
+ *  r2 (revisão Astra r1): F7 outra variante reusa o cartão; F8/F15 falha adiada pela espera, 10 ruins não travam a boa;
+ *  F10 totais na resposta e observação das ações apagada; F11 cliente por telefone NÃO é conversão (anonimiza e solta o
+ *  cliente), negociação no cartão preserva; F14 PARAR na outra variante; F16 a 132 só solta a conversa do vínculo;
+ *  F17 exclusão pela outra variante alcança cartão de conversa nula; F18 "Ver conversa" fora das 100; F19 chave durável
+ *  depois do down e da reaplicação da 132.
  */
 const ler = (f: string) => readFileSync(f, "utf8");
 const M132 = ["database/checks/20261123_132_precheck.sql", "database/migrations/20261123_132_walle_oportunidades.sql", "database/checks/20261123_132_postcheck.sql"].map(ler);
@@ -135,7 +143,7 @@ test("Wall-e 1a: pedido de festa vira cartão no funil, sem duplicar, isolado, r
     await processar(aStg);
     assert.equal(enviados(f1), 2, "F2: reentrega respondida uma vez só");
     await q("UPDATE whatsapp_atendimento_conversas SET oportunidade_pendente_em=clock_timestamp() WHERE id=$1", [cv1.id]);
-    const r2 = await capturarOportunidadesPendentes(db() as never, withTransaction, "staging");
+    const r2 = await capturarOportunidadesPendentes(withTransaction, "staging");
     assert.deepEqual([r2.resultados, r2.falhas], [["SEM_MUDANCA"], []], "F2: captura repetida sem mudança");
     assert.equal((await cartoes(A.empresa, [f1])).length, 1, "F2: continua um cartão");
 
@@ -219,8 +227,36 @@ test("Wall-e 1a: pedido de festa vira cartão no funil, sem duplicar, isolado, r
     assert.equal((await cartoes(A.empresa, [f7, f7.slice(2)])).length, 1, "F7: um cartão para o número");
     // Dois lotes ao mesmo tempo sobre a mesma marca: SKIP LOCKED, sem duplicar.
     await q("UPDATE whatsapp_atendimento_conversas SET oportunidade_pendente_em=clock_timestamp() WHERE id=$1", [cv7.id]);
-    await Promise.all([capturarOportunidadesPendentes(db() as never, withTransaction, "staging"), capturarOportunidadesPendentes(db() as never, withTransaction, "staging")]);
+    await Promise.all([capturarOportunidadesPendentes(withTransaction, "staging"), capturarOportunidadesPendentes(withTransaction, "staging")]);
     assert.equal((await cartoes(A.empresa, [f7, f7.slice(2)])).length, 1, "F7: lotes simultâneos não duplicam");
+    // r2 — a conversa da OUTRA variante (sem 55) que pede festa de novo reusa o cartão aberto do número (sem cartão novo).
+    await q("UPDATE whatsapp_atendimento_conversas SET oportunidade_pendente_em=clock_timestamp() WHERE id=$1", [cv7b]);
+    assert.ok(["SEM_MUDANCA", "ATUALIZADO", "JA_ABERTO"].includes(await withTransaction((tx) => capturarOportunidade(tx, cv7b))), "F7: outra variante reusa o cartão");
+    assert.equal((await cartoes(A.empresa, [f7, f7.slice(2)])).length, 1, "F7: continua um cartão para o número");
+
+    // F14 (r2) — PARAR na OUTRA variante do número bloqueia o cartão desta conversa.
+    const f14 = "5561900008300";
+    await id(`INSERT INTO whatsapp_atendimento_conversas (empresa_id, ambiente, contato, nao_contatar) VALUES ($1, 'staging', $2, true) RETURNING id::text`, [A.empresa, f14.slice(2)]);
+    const cv14 = await id(`INSERT INTO whatsapp_atendimento_conversas (empresa_id, ambiente, contato, oportunidade_pendente_em) VALUES ($1, 'staging', $2, clock_timestamp()) RETURNING id::text`, [A.empresa, f14]);
+    assert.equal(await withTransaction((tx) => capturarOportunidade(tx, cv14)), "IGNORADO", "F14: nao_contatar na variante sem 55 bloqueia");
+    assert.equal((await cartoes(A.empresa, [f14, f14.slice(2)])).length, 0, "F14: sem cartão");
+
+    // F15 (r2) — fila: 10 conversas que falham sempre não impedem a 11ª; a que falha é adiada (espera) e não volta no lote.
+    await q(`CREATE OR REPLACE FUNCTION harness_falha_fila() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN IF NEW.telefone LIKE '556190000820%' THEN RAISE EXCEPTION 'falha fila' USING ERRCODE = 'XX002'; END IF; RETURN NEW; END $$`);
+    await q("CREATE TRIGGER harness_falha_fila BEFORE INSERT ON marketing_contatos FOR EACH ROW EXECUTE FUNCTION harness_falha_fila()");
+    const ruins = await Promise.all(Array.from({ length: 10 }, (_, i) => id(`INSERT INTO whatsapp_atendimento_conversas (empresa_id, ambiente, contato, oportunidade_pendente_em) VALUES ($1, 'staging', $2, clock_timestamp() - interval '1 hour') RETURNING id::text`, [A.empresa, `556190000820${i}`])));
+    const boa = await id(`INSERT INTO whatsapp_atendimento_conversas (empresa_id, ambiente, contato, oportunidade_pendente_em) VALUES ($1, 'staging', '5561900008210', clock_timestamp()) RETURNING id::text`, [A.empresa]);
+    const lote1 = await capturarOportunidadesPendentes(withTransaction, "staging");
+    assert.deepEqual([lote1.adiadas, lote1.falhas.length, lote1.falhas.every((f) => f === "SQLSTATE_XX002")], [10, 10, true], "F15: as 10 que falham são adiadas, com o código");
+    const adiadas = (await q<{ n: number }>("SELECT count(*)::int AS n FROM whatsapp_atendimento_conversas WHERE id = ANY($1::uuid[]) AND oportunidade_pendente_em > clock_timestamp() + interval '4 minutes'", [ruins])).rows[0].n;
+    assert.equal(adiadas, 10, "F15: marca adiada pela espera");
+    const lote2 = await capturarOportunidadesPendentes(withTransaction, "staging");
+    assert.deepEqual([lote2.capturas, lote2.falhas], [1, []], "F15: o lote seguinte captura a boa (as adiadas ainda não venceram)");
+    assert.equal((await conversa(A.empresa, "staging", "5561900008210")).oportunidade_pendente_em, null);
+    assert.equal(boa.length, 36);
+    await q("DROP TRIGGER harness_falha_fila ON marketing_contatos");
+    await q("DROP FUNCTION harness_falha_fila()");
+    await q("UPDATE whatsapp_atendimento_conversas SET oportunidade_pendente_em=NULL WHERE id = ANY($1::uuid[])", [ruins]);
 
     // F8 — falha simulada da gravação do cartão: a resposta sai, a marca fica e o lote seguinte recupera.
     const f8 = "5561900008008";
@@ -237,10 +273,12 @@ test("Wall-e 1a: pedido de festa vira cartão no funil, sem duplicar, isolado, r
     assert.equal(enviados(f8), 1, "F8: a resposta saiu apesar da falha do cartão");
     const cv8 = await conversa(A.empresa, "staging", f8);
     assert.notEqual(cv8.oportunidade_pendente_em, null, "F8: a marca ficou para a recuperação");
+    assert.equal((await q("SELECT 1 FROM whatsapp_atendimento_conversas WHERE id=$1 AND oportunidade_pendente_em > clock_timestamp() + interval '4 minutes'", [cv8.id])).rows.length, 1, "F8: adiada pela espera (r2)");
     assert.equal((await cartoes(A.empresa, [f8])).length, 0, "F8: nenhum cartão parcial");
     assert.ok(avisos.some((a) => a.includes("SQLSTATE_XX001")) && !avisos.some((a) => a.includes("falha simulada")), "F8: registro só com o código, sem a mensagem");
     await q("DROP TRIGGER harness_falha_cartao ON marketing_contatos");
     await q("DROP FUNCTION harness_falha_cartao()");
+    await q("UPDATE whatsapp_atendimento_conversas SET oportunidade_pendente_em=clock_timestamp() WHERE id=$1", [cv8.id]); // a espera venceu
     await processar(aStg); // sem tarefa nova: a captura roda no fim do lote mesmo assim
     assert.equal((await conversa(A.empresa, "staging", f8)).oportunidade_pendente_em, null, "F8: recuperada no lote seguinte");
     assert.equal((await cartoes(A.empresa, [f8])).length, 1, "F8: cartão gravado na recuperação");
@@ -268,7 +306,20 @@ test("Wall-e 1a: pedido de festa vira cartão no funil, sem duplicar, isolado, r
     const consultas = carregarComponente("lib/oportunidades/consultas.ts", {
       "../marketing/atribuicao.ts": atribuicao, "./modelo.ts": modeloOportunidades, "./service.ts": { exigirSchema: async () => undefined },
     }).modulo as typeof import("../../../oportunidades/consultas.ts");
-    const funil = await withTransaction((tx) => consultas.listarOportunidades(tx, A.empresa));
+    const funil = await withTransaction((tx) => consultas.listarOportunidades(tx, A.empresa, null, "staging"));
+    // r2 — funil por ambiente: o cartão do Wall-e de production não aparece em staging, e vice-versa; sem ambiente, nenhum.
+    const nomes = (l: { nome: string; origemWalle?: boolean }[]) => l.filter((o) => o.origemWalle).map((o) => o.nome);
+    assert.ok(nomes(funil).includes("Cliente A staging") && !nomes(funil).includes("Cliente A production"), "F13: staging só com os seus cartões do Wall-e");
+    const funilPrd = await withTransaction((tx) => consultas.listarOportunidades(tx, A.empresa, null, "production"));
+    assert.deepEqual(nomes(funilPrd), ["Cliente A production"], "F13: production só com o seu");
+    assert.deepEqual(nomes(await withTransaction((tx) => consultas.listarOportunidades(tx, A.empresa, null, null))), [], "F13: ambiente desconhecido não mostra cartão do Wall-e");
+    const relStg = await withTransaction((tx) => consultas.relatorioFunil(tx, A.empresa, hoje, hoje, null, "staging"));
+    const relPrd = await withTransaction((tx) => consultas.relatorioFunil(tx, A.empresa, hoje, hoje, null, "production"));
+    const totalA = Number((await q<{ n: number }>("SELECT count(*)::int AS n FROM marketing_contatos WHERE empresa_id=$1", [A.empresa])).rows[0].n);
+    assert.deepEqual([relPrd.conversoes[0].base, relStg.conversoes[0].base + relPrd.conversoes[0].base], [1, totalA], "F13: indicadores do funil cortados por ambiente");
+    const perdidasStg = (await withTransaction((tx) => consultas.contadoresMes(tx, A.empresa, hoje, null, "staging"))).perdidas;
+    const perdidasPrd = (await withTransaction((tx) => consultas.contadoresMes(tx, A.empresa, hoje, null, "production"))).perdidas;
+    assert.deepEqual([perdidasStg > 0, perdidasPrd], [true, 0], "F13: perdas do mês cortadas por ambiente");
     const noFunil = funil.find((o) => o.nome === "Ana Souza");
     assert.ok(noFunil, "F13: cartão do Wall-e no funil");
     assert.deepEqual([noFunil.canal, noFunil.origemWalle, noFunil.conversaId], ["WHATSAPP", true, cv1.id], "F13: canal e origem Wall-e");
@@ -280,8 +331,12 @@ test("Wall-e 1a: pedido de festa vira cartão no funil, sem duplicar, isolado, r
     assert.equal(conversasLista.find((x) => x.id === idSaudacao)?.funil, false, "F13: saudação sem indicador");
 
     // F10 — exclusão a pedido do titular sem negociação: anonimiza; DELETE segue proibido.
+    // r2 — a observação da ação do funil (pode trazer nome) sai com a anonimização.
+    const acao = await id("INSERT INTO oportunidades_acoes(empresa_id,contato_id,responsavel_id,tipo,data,criada_por,observacao) VALUES($1,$2,$3,'Ligar',current_date,$3,'Ligar para a Ana Souza') RETURNING id::text", [A.empresa, k4[1].id, A.usuario]);
     const ex = await aStg.privacidade.excluirConversaAPedido(A.sessao, { conversaId: cv1.id, motivo: "PEDIDO_DO_TITULAR" });
     assert.equal((ex as { estado: string }).estado, "EXCLUIDA", "F10: conversa excluída");
+    assert.deepEqual((ex as { funil?: unknown }).funil, { anonimizados: 2, preservados: 0 }, "F10: totais do funil na resposta (r2)");
+    assert.equal((await q<{ observacao: string | null }>("SELECT observacao FROM oportunidades_acoes WHERE id=$1", [acao])).rows[0].observacao, null, "F10: observação da ação apagada (r2)");
     const k10 = (await q<{ nome: string; telefone: string; email: string | null; mensagem: string | null; data_desejada: string | null; convidados: number | null; perda_observacao: string | null; status: string; anonimizado_em: string | null; conversa_id: string | null }>(
       `SELECT k.nome, k.telefone, k.email, k.mensagem, k.data_desejada, k.convidados, k.perda_observacao, k.status, o.anonimizado_em::text, o.conversa_id::text
        FROM marketing_contatos k JOIN whatsapp_atendimento_oportunidades o ON o.contato_id=k.id WHERE k.id = ANY($1::uuid[]) ORDER BY k.recebido_em`, [k4.map((k) => k.id)])).rows;
@@ -297,22 +352,75 @@ test("Wall-e 1a: pedido de festa vira cartão no funil, sem duplicar, isolado, r
     await assert.rejects(q("DELETE FROM whatsapp_atendimento_oportunidades WHERE contato_id=$1", [k4[0].id]), /132/, "F10: vínculo sem DELETE");
     await assert.rejects(q("UPDATE whatsapp_atendimento_oportunidades SET anonimizado_em=NULL WHERE contato_id=$1", [k4[0].id]), /132/, "F10: anonimização sem volta");
 
-    // F11 — exclusão de já convertido (cliente vinculado; negociação exige cliente pela 085) preserva cartão e cliente.
+    // F11 (r2) — cliente vinculado por telefone NÃO é conversão: sem negociação, anonimiza e solta o cliente; o cadastro fica.
     const cvU = await conversa(A.empresa, "staging", f12u);
     const ex11 = await aStg.privacidade.excluirConversaAPedido(A.sessao, { conversaId: cvU.id, motivo: "PEDIDO_DO_TITULAR" });
-    assert.equal((ex11 as { estado: string }).estado, "EXCLUIDA");
-    const [k11] = await cartoes(A.empresa, [f12u]);
-    assert.deepEqual([k11.nome, k11.telefone, k11.cliente_id, k11.anonimizado_em, k11.conversa_id], ["WhatsApp final 8121", f12u, unico, null, null], "F11: convertido intacto; só a conversa saiu");
-    assert.equal((await q("SELECT 1 FROM clientes WHERE id=$1 AND status='ATIVO'", [unico])).rows.length, 1, "F11: cliente preservado");
+    assert.deepEqual([(ex11 as { estado: string }).estado, (ex11 as { funil?: unknown }).funil], ["EXCLUIDA", { anonimizados: 1, preservados: 0 }]);
+    const [k11] = (await q<{ nome: string; telefone: string; cliente_id: string | null; vinculo_cliente: string }>("SELECT nome, telefone, cliente_id::text, vinculo_cliente FROM marketing_contatos WHERE id=$1", [ku.id])).rows;
+    assert.deepEqual([k11.nome, k11.telefone, k11.cliente_id, k11.vinculo_cliente], [NOME_ANONIMIZADO, TELEFONE_ANONIMIZADO, null, "SEM_CLIENTE"], "F11: anonimizado e cliente desvinculado");
+    assert.equal((await q("SELECT 1 FROM clientes WHERE id=$1 AND status='ATIVO'", [unico])).rows.length, 1, "F11: cadastro do cliente preservado");
     assert.equal((await conversa(A.empresa, "staging", f12u)), undefined, "F11: conversa apagada");
+    // Convertido DE FATO (negociação no cartão): Guarda dos clientes, cartão intacto; só a conversa sai.
+    const f11c = "5561900008131";
+    const clienteC = await id("INSERT INTO clientes (nome_completo, empresa_id, telefone, whatsapp, cpf) VALUES ('Cliente convertido', $1, $2, $2, $3) RETURNING id::text", [A.empresa, f11c, cpfValido()]);
+    await receber(aStg, f11c, FESTA, "Convertido");
+    await processar(aStg);
+    const [kc] = await cartoes(A.empresa, [f11c]);
+    assert.equal(kc.cliente_id, clienteC, "F11: cartão com o cliente único");
+    // Negociação sintética na ordem das entradas reais: a trava da configuração da agenda antes das datas (114).
+    await q("BEGIN");
+    await travarConfiguracaoAgenda(executor(c as never), A.empresa, { modo: "COMPARTILHADA", linha: "KEY_SHARE" });
+    const negociacao = await fechamento(c as never, A.empresa, await comercial(c as never, A.empresa), clienteC, { data: DATA });
+    await q("UPDATE marketing_contatos SET fechamento_id=$2 WHERE id=$1", [kc.id, negociacao]);
+    await q("COMMIT");
+    const ex11c = await aStg.privacidade.excluirConversaAPedido(A.sessao, { conversaId: (await conversa(A.empresa, "staging", f11c)).id, motivo: "PEDIDO_DO_TITULAR" });
+    assert.deepEqual((ex11c as { funil?: unknown }).funil, { anonimizados: 0, preservados: 1 }, "F11: convertido contado como preservado");
+    const [kc2] = await cartoes(A.empresa, [f11c]);
+    assert.deepEqual([kc2.nome, kc2.telefone, kc2.cliente_id, kc2.anonimizado_em, kc2.conversa_id], ["Convertido", f11c, clienteC, null, null], "F11: convertido intacto; só a conversa saiu");
     // Decisão da empresa: só a conversa sai; o cartão fica com o vínculo solto.
     const cvD = await conversa(A.empresa, "staging", f12d);
     await aStg.privacidade.excluirConversaAPedido(A.sessao, { conversaId: cvD.id, motivo: "DECISAO_DA_EMPRESA" });
     const [k11d] = await cartoes(A.empresa, [f12d]);
     assert.deepEqual([k11d.telefone, k11d.anonimizado_em, k11d.conversa_id], [f12d, null, null], "F11: decisão da empresa não anonimiza");
+    // r2 — a 132 só deixa SOLTAR a conversa do vínculo: nem trocar por outra, nem religar a que ficou nula.
+    const outra = await id(`INSERT INTO whatsapp_atendimento_conversas (empresa_id, ambiente, contato) VALUES ($1, 'staging', '5561900008400') RETURNING id::text`, [A.empresa]);
+    await assert.rejects(q("UPDATE whatsapp_atendimento_oportunidades SET conversa_id=$2 WHERE contato_id=$1", [k11d.id, outra]), /132/, "F16: vínculo solto não religa");
+    const kAtivo = (await cartoes(A.empresa, [f6])).find((k) => k.ambiente === "staging")!;
+    await assert.rejects(q("UPDATE whatsapp_atendimento_oportunidades SET conversa_id=$2 WHERE contato_id=$1", [kAtivo.id, outra]), /132/, "F16: conversa do vínculo não é trocada");
+    // r2 — o titular volta por OUTRA conversa (com 55 trocado) e pede exclusão: o cartão de vínculo solto (conversa nula)
+    // do mesmo número também é anonimizado.
+    const cvVolta = await id(`INSERT INTO whatsapp_atendimento_conversas (empresa_id, ambiente, contato) VALUES ($1, 'staging', $2) RETURNING id::text`, [A.empresa, f12d.slice(2)]);
+    const exD = await aStg.privacidade.excluirConversaAPedido(A.sessao, { conversaId: cvVolta, motivo: "PEDIDO_DO_TITULAR" });
+    assert.deepEqual((exD as { funil?: unknown }).funil, { anonimizados: 1, preservados: 0 }, "F17: alcança o cartão da outra variante, de conversa nula");
+    assert.equal((await q<{ telefone: string }>("SELECT telefone FROM marketing_contatos WHERE id=$1", [k11d.id])).rows[0].telefone, TELEFONE_ANONIMIZADO, "F17: anonimizado");
     // A exclusão em A não tocou B.
     assert.deepEqual((await cartoes(B.empresa, [f6])).map((k) => k.nome), ["Cliente B staging"], "F11: B intacta");
     assert.deepEqual(await fotografia(), antesMarketing, "F9: exclusões também sem automação de Marketing");
+
+    // F18 (r2) — "Ver conversa" do funil abre a conversa mesmo fora das 100 mais recentes.
+    await q(`INSERT INTO whatsapp_atendimento_conversas (empresa_id, ambiente, contato, atualizada_em)
+      SELECT $1, 'staging', '55619100' || lpad(i::text, 5, '0'), clock_timestamp() + make_interval(mins => i) FROM generate_series(1, 100) i`, [A.empresa]);
+    const antiga = (await conversa(A.empresa, "staging", f6)).id;
+    const semPedido = (await aStg.servico.listarAtendimento(A.sessao)).conversas;
+    assert.deepEqual([semPedido.length, semPedido.some((x) => x.id === antiga)], [100, false], "F18: fora das 100 mais recentes");
+    const comPedido = (await aStg.servico.listarAtendimento(A.sessao, antiga)).conversas;
+    assert.deepEqual([comPedido.length, comPedido.some((x) => x.id === antiga)], [100, true], "F18: a conversa pedida entra");
+    const datas = comPedido.map((x) => new Date(x.atualizada_em as never).getTime());
+    assert.deepEqual(datas, [...datas].sort((a, b) => b - a), "F18: a ordem da tela segue a de antes");
+    // id fora do formato: a rota (app/api/admin/atendimento) já devolve 400 antes do serviço (z.uuid).
+
+    // F19 (r2) — chave durável: depois do down e da reaplicação da 132, uma marca nova da mesma conversa não colide com a
+    // chave do cartão anterior (instante da marca, não contagem).
+    const cvA6 = await conversa(A.empresa, "staging", f6);
+    await q("UPDATE marketing_contatos SET status='DESCARTADO', perda_motivo='Preço', perdida_em=clock_timestamp() WHERE empresa_id=$1 AND telefone=$2 AND status IN ('NOVO','EM_ATENDIMENTO')", [A.empresa, f6]);
+    await q("SET kidmais.rollback_132 = 'descartar-vinculos'");
+    await q(ler("database/rollback/20261123_132_walle_oportunidades_down.sql"));
+    await q("RESET kidmais.rollback_132");
+    for (const sql of M132) await q(sql);
+    await q("UPDATE whatsapp_atendimento_conversas SET oportunidade_pendente_em=clock_timestamp() WHERE id=$1", [cvA6.id]);
+    assert.equal(await withTransaction((tx) => capturarOportunidade(tx, cvA6.id)), "CRIADO", "F19: cartão novo depois da reaplicação, sem colisão");
+    const k19 = await cartoes(A.empresa, [f6]);
+    assert.equal(new Set(k19.map((k) => k.chave_idempotencia)).size, k19.length, "F19: chaves distintas");
   } finally {
     await c.end();
   }

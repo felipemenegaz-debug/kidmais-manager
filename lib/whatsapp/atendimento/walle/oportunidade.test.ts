@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { readFileSync } from 'node:fs';
-import { chaveDoCartao, nomeDoCartao, qualificaPedidoFesta, variantesDoTelefone } from './oportunidade.ts';
+import { chaveDoCartao, chaveTravaTelefone, nomeDoCartao, qualificaPedidoFesta, variantesDoTelefone } from './oportunidade.ts';
 import type { Entendimento, Intencao, Passagem, ResultadoWallE, TipoIntencao } from './tipos.ts';
 
 const vazio = { data: null, turno: null, convidados: null, pacotes: [], unidade: null, tema: null };
@@ -57,11 +57,25 @@ test('telefone com e sem 55: mesma regra de lib/marketing/contatos.ts', () => {
   for (const n of ['5561999991234', '61999991234', '6133331234', '556133331234', '12345678', '15551234567']) assert.deepEqual(variantesDoTelefone(n), variantesTelefone(n), n);
 });
 
-test('chave do cartão: estável, no formato da 085 e distinta por empresa, ambiente, conversa e ordem', () => {
-  const k = chaveDoCartao('e', 'staging', 'c', 1);
+test('chave do cartão: estável, no formato da 085 e distinta por empresa, ambiente, conversa e marca (r2: instante, não contagem)', () => {
+  const m1 = '2026-11-23 10:00:00.123456+00', m2 = '2026-11-23 10:05:00.654321+00';
+  const k = chaveDoCartao('e', 'staging', 'c', m1);
   assert.match(k, /^[A-Za-z0-9_-]{16,64}$/);
-  assert.equal(k, chaveDoCartao('e', 'staging', 'c', 1));
-  assert.equal(new Set([k, chaveDoCartao('e2', 'staging', 'c', 1), chaveDoCartao('e', 'production', 'c', 1), chaveDoCartao('e', 'staging', 'c2', 1), chaveDoCartao('e', 'staging', 'c', 2)]).size, 5);
+  assert.equal(k, chaveDoCartao('e', 'staging', 'c', m1));
+  assert.equal(new Set([k, chaveDoCartao('e2', 'staging', 'c', m1), chaveDoCartao('e', 'production', 'c', m1), chaveDoCartao('e', 'staging', 'c2', m1), chaveDoCartao('e', 'staging', 'c', m2)]).size, 5);
+});
+
+test('r2: trava por telefone igual à do site e do registro manual (com e sem 55, sem ambiente)', () => {
+  const fonte = readFileSync('lib/marketing/contatos.ts', 'utf8');
+  const corpo = /export function chaveTravaTelefone\(empresaId: string, digitos: string\) \{\r?\n([\s\S]*?)\r?\n\}\r?\n/.exec(fonte)?.[1];
+  assert.ok(corpo, 'chaveTravaTelefone em contatos.ts');
+  const deContatos = new Function('empresaId', 'digitos', corpo) as (e: string, d: string) => string;
+  for (const n of ['5561999991234', '61999991234', '6133331234', '556133331234', '12345678']) assert.equal(chaveTravaTelefone('e', n), deContatos('e', n), n);
+  assert.equal(chaveTravaTelefone('e', '5561999991234'), chaveTravaTelefone('e', '61999991234'), 'mesma trava com e sem 55');
+  // Cada INSERT de cartão em contatos.ts toma a trava logo antes.
+  const inserts = [...fonte.matchAll(/INSERT INTO marketing_contatos/g)].map(m => m.index!);
+  assert.equal(inserts.length, 2);
+  for (const i of inserts) assert.ok(fonte.lastIndexOf('await travarTelefoneNoFunil(', i) > fonte.lastIndexOf('\n}', i), 'trava antes do INSERT na mesma função');
 });
 
 test('o módulo só depende de tipos e node:crypto (as provas em PG o montam dentro do worker e da privacidade)', () => {
@@ -73,11 +87,12 @@ test('o módulo só depende de tipos e node:crypto (as provas em PG o montam den
     assert.equal(fonte.includes(proibido), false, proibido);
 });
 
-test('worker marca na resposta (savepoint) e captura ao fim do lote; exclusão a pedido do titular anonimiza', () => {
+test('worker marca no MESMO UPDATE da memória (r2: atômico) e captura ao fim do lote; exclusão a pedido do titular anonimiza', () => {
   const worker = readFileSync('lib/whatsapp/atendimento/worker.ts', 'utf8');
-  assert.match(worker, /qualificaPedidoFesta\(resultado\) && !\(await marcarPendente\(tx, atual\.id\)\)/);
+  assert.ok(worker.includes("marca ? memoriaDaConversa(SQL_MARCA_PENDENTE) : memoriaDaConversa(''), marca ? [...memoria, qualificaPedidoFesta(resultado)] : memoria"), 'marca atômica');
+  assert.equal(worker.includes('marcarPendente'), false, 'sem marcação separada');
   assert.ok(worker.indexOf('await capturarOportunidadesDoLote()') > worker.indexOf('const resultado = await processarAtendimento(deps);'));
   const privacidade = readFileSync('lib/whatsapp/atendimento/privacidade.ts', 'utf8');
-  const anon = privacidade.indexOf("alvo.motivo === 'PEDIDO_DO_TITULAR') await anonimizarOportunidadesDaConversa");
+  const anon = privacidade.indexOf("alvo.motivo === 'PEDIDO_DO_TITULAR' ? await anonimizarOportunidadesDaConversa(tx, alvo.empresa, alvo.ambiente, conversa.id, conversa.contato)");
   assert.ok(anon > 0 && anon < privacidade.indexOf("await tx.query('DELETE FROM whatsapp_atendimento_conversas WHERE id=$1'"));
 });

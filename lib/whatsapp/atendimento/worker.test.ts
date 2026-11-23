@@ -26,7 +26,7 @@ function carregar(consulta: (sql: string, args?: unknown[]) => Promise<{rows: un
     './core.ts':core,
     './motivo-falha.ts':motivoFalha,
     // Wall-e 1a: a captura do funil ao fim do lote tem prova própria em PG; aqui só se registra que ela roda depois das tarefas.
-    './walle/oportunidade.ts':{...oportunidade,capturarOportunidadesPendentes:async(_l:unknown,_t:unknown,ambiente:string)=>{capturasDoFunil.push(ambiente);return {capturas:0,falhas:[],resultados:[]};}},
+    './walle/oportunidade.ts':{...oportunidade,capturarOportunidadesPendentes:async(_t:unknown,ambiente:string)=>{capturasDoFunil.push(ambiente);return {capturas:0,adiadas:0,falhas:[],resultados:[]};}},
     './service.ts':{registroDaPausa:(texto:string,em:string)=>({motivo:'PARAR_A_CONFIRMAR',motivos:['PARAR_A_CONFIRMAR'],em,coletado:{data:null,turno:null,convidados:null,pacote:null,unidade:null,tema:null},enviados:[],pendentes:[],ultimaMensagem:texto.slice(0,500)}),configuracao:async(_tx:unknown,_e:string,travar=false)=>cfg?cfg(travar):({ativo:true,nome:'Kidmais',perguntas:[],limites:{respostasPor24h:limite}}),recuperarTrabalhosInterrompidos:async()=>{},limparStatusExpirados:async()=>{limpezas++;},correlacionarStatus:async(_tx:unknown,_e:string,_a:string,id:string)=>{correlacoes.push(id);},tem082:async()=>false,suprimirPesquisasDoContato:async()=>{}},
     './modelo.ts':{interpretarMensagem:async()=>{throw Error('modelo real proibido no teste');}},
     // Funções puras reais (montagem do conteúdo); a rede continua proibida.

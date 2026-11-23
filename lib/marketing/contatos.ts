@@ -61,6 +61,7 @@ export async function capturarContatoPublico(
   entrada: { nome: string; telefone: string | null; email: string | null; dataDesejada: string | null; convidados: number | null; mensagem: string | null; chave: string; autorizaWhatsapp?: boolean },
   captura: CapturaCampanha,
 ): Promise<{ contatoId: string; repetido: boolean }> {
+  await travarTelefoneNoFunil(tx, site.empresaId, entrada.telefone);
   const inserido = await tx.query<{ id: string }>(
     `INSERT INTO marketing_contatos (empresa_id, estabelecimento_id, site_id, canal_atendimento, nome, telefone, email, data_desejada, convidados,
        mensagem, chave_idempotencia, vinculo_cliente)
@@ -109,6 +110,17 @@ export async function capturarContatoPublico(
 }
 
 /** Telefone com e sem o DDI 55 (o CRM guarda dígitos como foram digitados): o mesmo número acha o mesmo cliente. */
+/**
+ * Trava consultiva do telefone no funil, por empresa (com e sem 55 caem na mesma), tomada antes de gravar um contato com
+ * telefone. A MESMA chave da captura do Wall-e (lib/whatsapp/atendimento/walle/oportunidade.ts; paridade em teste): a
+ * captura nunca decide "não há cartão aberto" enquanto o site ou o registro manual gravam um cartão do mesmo telefone.
+ */
+export function chaveTravaTelefone(empresaId: string, digitos: string) {
+  return `funil-telefone|${empresaId}|${/^55\d{10,11}$/.test(digitos) ? digitos.slice(2) : digitos}`;
+}
+async function travarTelefoneNoFunil(tx: DbExecutor, empresaId: string, telefone: string | null | undefined) {
+  if (telefone) await tx.query('SELECT pg_advisory_xact_lock(hashtextextended($1, 0))', [chaveTravaTelefone(empresaId, telefone)]);
+}
 export function variantesTelefone(digitos: string) {
   const v = new Set([digitos]);
   if (/^55\d{10,11}$/.test(digitos)) v.add(digitos.slice(2));
@@ -253,6 +265,7 @@ export async function executarAcaoContato(
     const campanha = acao.campanhaId ? await tx.query<{ id: string }>(
       `SELECT id::text FROM marketing_campanhas WHERE id = $1::uuid AND empresa_id = $2::uuid`, [acao.campanhaId, empresaId]) : null;
     if (campanha && campanha.rows.length !== 1) throw new MarketingError("MARKETING_CAMPANHA_INVALIDA", "Campanha não encontrada nesta empresa.", 404);
+    await travarTelefoneNoFunil(tx, empresaId, acao.telefone);
     const r = await tx.query<{ id: string }>(
       `INSERT INTO marketing_contatos (empresa_id, estabelecimento_id, cliente_id, canal_atendimento, nome, telefone, email, data_desejada, convidados,
          mensagem, chave_idempotencia, vinculo_cliente, status, atualizado_por)

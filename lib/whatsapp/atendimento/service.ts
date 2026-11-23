@@ -364,6 +364,10 @@ export async function acessoAtendimento<T>(sessao: SessaoParaTenant, work: (tx: 
     return work(tx, tenant.empresaComprovada, tenant.papelAtual);
   });
 }
+/** Conversa pedida na tela: só um uuid entra no ORDER BY; o resto vira null (nenhuma conversa é puxada). */
+export function conversaAberta(conversaId?: string | null): string | null {
+  return conversaId && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(conversaId) ? conversaId : null;
+}
 export async function listarAtendimento(sessao: SessaoParaTenant, conversaId?: string) {
   return acessoAtendimento(sessao, async (tx, empresa, papel) => {
     const ambiente = ambienteAtendimento();
@@ -378,7 +382,9 @@ export async function listarAtendimento(sessao: SessaoParaTenant, conversaId?: s
       CROSS JOIN LATERAL (SELECT CASE WHEN c.contato LIKE '55%' AND length(c.contato) IN (12,13) THEN substr(c.contato,3) END AS sem55) v
       CROSS JOIN LATERAL (SELECT count(*)::int AS clientes, CASE WHEN count(*)=1 THEN max(cl.nome_completo) END AS cliente_nome FROM clientes cl
         WHERE cl.empresa_id=c.empresa_id AND cl.status<>'MESCLADO' AND (cl.telefone IN (c.contato,v.sem55) OR cl.whatsapp IN (c.contato,v.sem55))) cad
-      WHERE c.empresa_id=$1 AND c.ambiente=$2 ORDER BY c.atualizada_em DESC LIMIT 100`, [empresa, ambiente])).rows;
+      WHERE c.empresa_id=$1 AND c.ambiente=$2 ORDER BY (c.id IS NOT DISTINCT FROM $3::uuid) DESC,c.atualizada_em DESC LIMIT 100`, [empresa, ambiente, conversaAberta(conversaId)])).rows
+      // Wall-e 1a r2: a conversa pedida (link "Ver conversa" do funil) entra mesmo fora das 100 mais recentes; a ordem da tela segue a de antes.
+      .sort((a, b) => new Date(b.atualizada_em as never).getTime() - new Date(a.atualizada_em as never).getTime());
     const midia = await temMidia(tx), r082 = await tem082(tx);
     // Com a 082: nome do arquivo próprio e o caminho público (token) para conferir; várias saídas da mesma entrada na ordem.
     const colunasMidia = r082 ? `m.midia_tipo,m.midia_url,m.midia_nome,m.ordem,a.id AS arquivo_id,a.token AS arquivo_token${(await temControlesPrivacidade(tx)) ? ',m.motivo_cancelamento' : ''}`

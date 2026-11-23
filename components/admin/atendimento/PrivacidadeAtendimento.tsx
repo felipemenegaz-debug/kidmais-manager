@@ -13,6 +13,13 @@ import styles from './atendimento.module.css';
  * (excluir, revogar) pedem também a palavra de confirmação.
  */
 type Pendente = { titulo: string; explicacao: string; corpo: Record<string, unknown>; palavra?: 'EXCLUIR' | 'REVOGAR'; sucesso: string };
+/** Wall-e 1a (D-WA-3): o que a exclusão a pedido do titular fez com os cartões do funil, inclusive o que ficou sob a Guarda. */
+function avisoFunil(funil: unknown) {
+  const f = funil as { anonimizados?: unknown; preservados?: unknown } | null | undefined;
+  const anon = typeof f?.anonimizados === 'number' ? f.anonimizados : 0, pres = typeof f?.preservados === 'number' ? f.preservados : 0;
+  return (anon ? ` ${anon} cartão(ões) do funil anonimizado(s).` : '')
+    + (pres ? ` ${pres} cartão(ões) do funil com negociação não foi(ram) anonimizado(s): seguem a Guarda dos clientes; trate pelo cadastro do cliente.` : '');
+}
 const ESTADO_ARQUIVO = (a: SituacaoPrivacidade['arquivos'][number]) =>
   a.revogadoEm ? 'Revogado (conteúdo apagado)' : a.disponivel ? (a.expiraEm ? `Disponível até ${new Date(a.expiraEm).toLocaleString('pt-BR')}` : 'Disponível') : a.vencido ? 'Vencido' : 'Indisponível';
 const ACAO_REGISTRO: Record<string, string> = {
@@ -50,7 +57,7 @@ export default function PrivacidadeAtendimento() {
       const json = await r.json().catch(() => null);
       // B3: só uma recusa do servidor (4xx) garante que nada mudou; falha do servidor ou resposta ilegível, não.
       if (!r.ok || !json?.ok) { setErro(r.status >= 400 && r.status < 500 ? (json?.erro || 'Não foi possível concluir. Nada foi alterado.') : 'Não foi possível confirmar o resultado. Atualize a página e confira antes de repetir.'); return; }
-      setAviso(pendente.sucesso); setPendente(null); await carregar();
+      setAviso(pendente.sucesso + avisoFunil(json?.data?.funil)); setPendente(null); await carregar();
     } catch { setErro('Não foi possível confirmar a operação. Atualize a página e confira antes de repetir.'); }
     finally { setSenha(''); setPalavra(''); setOcupado(false); }
   }

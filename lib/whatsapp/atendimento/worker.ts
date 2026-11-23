@@ -6,7 +6,7 @@ import { conteudoDaMensagem, type ConteudoSaida } from './transporte.ts';
 import { motivoSeguro } from './motivo-falha.ts';
 import { ARQUIVO_DISPONIVEL_SQL, urlPublicaArquivo } from './arquivos.ts';
 import type { Passagem, ResultadoWallE } from './walle/tipos.ts';
-import { capturarOportunidadesPendentes, marcarPendente, qualificaPedidoFesta } from './walle/oportunidade.ts';
+import { capturarOportunidadesPendentes, qualificaPedidoFesta, SQL_MARCA_PENDENTE, temMarcaPendente } from './walle/oportunidade.ts';
 import type { DbExecutor } from '../../db/contracts.ts';
 import { CHAVE_RODIZIO, eTransitorio, ehPilotoDe, empresaOperaAtendimento, empresasNaOrdemDoRodizio, lerPortao, modoEfetivo, pilotoOpcional, registrarVezDoRodizio, travarProvedor } from './multiempresa.ts';
 
@@ -151,7 +151,7 @@ export async function processarLote(deps: DependenciasWorker, opcoes: { maxTaref
  */
 async function capturarOportunidadesDoLote() {
   try {
-    const r = await capturarOportunidadesPendentes(db(), withTransaction, ambienteAtendimento());
+    const r = await capturarOportunidadesPendentes(withTransaction, ambienteAtendimento());
     for (const codigo of r.falhas) console.warn('[Atendimento WhatsApp] cartão do funil não gravado (%s); tenta no próximo lote.', codigo);
   } catch (erro) {
     console.warn('[Atendimento WhatsApp] cartão do funil não gravado (%s); tenta no próximo lote.', motivoSeguro(erro));
@@ -565,6 +565,10 @@ async function materialAindaAutorizado(tx: DbExecutor, mensagem: Mensagem, empre
  * (origem_grupo_id + ordem): retry não duplica e uma entrada nova cancela as saídas ainda na fila (versão da conversa).
  * Falha ao entender/consultar: o caminho fixo de encaminhamento, sem inventar resposta.
  */
+/** Memória do Wall-e na conversa; `marca` = SQL_MARCA_PENDENTE (com a 132, 6º parâmetro) ou vazio. */
+function memoriaDaConversa(marca: string) {
+  return `UPDATE whatsapp_atendimento_conversas SET interesse=$2::jsonb,contexto=CASE WHEN contexto ? 'semAutomatico' THEN $3::jsonb || jsonb_build_object('semAutomatico', contexto->'semAutomatico') ELSE $3::jsonb END,passagem=COALESCE($4::jsonb,passagem),estado=$5,atualizada_em=clock_timestamp()${marca} WHERE id=$1`;
+}
 async function responderWallE(porta: PortaWallE, mensagem: Mensagem, conversa: Conversa, texto: string, historico: string[], opera: (tx: DbExecutor) => Promise<boolean>, config: ConfiguracaoAtendimento) {
   const empresa = mensagem.empresa_id, ambiente = mensagem.ambiente;
   const hoje = hojeOperacao();
@@ -593,8 +597,11 @@ async function responderWallE(porta: PortaWallE, mensagem: Mensagem, conversa: C
     delete contexto.ultimoEntendimento;
     const interesse = { data: dataDeInteresse(contexto.data ?? null, hoje), convidados: contexto.convidados ?? null };
     // A marca de "sem automático" (rodada 22) nunca é apagada pela memória nova do Wall-e.
-    await tx.query("UPDATE whatsapp_atendimento_conversas SET interesse=$2::jsonb,contexto=CASE WHEN contexto ? 'semAutomatico' THEN $3::jsonb || jsonb_build_object('semAutomatico', contexto->'semAutomatico') ELSE $3::jsonb END,passagem=COALESCE($4::jsonb,passagem),estado=$5,atualizada_em=clock_timestamp() WHERE id=$1",
-      [atual.id, JSON.stringify(interesse), JSON.stringify(contexto), resultado.passagem ? JSON.stringify(resultado.passagem) : null, resultado.passagem ? 'AGUARDANDO_HUMANO' : 'IA']);
+    // Wall-e 1a (r2): pedido de festa nova MARCA a conversa nesta mesma instrução (com a 132): a marca só se perde se a
+    // resposta inteira for desfeita. O cartão é gravado ao fim do lote, fora desta transação.
+    const memoria = [atual.id, JSON.stringify(interesse), JSON.stringify(contexto), resultado.passagem ? JSON.stringify(resultado.passagem) : null, resultado.passagem ? 'AGUARDANDO_HUMANO' : 'IA'];
+    const marca = await temMarcaPendente(tx);
+    await tx.query(marca ? memoriaDaConversa(SQL_MARCA_PENDENTE) : memoriaDaConversa(''), marca ? [...memoria, qualificaPedidoFesta(resultado)] : memoria);
     await tx.query("UPDATE whatsapp_atendimento_mensagens SET estado='PROCESSADA' WHERE id=$1", [mensagem.id]);
     const base = (await tx.query<{ t: string }>('SELECT clock_timestamp()::text AS t')).rows[0].t;
     for (const [ordem, s] of resultado.saidas.slice(0, 10).entries()) {
@@ -604,8 +611,6 @@ async function responderWallE(porta: PortaWallE, mensagem: Mensagem, conversa: C
       [atual.id, empresa, ambiente, ordem === 0 ? mensagem.id : null, mensagem.id, ordem, a ? a.legenda : s.texto, atual.versao, a?.tipo ?? null, a && !a.arquivoId ? a.midiaUrl : null, a?.arquivoId ?? null, a?.arquivoId ? a.nome : null, a?.prontaId ?? null, a?.versao ?? null,
         JSON.stringify({ tipo: 'WALLE', fontes: s.fontes }), base, `${ordem} milliseconds`]);
     }
-    // Wall-e 1a: pedido de festa nova só MARCA a conversa (savepoint); o cartão é gravado ao fim do lote, fora desta transação.
-    if (qualificaPedidoFesta(resultado) && !(await marcarPendente(tx, atual.id))) console.warn('[Atendimento WhatsApp] cartão do funil não marcado (%s); a resposta segue.', 'OPORTUNIDADE_MARCA');
   });
   return 'PROCESSADA' as const;
 }

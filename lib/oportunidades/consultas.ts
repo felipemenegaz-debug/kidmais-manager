@@ -5,12 +5,22 @@ import { exigirSchema } from './service.ts';
 
 /**
  * Wall-e 1a (132): cartão criado pela conversa do WhatsApp leva a origem e a conversa; anonimizado a pedido do titular sai
- * das colunas (continua contado nos relatórios por recebido_em). Sem a 132, o funil segue como antes.
+ * das colunas (continua contado nos relatórios por recebido_em). Cartão do Wall-e de OUTRO ambiente (staging x production
+ * na mesma base) não aparece nas colunas nem conta nos indicadores (r2). Sem a 132, o funil segue como antes.
  */
+/** Ambiente deste deploy (a mesma regra de ambienteAtendimento); fora de staging/production, nenhum cartão do Wall-e entra. */
+export function ambienteDoDeploy(env: NodeJS.ProcessEnv = process.env): string | null {
+  return env.KIDMAIS_DEPLOY_ENV === 'staging' || env.KIDMAIS_DEPLOY_ENV === 'production' ? env.KIDMAIS_DEPLOY_ENV : null;
+}
+async function tem132(tx: DbExecutor) {
+  return !!(await tx.query<{ ok: boolean }>("SELECT to_regclass('public.whatsapp_atendimento_oportunidades') IS NOT NULL AS ok")).rows[0]?.ok;
+}
+/** Corte do contato `k` nos indicadores: fora o cartão do Wall-e de outro ambiente (o parâmetro do ambiente vem a seguir). */
+const corteAmbiente = (parametro: string) => ` AND NOT EXISTS (SELECT 1 FROM whatsapp_atendimento_oportunidades wo WHERE wo.contato_id=k.id AND wo.ambiente IS DISTINCT FROM ${parametro}::text)`;
 const WALLE_132 = {
   colunas: ',k.canal_atendimento AS canal,o.contato_id IS NOT NULL AS walle,o.conversa_id',
   juncao: ' LEFT JOIN whatsapp_atendimento_oportunidades o ON o.contato_id=k.id AND o.empresa_id=k.empresa_id',
-  filtro: ' AND o.anonimizado_em IS NULL',
+  filtro: ' AND o.anonimizado_em IS NULL AND (o.contato_id IS NULL OR o.ambiente=$3::text)',
 };
 const SEM_132 = { colunas: ',k.canal_atendimento AS canal,false AS walle,NULL::uuid AS conversa_id', juncao: '', filtro: '' };
 const base = (w: typeof WALLE_132) => `WITH alvos AS (
@@ -34,10 +44,10 @@ const base = (w: typeof WALLE_132) => `WITH alvos AS (
  WHERE ($2::uuid IS NULL OR (CASE WHEN a.tipo='FECHAMENTO' THEN a.responsavel_id ELSE coalesce(p.responsavel_id,a.responsavel_id) END)=$2::uuid)
  ORDER BY p.data NULLS FIRST,a.criada_em,a.id`;
 
-export async function listarOportunidades(tx: DbExecutor,empresaId: string,responsavelId: string | null = null): Promise<Oportunidade[]> {
+export async function listarOportunidades(tx: DbExecutor,empresaId: string,responsavelId: string | null = null,ambiente: string | null = ambienteDoDeploy()): Promise<Oportunidade[]> {
   await exigirSchema(tx);
-  const com132 = (await tx.query<{ ok: boolean }>("SELECT to_regclass('public.whatsapp_atendimento_oportunidades') IS NOT NULL AS ok")).rows[0]?.ok;
-  const r = await tx.query<Omit<Oportunidade,'etapa'|'href'>>(com132 ? base(WALLE_132) : base(SEM_132),[empresaId,responsavelId]);
+  const com132 = await tem132(tx);
+  const r = await tx.query<Omit<Oportunidade,'etapa'|'href'>>(com132 ? base(WALLE_132) : base(SEM_132),com132 ? [empresaId,responsavelId,ambiente] : [empresaId,responsavelId]);
   // Cartão do Wall-e abre a conversa (a tela de atendimento confere o acesso); os demais seguem como antes.
   return r.rows.map(v=>({...v,etapa:etapaDoEstado(v.status,v.tipo==='CONTATO')!,href:v.tipo==='CONTATO'
     ? (v.origemWalle && v.conversaId ? `/admin/atendimento?conversa=${encodeURIComponent(v.conversaId)}` : v.clienteId ? `/clientes/${v.clienteId}` : '/admin/marketing/origens') : `/admin/fechamentos/${v.id}/revisao`}));
@@ -48,34 +58,44 @@ export async function responsaveis(tx: DbExecutor,empresaId: string) {
    AND (m.papel='REPRESENTANTE_AUTORIZADO' OR EXISTS(SELECT 1 FROM marketing_membership_capacidades cap WHERE cap.empresa_id=m.empresa_id AND cap.membership_id=m.id AND cap.revogado_em IS NULL))
    ORDER BY u.nome,u.id`,[empresaId])).rows;
 }
-export async function contadoresMes(tx: DbExecutor,empresaId: string,hoje: string,responsavelId: string | null) {
-  const r = await tx.query<{fechadas: number; perdidas: number; fechadasSemData: number}>(`SELECT
+export async function contadoresMes(tx: DbExecutor,empresaId: string,hoje: string,responsavelId: string | null,ambiente: string | null = ambienteDoDeploy()) {
+  const com132 = await tem132(tx);
+  const r = await tx.query<{fechadas: number; perdidas: number; fechadasSemData: number}>(com132 ? contadoresSql(corteAmbiente('$4')) : contadoresSql(''),
+    com132 ? [empresaId,hoje,responsavelId,ambiente] : [empresaId,hoje,responsavelId]);
+  return r.rows[0];
+}
+const contadoresSql = (corte: string) => `SELECT
    (SELECT count(*)::int FROM fechamentos f WHERE f.empresa_id=$1::uuid AND f.status='CONFIRMADO'
     AND f.confirmada_em>=date_trunc('month',$2::date::timestamp) AT TIME ZONE 'America/Sao_Paulo'
     AND f.confirmada_em<(($2::date+1)::timestamp AT TIME ZONE 'America/Sao_Paulo') AND ($3::uuid IS NULL OR f.usuario_responsavel_id=$3::uuid)) AS fechadas,
    (SELECT count(*)::int FROM fechamentos f WHERE f.empresa_id=$1::uuid AND f.status='CONFIRMADO' AND f.confirmada_em IS NULL AND ($3::uuid IS NULL OR f.usuario_responsavel_id=$3::uuid)) AS "fechadasSemData",
    (SELECT count(*)::int FROM (
-    SELECT perdida_em,responsavel_id FROM marketing_contatos WHERE empresa_id=$1::uuid
+    SELECT perdida_em,responsavel_id FROM marketing_contatos k WHERE k.empresa_id=$1::uuid${corte}
     UNION ALL SELECT perdida_em,usuario_responsavel_id FROM fechamentos WHERE empresa_id=$1::uuid) x
     WHERE perdida_em>=date_trunc('month',$2::date::timestamp) AT TIME ZONE 'America/Sao_Paulo'
-    AND perdida_em<(($2::date+1)::timestamp AT TIME ZONE 'America/Sao_Paulo') AND ($3::uuid IS NULL OR responsavel_id=$3::uuid)) AS perdidas`,[empresaId,hoje,responsavelId]);
-  return r.rows[0];
-}
+    AND perdida_em<(($2::date+1)::timestamp AT TIME ZONE 'America/Sao_Paulo') AND ($3::uuid IS NULL OR responsavel_id=$3::uuid)) AS perdidas`;
 export type RelatorioFunil = { perdas: Array<{motivo: string; origem: string; quantidade: number}>; conversoes: Array<{de: string; para: string; base: number; convertidas: number; percentual: number | null}> };
-export async function relatorioFunil(tx: DbExecutor,empresaId: string,de: string,ate: string,unidadeId: string | null): Promise<RelatorioFunil> {
+export async function relatorioFunil(tx: DbExecutor,empresaId: string,de: string,ate: string,unidadeId: string | null,ambiente: string | null = ambienteDoDeploy()): Promise<RelatorioFunil> {
   await exigirSchema(tx);
-  const perdas = (await tx.query<{motivo: string; origem: string; quantidade: number}>(`WITH perdas AS (
+  const com132 = await tem132(tx);
+  const parametros = com132 ? [empresaId,de,ate,unidadeId,ambiente] : [empresaId,de,ate,unidadeId];
+  const perdas = (await tx.query<{motivo: string; origem: string; quantidade: number}>(com132 ? perdasSql(corteAmbiente('$5')) : perdasSql(''),parametros)).rows;
+  const contato = (await tx.query<{base: number; convertidas: number}>(com132 ? contatoSql(corteAmbiente('$5')) : contatoSql(''),parametros)).rows[0];
+  return {perdas,conversoes:await conversoesDoFunil(tx,empresaId,de,ate,unidadeId,contato)};
+}
+const perdasSql = (corte: string) => `WITH perdas AS (
    SELECT k.perda_motivo AS motivo,k.perdida_em,k.estabelecimento_id,coalesce(a.origem_codigo,'SEM_REGISTRO') AS origem
-   FROM marketing_contatos k LEFT JOIN marketing_atribuicoes a ON a.empresa_id=k.empresa_id AND a.alvo_tipo='CONTATO' AND a.alvo_id=k.id AND a.vigente WHERE k.empresa_id=$1::uuid
+   FROM marketing_contatos k LEFT JOIN marketing_atribuicoes a ON a.empresa_id=k.empresa_id AND a.alvo_tipo='CONTATO' AND a.alvo_id=k.id AND a.vigente WHERE k.empresa_id=$1::uuid${corte}
    UNION ALL
    SELECT f.perda_motivo,f.perdida_em,f.estabelecimento_id,coalesce(a.origem_codigo,'SEM_REGISTRO') FROM fechamentos f
    LEFT JOIN LATERAL (${SQL_ORIGEM_NEGOCIACAO}) a ON true WHERE f.empresa_id=$1::uuid)
    SELECT motivo,origem,count(*)::int AS quantidade FROM perdas WHERE perdida_em>=($2::date::timestamp AT TIME ZONE 'America/Sao_Paulo')
-   AND perdida_em<(($3::date+1)::timestamp AT TIME ZONE 'America/Sao_Paulo') AND ($4::uuid IS NULL OR estabelecimento_id=$4::uuid) GROUP BY motivo,origem ORDER BY quantidade DESC,motivo,origem`,[empresaId,de,ate,unidadeId])).rows;
-  const contato = (await tx.query<{base: number; convertidas: number}>(`SELECT count(*)::int AS base,count(*) FILTER(WHERE k.fechamento_id IS NOT NULL OR EXISTS
+   AND perdida_em<(($3::date+1)::timestamp AT TIME ZONE 'America/Sao_Paulo') AND ($4::uuid IS NULL OR estabelecimento_id=$4::uuid) GROUP BY motivo,origem ORDER BY quantidade DESC,motivo,origem`;
+const contatoSql = (corte: string) => `SELECT count(*)::int AS base,count(*) FILTER(WHERE k.fechamento_id IS NOT NULL OR EXISTS
     (SELECT 1 FROM fechamentos f WHERE f.empresa_id=k.empresa_id AND f.cliente_id=k.cliente_id AND f.iniciado_em>=k.recebido_em))::int AS convertidas
     FROM marketing_contatos k WHERE k.empresa_id=$1::uuid AND k.recebido_em>=($2::date::timestamp AT TIME ZONE 'America/Sao_Paulo')
-    AND k.recebido_em<(($3::date+1)::timestamp AT TIME ZONE 'America/Sao_Paulo') AND ($4::uuid IS NULL OR k.estabelecimento_id=$4::uuid)`,[empresaId,de,ate,unidadeId])).rows[0];
+    AND k.recebido_em<(($3::date+1)::timestamp AT TIME ZONE 'America/Sao_Paulo') AND ($4::uuid IS NULL OR k.estabelecimento_id=$4::uuid)${corte}`;
+async function conversoesDoFunil(tx: DbExecutor,empresaId: string,de: string,ate: string,unidadeId: string | null,contato: {base: number; convertidas: number}) {
   const conversoes: RelatorioFunil['conversoes'] = [{de:'Novo contato',para:'Proposta',...contato,percentual:contato.base ? contato.convertidas/contato.base*100 : null}];
   for (const [origem,destino] of [['Proposta','Contrato'],['Contrato','Sinal'],['Sinal','Fechada']]) {
     const linha = (await tx.query<{base: number; convertidas: number}>(`SELECT count(*)::int AS base,count(*) FILTER(WHERE EXISTS(
@@ -85,5 +105,5 @@ export async function relatorioFunil(tx: DbExecutor,empresaId: string,de: string
      AND ($4::uuid IS NULL OR f.estabelecimento_id=$4::uuid)`,[empresaId,de,ate,unidadeId,origem,destino])).rows[0];
     conversoes.push({de:origem,para:destino,...linha,percentual:linha.base ? linha.convertidas/linha.base*100 : null});
   }
-  return {perdas,conversoes};
+  return conversoes;
 }
