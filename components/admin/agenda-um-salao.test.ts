@@ -35,7 +35,7 @@ function carregar(agenda: ReturnType<typeof agendaDe>, pedidos: Array<Record<str
     './agenda-configuracao.module.css': cssFalso, './workspace.module.css': cssFalso };
   const assistente = carregarComponente('components/admin/AssistenteAgenda.tsx', base);
   const combinados = carregarComponente('components/admin/SaloesCombinados.tsx', base);
-  const tela = carregarComponente('components/admin/AgendaConfiguracao.tsx', { ...base, './AssistenteAgenda': assistente.modulo, './SaloesCombinados': combinados.modulo });
+  const tela = carregarComponente('components/admin/AgendaConfiguracao.tsx', { ...base, './AssistenteAgenda': assistente.modulo, './SaloesCombinados': combinados.modulo, './PreReservaConfiguracao': { PreReservaConfiguracao: () => null } });
   return { tela, assistente };
 }
 

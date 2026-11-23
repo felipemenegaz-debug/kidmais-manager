@@ -31,7 +31,7 @@ function digitar(arvore: unknown, rotulo: RegExp, value: string) {
 test('configuração explica os dois pré-requisitos e salva com reautenticação e versão', async () => {
   const config = { habilitada: false, sinalCentavos: 10000, versao: 3, orcamentoOnline: false, recebedorPix: false };
   const chamadas: unknown[] = [];
-  const tela = carregarComponente('app/admin/configuracoes/pre-reserva/page.tsx', {
+  const tela = carregarComponente('components/admin/PreReservaConfiguracao.tsx', {
     ...deps,
     '@/lib/http/admin-fetch': {
       reautenticarSessao: async (senha: string) => { chamadas.push(senha); return { ok: true }; },
@@ -42,16 +42,16 @@ test('configuração explica os dois pré-requisitos e salva com reautenticaçã
       },
     },
   });
-  tela.render();
+  tela.render('PreReservaConfiguracao');
   tela.efeitos();
   await tique();
-  const estado = tela.render();
+  const estado = tela.render('PreReservaConfiguracao');
   assert.match(texto(estado), /orçamento online.*recebedor Pix/);
   assert.equal(achar(achar(estado, 'label', /Piloto ligado/), 'input').props.disabled, true);
   digitar(estado, /Sua senha/, 'senha sintética');
-  await (achar(tela.render(), 'form').props.onSubmit as (e: object) => Promise<void>)({ preventDefault() {} });
+  await (achar(tela.render('PreReservaConfiguracao'), 'form').props.onSubmit as (e: object) => Promise<void>)({ preventDefault() {} });
   assert.deepEqual(chamadas, ['senha sintética', { habilitada: false, sinalCentavos: 10000, versao: 3 }]);
-  assert.match(texto(tela.render()), /Atualize a configuração/);
+  assert.match(texto(tela.render('PreReservaConfiguracao')), /Atualize a configuração/);
 });
 
 test('revisão recarrega no 409 e pede uma ação separada para confirmar o Pix divergente', async () => {
