@@ -316,7 +316,7 @@ test('Astra r1 da Kidmais na tela: linha do tempo, rascunho que não muda preço
     assert.doesNotMatch(codigo(f), /CONFIG_VAZIA/, `${f}: estado inicial/falha sem 15% fixo`);
   // Painel: a rota manda as regras da empresa (ids V1 para a dona da agenda pública) e a tela as usa.
   const rota = codigo('app/api/admin/disponibilidade/route.ts');
-  assert.match(rota, /descontosPublicosDaEmpresa\(tx, empresaComprovada\)/);
+  assert.match(rota, /descontosPublicosDaEmpresa\(tx, empresaComprovada, codigo\)/);
   assert.match(rota, /configuracaoComercial \? descontosPorIdV1\(regrasDia\) : regrasDia/);
   assert.match(rota, /\.\.\.\(descontosEmpresa \? \{ descontosEmpresa \} : \{\}\),\s*configuracaoComercial,/);
   const painel = codigo('components/admin/AdminDisponibilidade.tsx');

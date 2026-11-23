@@ -460,6 +460,7 @@ test('GET da agenda inclui link comercial para Equipe da empresa comprovada', as
     'lib/disponibilidade/escopo': {
       escopoDaEmpresa: (_: unknown, empresa: string) => ({ empresaId: empresa, estabelecimentoId: null }),
       agendaPorEscopoInstalada: async () => false,
+      escopoEUnidadesDaEmpresa: async (_: unknown, empresa: string) => ({ escopo: { empresaId: empresa, estabelecimentoId: null }, porEscopo: false, unidades: [] }),
     },
     'lib/disponibilidade/services': {
       duracaoAceita: () => null, duracaoDoPacoteDaEmpresa: async () => 240, consultarDisponibilidadeData: async () => ({}),
