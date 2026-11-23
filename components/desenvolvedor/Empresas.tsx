@@ -13,9 +13,10 @@ type Item = {
     responsavelNome: string | null; email: string | null; membrosAtivos: number; convitesPendentes: number; temCadastro: boolean;
     comercial: Pick<Comercial, 'instalado' | 'cobrado' | 'situacao' | 'nivel' | 'ate'>;
 };
-type Lista = { itens: Item[]; total: number; pagina: number; porPagina: number };
+type Lista = { itens: Item[]; total: number; pagina: number; porPagina: number; desativadasOcultas?: number };
+// 23/11/2026 (pedido de Felipe): a tela abre em "Em uso" (sem as desativadas) e avisa quantas ficaram de fora.
 const FILTROS = [
-    { valor: 'TODAS', rotulo: 'Todas' }, { valor: 'EM_IMPLANTACAO', rotulo: 'Em implantação' }, { valor: 'AGUARDANDO_PRIMEIRO_ACESSO', rotulo: 'Aguardando primeiro acesso' },
+    { valor: 'EM_USO', rotulo: 'Em uso' }, { valor: 'TODAS', rotulo: 'Todas' }, { valor: 'EM_IMPLANTACAO', rotulo: 'Em implantação' }, { valor: 'AGUARDANDO_PRIMEIRO_ACESSO', rotulo: 'Aguardando primeiro acesso' },
     { valor: 'EM_CONFIGURACAO', rotulo: 'Em configuração' }, { valor: 'ATIVA', rotulo: 'Ativas' }, { valor: 'SUSPENSA', rotulo: 'Suspensas' }, { valor: 'DESATIVADA', rotulo: 'Desativadas' },
 ];
 export function tomSituacao(s: string) {
@@ -25,7 +26,7 @@ export function tomSituacao(s: string) {
 export default function Empresas() {
     const params = useSearchParams();
     const inicial = params.get('situacao');
-    const [situacao, setSituacao] = useState(FILTROS.some((f) => f.valor === inicial) ? inicial! : 'TODAS');
+    const [situacao, setSituacao] = useState(FILTROS.some((f) => f.valor === inicial) ? inicial! : 'EM_USO');
     const [busca, setBusca] = useState('');
     const [buscaAplicada, setBuscaAplicada] = useState('');
     const [pagina, setPagina] = useState(1);
@@ -58,6 +59,10 @@ export default function Empresas() {
         <div className={estilos.filtros} role="group" aria-label="Filtrar por situação">
             {FILTROS.map((f) => <button key={f.valor} type="button" aria-pressed={situacao === f.valor} onClick={() => { setSituacao(f.valor); setPagina(1); }}>{f.rotulo}</button>)}
         </div>
+        {situacao === 'EM_USO' && lista && (lista.desativadasOcultas ?? 0) > 0 && <p className={estilos.avisoOcultas} data-desativadas-ocultas>
+            <span className={workspace.muted}>{lista.desativadasOcultas === 1 ? '1 empresa desativada não aparece aqui.' : `${lista.desativadasOcultas} empresas desativadas não aparecem aqui.`}</span>
+            <button type="button" className={estilos.botaoLink} onClick={() => { setSituacao('DESATIVADA'); setPagina(1); }}>Ver desativadas</button>
+        </p>}
         {erro && <p role="alert">{erro}</p>}
         {carregando && !lista && <p className={workspace.muted} aria-live="polite">Carregando…</p>}
         {lista && lista.itens.length === 0 && <div className={estilos.vazio}>{buscaAplicada ? 'Nenhuma empresa encontrada para esta busca.' : 'Nenhuma empresa nesta situação.'}</div>}
