@@ -9,12 +9,14 @@ import { carregarModulo, executorFalso } from '../../lib/acessos/teste-carregado
 
 const pedido = '11111111-1111-4111-8111-111111111111';
 const pix = 'E12345678202611201234Ab123456789';
+function MotivoPerda() { return null; }
 const deps = {
   '@/lib/pre-reserva/apresentacao-admin': preReserva,
   '@/lib/contratos/documento/formatters': { formatarMoeda: (valor: number) => `R$ ${valor.toFixed(2)}` },
   '@/components/admin/AdminPrimaryButton': { AdminPrimaryButton: 'button' },
   '@/components/admin/workspace.module.css': cssFalso,
   './RevisaoComercial.module.css': cssFalso,
+  './oportunidades/MotivoPerda': { MotivoPerda },
 };
 
 function clicar(arvore: unknown, rotulo: string) {
@@ -150,9 +152,8 @@ test('revisão mantém o pedido recusado quando a leitura da confirmação chega
   assert.equal(leituras, 2);
 
   clicar(render(), 'Recusar pedido');
-  const motivo = achar(achar(render(), 'dialog'), 'select');
-  const opcao = achar(motivo, 'option', 'Outro');
-  (motivo.props.onChange as (e: object) => void)({ target: { value: texto(opcao) } });
+  // Motivo em opções de escolha única (23/11/2026): a janela entrega o componente com o valor e o callback.
+  (achar(achar(render(), 'dialog'), MotivoPerda).props.aoMudar as (m: string) => void)('Outro');
   const observacao = achar(achar(render(), 'dialog'), 'textarea');
   (observacao.props.onChange as (e: object) => void)({ target: { value: 'Recusa de teste' } });
   submeter(achar(achar(render(), 'dialog'), 'form'));

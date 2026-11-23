@@ -1,7 +1,8 @@
 'use client';
 import Link from 'next/link';
 import { useEffect, useRef, useState, type ReactNode } from 'react';
-import { ETAPAS, TIPOS_ACAO, MOTIVOS_PERDA, type Oportunidade } from '@/lib/oportunidades/modelo';
+import { ETAPAS, TIPOS_ACAO, type Oportunidade } from '@/lib/oportunidades/modelo';
+import { MotivoPerda } from './MotivoPerda';
 import { EstadoCarga, enviarMarketing, useMarketing } from '../marketing/comum';
 import styles from './oportunidades.module.css';
 
@@ -12,7 +13,10 @@ export default function Oportunidades() {
   const [responsavel,setResponsavel]=useState(''),[janela,setJanela]=useState<{item:Oportunidade;feito:boolean}|null>(null),[novo,setNovo]=useState(false);
   const url='/api/admin/oportunidades'+(responsavel?'?responsavelId='+encodeURIComponent(responsavel):'');
   const {dados,falha,carregando,recarregar,dadosDe}=useMarketing<Dados>(url);
-  const pronta=!!dados && !carregando && dadosDe===url && !falha;
+  // Atualização em segundo plano (foco da janela, Atualizar) NÃO desativa as ações: o foco chega antes do clique e o
+  // desativava, engolindo o primeiro clique de quem volta de outra janela (23/11/2026). Só a primeira carga e a troca de
+  // filtro (dados de outra consulta) bloqueiam; a gravação confere a próxima ação esperada no servidor.
+  const pronta=!!dados && dadosDe===url && !falha;
   useEffect(()=>{const atualizar=()=>recarregar();window.addEventListener('focus',atualizar);return()=>window.removeEventListener('focus',atualizar);},[recarregar]);
   const podeEditar=!!dados?.podeEditar;
   const hoje=dados?.itens.filter(i=>i.proxima && i.proxima.data<=dados.hoje)??[];
@@ -53,7 +57,7 @@ function JanelaAcao({item,feito,dados,fechar,salvo}:{item:Oportunidade;feito:boo
     await enviarMarketing('/api/admin/oportunidades',{alvo:{tipo:item.tipo,id:item.id},esperada:item.proxima?.id??null,...(perder?{acao:'perder',perda:{motivo,observacao},concluir:feito}:{acao:feito?'concluir':'agendar',proxima:{tipo,data,observacao,responsavelId}})});salvo();
   }catch(e){setErro(e instanceof Error?e.message:'Não foi possível salvar.');}finally{setBusy(false);}}
   return <Modal titulo={feito?'Ação feita. Qual é o próximo passo?':'Próximo passo'} fechar={fechar} busy={busy}><p>{item.nome}</p><div className={styles.filtros}><button type="button" className={!perder?'':styles.secundario} disabled={busy} onClick={()=>setPerder(false)}>Próxima ação</button><button type="button" className={perder?'':styles.secundario} disabled={busy} onClick={()=>setPerder(true)}>Registrar perda</button></div>
-    <form onSubmit={salvar}>{perder?<><label>Motivo da perda<select required value={motivo} disabled={busy} onChange={e=>setMotivo(e.target.value)}><option value="">Selecione o motivo</option>{MOTIVOS_PERDA.map(m=><option key={m}>{m}</option>)}</select></label><p>Ao confirmar, a oportunidade será encerrada. Contrato já assinado segue pelo cancelamento do contrato.</p></>:<><label>Ação<select value={tipo} disabled={busy} onChange={e=>setTipo(e.target.value)}>{TIPOS_ACAO.map(t=><option key={t}>{t}</option>)}</select></label><label>Data<input type="date" required value={data} disabled={busy} onChange={e=>setData(e.target.value)}/></label><label>Responsável<select required value={responsavelId} disabled={busy} onChange={e=>setResponsavelId(e.target.value)}><option value="">Selecione</option>{dados.responsaveis.map(r=><option key={r.id} value={r.id}>{r.nome}</option>)}</select></label></>}
+    <form onSubmit={salvar}>{perder?<><MotivoPerda nome="motivo-perda-funil" valor={motivo} aoMudar={setMotivo} desativado={busy}/><p>Ao confirmar, a oportunidade será encerrada. Contrato já assinado segue pelo cancelamento do contrato.</p></>:<><label>Ação<select value={tipo} disabled={busy} onChange={e=>setTipo(e.target.value)}>{TIPOS_ACAO.map(t=><option key={t}>{t}</option>)}</select></label><label>Data<input type="date" required value={data} disabled={busy} onChange={e=>setData(e.target.value)}/></label><label>Responsável<select required value={responsavelId} disabled={busy} onChange={e=>setResponsavelId(e.target.value)}><option value="">Selecione</option>{dados.responsaveis.map(r=><option key={r.id} value={r.id}>{r.nome}</option>)}</select></label></>}
       <label>{perder && motivo==='Outro' ? 'Explique o motivo' : 'Observação (opcional)'}<textarea required={perder && motivo==='Outro'} maxLength={1000} value={observacao} disabled={busy} onChange={e=>setObservacao(e.target.value)}/></label>{erro&&<p role="alert" className={styles.alerta}>{erro}</p>}<button disabled={busy || (perder && motivo==='Outro' && !observacao.trim())}>{busy?'Salvando…':perder?'Confirmar perda':feito?'Concluir e agendar':'Salvar próxima ação'}</button>
     </form></Modal>;
 }
