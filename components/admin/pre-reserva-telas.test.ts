@@ -463,7 +463,12 @@ test('GET da agenda inclui link comercial para Equipe da empresa comprovada', as
     'lib/disponibilidade/services': {
       duracaoAceita: () => null, duracaoDoPacoteDaEmpresa: async () => 240, consultarDisponibilidadeData: async () => ({}),
     },
-    'lib/disponibilidade/repositories': { listarTodosBloqueiosAtivos: async () => [] },
+    // Sem a 133 (Agenda lenta F6), como em staging e production hoje: a projeção segue na 094.
+    'lib/disponibilidade/repositories': {
+      listarTodosBloqueiosAtivos: async () => [],
+      ocupacoesPorEmpresaInstaladas: async () => false,
+      fonteOcupacoesDoRecurso: (v133: boolean) => (v133 ? 'kidmais133_ocupacoes_escopo($1::date,$2::date,$3::uuid,$4::uuid) o' : 'kidmais094_ocupacoes($1::date,$2::date) o'),
+    },
     'lib/disponibilidade/config-legada': { ehDonaDaConfigLegada: async () => false },
     'lib/comercial/disponibilidade-pacote-publica': { pacotesDaAgendaDaEmpresa: async () => null },
     'lib/comercial/descontos-dia-publico': { descontosPublicosDaEmpresa: async () => null },
