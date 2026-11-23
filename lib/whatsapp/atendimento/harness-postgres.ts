@@ -39,10 +39,18 @@ export const cod = (p: string) => `${p}${randomBytes(4).toString("hex")}`;
 /** Transporte real só para montar o conteúdo da linha (081); o envio de rede fica bloqueado (a porta `enviar` é simulada). */
 export const transporteSemRede = { ...transporte, enviarMensagem: async () => { throw new Error("rede proibida no harness"); } };
 
+/**
+ * Wall-e 1a r8 (P3): a suíte pode observar o PID de cada transação aberta pelo harness enquanto o observador estiver
+ * ligado (lido DENTRO da transação, logo após o BEGIN). Desligado (padrão), nada muda.
+ */
+let observadorDeTransacao: ((pid: number) => void) | null = null;
+export function observarTransacoes(observador: ((pid: number) => void) | null) { observadorDeTransacao = observador; }
+
 export async function withTransaction<T>(fn: (tx: DbExecutor) => Promise<T>): Promise<T> {
   const c = await conectarDescartavel({ travar: false });
   try {
     await c.query("BEGIN");
+    if (observadorDeTransacao) observadorDeTransacao(Number((await c.query<{ pid: number }>("SELECT pg_backend_pid() AS pid")).rows[0].pid));
     const r = await fn(c as unknown as DbExecutor);
     await c.query("COMMIT");
     return r;

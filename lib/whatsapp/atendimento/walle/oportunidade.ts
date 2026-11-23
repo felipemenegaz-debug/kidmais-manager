@@ -197,8 +197,11 @@ function codigoFalha(erro: unknown) {
  * r7 (P2-A): cursor por ambiente entre lotes (memória do processo), a última candidata vista (marca, id). O lote seguinte
  * começa depois dela e volta ao início quando a fila acaba: 50 pendências antigas presas por outras transações não
  * escondem a 51ª para sempre. Reiniciar o processo só volta a fila ao começo.
+ * r8 (P2): cada ciclo tem um teto (marca, id), a última pendência vencida quando o ciclo começa. O ciclo termina ao
+ * passar do teto e volta ao início: sob entrada contínua, a pendência pulada (travada) e depois liberada é revista no
+ * ciclo seguinte, sem esperar o fim de uma fila que não acaba.
  */
-const cursorDoLote = new Map<string, { marca: string; id: string }>();
+const cursorDoLote = new Map<string, { marca: string | null; id: string | null; tetoMarca: string; tetoId: string }>();
 export function reiniciarCursorOportunidades() { cursorDoLote.clear(); }
 
 export async function capturarOportunidadesPendentes(transacao: Transacao, ambiente: string, opcoes: { limite?: number; esperaSegundos?: number; varredura?: number } = {}) {
@@ -216,13 +219,21 @@ export async function capturarOportunidadesPendentes(transacao: Transacao, ambie
       const r = await transacao(async tx => {
         // r5 (P1): a candidata é escolhida SEM trava; a empresa é travada antes da conversa e a pendência vencida é
         // conferida de novo sob a trava da conversa (SKIP LOCKED: outra captura com ela = SEM_PENDENCIA, segue a próxima).
-        const cursor = cursorDoLote.get(ambiente) ?? null;
+        let ciclo = cursorDoLote.get(ambiente) ?? null;
+        if (!ciclo) {
+          const teto = (await tx.query<{ marca: string; id: string }>(`SELECT oportunidade_pendente_em::text AS marca, id::text FROM whatsapp_atendimento_conversas
+             WHERE oportunidade_pendente_em <= clock_timestamp() AND ambiente=$1 ORDER BY oportunidade_pendente_em DESC, id DESC LIMIT 1`, [ambiente])).rows[0];
+          if (!teto) return null;
+          ciclo = { marca: null, id: null, tetoMarca: teto.marca, tetoId: teto.id };
+          cursorDoLote.set(ambiente, ciclo);
+        }
         const candidata = (await tx.query<{ id: string; empresa_id: string; marca: string }>(`SELECT id::text, empresa_id::text, oportunidade_pendente_em::text AS marca
            FROM whatsapp_atendimento_conversas WHERE oportunidade_pendente_em <= clock_timestamp() AND ambiente=$1
            AND NOT (id = ANY($2::uuid[])) AND ($3::timestamptz IS NULL OR (oportunidade_pendente_em, id) > ($3::timestamptz, $4::uuid))
-           ORDER BY oportunidade_pendente_em, id LIMIT 1`, [ambiente, vistas, cursor?.marca ?? null, cursor?.id ?? null])).rows[0];
-        if (!candidata) { vez.fimDaFila = cursor !== null; return null; }
-        cursorDoLote.set(ambiente, { marca: candidata.marca, id: candidata.id });
+           AND (oportunidade_pendente_em, id) <= ($5::timestamptz, $6::uuid)
+           ORDER BY oportunidade_pendente_em, id LIMIT 1`, [ambiente, vistas, ciclo.marca, ciclo.id, ciclo.tetoMarca, ciclo.tetoId])).rows[0];
+        if (!candidata) { vez.fimDaFila = true; return null; }
+        cursorDoLote.set(ambiente, { ...ciclo, marca: candidata.marca, id: candidata.id });
         vez.id = candidata.id;
         vez.empresaId = candidata.empresa_id;
         await travarEmpresa(tx, candidata.empresa_id);
@@ -234,7 +245,8 @@ export async function capturarOportunidadesPendentes(transacao: Transacao, ambie
         return capturarOportunidade(tx, candidata.id, { empresaId: candidata.empresa_id, ambiente });
       });
       if (r === null) {
-        // Fim da fila depois do cursor: volta ao início uma vez por lote (as já vistas neste lote seguem de fora).
+        // Fim do ciclo (nada entre o cursor e o teto): volta ao início com teto novo, uma vez por lote (as já vistas
+        // neste lote seguem de fora). Fila vazia (sem teto) para direto.
         if (vez.fimDaFila && !voltouAoInicio) { voltouAoInicio = true; cursorDoLote.delete(ambiente); continue; }
         break;
       }
@@ -295,7 +307,7 @@ export async function anonimizarOportunidadesDaConversa(tx: DbExecutor, empresa:
   // texto livre na atribuição, atribuição que liga o cartão a outro alvo (ex.: CLIENTE) ou evento no histórico do cliente.
   const vinculos = (await tx.query<{ contato_id: string; convertido: boolean; residuo: boolean }>(`SELECT o.contato_id::text, k.fechamento_id IS NOT NULL AS convertido,
        (EXISTS (SELECT 1 FROM marketing_atribuicoes a WHERE a.empresa_id=k.empresa_id AND (a.contato_id=k.id OR (a.alvo_tipo='CONTATO' AND a.alvo_id=k.id))
-          AND (a.detalhe IS NOT NULL OR a.motivo IS NOT NULL OR a.alvo_tipo<>'CONTATO'))
+          AND (a.detalhe IS NOT NULL OR a.motivo IS NOT NULL OR COALESCE(a.utm,'{}'::jsonb)<>'{}'::jsonb OR a.alvo_tipo<>'CONTATO'))
         OR EXISTS (SELECT 1 FROM eventos_historico_cliente h JOIN clientes cl ON cl.id=h.cliente_id AND cl.empresa_id=k.empresa_id
           WHERE h.entidade_tipo='MARKETING_CONTATO' AND h.entidade_id=k.id)) AS residuo
      FROM whatsapp_atendimento_oportunidades o JOIN marketing_contatos k ON k.id=o.contato_id AND k.empresa_id=o.empresa_id

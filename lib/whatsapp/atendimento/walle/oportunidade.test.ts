@@ -175,13 +175,28 @@ test('r7: guarda de ambiente nas escritas, atribuições cortadas no anonimizado
   assert.ok(conv.includes("if (v?.outro) naoEncontrado('Contato não encontrado nesta empresa.');"), 'outro ambiente = 404');
   assert.equal(conv.includes('exigirContatoNaoAnonimizado'), false, 'guarda única');
   const contatos = readFileSync('lib/marketing/contatos.ts', 'utf8');
-  assert.ok(contatos.includes('const atribuicoes = base.anonimizado && !revisar ? historico.map((a) => ({ ...a, motivo: null, detalhe: null, utm: {} })) : historico;'), 'atribuições sem texto livre fora da Gestão');
+  assert.ok(contatos.includes('const atribuicoes = base.anonimizado && !revisar ? historico.map((a) => ({ ...a, motivo: null, detalhe: null, utm: {}, campanhaId: null, campanhaNome: null })) : historico;'), 'atribuições sem texto livre fora da Gestão');
   const op = readFileSync('lib/whatsapp/atendimento/walle/oportunidade.ts', 'utf8');
   assert.ok(op.includes('AND ($3::timestamptz IS NULL OR (oportunidade_pendente_em, id) > ($3::timestamptz, $4::uuid))'), 'lote começa depois do cursor');
-  assert.ok(op.includes('cursorDoLote.set(ambiente, { marca: candidata.marca, id: candidata.id });'), 'cursor avança');
+  assert.ok(op.includes('cursorDoLote.set(ambiente, { ...ciclo, marca: candidata.marca, id: candidata.id });'), 'cursor avança');
   assert.ok(op.includes('if (vez.fimDaFila && !voltouAoInicio) { voltouAoInicio = true; cursorDoLote.delete(ambiente); continue; }'), 'volta ao início uma vez');
   assert.ok(op.includes('WHERE id=$1 AND oportunidade_pendente_em=$3::timestamptz AND empresa_id=$4 AND ambiente=$5 RETURNING id'), 'adiamento no escopo revalidado');
   assert.ok(op.includes('[vez.id, espera, vez.marca, vez.empresaId, ambiente]'));
+});
+
+test('r8: campanha cortada no anonimizado, UTM conta como resíduo e o ciclo do lote tem teto', () => {
+  const contatos = readFileSync('lib/marketing/contatos.ts', 'utf8');
+  assert.ok(contatos.includes('const cortarCampanha = l.anonimizado === true && filtros.revisarPrivacidade !== true;'), 'campanha cortada fora da Gestão em revisão');
+  assert.ok(contatos.includes('campanhaId: cortarCampanha ? null : l.campanha_id, campanhaNome: cortarCampanha ? null : l.campanha_nome,'));
+  assert.ok(contatos.includes('AND ($6::uuid IS NULL OR (a.campanha_id = $6::uuid AND NOT ${anonimizado}))'), 'filtro por campanha não devolve o anonimizado');
+  assert.ok(contatos.includes("OR COALESCE(a.utm, '{}'::jsonb) <> '{}'::jsonb OR a.alvo_tipo <> 'CONTATO')"), 'UTM no registro para revisar');
+  // A rota da lista nunca pede a visão da Gestão.
+  assert.equal(readFileSync('app/api/admin/marketing/contatos/route.ts', 'utf8').includes('revisarPrivacidade: true'), false);
+  const op = readFileSync('lib/whatsapp/atendimento/walle/oportunidade.ts', 'utf8');
+  assert.ok(op.includes("OR COALESCE(a.utm,'{}'::jsonb)<>'{}'::jsonb OR a.alvo_tipo<>'CONTATO'))"), 'UTM é resíduo');
+  assert.ok(op.includes('AND (oportunidade_pendente_em, id) <= ($5::timestamptz, $6::uuid)'), 'candidata até o teto do ciclo');
+  assert.ok(op.includes('[ambiente, vistas, ciclo.marca, ciclo.id, ciclo.tetoMarca, ciclo.tetoId]'));
+  assert.ok(op.includes('if (!candidata) { vez.fimDaFila = true; return null; }'), 'passou do teto = fim do ciclo');
 });
 
 test('worker marca no MESMO UPDATE da memória (r2: atômico) e captura ao fim do lote; exclusão a pedido do titular anonimiza', () => {

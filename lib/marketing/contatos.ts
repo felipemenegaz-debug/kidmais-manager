@@ -184,15 +184,19 @@ const sqlListaContatos = (corte: string, anonimizado = 'false') => `SELECT k.id:
         AND ($3::date IS NULL OR k.recebido_em < (($3::date + 1)::timestamp AT TIME ZONE 'America/Sao_Paulo'))
         AND ($4::text IS NULL OR k.status = $4)
         AND ($5::uuid IS NULL OR k.estabelecimento_id = $5::uuid)
-        AND ($6::uuid IS NULL OR a.campanha_id = $6::uuid)
+        AND ($6::uuid IS NULL OR (a.campanha_id = $6::uuid AND NOT ${anonimizado}))
         AND ($8::uuid IS NULL OR k.id = $8::uuid)${corte}
       ORDER BY k.recebido_em DESC, k.id
       LIMIT $7`;
 export async function listarContatos(
   tx: DbExecutor, empresaId: string,
-  filtros: { id?: string | null; de?: string | null; ate?: string | null; status?: StatusContato | null; unidadeId?: string | null; campanhaId?: string | null; limite?: number },
+  filtros: { id?: string | null; de?: string | null; ate?: string | null; status?: StatusContato | null; unidadeId?: string | null; campanhaId?: string | null; limite?: number;
+    /** Só o detalhe da Gestão em revisão (sessão no servidor); a rota da lista nunca passa. */ revisarPrivacidade?: boolean },
   ambiente: string | null = ambienteDoDeploy(),
 ): Promise<ContatoLista[]> {
+  // r8 (P1): no cartão anonimizado, o nome da campanha é texto livre da equipe e pode citar o titular ("Indicação de
+  // Marta — festa do Rui"): sai da lista e do detalhe com o id (que levaria ao nome), e o filtro por campanha não devolve
+  // o anonimizado. Só a Gestão em revisão (detalhe) recebe os dois.
   const com132 = !!(await tx.query<{ ok: boolean }>("SELECT to_regclass('public.whatsapp_atendimento_oportunidades') IS NOT NULL AS ok")).rows[0]?.ok;
   const r = await tx.query<{
     id: string; nome: string; telefone: string | null; email: string | null; canal_atendimento: CanalAtendimento; status: StatusContato; recebido_em: string;
@@ -204,12 +208,16 @@ export async function listarContatos(
     [empresaId, filtros.de ?? null, filtros.ate ?? null, filtros.status ?? null, filtros.unidadeId ?? null, filtros.campanhaId ?? null,
       Math.min(Math.max(filtros.limite ?? 200, 1), 500), filtros.id ?? null, ...(com132 ? [ambiente] : [])],
   );
-  return r.rows.map((l) => ({
-    id: l.id, nome: l.nome, telefone: l.telefone, email: l.email, canal: l.canal_atendimento, status: l.status, recebidoEm: l.recebido_em,
-    dataDesejada: l.data_desejada, convidados: l.convidados, clienteId: l.cliente_id, clienteNome: l.cliente_nome, vinculoCliente: l.vinculo_cliente,
-    fechamentoId: l.fechamento_id, origemCodigo: l.origem_codigo, metodo: l.metodo, campanhaId: l.campanha_id, campanhaNome: l.campanha_nome,
-    unidadeId: l.estabelecimento_id, anonimizado: l.anonimizado === true,
-  }));
+  return r.rows.map((l) => {
+    const cortarCampanha = l.anonimizado === true && filtros.revisarPrivacidade !== true;
+    return {
+      id: l.id, nome: l.nome, telefone: l.telefone, email: l.email, canal: l.canal_atendimento, status: l.status, recebidoEm: l.recebido_em,
+      dataDesejada: l.data_desejada, convidados: l.convidados, clienteId: l.cliente_id, clienteNome: l.cliente_nome, vinculoCliente: l.vinculo_cliente,
+      fechamentoId: l.fechamento_id, origemCodigo: l.origem_codigo, metodo: l.metodo,
+      campanhaId: cortarCampanha ? null : l.campanha_id, campanhaNome: cortarCampanha ? null : l.campanha_nome,
+      unidadeId: l.estabelecimento_id, anonimizado: l.anonimizado === true,
+    };
+  });
 }
 
 /** Registro da equipe que a anonimização não apaga (atribuição append-only, histórico do cliente) e que pode citar o titular. */
@@ -234,10 +242,10 @@ async function registrosParaRevisar(tx: DbExecutor, empresaId: string, contatoId
   const r = await tx.query<RegistroParaRevisar>(
     `SELECT 'ATRIBUICAO' AS tipo, a.id::text AS id, a.registrado_em::text AS quando,
             'Origem ' || a.origem_codigo || CASE a.alvo_tipo WHEN 'CONTATO' THEN ' deste contato' WHEN 'CLIENTE' THEN ' do cliente' WHEN 'FECHAMENTO' THEN ' da negociação' ELSE ' de outro registro' END AS rotulo,
-            NULLIF(concat_ws(' · ', a.detalhe, a.motivo), '') AS texto, u.nome AS por
+            NULLIF(concat_ws(' · ', a.detalhe, a.motivo, 'UTM ' || NULLIF(COALESCE(a.utm, '{}'::jsonb), '{}'::jsonb)::text), '') AS texto, u.nome AS por
        FROM marketing_atribuicoes a LEFT JOIN usuarios_administrativos u ON u.id = a.registrado_por
       WHERE a.empresa_id = $1::uuid AND (a.contato_id = $2::uuid OR (a.alvo_tipo = 'CONTATO' AND a.alvo_id = $2::uuid))
-        AND (a.detalhe IS NOT NULL OR a.motivo IS NOT NULL OR a.alvo_tipo <> 'CONTATO')
+        AND (a.detalhe IS NOT NULL OR a.motivo IS NOT NULL OR COALESCE(a.utm, '{}'::jsonb) <> '{}'::jsonb OR a.alvo_tipo <> 'CONTATO')
      UNION ALL
      SELECT 'HISTORICO', h.id::text, h.criado_em::text, 'Histórico do cliente: ' || h.tipo_evento, h.detalhe, u.nome
        FROM eventos_historico_cliente h JOIN clientes cl ON cl.id = h.cliente_id AND cl.empresa_id = $1::uuid
@@ -253,15 +261,16 @@ async function registrosParaRevisar(tx: DbExecutor, empresaId: string, contatoId
  * r6 (P1-3): `revisarPrivacidade` vem da sessão no servidor (papel da Gestão, o mesmo que revisa a Privacidade do
  * atendimento); quem só vê Marketing recebe a lista vazia. Padrão fechado: sem a opção, nada.
  * r7 (P1-A): o mesmo corte vale para o histórico de atribuições do cartão anonimizado: sem a opção, cada atribuição sai
- * sem os textos livres da equipe (motivo, detalhe e UTM); ficam origem, canal, campanha e datas, que não identificam.
+ * sem os textos livres da equipe (motivo, detalhe e UTM); ficam origem, canal, método e datas, que não identificam.
+ * r8 (P1): também sem a campanha (id e nome), no cartão e em cada atribuição; a Gestão em revisão recebe tudo.
  */
 export async function detalheContato(tx: DbExecutor, empresaId: string, contatoId: string, opcoes: { revisarPrivacidade?: boolean } = {}): Promise<DetalheContato> {
-  const base = (await listarContatosPorId(tx, empresaId, contatoId));
+  const base = (await listarContatosPorId(tx, empresaId, contatoId, opcoes.revisarPrivacidade === true));
   if (!base) naoEncontrado("Contato não encontrado nesta empresa.");
   const mensagem = await tx.query<{ mensagem: string | null }>(`SELECT mensagem FROM marketing_contatos WHERE id = $1::uuid AND empresa_id = $2::uuid`, [contatoId, empresaId]);
   const revisar = base.anonimizado && opcoes.revisarPrivacidade === true;
   const historico = await historicoAtribuicao(tx, empresaId, "CONTATO", contatoId);
-  const atribuicoes = base.anonimizado && !revisar ? historico.map((a) => ({ ...a, motivo: null, detalhe: null, utm: {} })) : historico;
+  const atribuicoes = base.anonimizado && !revisar ? historico.map((a) => ({ ...a, motivo: null, detalhe: null, utm: {}, campanhaId: null, campanhaNome: null })) : historico;
   const origemCliente = base.clienteId ? await atribuicaoVigente(tx, empresaId, "CLIENTE", base.clienteId) : null;
   const fechamentos = base.clienteId ? (await tx.query<{ id: string; data_evento: string; status: string; origem_definida: boolean; outro: boolean }>(
     `SELECT f.id::text, f.data_evento::text, f.status,
@@ -278,8 +287,8 @@ export async function detalheContato(tx: DbExecutor, empresaId: string, contatoI
   };
 }
 
-async function listarContatosPorId(tx: DbExecutor, empresaId: string, contatoId: string) {
-  return (await listarContatos(tx, empresaId, { id: contatoId, limite: 1 }))[0] ?? null;
+async function listarContatosPorId(tx: DbExecutor, empresaId: string, contatoId: string, revisarPrivacidade = false) {
+  return (await listarContatos(tx, empresaId, { id: contatoId, limite: 1, revisarPrivacidade }))[0] ?? null;
 }
 
 export const esquemaAcaoContato = z.discriminatedUnion("acao", [
