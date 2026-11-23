@@ -83,7 +83,7 @@ class AgendaPublicaIndisponivel extends Error {
   }
 }
 
-export default function DisponibilidadePublica({ empresa = null }: { empresa?: string | null } = {}) {
+export default function DisponibilidadePublica({ empresa = null, base }: { empresa?: string | null; base?: string | null } = {}) {
   const marca = useMarcaPublica();
   const router = useRouter();
   const agora = new Date();
@@ -236,11 +236,11 @@ export default function DisponibilidadePublica({ empresa = null }: { empresa?: s
       const temSaloes = await fetch(apiPublica(`/api/publico/saloes?${consulta}`, empresa), { cache: "no-store" })
         .then((r) => r.ok).catch(() => false);
       if (temSaloes) {
-        router.push(`${paginaPublica("/saloes", empresa)}?${params.toString()}`);
+        router.push(`${paginaPublica("/saloes", empresa, base)}?${params.toString()}`);
         return;
       }
     }
-    router.push(`${paginaPublica("/orcamento", empresa)}?${params.toString()}`);
+    router.push(`${paginaPublica("/orcamento", empresa, base)}?${params.toString()}`);
   }
 
   return (

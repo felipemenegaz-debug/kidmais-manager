@@ -1,7 +1,8 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
-import { enderecoPublicoAbsoluto, paginaInicialPublica, paginaPublica } from "./rota-publica.ts";
+import ts from "typescript";
+import { apiPublica, enderecoPublicoAbsoluto, paginaInicialPublica, paginaPublica } from "./rota-publica.ts";
 
 test("D1: /orcamento no endereço do buffet; sem empresa o endereço atual continua /fechamento", () => {
   assert.equal(paginaPublica("/orcamento", "mundo-encantado"), "/b/mundo-encantado/orcamento");
@@ -27,6 +28,15 @@ test("D1: endereço absoluto só com origem segura e sem caminho e com código n
     assert.equal(enderecoPublicoAbsoluto(ruim, "mundo-encantado"), null, String(ruim));
 });
 
+test("a base conserva o fluxo global de APIs e coloca as páginas sob o código legado", () => {
+  assert.equal(paginaPublica("/disponibilidade", null, "kidmais"), "/b/kidmais/disponibilidade");
+  assert.equal(paginaPublica("/orcamento", null, "kidmais"), "/b/kidmais/fechamento");
+  assert.equal(paginaPublica("/fechamento", null, "kidmais"), "/b/kidmais/fechamento");
+  assert.equal(paginaPublica("/orcamento", "outro-buffet", null), "/b/outro-buffet/orcamento");
+  assert.equal(apiPublica("/api/disponibilidade?data=2026-12-01", null), "/api/disponibilidade?data=2026-12-01");
+  assert.equal(apiPublica("/api/disponibilidade?data=2026-12-01", "outro-buffet"), "/api/disponibilidade?data=2026-12-01&empresa=outro-buffet");
+});
+
 test("D1 r2: o formato do código no helper é o mesmo de CODIGO_EMPRESA_PUBLICA (migration 031)", async () => {
   const { CODIGO_EMPRESA_PUBLICA } = await import("../http/empresas-publicas.ts");
   const fonte = readFileSync("lib/fechamentos/rota-publica.ts", "utf8");
@@ -45,7 +55,7 @@ test("D1: páginas /b/<código> e /b/<código>/orcamento passam pela mesma guard
     const fonte = readFileSync(arquivo, "utf8");
     assert.match(fonte, /await exigirEmpresaPublica\(params\)/, arquivo);
     assert.match(fonte, /contato=\{empresa\.contato\}/, arquivo);
-    assert.match(fonte, /metadata = metadataEmpresaPublica/, arquivo);
+    assert.match(fonte, /gerarMetadataEmpresaPublica as generateMetadata/, arquivo);
   }
   const inicial = readFileSync("app/b/[empresa]/page.tsx", "utf8");
   assert.match(inicial, /paginaPublica\("\/disponibilidade", empresa\.codigo\)/, "o orçamento começa pela consulta de datas");
@@ -56,6 +66,34 @@ test("D1: a navegação do cliente no endereço do buffet segue para /orcamento"
   for (const arquivo of ["components/disponibilidade/DisponibilidadePublica.tsx", "components/saloes/ConhecaSaloes.tsx"]) {
     const fonte = readFileSync(arquivo, "utf8");
     assert.doesNotMatch(fonte, /paginaPublica\("\/fechamento"/, arquivo);
-    assert.match(fonte, /paginaPublica\("\/orcamento", empresa\)/, arquivo);
+    const base = arquivo.includes("DisponibilidadePublica") ? ", base" : "";
+    assert.ok(fonte.includes(`paginaPublica("/orcamento", empresa${base})`), arquivo);
   }
+});
+
+test("as telas usam a base nas páginas e só empresa nas APIs, inclusive quando empresa é omitida", () => {
+  for (const arquivo of ["components/disponibilidade/DisponibilidadePublica.tsx", "components/fechamento/FechamentoWizard.tsx"]) {
+    const fonte = readFileSync(arquivo, "utf8");
+    assert.match(fonte, /export default function \w+\(\{ empresa = null,/);
+    assert.doesNotMatch(fonte, /[?&]empresa=/, arquivo);
+    const ast = ts.createSourceFile(arquivo, fonte, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
+    const chamadas = { apiPublica: 0, paginaPublica: 0 };
+    function visitar(no: ts.Node) {
+      if (ts.isCallExpression(no) && ts.isIdentifier(no.expression)) {
+        const nome = no.expression.text;
+        if (nome === "apiPublica" || nome === "paginaPublica") {
+          const argumentosDeEscopo = no.arguments.slice(1).map(arg => arg.getText(ast));
+          assert.deepEqual(argumentosDeEscopo, nome === "apiPublica" ? ["empresa"] : ["empresa", "base"], arquivo);
+          chamadas[nome]++;
+        }
+      }
+      ts.forEachChild(no, visitar);
+    }
+    visitar(ast);
+    assert.ok(chamadas.apiPublica > 0 && chamadas.paginaPublica > 0, arquivo);
+  }
+  const disponibilidade = readFileSync("components/disponibilidade/DisponibilidadePublica.tsx", "utf8");
+  assert.match(disponibilidade, /if \(empresa && convidados\) \{[\s\S]*?fetch\(apiPublica\(`\/api\/publico\/saloes/);
+  const fechamento = readFileSync("components/fechamento/FechamentoWizard.tsx", "utf8");
+  assert.match(fechamento, /base == null && empresa \? `\/b\/\$\{encodeURIComponent\(empresa\)\}\/meu-pedido` : "\/meu-pedido"/);
 });
