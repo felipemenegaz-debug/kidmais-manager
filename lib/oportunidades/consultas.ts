@@ -3,17 +3,28 @@ import { SQL_ORIGEM_NEGOCIACAO } from '../marketing/atribuicao.ts';
 import { etapaDoEstado, type Oportunidade } from './modelo.ts';
 import { exigirSchema } from './service.ts';
 
-const BASE = `WITH alvos AS (
+/**
+ * Wall-e 1a (132): cartão criado pela conversa do WhatsApp leva a origem e a conversa; anonimizado a pedido do titular sai
+ * das colunas (continua contado nos relatórios por recebido_em). Sem a 132, o funil segue como antes.
+ */
+const WALLE_132 = {
+  colunas: ',k.canal_atendimento AS canal,o.contato_id IS NOT NULL AS walle,o.conversa_id',
+  juncao: ' LEFT JOIN whatsapp_atendimento_oportunidades o ON o.contato_id=k.id AND o.empresa_id=k.empresa_id',
+  filtro: ' AND o.anonimizado_em IS NULL',
+};
+const SEM_132 = { colunas: ',k.canal_atendimento AS canal,false AS walle,NULL::uuid AS conversa_id', juncao: '', filtro: '' };
+const base = (w: typeof WALLE_132) => `WITH alvos AS (
  SELECT k.id,k.empresa_id,'CONTATO'::text AS tipo,k.nome,k.cliente_id,k.status,NULL::numeric AS valor,k.data_desejada AS data_evento,
- k.responsavel_id,k.recebido_em AS criada_em FROM marketing_contatos k WHERE k.empresa_id=$1::uuid AND k.status IN ('NOVO','EM_ATENDIMENTO')
- AND k.fechamento_id IS NULL
+ k.responsavel_id,k.recebido_em AS criada_em${w.colunas} FROM marketing_contatos k${w.juncao} WHERE k.empresa_id=$1::uuid AND k.status IN ('NOVO','EM_ATENDIMENTO')
+ AND k.fechamento_id IS NULL${w.filtro}
  UNION ALL
  SELECT f.id,f.empresa_id,'FECHAMENTO',coalesce(c.nome_completo,'Cliente não vinculado'),f.cliente_id,f.status,
- coalesce(f.valor_aprovado,f.valor_negociado,f.valor_tabela),f.data_evento,f.usuario_responsavel_id,f.iniciado_em
+ coalesce(f.valor_aprovado,f.valor_negociado,f.valor_tabela),f.data_evento,f.usuario_responsavel_id,f.iniciado_em,NULL::text,false,NULL::uuid
  FROM fechamentos f LEFT JOIN clientes c ON c.empresa_id=f.empresa_id AND c.id=f.cliente_id WHERE f.empresa_id=$1::uuid
  AND f.status IN ('RASCUNHO','AGUARDANDO_APROVACAO','APROVADO','AGUARDANDO_CONTRATO','CONTRATO_ASSINADO','AGUARDANDO_PAGAMENTO')
 )
  SELECT a.id::text,a.tipo,a.nome,a.cliente_id::text AS "clienteId",a.status,a.valor::text,a.data_evento::text AS "dataEvento",
+ a.canal,a.walle AS "origemWalle",a.conversa_id::text AS "conversaId",
  (CASE WHEN a.tipo='FECHAMENTO' THEN a.responsavel_id ELSE coalesce(p.responsavel_id,a.responsavel_id) END)::text AS "responsavelId",
  CASE WHEN p.id IS NULL THEN NULL ELSE jsonb_build_object('id',p.id,'tipo',p.tipo,'data',p.data::text,'observacao',p.observacao,'responsavelId',CASE WHEN a.tipo='FECHAMENTO' THEN a.responsavel_id ELSE p.responsavel_id END) END AS proxima,
  clock_timestamp()-coalesce((SELECT max(x.encerrada_em) FROM oportunidades_acoes x WHERE x.empresa_id=a.empresa_id AND x.resultado='FEITA'
@@ -25,9 +36,11 @@ const BASE = `WITH alvos AS (
 
 export async function listarOportunidades(tx: DbExecutor,empresaId: string,responsavelId: string | null = null): Promise<Oportunidade[]> {
   await exigirSchema(tx);
-  const r = await tx.query<Omit<Oportunidade,'etapa'|'href'>>(BASE,[empresaId,responsavelId]);
+  const com132 = (await tx.query<{ ok: boolean }>("SELECT to_regclass('public.whatsapp_atendimento_oportunidades') IS NOT NULL AS ok")).rows[0]?.ok;
+  const r = await tx.query<Omit<Oportunidade,'etapa'|'href'>>(base(com132 ? WALLE_132 : SEM_132),[empresaId,responsavelId]);
+  // Cartão do Wall-e abre a conversa (a tela de atendimento confere o acesso); os demais seguem como antes.
   return r.rows.map(v=>({...v,etapa:etapaDoEstado(v.status,v.tipo==='CONTATO')!,href:v.tipo==='CONTATO'
-    ? (v.clienteId ? `/clientes/${v.clienteId}` : '/admin/marketing/origens') : `/admin/fechamentos/${v.id}/revisao`}));
+    ? (v.origemWalle && v.conversaId ? `/admin/atendimento?conversa=${encodeURIComponent(v.conversaId)}` : v.clienteId ? `/clientes/${v.clienteId}` : '/admin/marketing/origens') : `/admin/fechamentos/${v.id}/revisao`}));
 }
 export async function responsaveis(tx: DbExecutor,empresaId: string) {
   return (await tx.query<{id: string; nome: string}>(`SELECT u.id::text,u.nome FROM memberships m JOIN usuarios_administrativos u ON u.id=m.usuario_id

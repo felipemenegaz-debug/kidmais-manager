@@ -18,6 +18,7 @@ import * as reautenticacao from "../../perfil/reautenticacao.ts";
 import * as supressao from "../../satisfacao/supressao.ts";
 import * as preferencias from "../../marketing/automacoes/preferencias.ts";
 import * as entendimento from "./walle/entendimento.ts";
+import * as oportunidade from "./walle/oportunidade.ts";
 import * as contextoWallE from "./walle/contexto.ts";
 import * as fontesWallE from "./walle/fontes-postgres.ts";
 import * as linkWallE from "./walle/link-disponibilidade.ts";
@@ -125,10 +126,10 @@ export function carregarMultiempresa() {
   }).modulo as typeof import("./service.ts");
   const privacidade = carregarComponente("lib/whatsapp/atendimento/privacidade.ts", {
     "node:crypto": nodeCrypto, "../../db/postgres.ts": postgres, "../../saas/provar-tenant.ts": tenant, "../../perfil/reautenticacao.ts": reautenticacao,
-    "./configuracao.ts": configuracao, "./core.ts": core, "./arquivos.ts": arquivos,
+    "./configuracao.ts": configuracao, "./core.ts": core, "./arquivos.ts": arquivos, "./walle/oportunidade.ts": oportunidade,
   }).modulo as typeof import("./privacidade.ts");
   const worker = carregarComponente("lib/whatsapp/atendimento/worker.ts", {
-    "../../db/postgres.ts": postgres, "./configuracao.ts": configuracao, "./core.ts": core, "./service.ts": servico, "./transporte.ts": transporteSemRede, "./arquivos.ts": arquivos, "./multiempresa.ts": multiempresa,
+    "../../db/postgres.ts": postgres, "./configuracao.ts": configuracao, "./core.ts": core, "./service.ts": servico, "./transporte.ts": transporteSemRede, "./arquivos.ts": arquivos, "./multiempresa.ts": multiempresa, "./walle/oportunidade.ts": oportunidade,
   }).modulo as typeof import("./worker.ts");
   const meta = carregarComponente("lib/whatsapp/atendimento/meta.ts", {
     "../../db/postgres.ts": postgres, "../credencial.ts": credencial, "./configuracao.ts": configuracao, "./core.ts": core, "./service.ts": servico, "./transporte.ts": transporteSemRede, "./multiempresa.ts": multiempresa,

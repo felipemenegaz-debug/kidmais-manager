@@ -19,9 +19,16 @@ export type Mensagem = { id: string; conversa_id: string; empresa_id: string; am
  * piloto comprovada). Leva o número completo, o vínculo com o cadastro DA EMPRESA (sem escolher entre vários) e o nome
  * de perfil do WhatsApp, que NÃO é verificado. Nada disso vai ao modelo nem a logs.
  */
-export type ConversaLista = Conversa & { contato_final: string; responsavel_nome: string | null; nome_perfil: string | null; cadastro: CadastroContato };
+/** `funil` (Wall-e 1a, com a 132): a conversa tem cartão aberto do Wall-e em "Novo contato" nas Oportunidades. */
+export type ConversaLista = Conversa & { contato_final: string; responsavel_nome: string | null; nome_perfil: string | null; cadastro: CadastroContato; funil?: boolean };
 type LinhaConversa = Omit<ConversaLista, 'cadastro'> & { clientes: number; cliente_nome: string | null };
 
+/** Wall-e 1a: a 132 (vínculo da conversa com o cartão do funil) pode não estar aplicada; sem ela, nada muda na tela. */
+async function tem132(tx: DbExecutor) {
+  return !!(await tx.query<{ ok: boolean }>("SELECT to_regclass('public.whatsapp_atendimento_oportunidades') IS NOT NULL AS ok")).rows[0]?.ok;
+}
+const FUNIL_SQL = `EXISTS(SELECT 1 FROM whatsapp_atendimento_oportunidades o JOIN marketing_contatos k ON k.id=o.contato_id AND k.empresa_id=o.empresa_id
+        WHERE o.empresa_id=c.empresa_id AND o.ambiente=c.ambiente AND o.conversa_id=c.id AND o.anonimizado_em IS NULL AND k.fechamento_id IS NULL AND k.status IN ('NOVO','EM_ATENDIMENTO'))`;
 /**
  * A coluna nome_perfil chega com a migration 065; sem ela (ou depois do rollback), o atendimento segue sem o nome de
  * perfil. Consulta de catálogo a cada uso, sem cache: aplicar ou reverter a 065 não exige reiniciar a aplicação.
@@ -361,11 +368,12 @@ export async function listarAtendimento(sessao: SessaoParaTenant, conversaId?: s
   return acessoAtendimento(sessao, async (tx, empresa, papel) => {
     const ambiente = ambienteAtendimento();
     const nomePerfil = await temNomePerfil(tx);
+    const funil = await tem132(tx);
     // Nome do responsável só quando ele tem vínculo ativo com a mesma empresa (o mesmo critério do envio humano).
     // Cadastro: clientes DESTA empresa, não mesclados, com o número no telefone ou no WhatsApp, com e sem o 55 (mesma
     // regra de buscarClientesPorContatoExato + variantesTelefone). Com mais de um, só a quantidade: nenhum é escolhido.
     const conversas = (await tx.query<LinhaConversa>(`SELECT c.id,c.empresa_id,c.ambiente,c.contato,right(c.contato,4) AS contato_final,c.estado,c.responsavel_id,c.nao_contatar,c.versao,c.ultima_entrada_em,c.atualizada_em,c.interesse,u.nome AS responsavel_nome,
-        ${nomePerfil ? 'c.nome_perfil' : 'NULL::text'} AS nome_perfil,cad.clientes,cad.cliente_nome FROM whatsapp_atendimento_conversas c
+        ${nomePerfil ? 'c.nome_perfil' : 'NULL::text'} AS nome_perfil,${funil ? FUNIL_SQL : 'false'} AS funil,cad.clientes,cad.cliente_nome FROM whatsapp_atendimento_conversas c
       LEFT JOIN usuarios_administrativos u ON u.id=c.responsavel_id AND EXISTS(SELECT 1 FROM memberships m WHERE m.usuario_id=u.id AND m.empresa_id=c.empresa_id AND m.status='ATIVA')
       CROSS JOIN LATERAL (SELECT CASE WHEN c.contato LIKE '55%' AND length(c.contato) IN (12,13) THEN substr(c.contato,3) END AS sem55) v
       CROSS JOIN LATERAL (SELECT count(*)::int AS clientes, CASE WHEN count(*)=1 THEN max(cl.nome_completo) END AS cliente_nome FROM clientes cl

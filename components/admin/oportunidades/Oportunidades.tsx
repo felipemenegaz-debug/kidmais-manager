@@ -27,12 +27,12 @@ export default function Oportunidades() {
       <div className={styles.funil}>{ETAPAS.map(etapa=>{
         const itens=dados.itens.filter(i=>i.etapa===etapa),conhecidos=itens.filter(i=>i.valor!==null);
         return <section className={styles.coluna} key={etapa} aria-label={etapa}><header><h2>{etapa} <span>{itens.length}</span></h2><p>{moeda(conhecidos.reduce((s,i)=>s+Number(i.valor),0).toFixed(2))}{conhecidos.length<itens.length?' + valores a definir':''}</p></header>
-          {!itens.length&&<p className={styles.vazio}>Nenhuma oportunidade aqui.</p>}{itens.map(i=><article key={i.tipo+i.id} className={styles.cartao}><h3>{i.nome}</h3><p>{i.dataEvento?dia(i.dataEvento):'Data a combinar'}</p><strong>{moeda(i.valor)}</strong>
+          {!itens.length&&<p className={styles.vazio}>Nenhuma oportunidade aqui.</p>}{itens.map(i=><article key={i.tipo+i.id} className={styles.cartao}><h3>{i.nome}</h3>{i.canal==='WHATSAPP'&&<p className={styles.origem}>WhatsApp{i.origemWalle?' · nome não verificado':''}</p>}<p>{i.dataEvento?dia(i.dataEvento):'Data a combinar'}</p><strong>{moeda(i.valor)}</strong>
             <p>{dados.responsaveis.find(r=>r.id===i.responsavelId)?.nome??'Sem responsável'}</p>
             {i.proxima?<div className={styles.proxima}><strong>{i.proxima.tipo}</strong><p>{dia(i.proxima.data)}</p>{i.proxima.observacao&&<p>{i.proxima.observacao}</p>}</div>:<p className={styles.alerta}>Sem próxima ação</p>}
             {i.sugerirPerda&&<p className={styles.sugestao}>14 dias sem ação concluída. Sugestão: “Parou de responder”. Confirme antes de encerrar.</p>}
             {podeEditar&&<button disabled={!pronta} className={styles.secundario} onClick={()=>setJanela({item:i,feito:false})}>{i.proxima?'Ação ou perda':'Definir próxima ação'}</button>}
-            <Link href={i.href}>{i.tipo==='CONTATO'?(i.clienteId?'Ver cliente':'Ver contatos'):'Abrir negociação'}</Link>
+            <Link href={i.href}>{i.tipo==='CONTATO'?(i.origemWalle&&i.conversaId?'Ver conversa':i.clienteId?'Ver cliente':'Ver contatos'):'Abrir negociação'}</Link>
           </article>)}
         </section>;
       })}</div>
