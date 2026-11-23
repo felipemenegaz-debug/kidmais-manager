@@ -173,7 +173,7 @@ test('compatibilidade: código que usa objetos da 062 só o faz depois de detect
   assert.match(ler('lib/contratos/integracao-importados/repositorio.ts'), /to_regprocedure\('public\.kidmais062_ocupacoes_escopo\(date,date\)'\) IS NOT NULL AS ok/);
   // Fechamento grava a unidade só quando informada; o escopo só traz unidade com a 062 instalada.
   assert.match(ler('lib/fechamentos/repositories/fechamento.repository.ts'), /\$\{input\.estabelecimentoId \? ",estabelecimento_id" : ""\}/);
-  assert.match(ler('lib/disponibilidade/escopo.ts'), /if \(!\(await agendaPorEscopoInstalada\(db\)\)\) return \{ empresaId, estabelecimentoId: null \};/);
+  assert.match(ler('lib/disponibilidade/escopo.ts'), /if \(!\(await agendaPorEscopoInstalada\(db\)\)\) return \{ escopo: \{ empresaId, estabelecimentoId: null \}, porEscopo: false, unidades: \[\] \};/);
   for (const arquivo of usam) assert.match(ler(arquivo), /kidmais062_/);
 });
 

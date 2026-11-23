@@ -50,19 +50,33 @@ export async function escopoDaEmpresa(
   estabelecimentoId?: string | null,
   opcoes: { exigirUnidade?: boolean } = {},
 ): Promise<EscopoAgenda> {
-  if (!(await agendaPorEscopoInstalada(db))) return { empresaId, estabelecimentoId: null };
+  return (await escopoEUnidadesDaEmpresa(db, empresaId, estabelecimentoId, opcoes)).escopo;
+}
+
+/**
+ * O mesmo escopo de `escopoDaEmpresa`, junto do que foi lido para decidi-lo (062 instalada e unidades elegíveis), para
+ * a Agenda do painel não ler tudo de novo (Agenda lenta F2, 23/11/2026). Sem a 062: porEscopo false e nenhuma unidade.
+ */
+export async function escopoEUnidadesDaEmpresa(
+  db: DbExecutor,
+  empresaId: string,
+  estabelecimentoId?: string | null,
+  opcoes: { exigirUnidade?: boolean } = {},
+): Promise<{ escopo: EscopoAgenda; porEscopo: boolean; unidades: UnidadeAgenda[] }> {
+  if (!(await agendaPorEscopoInstalada(db))) return { escopo: { empresaId, estabelecimentoId: null }, porEscopo: false, unidades: [] };
   const unidades = await unidadesDaEmpresa(db, empresaId);
+  const com = (unidade: string | null) => ({ escopo: { empresaId, estabelecimentoId: unidade }, porEscopo: true, unidades });
   if (estabelecimentoId) {
     if (!unidades.some((u) => u.id === estabelecimentoId)) {
       throw new AvailabilityServiceError("UNIDADE_INVALIDA", "Escolha uma unidade ativa desta empresa.", 409);
     }
-    return { empresaId, estabelecimentoId };
+    return com(estabelecimentoId);
   }
-  if (unidades.length === 1) return { empresaId, estabelecimentoId: unidades[0].id };
+  if (unidades.length === 1) return com(unidades[0].id);
   if (unidades.length > 1 && opcoes.exigirUnidade) {
     throw new AvailabilityServiceError("UNIDADE_OBRIGATORIA", "Escolha a unidade da festa.", 409);
   }
-  return { empresaId, estabelecimentoId: null };
+  return com(null);
 }
 
 /** Escopo gravado na contratação (a remarcação herda a unidade). Sem a 062: global, como antes. */
