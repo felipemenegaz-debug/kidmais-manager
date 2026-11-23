@@ -227,27 +227,36 @@ export const RESUMO_ANONIMIZADO = 'Resumo removido: um contato deste resumo foi 
  *   cadastro do cliente não muda), observações das ações do funil apagadas, resumos diários guardados que o citam
  *   substituídos (e não enviados, se pendentes) e o vínculo solto da conversa (r3: conversa_id nulo, nada aponta mais
  *   para o número). Fica só como número na estatística (DELETE segue proibido pela 085).
- * - A atribuição de origem é append-only pela 085 (sem UPDATE nem DELETE): se a equipe escreveu texto livre nela
- *   (detalhe ou motivo), o cartão é anonimizado igual, mas contado em `revisar`, nunca em `anonimizados` (r3).
+ * - A atribuição de origem é append-only pela 085 (sem UPDATE nem DELETE) e o histórico do cliente não é apagado: se a
+ *   equipe escreveu texto livre na atribuição, ligou o cartão a outro alvo (ex.: CLIENTE) ou o histórico cita o cartão,
+ *   ele é anonimizado igual, mas vai em `revisar`/`revisarIds` (id interno para abrir nas Origens), nunca em `anonimizados` (r3/r4).
  * - Cartão com negociação (convertido de fato) fica intacto: Guarda dos clientes. Correspondência de telefone com um
  *   cliente NÃO é conversão. Sem a 132, nada a fazer.
  */
 export async function anonimizarOportunidadesDaConversa(tx: DbExecutor, empresa: string, ambiente: string, conversaId: string, contato: string) {
-  if (!(await tx.query<{ ok: boolean }>("SELECT to_regclass('public.whatsapp_atendimento_oportunidades') IS NOT NULL AS ok")).rows[0]?.ok) return { anonimizados: 0, preservados: 0, revisar: 0 };
+  if (!(await tx.query<{ ok: boolean }>("SELECT to_regclass('public.whatsapp_atendimento_oportunidades') IS NOT NULL AS ok")).rows[0]?.ok) return { anonimizados: 0, preservados: 0, revisar: 0, revisarIds: [] as string[] };
   const variantes = variantesDoTelefone(contato);
+  // r4 (P1-3): trava as conversas do número (a própria e as irmãs) na mesma ordem da captura (conversa → telefone → cartão).
+  // Uma marca ainda não confirmada numa irmã faz esta leitura esperar; o UPDATE seguinte, nova instrução, já a enxerga e limpa.
+  await tx.query(`SELECT id FROM whatsapp_atendimento_conversas WHERE empresa_id=$1 AND ambiente=$2 AND (id=$3 OR contato = ANY($4::text[]))
+    ORDER BY id FOR UPDATE`, [empresa, ambiente, conversaId, variantes]);
   await tx.query(`UPDATE whatsapp_atendimento_conversas SET oportunidade_pendente_em=NULL WHERE empresa_id=$1 AND ambiente=$2 AND (id=$3 OR contato = ANY($4::text[]))
     AND oportunidade_pendente_em IS NOT NULL`, [empresa, ambiente, conversaId, variantes]);
   if (/^[0-9]{10,15}$/.test(contato)) await travarTelefone(tx, empresa, contato);
-  const vinculos = (await tx.query<{ contato_id: string; convertido: boolean; texto_equipe: boolean }>(`SELECT o.contato_id::text, k.fechamento_id IS NOT NULL AS convertido,
-       EXISTS (SELECT 1 FROM marketing_atribuicoes a WHERE a.empresa_id=k.empresa_id AND (a.contato_id=k.id OR (a.alvo_tipo='CONTATO' AND a.alvo_id=k.id))
-         AND (a.detalhe IS NOT NULL OR a.motivo IS NOT NULL)) AS texto_equipe
+  // r4 (P1-2): a captura não grava atribuição nem histórico; o que houver foi a equipe e pode citar o titular:
+  // texto livre na atribuição, atribuição que liga o cartão a outro alvo (ex.: CLIENTE) ou evento no histórico do cliente.
+  const vinculos = (await tx.query<{ contato_id: string; convertido: boolean; residuo: boolean }>(`SELECT o.contato_id::text, k.fechamento_id IS NOT NULL AS convertido,
+       (EXISTS (SELECT 1 FROM marketing_atribuicoes a WHERE a.empresa_id=k.empresa_id AND (a.contato_id=k.id OR (a.alvo_tipo='CONTATO' AND a.alvo_id=k.id))
+          AND (a.detalhe IS NOT NULL OR a.motivo IS NOT NULL OR a.alvo_tipo<>'CONTATO'))
+        OR EXISTS (SELECT 1 FROM eventos_historico_cliente h WHERE h.entidade_tipo='MARKETING_CONTATO' AND h.entidade_id=k.id)) AS residuo
      FROM whatsapp_atendimento_oportunidades o JOIN marketing_contatos k ON k.id=o.contato_id AND k.empresa_id=o.empresa_id
      WHERE o.empresa_id=$1 AND o.ambiente=$2 AND o.anonimizado_em IS NULL AND (o.conversa_id=$3 OR k.telefone = ANY($4::text[]))
      ORDER BY o.contato_id FOR UPDATE OF o, k`, [empresa, ambiente, conversaId, variantes])).rows;
   // perda_observacao e as ações chegam com a 122; sem ela, o resto da anonimização vale igual.
   const comPerda = (await tx.query<{ ok: boolean }>("SELECT EXISTS(SELECT 1 FROM pg_attribute WHERE attrelid=to_regclass('public.marketing_contatos') AND attname='perda_observacao' AND NOT attisdropped) AS ok")).rows[0]?.ok;
   const comAcoes = (await tx.query<{ ok: boolean }>("SELECT to_regclass('public.oportunidades_acoes') IS NOT NULL AND to_regclass('public.oportunidades_resumos') IS NOT NULL AS ok")).rows[0]?.ok;
-  let anonimizados = 0, revisar = 0;
+  let anonimizados = 0;
+  const revisarIds: string[] = [];
   for (const v of vinculos) {
     if (v.convertido) continue;
     await tx.query(comPerda
@@ -262,7 +271,7 @@ export async function anonimizarOportunidadesDaConversa(tx: DbExecutor, empresa:
           estado=CASE WHEN estado='PENDENTE' THEN 'OBSOLETO' ELSE estado END WHERE empresa_id=$1 AND mensagem->'acoes' ?| $2::text[]`, [empresa, acoes, RESUMO_ANONIMIZADO]);
     }
     await tx.query('UPDATE whatsapp_atendimento_oportunidades SET anonimizado_em=clock_timestamp(),conversa_id=NULL WHERE contato_id=$1', [v.contato_id]);
-    if (v.texto_equipe) revisar++; else anonimizados++;
+    if (v.residuo) revisarIds.push(v.contato_id); else anonimizados++;
   }
-  return { anonimizados, preservados: vinculos.length - anonimizados - revisar, revisar };
+  return { anonimizados, preservados: vinculos.length - anonimizados - revisarIds.length, revisar: revisarIds.length, revisarIds };
 }

@@ -18,6 +18,11 @@ BEGIN
   IF to_regclass('public.whatsapp_atendimento_oportunidades') IS NULL THEN
     RAISE EXCEPTION '132 down: a 132 não está aplicada';
   END IF;
+  -- r4 (P1-1): a captura trava a conversa (FOR UPDATE) antes de gravar o vínculo. Travando as conversas e depois o vínculo,
+  -- na mesma ordem, uma captura em curso termina antes desta checagem (e o vínculo dela a faz recusar) e nenhuma nova
+  -- começa até o fim. ACCESS EXCLUSIVE já nas conversas evita subir de trava no DROP COLUMN. Sem trava em 5 s: aborta.
+  LOCK TABLE whatsapp_atendimento_conversas IN ACCESS EXCLUSIVE MODE;
+  LOCK TABLE whatsapp_atendimento_oportunidades IN ACCESS EXCLUSIVE MODE;
   IF EXISTS (SELECT 1 FROM whatsapp_atendimento_oportunidades) THEN
     RAISE EXCEPTION '132 down: já há vínculo do Wall-e gravado; rollback recusado (correção para frente); nada foi alterado';
   END IF;

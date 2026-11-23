@@ -34,7 +34,7 @@ function banco(opcoes: { clientesPorTelefone?: unknown[] } = {}) {
         if (chaves.has(chave)) return { rows: [], rowCount: 0 };
         const id = `c0000000-0000-4000-8000-00000000000${++seq}`; chaves.set(chave, id); return { rows: [{ id }], rowCount: 1 };
       }
-      if (/SELECT id::text FROM marketing_contatos WHERE empresa_id/.test(sql)) { const id = chaves.get(`${p[0]}:${p[1]}`); return id ? { rows: [{ id }], rowCount: 1 } : { rows: [], rowCount: 0 }; }
+      if (/SELECT id::text FROM marketing_contatos WHERE empresa_id/.test(sql)) return { rows: [{ id: chaves.get(`${p[0]}:${p[1]}`) }], rowCount: 1 };
       if (/FROM marketing_campanhas WHERE empresa_id = \$1::uuid AND codigo = \$2/.test(sql)) {
         return p[0] === EMPRESA_A && p[1] === 'nov-centro'
           ? { rows: [{ id: CAMPANHA_A, codigo: 'nov-centro', nome: 'Nov', canal: 'INSTAGRAM', origem_codigo: 'INSTAGRAM', objetivo: null, inicio: '2026-10-01', fim: null, orcamento_centavos: null,

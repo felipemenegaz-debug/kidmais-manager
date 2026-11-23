@@ -97,12 +97,20 @@ test('o módulo só depende de tipos e node:crypto (as provas em PG o montam den
   assert.ok(anon.includes('anonimizado_em=clock_timestamp(),conversa_id=NULL'), 'vínculo solto da conversa');
 });
 
-test('r3: site e registro manual procuram o cartão do Wall-e já sob a trava do telefone; Origens corta por ambiente', () => {
+test('r4: reuso do site/manual recortado; Origens corta por ambiente; travas do down e das conversas irmãs; revisar com id', () => {
   const fonte = readFileSync('lib/marketing/contatos.ts', 'utf8');
-  const chamadas = [...fonte.matchAll(/await cartaoWalleAberto\(/g)].map(m => m.index!);
-  assert.equal(chamadas.length, 2);
-  for (const i of chamadas) assert.ok(fonte.lastIndexOf('await travarTelefoneNoFunil(', i) > fonte.lastIndexOf('\n}', i), 'trava antes da busca do cartão');
+  assert.equal(fonte.includes('cartaoWalleAberto'), false, 'sem reuso do cartão do Wall-e pelo site ou registro manual');
   assert.ok(fonte.includes("com132 ? sqlListaContatos(CORTE_AMBIENTE_WALLE) : sqlListaContatos('')"), 'lista por ambiente');
+  const op = readFileSync('lib/whatsapp/atendimento/walle/oportunidade.ts', 'utf8');
+  const anon = op.slice(op.indexOf('export async function anonimizarOportunidadesDaConversa('));
+  const trava = anon.indexOf('ORDER BY id FOR UPDATE');
+  assert.ok(trava > 0 && trava < anon.indexOf('SET oportunidade_pendente_em=NULL'), 'conversas do número travadas antes de descartar a marca');
+  for (const criterio of ["a.alvo_tipo<>'CONTATO'", "h.entidade_tipo='MARKETING_CONTATO' AND h.entidade_id=k.id", 'revisarIds.push(v.contato_id)'])
+    assert.ok(anon.includes(criterio), criterio);
+  const down = readFileSync('database/rollback/20261123_132_walle_oportunidades_down.sql', 'utf8');
+  const conversas = down.indexOf('LOCK TABLE whatsapp_atendimento_conversas IN ACCESS EXCLUSIVE MODE');
+  const vinculos = down.indexOf('LOCK TABLE whatsapp_atendimento_oportunidades IN ACCESS EXCLUSIVE MODE');
+  assert.ok(conversas > 0 && conversas < vinculos && vinculos < down.indexOf('IF EXISTS (SELECT 1 FROM whatsapp_atendimento_oportunidades)'), 'down trava conversa → vínculo antes de checar');
 });
 
 test('worker marca no MESMO UPDATE da memória (r2: atômico) e captura ao fim do lote; exclusão a pedido do titular anonimiza', () => {

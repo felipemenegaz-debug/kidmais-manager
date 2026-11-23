@@ -34,6 +34,12 @@ export default function MarketingOrigens() {
   const consulta = new URLSearchParams({ ...(status ? { status } : {}), ...(campanhaId ? { campanhaId } : {}) }).toString();
   const { dados, falha, carregando, recarregar } = useMarketing<Dados>(`/api/admin/marketing/contatos${consulta ? `?${consulta}` : ''}`);
   const [abertoId, setAbertoId] = useState<string | null>(null);
+  // Wall-e 1a r4: ?contato=<uuid> abre direto o detalhe do cartão (link "a revisar" da Privacidade do atendimento).
+  useEffect(() => {
+    const id = new URLSearchParams(window.location.search).get('contato');
+    if (!id || !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id)) return;
+    const t = window.setTimeout(() => setAbertoId(id), 0); return () => window.clearTimeout(t);
+  }, []);
   const [registrando, setRegistrando] = useState(false);
   const podeEditar = dados?.capacidades.includes('MARKETING_CAMPANHAS_EDITAR') ?? false;
   return <main className={styles.pagina}>

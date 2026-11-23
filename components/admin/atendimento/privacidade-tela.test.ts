@@ -52,6 +52,20 @@ test('excluir: palavra errada não envia; senha e palavra certas reautenticam e 
   assert.equal(m.reautenticacoes(), 1);
   assert.deepEqual(m.posts, [{ acao: 'excluir_conversa', conversaId: CONVERSA.id, motivo: 'PEDIDO_DO_TITULAR', confirmacao: 'EXCLUIR' }]);
 });
+
+test('Wall-e 1a r4 (P1-2): cartões a revisar vêm com link para abrir cada um nas Origens; id fora do formato é ignorado', async () => {
+  const K1 = '44444444-4444-4444-8444-444444444444', K2 = '55555555-5555-4555-8555-555555555555';
+  const m = montar(true, { dados: { ...DADOS, funil: { anonimizados: 1, preservados: 0, revisar: 2, revisarIds: [K1, 'javascript:alert(1)', K2] } } });
+  let t = await m.render();
+  await clicar(achar(t, 'button', 'Excluir dados')); t = await m.render();
+  digitar(campo(t, 'senha'), 'senha-sintetica'); digitar(campo(t, 'confirmacao'), 'EXCLUIR'); t = await m.render();
+  await clicar(achar(t, 'button', 'Confirmar')); t = await m.render();
+  assert.match(texto(t), /1 cartão\(ões\) do funil anonimizado\(s\)\./);
+  assert.match(texto(t), /2 cartão\(ões\) anonimizado\(s\) com registro da equipe que não pode ser apagado/);
+  const links = elementos(t).map((e) => (e.props as { href?: unknown }).href).filter((h): h is string => typeof h === 'string' && h.startsWith('/admin/marketing/origens'));
+  assert.deepEqual(links, [`/admin/marketing/origens?contato=${K1}`, `/admin/marketing/origens?contato=${K2}`]);
+  assert.match(texto(t), /Abrir cartão 1 a revisar nas Origens.*Abrir cartão 2 a revisar nas Origens/);
+});
 test('revogar com senha errada: nada é enviado; retenção e troca de link pedem senha', async () => {
   const errada = montar(false); let t = await errada.render();
   await clicar(achar(t, 'button', 'Revogar')); t = await errada.render();
