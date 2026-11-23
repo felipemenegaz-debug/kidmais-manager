@@ -63,6 +63,20 @@ test('upgrade completo: bootstrap 129, aplicar 130 e 131, diagnóstico 0', {skip
   assert.deepEqual(linhas.map(l => `${l.migration}:${l.situacao}:${l.versao}`), ['129:CONCLUIDA:2', '130:CONCLUIDA:3', '131:CONCLUIDA:3']);
 });
 
+test('133 (agenda por empresa): sem a 131 = antecessora pendente (3); depois da 131 aplica com postcheck; repetida e conferida = já aplicada; diagnóstico 0', {skip: pular}, async () => {
+  const b = await comRegistro();
+  ok(await rodar(b, ['--aplicar-130-autorizado', '--backup', BACKUP]), /APLICADA_POSTCHECK_PASS 130/);
+  ok(await rodar(b, ['--aplicar-133-autorizado', '--backup', BACKUP]), /ANTECESSORA_PENDENTE 131 sem linha/, 3);
+  assert.equal((await sql(b, "SELECT to_regprocedure('public.kidmais133_ocupacoes_escopo(date,date,uuid,uuid)') IS NULL AS ausente")).rows[0].ausente, true);
+  ok(await rodar(b, ['--aplicar-131-autorizado', '--backup', BACKUP]), /APLICADA_POSTCHECK_PASS 131/);
+  ok(await rodar(b, ['--aplicar-133-autorizado', '--backup', BACKUP]), /APLICADA_POSTCHECK_PASS 133/);
+  ok(await rodar(b, ['--conferir-133']), /JA_APLICADA_POSTCHECK_PASS 133/);
+  ok(await rodar(b, ['--aplicar-133-autorizado', '--backup', BACKUP]), /JA_APLICADA_POSTCHECK_PASS 133/);
+  ok(await rodar(b, ['--conferir-registro']), /POSTCHECK 133 PASS[\s\S]*DIAGNOSTICO_CODIGO 0/);
+  const linhas = (await sql(b, 'SELECT migration, situacao FROM operacao_migration_tentativas ORDER BY id')).rows;
+  assert.deepEqual(linhas.map(l => `${l.migration}:${l.situacao}`), ['129:CONCLUIDA', '130:CONCLUIDA', '131:CONCLUIDA', '133:CONCLUIDA']);
+});
+
 test('bootstrap: repetido = 0; identidade recusada = 1 sem DDL; antecessoras pendentes = 3 sem DDL', {skip: pular}, async () => {
   const b = await comRegistro();
   ok(await rodar(b, ['--aplicar-129-bootstrap-autorizado', '--backup', BACKUP]), /JA_APLICADA_POSTCHECK_PASS 129/);

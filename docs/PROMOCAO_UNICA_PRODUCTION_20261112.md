@@ -52,6 +52,7 @@ Situação do COMMIT numa FALHA: `NAO_COMMITADA` (o COMMIT nunca foi enviado: na
 | 129 | PELO_REGISTRO | registro de tentativas no banco: bootstrap único por scripts/registro-migrations-banco.cjs --ambiente production --aplicar-129-bootstrap-autorizado --backup "<registro-do-backup>" |
 | 130 | PELO_REGISTRO | pré-reserva manual; aplicar só por scripts/registro-migrations-banco.cjs --ambiente production --aplicar-130-autorizado --backup "<registro-do-backup>" (o genérico recusa) |
 | 131 | PELO_REGISTRO | agenda da pré-reserva; exige a 130; aplicar só por scripts/registro-migrations-banco.cjs --ambiente production --aplicar-131-autorizado --backup "<registro-do-backup>" (o genérico recusa) |
+| 133 | PELO_REGISTRO | ocupações da agenda por empresa (função nova; o código funciona sem ela); exige a 131; aplicar só por scripts/registro-migrations-banco.cjs --ambiente production --aplicar-133-autorizado --backup "<registro-do-backup>" (o genérico recusa) |
 
 ## Ordem e comandos
 

@@ -6,7 +6,9 @@ import {
   desativarBloqueioAgendaPorId,
   desativarBloqueiosExatos,
   existeBloqueioAgendaAtivoExato,
+  fonteOcupacoesDoRecurso,
   listarBloqueiosAtivosPorPeriodo,
+  ocupacoesPorEmpresaInstaladas,
   listarConfiguracoesAgendaAtivas,
   listarTodosBloqueiosAtivos,
 } from "@/lib/disponibilidade/repositories";
@@ -147,11 +149,13 @@ async function preReservasDaAgenda(
   if (!schema?.instalada) return [];
   // A revisão comercial usa a mesma autorização da agenda: sessão administrativa
   // com acesso comercial e pedido da empresa comprovada, inclusive para a Equipe.
+  // Com a 133, a segunda leitura das ocupações fica restrita à empresa (F3/F6 da Agenda lenta, 23/11/2026).
+  const fonte = fonteOcupacoesDoRecurso(await ocupacoesPorEmpresaInstaladas(tx));
   const { rows } = await tx.query<OcupacaoPreReserva>(`
     SELECT o.data::text, left(o.horario_inicio::text, 5) AS inicio,
            left(o.horario_fim::text, 5) AS fim, s.nome AS salao,
            p.garantia_ate AS "garantiaAte", o.fechamento_id AS "fechamentoId"
-    FROM kidmais094_ocupacoes($1::date,$2::date) o
+    FROM ${fonte}
     JOIN pre_reserva_recebimentos p ON (p.empresa_id,p.fechamento_id)=(o.empresa_id,o.fechamento_id)
     LEFT JOIN agenda_saloes s ON (s.empresa_id,s.id)=(o.empresa_id,o.salao_id)
     WHERE o.origem='PRE_RESERVA' AND o.empresa_id=$3 AND p.garantia_ate > statement_timestamp()
