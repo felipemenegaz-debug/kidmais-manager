@@ -234,7 +234,8 @@ export type DetalheContato = ContatoLista & {
 
 /**
  * r5 (P2): o que motivou o "revisar" da exclusão a pedido (os mesmos critérios de anonimizarOportunidadesDaConversa):
- * atribuição do cartão com texto da equipe (detalhe ou motivo) ou que o liga a outro alvo, e evento do histórico do cliente
+ * atribuição do cartão com texto da equipe (detalhe, motivo, UTM ou campanha, com o nome da campanha no texto: r8/r9) ou
+ * que o liga a outro alvo, e evento do histórico do cliente
  * que cita o cartão. Só da empresa (atribuição pela empresa; histórico pelo cliente da empresa); o ambiente já foi conferido
  * pelo detalhe. Rótulos fixos; o texto livre vem como está, para a equipe conferir se cita o titular.
  */
@@ -242,10 +243,11 @@ async function registrosParaRevisar(tx: DbExecutor, empresaId: string, contatoId
   const r = await tx.query<RegistroParaRevisar>(
     `SELECT 'ATRIBUICAO' AS tipo, a.id::text AS id, a.registrado_em::text AS quando,
             'Origem ' || a.origem_codigo || CASE a.alvo_tipo WHEN 'CONTATO' THEN ' deste contato' WHEN 'CLIENTE' THEN ' do cliente' WHEN 'FECHAMENTO' THEN ' da negociação' ELSE ' de outro registro' END AS rotulo,
-            NULLIF(concat_ws(' · ', a.detalhe, a.motivo, 'UTM ' || NULLIF(COALESCE(a.utm, '{}'::jsonb), '{}'::jsonb)::text), '') AS texto, u.nome AS por
+            NULLIF(concat_ws(' · ', a.detalhe, a.motivo, 'Campanha ' || cp.nome, 'UTM ' || NULLIF(COALESCE(a.utm, '{}'::jsonb), '{}'::jsonb)::text), '') AS texto, u.nome AS por
        FROM marketing_atribuicoes a LEFT JOIN usuarios_administrativos u ON u.id = a.registrado_por
+       LEFT JOIN marketing_campanhas cp ON cp.id = a.campanha_id AND cp.empresa_id = a.empresa_id
       WHERE a.empresa_id = $1::uuid AND (a.contato_id = $2::uuid OR (a.alvo_tipo = 'CONTATO' AND a.alvo_id = $2::uuid))
-        AND (a.detalhe IS NOT NULL OR a.motivo IS NOT NULL OR COALESCE(a.utm, '{}'::jsonb) <> '{}'::jsonb OR a.alvo_tipo <> 'CONTATO')
+        AND (a.detalhe IS NOT NULL OR a.motivo IS NOT NULL OR COALESCE(a.utm, '{}'::jsonb) <> '{}'::jsonb OR a.campanha_id IS NOT NULL OR a.alvo_tipo <> 'CONTATO')
      UNION ALL
      SELECT 'HISTORICO', h.id::text, h.criado_em::text, 'Histórico do cliente: ' || h.tipo_evento, h.detalhe, u.nome
        FROM eventos_historico_cliente h JOIN clientes cl ON cl.id = h.cliente_id AND cl.empresa_id = $1::uuid

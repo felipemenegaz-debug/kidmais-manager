@@ -123,7 +123,8 @@ test('r5: empresa (FOR KEY SHARE) antes da conversa na captura e no lote; down e
   const empLote = lote.indexOf('await travarEmpresa(tx, candidata.empresa_id)');
   assert.ok(empLote > 0 && empLote < lote.indexOf('FOR UPDATE SKIP LOCKED'), 'lote: empresa antes da conversa');
   assert.equal(lote.slice(0, empLote).includes('FOR UPDATE'), false, 'candidata escolhida sem trava');
-  assert.ok(lote.includes('WHERE id=$1 AND empresa_id=$2 AND ambiente=$3 AND oportunidade_pendente_em <= clock_timestamp() FOR UPDATE SKIP LOCKED'), 'pendência e escopo revalidados sob a trava (r6)');
+  assert.ok(lote.includes('WHERE id=$1 AND empresa_id=$2 AND ambiente=$3 AND oportunidade_pendente_em=$4::timestamptz AND oportunidade_pendente_em <= clock_timestamp() FOR UPDATE SKIP LOCKED'), 'pendência, marca e escopo revalidados sob a trava (r6/r9)');
+  assert.ok(lote.includes('[candidata.id, candidata.empresa_id, ambiente, candidata.marca]'), 'releitura com a marca escolhida (r9)');
   const down = readFileSync('database/rollback/20261123_132_walle_oportunidades_down.sql', 'utf8');
   assert.match(down, /^BEGIN ISOLATION LEVEL READ COMMITTED;$/m, 'down fixa o isolamento');
   assert.doesNotMatch(down, /^BEGIN;$/m);
@@ -189,14 +190,24 @@ test('r8: campanha cortada no anonimizado, UTM conta como resíduo e o ciclo do 
   assert.ok(contatos.includes('const cortarCampanha = l.anonimizado === true && filtros.revisarPrivacidade !== true;'), 'campanha cortada fora da Gestão em revisão');
   assert.ok(contatos.includes('campanhaId: cortarCampanha ? null : l.campanha_id, campanhaNome: cortarCampanha ? null : l.campanha_nome,'));
   assert.ok(contatos.includes('AND ($6::uuid IS NULL OR (a.campanha_id = $6::uuid AND NOT ${anonimizado}))'), 'filtro por campanha não devolve o anonimizado');
-  assert.ok(contatos.includes("OR COALESCE(a.utm, '{}'::jsonb) <> '{}'::jsonb OR a.alvo_tipo <> 'CONTATO')"), 'UTM no registro para revisar');
+  assert.ok(contatos.includes("OR COALESCE(a.utm, '{}'::jsonb) <> '{}'::jsonb OR a.campanha_id IS NOT NULL OR a.alvo_tipo <> 'CONTATO')"), 'UTM e campanha no registro para revisar (r8/r9)');
+  assert.ok(contatos.includes("'Campanha ' || cp.nome"), 'nome da campanha no texto do registro (r9)');
   // A rota da lista nunca pede a visão da Gestão.
   assert.equal(readFileSync('app/api/admin/marketing/contatos/route.ts', 'utf8').includes('revisarPrivacidade: true'), false);
   const op = readFileSync('lib/whatsapp/atendimento/walle/oportunidade.ts', 'utf8');
-  assert.ok(op.includes("OR COALESCE(a.utm,'{}'::jsonb)<>'{}'::jsonb OR a.alvo_tipo<>'CONTATO'))"), 'UTM é resíduo');
+  assert.ok(op.includes("OR COALESCE(a.utm,'{}'::jsonb)<>'{}'::jsonb OR a.campanha_id IS NOT NULL OR a.alvo_tipo<>'CONTATO'))"), 'UTM e campanha são resíduo (r8/r9)');
   assert.ok(op.includes('AND (oportunidade_pendente_em, id) <= ($5::timestamptz, $6::uuid)'), 'candidata até o teto do ciclo');
   assert.ok(op.includes('[ambiente, vistas, ciclo.marca, ciclo.id, ciclo.tetoMarca, ciclo.tetoId]'));
   assert.ok(op.includes('if (!candidata) { vez.fimDaFila = true; return null; }'), 'passou do teto = fim do ciclo');
+});
+
+test('r9: a releitura sob a trava exige a MESMA marca escolhida; campanha sozinha é resíduo com o nome no registro', () => {
+  const op = readFileSync('lib/whatsapp/atendimento/walle/oportunidade.ts', 'utf8');
+  assert.ok(op.includes('AND oportunidade_pendente_em=$4::timestamptz AND oportunidade_pendente_em <= clock_timestamp() FOR UPDATE SKIP LOCKED'), 'remarcada entre a escolha e a trava = SEM_PENDENCIA');
+  assert.ok(op.includes('OR a.campanha_id IS NOT NULL OR a.alvo_tipo<>'), 'campanha é resíduo na exclusão');
+  const contatos = readFileSync('lib/marketing/contatos.ts', 'utf8');
+  assert.ok(contatos.includes('OR a.campanha_id IS NOT NULL OR a.alvo_tipo <>'), 'campanha no registro a revisar');
+  assert.ok(contatos.includes('LEFT JOIN marketing_campanhas cp ON cp.id = a.campanha_id AND cp.empresa_id = a.empresa_id'), 'nome da campanha só da mesma empresa');
 });
 
 test('worker marca no MESMO UPDATE da memória (r2: atômico) e captura ao fim do lote; exclusão a pedido do titular anonimiza', () => {

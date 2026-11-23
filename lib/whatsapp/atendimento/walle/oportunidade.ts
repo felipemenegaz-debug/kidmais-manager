@@ -238,8 +238,11 @@ export async function capturarOportunidadesPendentes(transacao: Transacao, ambie
         vez.empresaId = candidata.empresa_id;
         await travarEmpresa(tx, candidata.empresa_id);
         // r6 (P2-1): a releitura sob a trava exige a mesma empresa (a travada) e o ambiente do lote.
+        // r9 (P2): e a MESMA marca escolhida (dentro do teto do ciclo). Remarcada entre a escolha e a trava = SEM_PENDENCIA:
+        // a marca nova fica para o ciclo a que pertence e não gasta tentativa deste.
         const escolhida = (await tx.query<{ marca: string }>(`SELECT oportunidade_pendente_em::text AS marca FROM whatsapp_atendimento_conversas
-           WHERE id=$1 AND empresa_id=$2 AND ambiente=$3 AND oportunidade_pendente_em <= clock_timestamp() FOR UPDATE SKIP LOCKED`, [candidata.id, candidata.empresa_id, ambiente])).rows[0];
+           WHERE id=$1 AND empresa_id=$2 AND ambiente=$3 AND oportunidade_pendente_em=$4::timestamptz AND oportunidade_pendente_em <= clock_timestamp() FOR UPDATE SKIP LOCKED`,
+          [candidata.id, candidata.empresa_id, ambiente, candidata.marca])).rows[0];
         if (!escolhida) return 'SEM_PENDENCIA' as const;
         vez.marca = escolhida.marca;
         return capturarOportunidade(tx, candidata.id, { empresaId: candidata.empresa_id, ambiente });
@@ -305,9 +308,10 @@ export async function anonimizarOportunidadesDaConversa(tx: DbExecutor, empresa:
   if (/^[0-9]{10,15}$/.test(contato)) await travarTelefone(tx, empresa, contato);
   // r4 (P1-2): a captura não grava atribuição nem histórico; o que houver foi a equipe e pode citar o titular:
   // texto livre na atribuição, atribuição que liga o cartão a outro alvo (ex.: CLIENTE) ou evento no histórico do cliente.
+  // r8/r9 (P2): UTM não vazia e campanha (nome livre da equipe, o vínculo persiste) também são resíduo.
   const vinculos = (await tx.query<{ contato_id: string; convertido: boolean; residuo: boolean }>(`SELECT o.contato_id::text, k.fechamento_id IS NOT NULL AS convertido,
        (EXISTS (SELECT 1 FROM marketing_atribuicoes a WHERE a.empresa_id=k.empresa_id AND (a.contato_id=k.id OR (a.alvo_tipo='CONTATO' AND a.alvo_id=k.id))
-          AND (a.detalhe IS NOT NULL OR a.motivo IS NOT NULL OR COALESCE(a.utm,'{}'::jsonb)<>'{}'::jsonb OR a.alvo_tipo<>'CONTATO'))
+          AND (a.detalhe IS NOT NULL OR a.motivo IS NOT NULL OR COALESCE(a.utm,'{}'::jsonb)<>'{}'::jsonb OR a.campanha_id IS NOT NULL OR a.alvo_tipo<>'CONTATO'))
         OR EXISTS (SELECT 1 FROM eventos_historico_cliente h JOIN clientes cl ON cl.id=h.cliente_id AND cl.empresa_id=k.empresa_id
           WHERE h.entidade_tipo='MARKETING_CONTATO' AND h.entidade_id=k.id)) AS residuo
      FROM whatsapp_atendimento_oportunidades o JOIN marketing_contatos k ON k.id=o.contato_id AND k.empresa_id=o.empresa_id

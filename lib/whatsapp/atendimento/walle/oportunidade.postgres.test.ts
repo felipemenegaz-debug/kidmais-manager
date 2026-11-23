@@ -4,7 +4,7 @@ import { readFileSync } from "node:fs";
 import { conectarDescartavel } from "../../../comercial/postgres-descartavel.ts";
 import { carregarComponente } from "../../../../components/admin/teste-componente.ts";
 import * as atribuicao from "../../../marketing/atribuicao.ts";
-import { carregarComBanco, comercial, executor, fechamento } from "../../../marketing/harness-postgres.ts";
+import { carregarComBanco, comercial, executor, fechamento, pedido } from "../../../marketing/harness-postgres.ts";
 import { travarConfiguracaoAgenda } from "../../../agenda/trava-configuracao.ts";
 import * as modeloOportunidades from "../../../oportunidades/modelo.ts";
 import { carregarAtendimento, cod, observarTransacoes, withTransaction } from "../harness-postgres.ts";
@@ -46,6 +46,9 @@ import type { Entendimento, ResultadoWallE, TipoIntencao } from "./tipos.ts";
  *  r4 (revisão Astra r3; reuso do site/manual recortado por Felipe): F15 sincronizado pelo banco (sem espera fixa); F22
  *  histórico do cliente e F23 atribuição CLIENTE com o cartão = revisar com o id; F24 down espera a captura em curso e
  *  recusa; F25 marca ainda sem COMMIT na conversa irmã é esperada e descartada (nenhum cartão recriado).
+ *  r9 (revisão Astra r8): F35 campanha como ÚNICO resíduo = revisar, com o nome da campanha no registro da Gestão; F36
+ *  pendência remarcada entre a escolha e a trava = SEM_PENDENCIA (não fura o teto do ciclo); F37 a ROTA de Contatos com
+ *  sessão de Marketing e ?revisarPrivacidade=true não devolve a campanha do anonimizado (a Gestão, pela rota, recebe).
  */
 const DOWN = "database/rollback/20261123_132_walle_oportunidades_down.sql";
 const ler = (f: string) => readFileSync(f, "utf8");
@@ -267,6 +270,32 @@ test("Wall-e 1a: pedido de festa vira cartão no funil, sem duplicar, isolado, r
     assert.equal((await q("SELECT 1 FROM whatsapp_atendimento_oportunidades WHERE conversa_id = ANY($1::uuid[])", [novas34])).rows.length, 0, "F34: as novas esperam o ciclo seguinte");
     assert.equal((await q("SELECT 1 FROM whatsapp_atendimento_oportunidades WHERE conversa_id=$1", [segunda34])).rows.length, 1);
     await q("UPDATE whatsapp_atendimento_conversas SET oportunidade_pendente_em=NULL WHERE id = ANY($1::uuid[])", [novas34]);
+
+    // F36 (r9, P2) — a pendência escolhida é remarcada (mensagem nova) enquanto o lote espera a trava da empresa: a
+    // releitura sob a trava exige a MESMA marca escolhida; a marca nova é do ciclo seguinte e não é capturada neste.
+    reiniciarCursorOportunidades();
+    const r36 = await mais34("5561900008945", 15);
+    assert.equal((await q("SELECT 1 FROM whatsapp_atendimento_conversas WHERE ambiente='staging' AND oportunidade_pendente_em IS NOT NULL")).rows.length, 1, "F36: só a pendência da F36 em staging");
+    const trava36 = await conectarDescartavel({ travar: false });
+    let lote36: Awaited<ReturnType<typeof capturarOportunidadesPendentes>>;
+    try {
+      await trava36.query("BEGIN");
+      await trava36.query("SELECT id FROM empresas WHERE id=$1 FOR UPDATE", [B.empresa]);
+      const pid36 = Number((await trava36.query<{ pid: number }>("SELECT pg_backend_pid() AS pid")).rows[0].pid);
+      const emCurso36 = capturarOportunidadesPendentes(withTransaction, "staging", { limite: 1 });
+      emCurso36.catch(() => {});
+      assert.equal(await esperarAte(q, `SELECT 1 FROM pg_stat_activity WHERE ${pid36} = ANY(pg_blocking_pids(pid))`), true, "F36: o lote escolheu a candidata e espera a trava da empresa");
+      await trava36.query("UPDATE whatsapp_atendimento_conversas SET oportunidade_pendente_em=clock_timestamp() WHERE id=$1", [r36]);
+      await trava36.query("COMMIT");
+      lote36 = await emCurso36;
+    } finally {
+      await trava36.end();
+    }
+    assert.deepEqual([lote36.capturas, lote36.resultados], [0, ["SEM_PENDENCIA"]], "F36: remarcada entre a escolha e a trava = SEM_PENDENCIA (r9)");
+    assert.equal((await q("SELECT 1 FROM whatsapp_atendimento_oportunidades WHERE conversa_id=$1", [r36])).rows.length, 0, "F36: nenhum cartão neste ciclo");
+    assert.notEqual((await q<{ m: string | null }>("SELECT oportunidade_pendente_em::text AS m FROM whatsapp_atendimento_conversas WHERE id=$1", [r36])).rows[0].m, null, "F36: a marca nova fica");
+    const lote36b = await capturarOportunidadesPendentes(withTransaction, "staging", { limite: 1 });
+    assert.deepEqual([lote36b.capturas, lote36b.resultados], [1, ["CRIADO"]], "F36: o lote seguinte captura a marca nova");
     reiniciarCursorOportunidades();
     // Fotografia das tabelas de Marketing (exceto o próprio contato) para provar que nenhuma automação roda (F9).
     // marketing_saidas_contato fica de fora: a 127 (guarda, não automação) registra a saída quando a conversa passa a
@@ -790,6 +819,54 @@ test("Wall-e 1a: pedido de festa vira cartão no funil, sem duplicar, isolado, r
       assert.equal(JSON.stringify(await contatos.detalheContato(txc, A.empresa, k33.id, { revisarPrivacidade: false })).includes(UTM33), false, "F33: o Marketing não recebe a UTM");
       // Controle: cartão não anonimizado com motivo segue mostrando o motivo para o Marketing.
       assert.equal(JSON.stringify(await contatos.detalheContato(txc, A.empresa, kStg.id, { revisarPrivacidade: false })).includes("Rui ligou"), false);
+
+      // F35 (r9, P2) — a campanha é o ÚNICO resíduo da equipe no cartão (sem detalhe, motivo, UTM nem outro alvo): o nome
+      // da campanha é livre e o vínculo persiste, então o cartão vai a revisar com o id e a Gestão vê o nome no registro.
+      const f35 = "5561900008605";
+      await receber(aStg, f35, FESTA, "Lia WhatsApp");
+      await processar(aStg);
+      const [k35] = await cartoes(A.empresa, [f35]);
+      const CAMPANHA35 = "Indicação Sentinela35 — prima do titular";
+      const campanha35 = await id(`INSERT INTO marketing_campanhas (empresa_id, codigo, nome, canal, origem_codigo, inicio, utm_source, utm_medium, criada_por, atualizada_por)
+        VALUES ($1, 'r9-sentinela-35', $2, 'INSTAGRAM', 'INSTAGRAM', '2026-11-01', 'instagram', 'social', $3, $3) RETURNING id::text AS id`, [A.empresa, CAMPANHA35, A.usuario]);
+      await q("INSERT INTO marketing_atribuicoes (empresa_id, alvo_tipo, alvo_id, origem_codigo, metodo, contato_id, campanha_id) VALUES ($1, 'CONTATO', $2, 'INSTAGRAM', 'INFORMADO', $2, $3)", [A.empresa, k35.id, campanha35]);
+      assert.equal((await q("SELECT 1 FROM marketing_atribuicoes WHERE empresa_id=$1 AND contato_id=$2 AND (detalhe IS NOT NULL OR motivo IS NOT NULL OR COALESCE(utm, '{}'::jsonb) <> '{}'::jsonb OR alvo_tipo<>'CONTATO')", [A.empresa, k35.id])).rows.length, 0, "F35: só a campanha como resíduo");
+      const ex35 = await aStg.privacidade.excluirConversaAPedido(A.sessao, { conversaId: (await conversa(A.empresa, "staging", f35)).id, motivo: "PEDIDO_DO_TITULAR" });
+      assert.deepEqual((ex35 as { funil?: unknown }).funil, { anonimizados: 0, preservados: 0, revisar: 1, revisarIds: [k35.id] }, "F35: campanha da equipe = revisar, com o id (r9)");
+      assert.ok((await contatos.detalheContato(txc, A.empresa, k35.id, { revisarPrivacidade: true })).registrosParaRevisar.some((r) => (r.texto ?? "").includes("Sentinela35")), "F35: a Gestão vê o nome da campanha no registro a revisar (r9)");
+      const mkt35 = JSON.stringify(await contatos.detalheContato(txc, A.empresa, k35.id, { revisarPrivacidade: false }));
+      for (const trecho of ["Sentinela35", campanha35]) assert.equal(mkt35.includes(trecho), false, `F35: o Marketing não recebe "${trecho}"`);
+
+      // F37 (r9, P3) — pela ROTA (não pelo texto do arquivo): sessão de Marketing (ADMINISTRATIVO com MARKETING_VISUALIZAR)
+      // pedindo ?revisarPrivacidade=true na lista e no detalhe não recebe a campanha nem os textos do cartão anonimizado.
+      const u37 = await id("INSERT INTO usuarios_administrativos (email, nome, senha_hash, papel, ativo) VALUES ($1, 'Marketing sintético', $2, 'ADMINISTRATIVO', true) RETURNING id::text", [`${cod("u")}@example.test`, SENHA]);
+      const m37 = await id("INSERT INTO memberships (empresa_id, usuario_id, status, vigente_desde, papel) VALUES ($1::uuid, $2::uuid, 'PENDENTE', clock_timestamp(), 'ADMINISTRATIVO') RETURNING id::text", [A.empresa, u37]);
+      await q("UPDATE memberships SET status = 'ATIVA' WHERE id = $1::uuid", [m37]);
+      await q("INSERT INTO marketing_membership_capacidades(empresa_id,membership_id,capacidade,concedido_por,motivo) VALUES($1,$2,'MARKETING_VISUALIZAR',$3,'Fixture Marketing r9')", [A.empresa, m37, A.usuario]);
+      let sessaoRota: unknown = { usuario_id: u37, nome: "Marketing sintético", papel: "ADMINISTRATIVO", empresa_ativa_id: A.empresa };
+      type RotaGet = { GET(r: unknown): Promise<{ status: number; json(): Promise<{ data?: Record<string, unknown> }> }> };
+      const rotaContatos = carregarComBanco("app/api/admin/marketing/contatos/route.ts", c as never, () => sessaoRota, semSavepoint, new Map()) as unknown as RotaGet;
+      const chamar37 = async (consulta: string) => {
+        const r = await rotaContatos.GET(pedido(`http://127.0.0.1:3000/api/admin/marketing/contatos?${consulta}`));
+        const j = await r.json();
+        assert.equal(r.status, 200, JSON.stringify(j));
+        return j.data as Record<string, unknown>;
+      };
+      const lista37 = await chamar37("revisarPrivacidade=true");
+      const item37 = (lista37.contatos as { id: string; campanhaId: string | null; campanhaNome: string | null }[]).find((k) => k.id === k32.id);
+      assert.ok(item37, "F37: o cartão anonimizado segue na lista da rota");
+      assert.deepEqual([item37!.campanhaId, item37!.campanhaNome], [null, null], "F37: a lista da rota (Marketing, ?revisarPrivacidade=true) sem a campanha");
+      for (const trecho of ["Sentinela32", campanha32]) assert.equal(JSON.stringify(item37).includes(trecho), false, `F37: item da lista sem "${trecho}"`);
+      const filtro37 = await chamar37(`revisarPrivacidade=true&campanhaId=${campanha32}`);
+      assert.equal((filtro37.contatos as { id: string }[]).some((k) => k.id === k32.id), false, "F37: o filtro por campanha da rota não devolve o anonimizado");
+      const det37 = (await chamar37(`id=${k32.id}&revisarPrivacidade=true`)).contato as { registrosParaRevisar: unknown[] };
+      const det37json = JSON.stringify(det37);
+      for (const trecho of ["Sentinela32", campanha32, UTM32, "Marta", "99999-2929"]) assert.equal(det37json.includes(trecho), false, `F37: detalhe da rota (Marketing) sem "${trecho}"`);
+      assert.deepEqual(det37.registrosParaRevisar, [], "F37: o Marketing não recebe os registros a revisar pela rota");
+      // Controle: a Gestão, pela mesma rota, recebe a campanha do cartão (a rota corta por papel, não por acaso).
+      sessaoRota = { usuario_id: A.usuario, nome: "Harness funil", papel: "REPRESENTANTE_AUTORIZADO", empresa_ativa_id: A.empresa };
+      const detGestao37 = (await chamar37(`id=${k32.id}`)).contato as { campanhaNome: string | null };
+      assert.equal(detGestao37.campanhaNome, CAMPANHA32, "F37: a Gestão recebe a campanha pela rota");
 
       // F30 (r6, P1-2) — formulário público do site × exclusão a pedido (empresa FOR UPDATE, depois o telefone). A "exclusão"
       // aqui segura a empresa como o Tenant Context; o formulário espera a empresa ANTES de pegar o telefone, então a
