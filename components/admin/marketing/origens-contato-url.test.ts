@@ -1,23 +1,33 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { carregarComponente, cssFalso, tique } from '../teste-componente.ts';
+import { carregarComponente, cssFalso, elementos, texto, tique } from '../teste-componente.ts';
 
 // Wall-e 1a r4 (P1-2): o link "a revisar" da Privacidade do atendimento abre /admin/marketing/origens?contato=<id> e a
 // tela abre direto o detalhe desse cartão (carregado pela API, que corta por empresa e ambiente). Id fora do formato: nada.
+// r5 (P3): o detalhe filho é renderizado e a requisição dele precisa ser a do UUID pedido. r5 (P2): cartão anonimizado
+// mostra os registros a conferir e nenhum controle de edição.
 const K = '44444444-4444-4444-8444-444444444444';
 
-async function montar(search: string) {
-  const urls: string[] = [];
-  const useMarketing = (url: string) => { urls.push(url); return { dados: null, falha: null, carregando: true, recarregar: () => undefined }; };
-  const h = carregarComponente('components/admin/marketing/MarketingOrigens.tsx', {
+function carregar(urls: string[], respostaDetalhe: unknown = null) {
+  const useMarketing = (url: string) => {
+    urls.push(url);
+    const dados = url.startsWith('/api/admin/marketing/contatos?id=') ? respostaDetalhe : null;
+    return { dados, falha: null, carregando: dados === null, recarregar: () => undefined };
+  };
+  return { h: carregarComponente('components/admin/marketing/MarketingOrigens.tsx', {
     'next/link': { default: (p: { children?: unknown }) => p.children }, 'next/navigation': { useRouter: () => ({ push: () => undefined }) },
     '@/lib/clientes/utils': { statusFechamentoLabel: () => '' }, '@/lib/marketing/acoes-ui': { linkChamar: () => '', linkNegociacao: () => '' },
     '@/lib/http/admin-fetch': { adminFetch: async () => ({ ok: true, json: async () => ({}) }) },
-    '@/lib/marketing/apresentacao': { clientesDaBusca: () => [], dataBr: () => '', dataHoraBr: () => '', ROTULO_STATUS_CONTATO: {} },
+    '@/lib/marketing/apresentacao': { clientesDaBusca: () => [], dataBr: () => '', dataHoraBr: (v: string) => v, ROTULO_STATUS_CONTATO: {} },
     '../AdminPrimaryButton': { AdminPrimaryButton: () => null }, './AtribuicaoExplicada': { AtribuicaoExplicada: () => null },
     './comum': { CabecalhoMarketing: () => null, EstadoCarga: () => null, enviarMarketing: async () => ({}), novaChave: () => 'k', useMarketing },
     './marketing.module.css': cssFalso,
-  });
+  }) };
+}
+
+async function montar(search: string) {
+  const urls: string[] = [];
+  const { h } = carregar(urls);
   globalThis.window = { setTimeout, clearTimeout, location: { search } } as never;
   globalThis.document = { addEventListener: () => undefined, removeEventListener: () => undefined } as never;
   h.render(); h.efeitos(); await new Promise((r) => setTimeout(r, 5)); await tique();
@@ -25,14 +35,53 @@ async function montar(search: string) {
   return { urls, arvore, h };
 }
 
-test('r4: ?contato=<uuid> abre o detalhe do cartão; id fora do formato é ignorado', async () => {
+test('r4/r5: ?contato=<uuid> abre o detalhe do cartão e ele pede exatamente esse UUID; id fora do formato é ignorado', async () => {
   const certo = await montar(`?contato=${K}`);
-  const detalhe = (u: string) => u.startsWith('/api/admin/marketing/contatos?id=');
-  // O detalhe é um componente filho: renderiza-o pela árvore da tela.
-  const filhos = JSON.stringify(certo.arvore, (_k, v) => typeof v === 'function' ? undefined : v);
-  assert.ok(filhos.includes(K), 'o detalhe do cartão pedido está aberto');
+  const dialogo = elementos(certo.arvore).find((e) => e.type === certo.h.modulo.DetalheDialogo);
+  assert.ok(dialogo, 'o detalhe está aberto');
+  assert.equal(dialogo.props.id, K);
+  // O filho é renderizado de verdade: a URL que ele pede é a do cartão pedido (e só ela).
+  const urlsFilho: string[] = [];
+  const filho = carregar(urlsFilho).h;
+  filho.render('DetalheDialogo', dialogo.props);
+  assert.deepEqual(urlsFilho, [`/api/admin/marketing/contatos?id=${K}`]);
+
   const errado = await montar('?contato=javascript:alert(1)');
-  const filhosErrado = JSON.stringify(errado.arvore, (_k, v) => typeof v === 'function' ? undefined : v);
-  assert.equal(filhosErrado.includes('alert'), false, 'nada aberto com id fora do formato');
-  assert.equal(errado.urls.some(detalhe), false);
+  assert.equal(elementos(errado.arvore).some((e) => e.type === errado.h.modulo.DetalheDialogo), false, 'nada aberto com id fora do formato');
+  assert.equal(errado.urls.some((u) => u.startsWith('/api/admin/marketing/contatos?id=')), false);
+});
+
+test('r5 (P2): cartão anonimizado é só leitura e mostra os registros da equipe a conferir', () => {
+  const contato = {
+    id: K, nome: 'Contato anonimizado', canal: 'WHATSAPP', recebidoEm: '2026-11-23T10:00:00Z', status: 'NOVO', clienteId: null, clienteNome: null,
+    telefone: null, email: null, dataDesejada: null, convidados: null, mensagem: null, fechamentoId: null, atribuicoes: [], origemCliente: null,
+    vinculoCliente: 'NENHUM', fechamentosDoCliente: [], anonimizado: true,
+    registrosParaRevisar: [
+      { tipo: 'HISTORICO', id: 'h1', quando: '2026-11-23T09:00:00Z', rotulo: 'Histórico do cliente: CONTATO_MARKETING_VINCULADO', texto: 'ligou pedindo orçamento', por: 'Ana' },
+      { tipo: 'ATRIBUICAO', id: 'a1', quando: '2026-11-23T09:30:00Z', rotulo: 'Origem INSTAGRAM do cliente', texto: 'veio do post', por: null },
+    ],
+  };
+  const urls: string[] = [];
+  const { h } = carregar(urls, { contato, origens: [] });
+  const arvore = h.render('DetalheDialogo', { id: K, podeEditar: true, aoFechar: () => undefined });
+  const tudo = texto(arvore);
+  assert.match(tudo, /anonimizado a pedido do titular: só leitura/);
+  const registros = elementos(arvore).filter((e) => e.props['data-registro-revisar']);
+  assert.deepEqual(registros.map((e) => e.props['data-registro-revisar']), ['HISTORICO', 'ATRIBUICAO']);
+  assert.match(texto(registros[0]), /CONTATO_MARKETING_VINCULADO · 2026-11-23T09:00:00Z · ligou pedindo orçamento · por Ana/);
+  assert.match(texto(registros[1]), /Origem INSTAGRAM do cliente/);
+  // Nenhum controle de edição: busca/vínculo de cliente, status. O AcoesPedido filho recebe o contato anonimizado e
+  // também não oferece "Abrir negociação" (renderizado abaixo).
+  assert.equal(elementos(arvore).some((e) => e.props['aria-label'] === 'Buscar cliente'), false);
+  assert.doesNotMatch(tudo, /Buscar|Vincular|Marcar em atendimento/);
+  const acoes = elementos(arvore).find((e) => e.type === h.modulo.AcoesPedido);
+  assert.ok(acoes);
+  const acoesArvore = carregar([]).h.render('AcoesPedido', acoes.props);
+  assert.doesNotMatch(texto(acoesArvore), /Abrir negociação/);
+  // Controle: o mesmo cartão sem anonimização oferece os controles (o teste acima não passa por acaso).
+  const editavel = carregar([], { contato: { ...contato, anonimizado: false, registrosParaRevisar: [] }, origens: [] }).h
+    .render('DetalheDialogo', { id: K, podeEditar: true, aoFechar: () => undefined });
+  assert.match(texto(editavel), /Buscar/);
+  assert.equal(elementos(editavel).some((e) => e.props['data-registro-revisar']), false);
+  assert.match(texto(carregar([]).h.render('AcoesPedido', { contato: { ...contato, anonimizado: false }, podeEditar: true })), /Abrir negociação/);
 });

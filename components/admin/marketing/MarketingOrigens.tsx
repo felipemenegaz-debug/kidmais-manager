@@ -78,7 +78,7 @@ export default function MarketingOrigens() {
   </main>;
 }
 
-function DetalheDialogo({ id, podeEditar, aoFechar }: { id: string; podeEditar: boolean; aoFechar: () => void }) {
+export function DetalheDialogo({ id, podeEditar, aoFechar }: { id: string; podeEditar: boolean; aoFechar: () => void }) {
   const { dados, falha, carregando, recarregar } = useMarketing<{ contato: DetalheContato; origens: OpcaoOrigem[] }>(`/api/admin/marketing/contatos?id=${encodeURIComponent(id)}`);
   const [aviso, setAviso] = useState('');
   const [busca, setBusca] = useState('');
@@ -100,6 +100,8 @@ function DetalheDialogo({ id, podeEditar, aoFechar }: { id: string; podeEditar: 
   }
   useEffect(() => { const fechar = (e: KeyboardEvent) => { if (e.key === 'Escape') aoFechar(); }; document.addEventListener('keydown', fechar); return () => document.removeEventListener('keydown', fechar); }, [aoFechar]);
   const c = dados?.contato;
+  // r5 (P2): cartão anonimizado a pedido do titular é só leitura (o servidor também recusa qualquer alteração).
+  const editavel = podeEditar && !c?.anonimizado;
   return <div className={styles.dialogo} role="dialog" aria-modal="true" aria-labelledby="t-detalhe">
     <div>
       <h2 id="t-detalhe">Contato</h2>
@@ -108,6 +110,12 @@ function DetalheDialogo({ id, podeEditar, aoFechar }: { id: string; podeEditar: 
         <p><strong>{c.nome}</strong> · {CANAL[c.canal] ?? c.canal} · recebido em {dataHoraBr(c.recebidoEm)}</p>
         <p className={styles.muted}>{[c.telefone, c.email].filter(Boolean).join(' · ')}{c.dataDesejada ? ` · data desejada ${dataBr(c.dataDesejada)}` : ''}{c.convidados ? ` · ${c.convidados} convidados` : ''}</p>
         {c.mensagem && <p style={{ whiteSpace: 'pre-line' }}>{c.mensagem}</p>}
+        {c.anonimizado && <p className={styles.aviso} data-anonimizado="true">Contato anonimizado a pedido do titular: só leitura.</p>}
+        {c.anonimizado && c.registrosParaRevisar.length > 0 && <>
+          <h3>Registros da equipe a conferir</h3>
+          <p className={styles.muted}>Anotações que a equipe fez sobre este contato e que a anonimização não apaga. Confira e corrija, se tiverem dados pessoais.</p>
+          <ul className={styles.historico}>{c.registrosParaRevisar.map((r) => <li key={r.tipo + r.id} data-registro-revisar={r.tipo}>{r.rotulo} · {dataHoraBr(r.quando)}{r.texto ? ' · ' + r.texto : ''}{r.por ? ' · por ' + r.por : ''}</li>)}</ul>
+        </>}
         <h3>Origem</h3>
         <p>{origemTexto(c, dados.origens)}</p>
         {c.atribuicoes.length > 1 && <ul className={styles.historico}>{c.atribuicoes.map((a) => <li key={a.id} data-vigente={a.vigente}>{a.origemCodigo} · {METODO[a.metodo]} · {dataHoraBr(a.registradoEm)}{a.motivo ? ` · ${a.motivo}` : ''}</li>)}</ul>}
@@ -115,7 +123,7 @@ function DetalheDialogo({ id, podeEditar, aoFechar }: { id: string; podeEditar: 
         {c.clienteId ? <p><Link href={`/clientes/${c.clienteId}`}>{c.clienteNome}</Link> <span className={styles.muted}>({VINCULO[c.vinculoCliente] ?? c.vinculoCliente})</span>
           {c.origemCliente && <><br /><span className={styles.muted}>Primeira origem do cliente: {c.origemCliente.origemCodigo === 'DESCONHECIDA' ? 'desconhecida' : dados.origens.find((o) => o.codigo === c.origemCliente?.origemCodigo)?.rotulo ?? c.origemCliente.origemCodigo}</span></>}</p>
           : <p className={styles.muted}>Sem cliente vinculado.</p>}
-        {podeEditar && !c.fechamentoId && <div className={styles.acoes}>
+        {editavel && !c.fechamentoId && <div className={styles.acoes}>
           <input aria-label="Buscar cliente" placeholder="Buscar cliente pelo nome, telefone ou e-mail" value={busca} onChange={(e) => setBusca(e.target.value)} className={styles.link} />
           <button type="button" className={styles.secundario} onClick={() => void buscar()}>Buscar</button>
           {resultados.map((r) => <button key={r.id} type="button" className={styles.fantasma} onClick={() => void acao({ acao: 'vincular-cliente', id: c.id, clienteId: r.id })}>Vincular {r.nomeCompleto}</button>)}
@@ -125,9 +133,9 @@ function DetalheDialogo({ id, podeEditar, aoFechar }: { id: string; podeEditar: 
           : !c.clienteId ? <p className={styles.muted}>Vincule a um cliente primeiro.</p>
             : c.fechamentosDoCliente.length === 0 ? <p className={styles.muted}>O cliente ainda não tem negociação. <Link href={`/admin/clientes/${c.clienteId}/fechamento`}>Abrir negociação</Link>. O pedido mais recente será vinculado automaticamente.</p>
               : <ul className={styles.historico}>{c.fechamentosDoCliente.map((f) => <li key={f.id}>{dataBr(f.dataEvento)} · {statusFechamentoLabel(f.status as Parameters<typeof statusFechamentoLabel>[0]) ?? 'Em andamento'}{f.origemDefinida ? ' · já tem origem' : ''}
-                {podeEditar && !f.vinculadoAOutroContato && <> <button type="button" className={styles.fantasma} onClick={() => void acao({ acao: 'vincular-negociacao', id: c.id, fechamentoId: f.id })}>Vincular</button></>}
+                {editavel && !f.vinculadoAOutroContato && <> <button type="button" className={styles.fantasma} onClick={() => void acao({ acao: 'vincular-negociacao', id: c.id, fechamentoId: f.id })}>Vincular</button></>}
                 {f.vinculadoAOutroContato && <span className={styles.muted}> · vinculada a outro contato</span>}</li>)}</ul>}
-        {podeEditar && c.status !== 'CONVERTIDO' && <div className={styles.acoes}>
+        {editavel && c.status !== 'CONVERTIDO' && <div className={styles.acoes}>
           {c.status !== 'EM_ATENDIMENTO' && <button type="button" className={styles.secundario} onClick={() => void acao({ acao: 'status', id: c.id, status: 'EM_ATENDIMENTO' })}>Marcar em atendimento</button>}
           {c.status !== 'DESCARTADO' && <Link href="/admin/oportunidades">Próxima ação ou perda</Link>}
         </div>}
@@ -182,13 +190,13 @@ function RegistroDialogo({ dados, aoFechar }: { dados: Dados; aoFechar: (salvou:
   </div>;
 }
 
-function AcoesPedido({ contato: c, podeEditar }: { contato: ContatoLista; podeEditar: boolean }) {
+export function AcoesPedido({ contato: c, podeEditar }: { contato: ContatoLista; podeEditar: boolean }) {
   const router = useRouter(); const [erro,setErro] = useState(''); const [abrindo,setAbrindo] = useState(false);
   async function abrir() { setAbrindo(true); setErro(''); try {
     const clienteId = c.clienteId ?? (await enviarMarketing<{clienteId: string}>('/api/admin/marketing/contatos',{acao:'preparar-negociacao',id:c.id})).clienteId;
     router.push(linkNegociacao({...c,clienteId}));
   } catch(e) {setErro(e instanceof Error?e.message:'Não foi possível abrir.');setAbrindo(false);} }
   const chamar=linkChamar(c.telefone,c.nome);
-  return <div className={styles.acoes}>{podeEditar && !c.fechamentoId && c.status !== 'DESCARTADO' && <button className={styles.secundario} disabled={abrindo} type="button" onClick={()=>void abrir()}>Abrir negociação</button>}
+  return <div className={styles.acoes}>{podeEditar && !c.anonimizado && !c.fechamentoId && c.status !== 'DESCARTADO' && <button className={styles.secundario} disabled={abrindo} type="button" onClick={()=>void abrir()}>Abrir negociação</button>}
     {chamar && <a className={styles.secundario} href={chamar} target="_blank" rel="noopener noreferrer">Chamar</a>}{erro && <p role="alert">{erro}</p>}</div>;
 }

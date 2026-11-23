@@ -141,18 +141,40 @@ test("Wall-e 1a: pedido de festa vira cartão no funil, sem duplicar, isolado, r
     // Empresa B, para não mexer nas contagens de A.
     await q(`CREATE OR REPLACE FUNCTION harness_vinculo_lento() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN PERFORM pg_sleep(1.5); RETURN NEW; END $$`);
     await q("CREATE TRIGGER harness_vinculo_lento AFTER INSERT ON whatsapp_atendimento_oportunidades FOR EACH ROW EXECUTE FUNCTION harness_vinculo_lento()");
-    const cv24 = await id(`INSERT INTO whatsapp_atendimento_conversas (empresa_id, ambiente, contato, oportunidade_pendente_em) VALUES ($1, 'staging', '5561900008900', clock_timestamp()) RETURNING id::text`, [B.empresa]);
-    const captura24 = withTransaction((tx) => capturarOportunidade(tx, cv24));
-    assert.equal(await esperarAte(q, "SELECT 1 FROM pg_stat_activity WHERE datname=current_database() AND wait_event='PgSleep'"), true, "F24: a captura parou com o vínculo gravado e sem COMMIT");
-    assert.equal((await q("SELECT 1 FROM whatsapp_atendimento_oportunidades")).rows.length, 0, "F24: de fora, a tabela ainda parece vazia");
-    await q("SET kidmais.rollback_132 = 'descartar-vinculos'");
-    await assert.rejects(q(ler(DOWN)), /já há vínculo do Wall-e gravado/, "F24: down espera a captura em curso e recusa");
-    await q("ROLLBACK");
-    await q("RESET kidmais.rollback_132");
-    assert.equal(await captura24, "CRIADO", "F24: a captura em curso termina");
-    assert.equal((await q("SELECT 1 FROM whatsapp_atendimento_oportunidades WHERE conversa_id=$1", [cv24])).rows.length, 1, "F24: o vínculo ficou");
+    // r5 (P1-2): a mesma corrida com a sessão em REPEATABLE READ: o down fixa READ COMMITTED e recusa igual.
+    for (const [modo24, fone24, rr24] of [["padrão", "5561900008900", false], ["repeatable read", "5561900008902", true]] as const) {
+      const cv24 = await id(`INSERT INTO whatsapp_atendimento_conversas (empresa_id, ambiente, contato, oportunidade_pendente_em) VALUES ($1, 'staging', $2, clock_timestamp()) RETURNING id::text`, [B.empresa, fone24]);
+      const captura24 = withTransaction((tx) => capturarOportunidade(tx, cv24));
+      assert.equal(await esperarAte(q, "SELECT 1 FROM pg_stat_activity WHERE datname=current_database() AND wait_event='PgSleep'"), true, `F24 (${modo24}): a captura parou com o vínculo gravado e sem COMMIT`);
+      assert.equal((await q("SELECT 1 FROM whatsapp_atendimento_oportunidades WHERE conversa_id=$1", [cv24])).rows.length, 0, `F24 (${modo24}): de fora, a tabela ainda parece vazia`);
+      await q("SET kidmais.rollback_132 = 'descartar-vinculos'");
+      if (rr24) await q("SET default_transaction_isolation = 'repeatable read'");
+      await assert.rejects(q(ler(DOWN)), /já há vínculo do Wall-e gravado/, `F24 (${modo24}): down espera a captura em curso e recusa`);
+      await q("ROLLBACK");
+      await q("RESET kidmais.rollback_132");
+      await q("RESET default_transaction_isolation");
+      assert.equal(await captura24, "CRIADO", `F24 (${modo24}): a captura em curso termina`);
+      assert.equal((await q("SELECT 1 FROM whatsapp_atendimento_oportunidades WHERE conversa_id=$1", [cv24])).rows.length, 1, `F24 (${modo24}): o vínculo ficou`);
+    }
     await q("DROP TRIGGER harness_vinculo_lento ON whatsapp_atendimento_oportunidades");
     await q("DROP FUNCTION harness_vinculo_lento()");
+    // F26 (r5, P1-1) — captura e exclusão a pedido do titular ao mesmo tempo, na mesma conversa. A captura para antes de
+    // gravar o cartão (gatilho lento); a exclusão entra pelo Tenant Context (empresa FOR UPDATE) e espera. Sem a empresa
+    // travada primeiro pela captura, a chave estrangeira do cartão pediria a empresa com a exclusão esperando a conversa:
+    // impasse (40P01). Com a ordem empresa → conversa, a captura termina e a exclusão anonimiza o cartão recém-criado.
+    await q(`CREATE OR REPLACE FUNCTION harness_cartao_lento() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN IF NEW.telefone ~ '8926$' THEN PERFORM pg_sleep(1.5); END IF; RETURN NEW; END $$`);
+    await q("CREATE TRIGGER harness_cartao_lento BEFORE INSERT ON marketing_contatos FOR EACH ROW EXECUTE FUNCTION harness_cartao_lento()");
+    const cv26 = await id(`INSERT INTO whatsapp_atendimento_conversas (empresa_id, ambiente, contato, oportunidade_pendente_em) VALUES ($1, 'staging', '5561900008926', clock_timestamp()) RETURNING id::text`, [B.empresa]);
+    const captura26 = withTransaction((tx) => capturarOportunidade(tx, cv26));
+    assert.equal(await esperarAte(q, "SELECT 1 FROM pg_stat_activity WHERE datname=current_database() AND wait_event='PgSleep'"), true, "F26: a captura parou antes de gravar o cartão");
+    const exclusao26 = bStg.privacidade.excluirConversaAPedido(B.sessao, { conversaId: cv26, motivo: "PEDIDO_DO_TITULAR" });
+    assert.equal(await esperarAte(q, "SELECT 1 FROM pg_stat_activity WHERE datname=current_database() AND wait_event_type='Lock'"), true, "F26: a exclusão espera uma trava");
+    const [res26, ex26] = await Promise.all([captura26, exclusao26]);
+    assert.equal(res26, "CRIADO", "F26: a captura termina (sem 40P01)");
+    assert.equal((ex26 as { estado: string }).estado, "EXCLUIDA", "F26: a exclusão termina (sem 40P01)");
+    assert.equal((ex26 as { funil?: { anonimizados: number } }).funil?.anonimizados, 1, "F26: o cartão recém-criado sai anonimizado");
+    await q("DROP TRIGGER harness_cartao_lento ON marketing_contatos");
+    await q("DROP FUNCTION harness_cartao_lento()");
     // Fotografia das tabelas de Marketing (exceto o próprio contato) para provar que nenhuma automação roda (F9).
     // marketing_saidas_contato fica de fora: a 127 (guarda, não automação) registra a saída quando a conversa passa a
     // nao_contatar (PARAR do F5); conferida à parte, só com origem ATENDIMENTO_WHATSAPP.
@@ -540,7 +562,17 @@ test("Wall-e 1a: pedido de festa vira cartão no funil, sem duplicar, isolado, r
       assert.deepEqual((ex22 as { funil?: unknown }).funil, { anonimizados: 0, preservados: 0, revisar: 1, revisarIds: [k22.id] }, "F22: histórico com o cartão = revisar, com o id");
       const [k22b] = (await q<{ telefone: string; cliente_id: string | null }>("SELECT telefone, cliente_id::text FROM marketing_contatos WHERE id=$1", [k22.id])).rows;
       assert.deepEqual([k22b.telefone, k22b.cliente_id], [TELEFONE_ANONIMIZADO, null], "F22: anonimizado e desvinculado mesmo assim");
-      assert.equal((await contatos.detalheContato(txc, A.empresa, k22.id)).id, k22.id, "F22: o id abre o detalhe nas Origens (link da Privacidade)");
+      const d22 = await contatos.detalheContato(txc, A.empresa, k22.id);
+      assert.equal(d22.id, k22.id, "F22: o id abre o detalhe nas Origens (link da Privacidade)");
+      assert.equal(d22.anonimizado, true, "F22: detalhe sabe que é anonimizado (r5)");
+      assert.ok(d22.registrosParaRevisar.some((r) => r.tipo === "HISTORICO" && r.rotulo === "Histórico do cliente: CONTATO_MARKETING_VINCULADO"), "F22: o detalhe mostra o evento do histórico que motivou o revisar (r5)");
+      // r5 (P2): o cartão anonimizado não volta a ser ligado a ninguém, nem pelo servidor.
+      const historico22 = (await q("SELECT 1 FROM eventos_historico_cliente WHERE entidade_tipo='MARKETING_CONTATO' AND entidade_id=$1", [k22.id])).rows.length;
+      await assert.rejects(contatos.executarAcaoContato(txc, A.empresa, A.usuario, contatos.esquemaAcaoContato.parse({ acao: "vincular-cliente", id: k22.id, clienteId: cliente22 })), /anonimizado/, "F22: vincular-cliente recusado no anonimizado (r5)");
+      await assert.rejects(contatos.executarAcaoContato(txc, A.empresa, A.usuario, contatos.esquemaAcaoContato.parse({ acao: "preparar-negociacao", id: k22.id })), /anonimizado/, "F22: abrir negociação recusado no anonimizado (r5)");
+      assert.equal((await q<{ cliente_id: string | null }>("SELECT cliente_id::text FROM marketing_contatos WHERE id=$1", [k22.id])).rows[0].cliente_id, null, "F22: segue desvinculado (r5)");
+      assert.equal((await q("SELECT 1 FROM eventos_historico_cliente WHERE entidade_tipo='MARKETING_CONTATO' AND entidade_id=$1", [k22.id])).rows.length, historico22, "F22: nenhum histórico novo (r5)");
+      assert.equal((await contatos.listarContatos(txc, A.empresa, {})).find((k) => k.id === k22.id)?.anonimizado, true, "F22: a lista marca o anonimizado (r5)");
 
       // F23 (r4, P1-2) — atribuição que liga o cartão a OUTRO alvo (CLIENTE), sem texto da equipe: também revisar, com o id.
       const f23 = "5561900008601";
@@ -549,9 +581,15 @@ test("Wall-e 1a: pedido de festa vira cartão no funil, sem duplicar, isolado, r
       const [k23] = await cartoes(A.empresa, [f23]);
       const cliente23 = await id("INSERT INTO clientes (nome_completo, empresa_id, telefone, whatsapp, cpf) VALUES ('Cliente da origem', $1, '5561900008698', '5561900008698', $2) RETURNING id::text", [A.empresa, cpfValido()]);
       await atribuicao.registrarSeAusente(txc as never, A.empresa, { alvoTipo: "CLIENTE", alvoId: cliente23, origemCodigo: "INSTAGRAM", metodo: "INFORMADO", contatoId: k23.id, registradoPor: A.usuario });
+      // Recorte (r5): antes da anonimização, o mesmo cartão (já com a atribuição de outro alvo) não traz registros a conferir.
+      assert.deepEqual((await contatos.detalheContato(txc, A.empresa, k23.id)).registrosParaRevisar, [], "F23: registros a conferir só depois de anonimizado (r5)");
       const ex23 = await aStg.privacidade.excluirConversaAPedido(A.sessao, { conversaId: (await conversa(A.empresa, "staging", f23)).id, motivo: "PEDIDO_DO_TITULAR" });
       assert.deepEqual((ex23 as { funil?: unknown }).funil, { anonimizados: 0, preservados: 0, revisar: 1, revisarIds: [k23.id] }, "F23: atribuição CLIENTE com o cartão = revisar, com o id");
       assert.equal((await q<{ telefone: string }>("SELECT telefone FROM marketing_contatos WHERE id=$1", [k23.id])).rows[0].telefone, TELEFONE_ANONIMIZADO, "F23: anonimizado mesmo assim");
+      const d23 = await contatos.detalheContato(txc, A.empresa, k23.id);
+      assert.ok(d23.registrosParaRevisar.some((r) => r.tipo === "ATRIBUICAO" && r.rotulo === "Origem INSTAGRAM do cliente"), "F23: o detalhe mostra a atribuição de outro alvo que motivou o revisar (r5)");
+      // Recorte: o detalhe de um cartão não anonimizado não traz registros a conferir.
+      assert.deepEqual((await contatos.detalheContato(txc, A.empresa, kStg.id)).registrosParaRevisar, [], "F23: só o anonimizado traz registros (r5)");
     } finally {
       if (ambienteAntes === undefined) delete process.env.KIDMAIS_DEPLOY_ENV; else process.env.KIDMAIS_DEPLOY_ENV = ambienteAntes;
     }

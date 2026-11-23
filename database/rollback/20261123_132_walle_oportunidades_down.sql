@@ -5,7 +5,10 @@
 -- r3: depois do primeiro vínculo gravado (inclusive anonimizado), recusa MESMO com a confirmação: o vínculo carrega a
 -- origem e a prova da anonimização a pedido do titular, e apagá-lo devolveria o cartão às colunas. Daí em diante a
 -- correção é para frente (nova migration), nunca este down.
-BEGIN;
+-- r5 (P1-2): o isolamento é fixado AQUI, não herdado da sessão. Em REPEATABLE READ o retrato seria tirado antes da espera
+-- pela trava e a checagem não veria o vínculo gravado pela captura que acabou de terminar. Em READ COMMITTED cada comando
+-- enxerga o que já foi confirmado, então a checagem depois do LOCK TABLE vê o vínculo e recusa.
+BEGIN ISOLATION LEVEL READ COMMITTED;
 SET LOCAL lock_timeout = '5s';
 SET LOCAL statement_timeout = '60s';
 SET LOCAL search_path = public, pg_catalog;

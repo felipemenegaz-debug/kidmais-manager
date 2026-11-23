@@ -96,12 +96,24 @@ function convidadosValidos(v: unknown) { const n = typeof v === 'number' ? v : t
 function travarTelefone(tx: DbExecutor, empresaId: string, digitos: string) {
   return tx.query('SELECT pg_advisory_xact_lock(hashtextextended($1, 0))', [chaveTravaTelefone(empresaId, digitos)]);
 }
+/**
+ * r5 (P1): a captura grava o cartão e o vínculo, cuja chave estrangeira pede FOR KEY SHARE na linha da empresa. A exclusão
+ * a pedido roda no Tenant Context, que trava a empresa (FOR UPDATE) ANTES da conversa. Tomando a empresa primeiro, aqui
+ * também, a ordem é a mesma (empresa → conversa → telefone → cartões): sem impasse.
+ */
+function travarEmpresa(tx: DbExecutor, empresaId: string) {
+  return tx.query('SELECT id FROM empresas WHERE id=$1 FOR KEY SHARE', [empresaId]);
+}
 
 /**
- * Captura de UMA conversa marcada, na transação de quem chama (uma por conversa). A conversa é travada (SKIP LOCKED:
- * outra captura ou o worker com ela = tenta no próximo lote). Sucesso ou descarte limpam a marca na mesma transação.
+ * Captura de UMA conversa marcada, na transação de quem chama (uma por conversa). A empresa é travada primeiro (r5) e só
+ * então a conversa (SKIP LOCKED: outra captura ou o worker com ela = tenta no próximo lote), com a pendência conferida de
+ * novo sob a trava. Sucesso ou descarte limpam a marca na mesma transação.
  */
 export async function capturarOportunidade(tx: DbExecutor, conversaId: string): Promise<ResultadoCaptura> {
+  const empresa = (await tx.query<{ empresa_id: string }>('SELECT empresa_id::text FROM whatsapp_atendimento_conversas WHERE id=$1', [conversaId])).rows[0];
+  if (!empresa) return 'SEM_PENDENCIA';
+  await travarEmpresa(tx, empresa.empresa_id);
   const linha = (await tx.query<{ c: ConversaCaptura }>('SELECT to_jsonb(c) AS c FROM whatsapp_atendimento_conversas c WHERE c.id=$1 AND c.oportunidade_pendente_em IS NOT NULL FOR UPDATE SKIP LOCKED', [conversaId])).rows[0];
   if (!linha) return 'SEM_PENDENCIA';
   const c = linha.c;
@@ -186,10 +198,18 @@ export async function capturarOportunidadesPendentes(transacao: Transacao, ambie
     const vez: { id: string | null; marca: string | null } = { id: null, marca: null };
     try {
       const r = await transacao(async tx => {
-        const escolhida = (await tx.query<{ id: string; marca: string }>(`SELECT id::text, oportunidade_pendente_em::text AS marca FROM whatsapp_atendimento_conversas WHERE oportunidade_pendente_em <= clock_timestamp() AND ambiente=$1
-           AND NOT (id = ANY($2::uuid[])) ORDER BY oportunidade_pendente_em, id LIMIT 1 FOR UPDATE SKIP LOCKED`, [ambiente, tentadas])).rows[0];
-        vez.id = escolhida?.id ?? null; vez.marca = escolhida?.marca ?? null;
-        return vez.id ? capturarOportunidade(tx, vez.id) : null;
+        // r5 (P1): a candidata é escolhida SEM trava; a empresa é travada antes da conversa e a pendência vencida é
+        // conferida de novo sob a trava da conversa (SKIP LOCKED: outra captura com ela = SEM_PENDENCIA, segue a próxima).
+        const candidata = (await tx.query<{ id: string; empresa_id: string }>(`SELECT id::text, empresa_id::text FROM whatsapp_atendimento_conversas WHERE oportunidade_pendente_em <= clock_timestamp() AND ambiente=$1
+           AND NOT (id = ANY($2::uuid[])) ORDER BY oportunidade_pendente_em, id LIMIT 1`, [ambiente, tentadas])).rows[0];
+        if (!candidata) return null;
+        vez.id = candidata.id;
+        await travarEmpresa(tx, candidata.empresa_id);
+        const escolhida = (await tx.query<{ marca: string }>(`SELECT oportunidade_pendente_em::text AS marca FROM whatsapp_atendimento_conversas
+           WHERE id=$1 AND oportunidade_pendente_em <= clock_timestamp() FOR UPDATE SKIP LOCKED`, [candidata.id])).rows[0];
+        if (!escolhida) return 'SEM_PENDENCIA' as const;
+        vez.marca = escolhida.marca;
+        return capturarOportunidade(tx, candidata.id);
       });
       if (r === null) break;
       tentadas.push(vez.id!);

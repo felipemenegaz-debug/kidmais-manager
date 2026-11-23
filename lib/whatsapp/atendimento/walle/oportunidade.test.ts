@@ -100,7 +100,7 @@ test('o módulo só depende de tipos e node:crypto (as provas em PG o montam den
 test('r4: reuso do site/manual recortado; Origens corta por ambiente; travas do down e das conversas irmãs; revisar com id', () => {
   const fonte = readFileSync('lib/marketing/contatos.ts', 'utf8');
   assert.equal(fonte.includes('cartaoWalleAberto'), false, 'sem reuso do cartão do Wall-e pelo site ou registro manual');
-  assert.ok(fonte.includes("com132 ? sqlListaContatos(CORTE_AMBIENTE_WALLE) : sqlListaContatos('')"), 'lista por ambiente');
+  assert.ok(fonte.includes("com132 ? sqlListaContatos(CORTE_AMBIENTE_WALLE, ANONIMIZADO_WALLE) : sqlListaContatos('')"), 'lista por ambiente');
   const op = readFileSync('lib/whatsapp/atendimento/walle/oportunidade.ts', 'utf8');
   const anon = op.slice(op.indexOf('export async function anonimizarOportunidadesDaConversa('));
   const trava = anon.indexOf('ORDER BY id FOR UPDATE');
@@ -111,6 +111,29 @@ test('r4: reuso do site/manual recortado; Origens corta por ambiente; travas do 
   const conversas = down.indexOf('LOCK TABLE whatsapp_atendimento_conversas IN ACCESS EXCLUSIVE MODE');
   const vinculos = down.indexOf('LOCK TABLE whatsapp_atendimento_oportunidades IN ACCESS EXCLUSIVE MODE');
   assert.ok(conversas > 0 && conversas < vinculos && vinculos < down.indexOf('IF EXISTS (SELECT 1 FROM whatsapp_atendimento_oportunidades)'), 'down trava conversa → vínculo antes de checar');
+});
+
+test('r5: empresa (FOR KEY SHARE) antes da conversa na captura e no lote; down em READ COMMITTED; cartão anonimizado só leitura', () => {
+  const op = readFileSync('lib/whatsapp/atendimento/walle/oportunidade.ts', 'utf8');
+  const cap = op.slice(op.indexOf('export async function capturarOportunidade('));
+  const emp = cap.indexOf('await travarEmpresa(tx, empresa.empresa_id)');
+  assert.ok(emp > 0 && emp < cap.indexOf('FOR UPDATE SKIP LOCKED'), 'captura: empresa antes da conversa');
+  assert.ok(op.includes("'SELECT id FROM empresas WHERE id=$1 FOR KEY SHARE'"));
+  const lote = op.slice(op.indexOf('const candidata = '));
+  const empLote = lote.indexOf('await travarEmpresa(tx, candidata.empresa_id)');
+  assert.ok(empLote > 0 && empLote < lote.indexOf('FOR UPDATE SKIP LOCKED'), 'lote: empresa antes da conversa');
+  assert.equal(lote.slice(0, empLote).includes('FOR UPDATE'), false, 'candidata escolhida sem trava');
+  assert.ok(lote.includes('WHERE id=$1 AND oportunidade_pendente_em <= clock_timestamp() FOR UPDATE SKIP LOCKED'), 'pendência revalidada sob a trava');
+  const down = readFileSync('database/rollback/20261123_132_walle_oportunidades_down.sql', 'utf8');
+  assert.match(down, /^BEGIN ISOLATION LEVEL READ COMMITTED;$/m, 'down fixa o isolamento');
+  assert.doesNotMatch(down, /^BEGIN;$/m);
+  const contatos = readFileSync('lib/marketing/contatos.ts', 'utf8');
+  const acao = contatos.slice(contatos.indexOf('export async function executarAcaoContato('));
+  const guarda = acao.indexOf('MARKETING_CONTATO_ANONIMIZADO');
+  assert.ok(guarda > 0 && guarda < acao.indexOf('if (acao.acao === "status")'),'guarda antes das ações de edição');
+  const tela = readFileSync('components/admin/marketing/MarketingOrigens.tsx', 'utf8');
+  assert.ok(tela.includes('const editavel = podeEditar && !c?.anonimizado;'));
+  assert.ok(tela.includes('podeEditar && !c.anonimizado && !c.fechamentoId'), 'Abrir negociação some no anonimizado');
 });
 
 test('worker marca no MESMO UPDATE da memória (r2: atômico) e captura ao fim do lote; exclusão a pedido do titular anonimiza', () => {
