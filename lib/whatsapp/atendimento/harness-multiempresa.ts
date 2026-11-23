@@ -19,6 +19,7 @@ import * as supressao from "../../satisfacao/supressao.ts";
 import * as preferencias from "../../marketing/automacoes/preferencias.ts";
 import * as entendimento from "./walle/entendimento.ts";
 import * as oportunidade from "./walle/oportunidade.ts";
+import * as motivoFalha from "./motivo-falha.ts";
 import * as contextoWallE from "./walle/contexto.ts";
 import * as fontesWallE from "./walle/fontes-postgres.ts";
 import * as linkWallE from "./walle/link-disponibilidade.ts";
@@ -129,7 +130,7 @@ export function carregarMultiempresa() {
     "./configuracao.ts": configuracao, "./core.ts": core, "./arquivos.ts": arquivos, "./walle/oportunidade.ts": oportunidade,
   }).modulo as typeof import("./privacidade.ts");
   const worker = carregarComponente("lib/whatsapp/atendimento/worker.ts", {
-    "../../db/postgres.ts": postgres, "./configuracao.ts": configuracao, "./core.ts": core, "./service.ts": servico, "./transporte.ts": transporteSemRede, "./arquivos.ts": arquivos, "./multiempresa.ts": multiempresa, "./walle/oportunidade.ts": oportunidade,
+    "../../db/postgres.ts": postgres, "./configuracao.ts": configuracao, "./core.ts": core, "./service.ts": servico, "./transporte.ts": transporteSemRede, "./arquivos.ts": arquivos, "./multiempresa.ts": multiempresa, "./walle/oportunidade.ts": oportunidade, "./motivo-falha.ts": motivoFalha,
   }).modulo as typeof import("./worker.ts");
   const meta = carregarComponente("lib/whatsapp/atendimento/meta.ts", {
     "../../db/postgres.ts": postgres, "../credencial.ts": credencial, "./configuracao.ts": configuracao, "./core.ts": core, "./service.ts": servico, "./transporte.ts": transporteSemRede, "./multiempresa.ts": multiempresa,

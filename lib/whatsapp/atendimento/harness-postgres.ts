@@ -17,6 +17,7 @@ import * as reautenticacao from "../../perfil/reautenticacao.ts";
 import * as entendimento from "./walle/entendimento.ts";
 // Wall-e 1a (132): captura do funil e anonimização REAIS no worker e na privacidade (sem a 132, nada fazem).
 import * as oportunidade from "./walle/oportunidade.ts";
+import * as motivoFalha from "./motivo-falha.ts";
 // Pesquisa de satisfação (110): módulos REAIS; sem a tabela da 110 no modelo, PARAR não suprime nada.
 import * as supressao from "../../satisfacao/supressao.ts";
 import * as preferencias from "../../marketing/automacoes/preferencias.ts";
@@ -69,7 +70,7 @@ export function carregarAtendimento(empresaPiloto: string, ambiente = "staging")
     "./configuracao.ts": configuracao, "./core.ts": core, "./arquivos.ts": arquivos, "./walle/oportunidade.ts": oportunidade,
   }).modulo as typeof import("./privacidade.ts");
   const worker = carregarComponente("lib/whatsapp/atendimento/worker.ts", {
-    "../../db/postgres.ts": postgres, "./configuracao.ts": configuracao, "./core.ts": core, "./service.ts": servico, "./transporte.ts": transporteSemRede, "./arquivos.ts": arquivos, "./multiempresa.ts": multiempresa, "./walle/oportunidade.ts": oportunidade,
+    "../../db/postgres.ts": postgres, "./configuracao.ts": configuracao, "./core.ts": core, "./service.ts": servico, "./transporte.ts": transporteSemRede, "./arquivos.ts": arquivos, "./multiempresa.ts": multiempresa, "./walle/oportunidade.ts": oportunidade, "./motivo-falha.ts": motivoFalha,
   }).modulo as typeof import("./worker.ts");
   // Repositório REAL de clientes (mesma consulta da aplicação), com a conexão da transação.
   const clientes = carregarComponente("lib/clientes/repositories/cliente.repository.ts", {
