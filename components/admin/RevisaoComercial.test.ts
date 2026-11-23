@@ -57,6 +57,7 @@ function montar({ gerado = false, id = contratoId, recusa }: { gerado?: boolean;
     },
     "react/jsx-runtime": { jsx: createElement, jsxs: createElement },
     "RevisaoComercial.module.css": {},
+    "MotivoPerda.module.css": {},
     "http/admin-fetch": {
       async adminFetch(url: string, init: RequestInit) {
         if (url === urlRevisao && !init.method) return Response.json({ ok: true, data: dados });
