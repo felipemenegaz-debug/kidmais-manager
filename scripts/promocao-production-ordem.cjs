@@ -84,6 +84,7 @@ const ORDEM = Object.freeze([
   pelRegistro('129', `registro de tentativas no banco: bootstrap único por ${REGISTRO} --ambiente production --aplicar-129-bootstrap-autorizado --backup "<registro-do-backup>"`),
   pelRegistro('130', `pré-reserva manual; aplicar só por ${REGISTRO} --ambiente production --aplicar-130-autorizado --backup "<registro-do-backup>" (o genérico recusa)`),
   pelRegistro('131', `agenda da pré-reserva; exige a 130; aplicar só por ${REGISTRO} --ambiente production --aplicar-131-autorizado --backup "<registro-do-backup>" (o genérico recusa)`),
+  pelRegistro('133', `ocupações da agenda por empresa (função nova; o código funciona sem ela); exige a 131; aplicar só por ${REGISTRO} --ambiente production --aplicar-133-autorizado --backup "<registro-do-backup>" (o genérico recusa)`),
 ].map(congelar));
 
 /** Só os passos que rodam (sem a 098 excluída nem a 099/105 já aplicadas). */
