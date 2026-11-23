@@ -37,7 +37,7 @@ const base = (w: typeof WALLE_132) => `WITH alvos AS (
 export async function listarOportunidades(tx: DbExecutor,empresaId: string,responsavelId: string | null = null): Promise<Oportunidade[]> {
   await exigirSchema(tx);
   const com132 = (await tx.query<{ ok: boolean }>("SELECT to_regclass('public.whatsapp_atendimento_oportunidades') IS NOT NULL AS ok")).rows[0]?.ok;
-  const r = await tx.query<Omit<Oportunidade,'etapa'|'href'>>(base(com132 ? WALLE_132 : SEM_132),[empresaId,responsavelId]);
+  const r = await tx.query<Omit<Oportunidade,'etapa'|'href'>>(com132 ? base(WALLE_132) : base(SEM_132),[empresaId,responsavelId]);
   // Cartão do Wall-e abre a conversa (a tela de atendimento confere o acesso); os demais seguem como antes.
   return r.rows.map(v=>({...v,etapa:etapaDoEstado(v.status,v.tipo==='CONTATO')!,href:v.tipo==='CONTATO'
     ? (v.origemWalle && v.conversaId ? `/admin/atendimento?conversa=${encodeURIComponent(v.conversaId)}` : v.clienteId ? `/clientes/${v.clienteId}` : '/admin/marketing/origens') : `/admin/fechamentos/${v.id}/revisao`}));

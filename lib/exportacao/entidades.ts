@@ -336,6 +336,7 @@ const BASE: readonly Entidade[] = [
     { arquivo: 'whatsapp/controles_contato', tabela: 'whatsapp_atendimento_controles_contato', grupo: 'WhatsApp', descricao: 'Controles por contato (não contatar, sem automático).', onde: EMP },
     { arquivo: 'whatsapp/privacidade', tabela: 'whatsapp_atendimento_privacidade', grupo: 'WhatsApp', descricao: 'Pedidos de privacidade atendidos.', onde: EMP },
     { arquivo: 'whatsapp/auditoria', tabela: 'whatsapp_atendimento_auditoria', grupo: 'WhatsApp', descricao: 'Auditoria do atendimento.', onde: EMP },
+    { arquivo: 'whatsapp/oportunidades', tabela: 'whatsapp_atendimento_oportunidades', grupo: 'WhatsApp', descricao: 'Vínculo entre a conversa e o cartão do funil criado pelo Wall-e (ambiente, cliente vinculado e anonimização).', onde: EMP, migracao: '132' },
 
     // Importação de documentos e skills (IA)
     { arquivo: 'ia/documentos', tabela: 'ia_documentos', grupo: 'Importações', descricao: 'Documentos enviados para leitura.', onde: EMP },
