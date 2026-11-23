@@ -196,7 +196,8 @@ export function AcoesPedido({ contato: c, podeEditar }: { contato: ContatoLista;
     const clienteId = c.clienteId ?? (await enviarMarketing<{clienteId: string}>('/api/admin/marketing/contatos',{acao:'preparar-negociacao',id:c.id})).clienteId;
     router.push(linkNegociacao({...c,clienteId}));
   } catch(e) {setErro(e instanceof Error?e.message:'Não foi possível abrir.');setAbrindo(false);} }
-  const chamar=linkChamar(c.telefone,c.nome);
+  // r6 (P3-1): o anonimizado guarda um telefone neutro; nunca há atalho para chamar.
+  const chamar=c.anonimizado ? null : linkChamar(c.telefone,c.nome);
   return <div className={styles.acoes}>{podeEditar && !c.anonimizado && !c.fechamentoId && c.status !== 'DESCARTADO' && <button className={styles.secundario} disabled={abrindo} type="button" onClick={()=>void abrir()}>Abrir negociação</button>}
     {chamar && <a className={styles.secundario} href={chamar} target="_blank" rel="noopener noreferrer">Chamar</a>}{erro && <p role="alert">{erro}</p>}</div>;
 }

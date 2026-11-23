@@ -7,6 +7,18 @@ import { herdarAcoesDoContato } from '../oportunidades/conversao.ts';
 export type OrigemVinculo = 'CRM_INTERNO' | 'FECHAMENTO_PUBLICO';
 
 /**
+ * Wall-e 1a (r5/r6): cartão do Wall-e anonimizado a pedido do titular é só leitura em TODO caminho que grava nele (ações do
+ * contato, Oportunidades, vínculo com negociação). Chamar com a linha do contato já travada (FOR UPDATE), antes de resolver
+ * ou criar cliente: vincular de novo o ligaria a alguém, e a próxima exclusão (que só alcança vínculos ainda não
+ * anonimizados) não o limparia. Sem a 132, não há cartão anonimizado.
+ */
+export async function exigirContatoNaoAnonimizado(tx: DbExecutor, contatoId: string) {
+  if ((await tx.query<{ ok: boolean }>("SELECT to_regclass('public.whatsapp_atendimento_oportunidades') IS NOT NULL AS ok")).rows[0]?.ok
+    && (await tx.query("SELECT 1 FROM whatsapp_atendimento_oportunidades WHERE contato_id = $1::uuid AND anonimizado_em IS NOT NULL", [contatoId])).rows.length)
+    throw new MarketingError("MARKETING_CONTATO_ANONIMIZADO", "Este contato foi anonimizado a pedido do titular e não pode ser alterado.", 409);
+}
+
+/**
  * Implementação única do vínculo contato → negociação e da herança de origem e campanha, na transação do chamador.
  * Usada pelo botão manual, pela conversão automática e pela transferência de ações do Funil.
  * Repetição do mesmo par não escreve e não devolve 409.
@@ -18,6 +30,7 @@ export async function vincularContatoNegociacao(
   const contato = (await tx.query<{ cliente_id: string | null; fechamento_id: string | null }>(
     'SELECT cliente_id::text,fechamento_id::text FROM marketing_contatos WHERE empresa_id=$1::uuid AND id=$2::uuid FOR UPDATE', [empresaId, acao.id])).rows[0];
   if (!contato) naoEncontrado('Contato não encontrado nesta empresa.');
+  await exigirContatoNaoAnonimizado(tx, acao.id);
   // vincular-negociacao: a negociação herda a origem do contato (se ainda não tiver uma). Contrato herda da negociação.
   if (contato.fechamento_id && contato.fechamento_id !== acao.fechamentoId) throw new MarketingError("MARKETING_CONTATO_CONVERTIDO", "Contato já vinculado a uma negociação.", 409);
   if (!contato.cliente_id) throw new MarketingError("MARKETING_CONTATO_SEM_CLIENTE", "Vincule o contato a um cliente antes da negociação.", 409);

@@ -1,6 +1,8 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { carregarComponente, cssFalso, elementos, texto, tique } from '../teste-componente.ts';
+import * as acoesUi from '../../../lib/marketing/acoes-ui.ts';
+import { TELEFONE_ANONIMIZADO } from '../../../lib/whatsapp/atendimento/walle/oportunidade.ts';
 
 // Wall-e 1a r4 (P1-2): o link "a revisar" da Privacidade do atendimento abre /admin/marketing/origens?contato=<id> e a
 // tela abre direto o detalhe desse cartão (carregado pela API, que corta por empresa e ambiente). Id fora do formato: nada.
@@ -16,7 +18,7 @@ function carregar(urls: string[], respostaDetalhe: unknown = null) {
   };
   return { h: carregarComponente('components/admin/marketing/MarketingOrigens.tsx', {
     'next/link': { default: (p: { children?: unknown }) => p.children }, 'next/navigation': { useRouter: () => ({ push: () => undefined }) },
-    '@/lib/clientes/utils': { statusFechamentoLabel: () => '' }, '@/lib/marketing/acoes-ui': { linkChamar: () => '', linkNegociacao: () => '' },
+    '@/lib/clientes/utils': { statusFechamentoLabel: () => '' }, '@/lib/marketing/acoes-ui': acoesUi,
     '@/lib/http/admin-fetch': { adminFetch: async () => ({ ok: true, json: async () => ({}) }) },
     '@/lib/marketing/apresentacao': { clientesDaBusca: () => [], dataBr: () => '', dataHoraBr: (v: string) => v, ROTULO_STATUS_CONTATO: {} },
     '../AdminPrimaryButton': { AdminPrimaryButton: () => null }, './AtribuicaoExplicada': { AtribuicaoExplicada: () => null },
@@ -84,4 +86,24 @@ test('r5 (P2): cartão anonimizado é só leitura e mostra os registros da equip
   assert.match(texto(editavel), /Buscar/);
   assert.equal(elementos(editavel).some((e) => e.props['data-registro-revisar']), false);
   assert.match(texto(carregar([]).h.render('AcoesPedido', { contato: { ...contato, anonimizado: false }, podeEditar: true })), /Abrir negociação/);
+});
+
+test('r6 (P3-1): cartão anonimizado nunca oferece "Chamar" (linkChamar real, telefone neutro de verdade)', () => {
+  const base = {
+    id: K, nome: 'Contato anonimizado', canal: 'WHATSAPP', recebidoEm: '2026-11-23T10:00:00Z', status: 'NOVO', clienteId: null, clienteNome: null,
+    email: null, dataDesejada: null, convidados: null, fechamentoId: null, vinculoCliente: 'SEM_CLIENTE', anonimizado: true,
+  };
+  const chamar = (contato: Record<string, unknown>, podeEditar = true) =>
+    elementos(carregar([]).h.render('AcoesPedido', { contato, podeEditar })).filter((e) => typeof e.props.href === 'string' && e.props.href.startsWith('https://wa.me/'));
+  // O telefone que a exclusão grava de fato, com a função real: nenhum link.
+  assert.equal(TELEFONE_ANONIMIZADO, '0000000000');
+  assert.equal(acoesUi.linkChamar(TELEFONE_ANONIMIZADO, 'Contato anonimizado'), null);
+  assert.deepEqual(chamar({ ...base, telefone: TELEFONE_ANONIMIZADO }), []);
+  assert.deepEqual(chamar({ ...base, telefone: TELEFONE_ANONIMIZADO }, false), []);
+  // A tela também esconde pelo `anonimizado`, independente do número (proteção própria, não só do formato).
+  assert.deepEqual(chamar({ ...base, telefone: '5561999990000' }), []);
+  // Controle: o mesmo cartão sem anonimização e com número real oferece "Chamar".
+  const controle = chamar({ ...base, anonimizado: false, nome: 'Ana', telefone: '5561999990000' });
+  assert.equal(controle.length, 1);
+  assert.match(String(controle[0].props.href), /^https:\/\/wa\.me\/5561999990000\?text=/);
 });

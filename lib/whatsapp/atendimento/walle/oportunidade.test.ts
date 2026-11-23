@@ -116,24 +116,52 @@ test('r4: reuso do site/manual recortado; Origens corta por ambiente; travas do 
 test('r5: empresa (FOR KEY SHARE) antes da conversa na captura e no lote; down em READ COMMITTED; cartão anonimizado só leitura', () => {
   const op = readFileSync('lib/whatsapp/atendimento/walle/oportunidade.ts', 'utf8');
   const cap = op.slice(op.indexOf('export async function capturarOportunidade('));
-  const emp = cap.indexOf('await travarEmpresa(tx, empresa.empresa_id)');
+  const emp = cap.indexOf('await travarEmpresa(tx, escopo.empresaId)');
   assert.ok(emp > 0 && emp < cap.indexOf('FOR UPDATE SKIP LOCKED'), 'captura: empresa antes da conversa');
   assert.ok(op.includes("'SELECT id FROM empresas WHERE id=$1 FOR KEY SHARE'"));
   const lote = op.slice(op.indexOf('const candidata = '));
   const empLote = lote.indexOf('await travarEmpresa(tx, candidata.empresa_id)');
   assert.ok(empLote > 0 && empLote < lote.indexOf('FOR UPDATE SKIP LOCKED'), 'lote: empresa antes da conversa');
   assert.equal(lote.slice(0, empLote).includes('FOR UPDATE'), false, 'candidata escolhida sem trava');
-  assert.ok(lote.includes('WHERE id=$1 AND oportunidade_pendente_em <= clock_timestamp() FOR UPDATE SKIP LOCKED'), 'pendência revalidada sob a trava');
+  assert.ok(lote.includes('WHERE id=$1 AND empresa_id=$2 AND ambiente=$3 AND oportunidade_pendente_em <= clock_timestamp() FOR UPDATE SKIP LOCKED'), 'pendência e escopo revalidados sob a trava (r6)');
   const down = readFileSync('database/rollback/20261123_132_walle_oportunidades_down.sql', 'utf8');
   assert.match(down, /^BEGIN ISOLATION LEVEL READ COMMITTED;$/m, 'down fixa o isolamento');
   assert.doesNotMatch(down, /^BEGIN;$/m);
   const contatos = readFileSync('lib/marketing/contatos.ts', 'utf8');
   const acao = contatos.slice(contatos.indexOf('export async function executarAcaoContato('));
-  const guarda = acao.indexOf('MARKETING_CONTATO_ANONIMIZADO');
+  const guarda = acao.indexOf('await exigirContatoNaoAnonimizado(tx, acao.id);');
   assert.ok(guarda > 0 && guarda < acao.indexOf('if (acao.acao === "status")'),'guarda antes das ações de edição');
   const tela = readFileSync('components/admin/marketing/MarketingOrigens.tsx', 'utf8');
   assert.ok(tela.includes('const editavel = podeEditar && !c?.anonimizado;'));
   assert.ok(tela.includes('podeEditar && !c.anonimizado && !c.fechamentoId'), 'Abrir negociação some no anonimizado');
+});
+
+test('r6: anonimizado recusado em Oportunidades e na conversão; empresa antes do telefone no site; registros só da Gestão; escopo na releitura; lote com varredura; histórico pela empresa; sem Chamar', () => {
+  const conv = readFileSync('lib/marketing/conversao.ts', 'utf8');
+  assert.ok(conv.includes('throw new MarketingError("MARKETING_CONTATO_ANONIMIZADO", "Este contato foi anonimizado a pedido do titular e não pode ser alterado.", 409);'));
+  const vinc = conv.slice(conv.indexOf('export async function vincularContatoNegociacao('));
+  const gVinc = vinc.indexOf('await exigirContatoNaoAnonimizado(tx, acao.id);');
+  assert.ok(gVinc > vinc.indexOf('FOR UPDATE') && gVinc < vinc.indexOf('UPDATE marketing_contatos SET fechamento_id'), 'conversão: guarda com o contato travado, antes de gravar');
+  const serv = readFileSync('lib/oportunidades/service.ts', 'utf8');
+  const alvo = serv.slice(serv.indexOf('export async function clienteDoAlvo('));
+  const gAlvo = alvo.indexOf('if (contato) await exigirContatoNaoAnonimizado(tx, alvo.id);');
+  assert.ok(gAlvo > alvo.indexOf('FOR UPDATE') && gAlvo < alvo.indexOf('clienteDoContato(tx'), 'Oportunidades: guarda com o cartão travado, antes de resolver cliente');
+  const contatos = readFileSync('lib/marketing/contatos.ts', 'utf8');
+  const trava = contatos.slice(contatos.indexOf('async function travarTelefoneNoFunil('));
+  assert.ok(trava.indexOf("FOR KEY SHARE") > 0 && trava.indexOf("FOR KEY SHARE") < trava.indexOf('pg_advisory_xact_lock'), 'empresa antes do telefone');
+  const pub = contatos.slice(contatos.indexOf('export async function capturarContatoPublico('));
+  assert.ok(pub.indexOf('await travarTelefoneNoFunil(') < pub.indexOf('INSERT INTO marketing_contatos'), 'site: trava antes do INSERT');
+  assert.ok(contatos.includes('registrosParaRevisar: base.anonimizado && opcoes.revisarPrivacidade === true ?'), 'registros só com a opção');
+  const rota = readFileSync('app/api/admin/marketing/contatos/route.ts', 'utf8');
+  assert.ok(rota.includes('detalheContato(tx, empresaId, id, { revisarPrivacidade: tenant.papelAtual === "REPRESENTANTE_AUTORIZADO" })'), 'rota: papel da sessão');
+  const op = readFileSync('lib/whatsapp/atendimento/walle/oportunidade.ts', 'utf8');
+  assert.ok(op.includes('WHERE c.id=$1 AND c.empresa_id=$2 AND c.ambiente=$3'), 'captura: escopo na releitura');
+  assert.ok(op.includes('return capturarOportunidade(tx, candidata.id, { empresaId: candidata.empresa_id, ambiente });'));
+  assert.ok(op.includes('while (tentadas < limite && vistas.length < varredura)'), 'lote: limite e varredura separados');
+  assert.ok(op.includes("if (r !== 'SEM_PENDENCIA') { saida.capturas++; tentadas++; }"), 'SEM_PENDENCIA não gasta o limite');
+  assert.ok(op.includes("eventos_historico_cliente h JOIN clientes cl ON cl.id=h.cliente_id AND cl.empresa_id=k.empresa_id"), 'exclusão: histórico pela empresa');
+  const tela = readFileSync('components/admin/marketing/MarketingOrigens.tsx', 'utf8');
+  assert.ok(tela.includes('const chamar=c.anonimizado ? null : linkChamar(c.telefone,c.nome);'), 'sem Chamar no anonimizado');
 });
 
 test('worker marca no MESMO UPDATE da memória (r2: atômico) e captura ao fim do lote; exclusão a pedido do titular anonimiza', () => {

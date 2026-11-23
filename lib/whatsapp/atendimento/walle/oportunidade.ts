@@ -110,11 +110,14 @@ function travarEmpresa(tx: DbExecutor, empresaId: string) {
  * então a conversa (SKIP LOCKED: outra captura ou o worker com ela = tenta no próximo lote), com a pendência conferida de
  * novo sob a trava. Sucesso ou descarte limpam a marca na mesma transação.
  */
-export async function capturarOportunidade(tx: DbExecutor, conversaId: string): Promise<ResultadoCaptura> {
-  const empresa = (await tx.query<{ empresa_id: string }>('SELECT empresa_id::text FROM whatsapp_atendimento_conversas WHERE id=$1', [conversaId])).rows[0];
-  if (!empresa) return 'SEM_PENDENCIA';
-  await travarEmpresa(tx, empresa.empresa_id);
-  const linha = (await tx.query<{ c: ConversaCaptura }>('SELECT to_jsonb(c) AS c FROM whatsapp_atendimento_conversas c WHERE c.id=$1 AND c.oportunidade_pendente_em IS NOT NULL FOR UPDATE SKIP LOCKED', [conversaId])).rows[0];
+export async function capturarOportunidade(tx: DbExecutor, conversaId: string, esperado?: { empresaId: string; ambiente: string }): Promise<ResultadoCaptura> {
+  const escopo = esperado ?? (await tx.query<{ empresaId: string; ambiente: string }>('SELECT empresa_id::text AS "empresaId", ambiente FROM whatsapp_atendimento_conversas WHERE id=$1', [conversaId])).rows[0];
+  if (!escopo) return 'SEM_PENDENCIA';
+  await travarEmpresa(tx, escopo.empresaId);
+  // r6 (P2-1): a releitura sob a trava confirma o escopo que levou à trava da empresa (empresa e ambiente esperados);
+  // qualquer diferença = SEM_PENDENCIA, nada gravado.
+  const linha = (await tx.query<{ c: ConversaCaptura }>(`SELECT to_jsonb(c) AS c FROM whatsapp_atendimento_conversas c WHERE c.id=$1 AND c.empresa_id=$2 AND c.ambiente=$3
+     AND c.oportunidade_pendente_em IS NOT NULL FOR UPDATE SKIP LOCKED`, [conversaId, escopo.empresaId, escopo.ambiente])).rows[0];
   if (!linha) return 'SEM_PENDENCIA';
   const c = linha.c;
   const limpar = () => tx.query('UPDATE whatsapp_atendimento_conversas SET oportunidade_pendente_em=NULL WHERE id=$1', [c.id]);
@@ -190,37 +193,44 @@ function codigoFalha(erro: unknown) {
  * uma escolhida e capturada na MESMA transação (FOR UPDATE SKIP LOCKED). A que falha é adiada em transação separada
  * (marca = agora + espera) e não volta neste lote: conversas que falham sempre não travam as outras. Sem a 132, nada.
  */
-export async function capturarOportunidadesPendentes(transacao: Transacao, ambiente: string, opcoes: { limite?: number; esperaSegundos?: number } = {}) {
+export async function capturarOportunidadesPendentes(transacao: Transacao, ambiente: string, opcoes: { limite?: number; esperaSegundos?: number; varredura?: number } = {}) {
   const limite = opcoes.limite ?? 10, espera = opcoes.esperaSegundos ?? ESPERA_PADRAO_SEGUNDOS;
+  // r6 (P2-2): `limite` conta só as conversas TENTADAS de fato (captura ou falha); as que outra transação segura
+  // (SEM_PENDENCIA) não gastam o limite, mas a varredura é limitada (`varredura` candidatas distintas, nunca repetidas):
+  // 10 pendências antigas travadas não impedem a captura das seguintes.
+  const varredura = Math.max(1, opcoes.varredura ?? limite * 5);
   const saida = { capturas: 0, adiadas: 0, falhas: [] as string[], resultados: [] as ResultadoCaptura[] };
-  const tentadas: string[] = [];
-  while (tentadas.length < limite) {
+  const vistas: string[] = [];
+  let tentadas = 0;
+  while (tentadas < limite && vistas.length < varredura) {
     const vez: { id: string | null; marca: string | null } = { id: null, marca: null };
     try {
       const r = await transacao(async tx => {
         // r5 (P1): a candidata é escolhida SEM trava; a empresa é travada antes da conversa e a pendência vencida é
         // conferida de novo sob a trava da conversa (SKIP LOCKED: outra captura com ela = SEM_PENDENCIA, segue a próxima).
         const candidata = (await tx.query<{ id: string; empresa_id: string }>(`SELECT id::text, empresa_id::text FROM whatsapp_atendimento_conversas WHERE oportunidade_pendente_em <= clock_timestamp() AND ambiente=$1
-           AND NOT (id = ANY($2::uuid[])) ORDER BY oportunidade_pendente_em, id LIMIT 1`, [ambiente, tentadas])).rows[0];
+           AND NOT (id = ANY($2::uuid[])) ORDER BY oportunidade_pendente_em, id LIMIT 1`, [ambiente, vistas])).rows[0];
         if (!candidata) return null;
         vez.id = candidata.id;
         await travarEmpresa(tx, candidata.empresa_id);
+        // r6 (P2-1): a releitura sob a trava exige a mesma empresa (a travada) e o ambiente do lote.
         const escolhida = (await tx.query<{ marca: string }>(`SELECT oportunidade_pendente_em::text AS marca FROM whatsapp_atendimento_conversas
-           WHERE id=$1 AND oportunidade_pendente_em <= clock_timestamp() FOR UPDATE SKIP LOCKED`, [candidata.id])).rows[0];
+           WHERE id=$1 AND empresa_id=$2 AND ambiente=$3 AND oportunidade_pendente_em <= clock_timestamp() FOR UPDATE SKIP LOCKED`, [candidata.id, candidata.empresa_id, ambiente])).rows[0];
         if (!escolhida) return 'SEM_PENDENCIA' as const;
         vez.marca = escolhida.marca;
-        return capturarOportunidade(tx, candidata.id);
+        return capturarOportunidade(tx, candidata.id, { empresaId: candidata.empresa_id, ambiente });
       });
       if (r === null) break;
-      tentadas.push(vez.id!);
+      vistas.push(vez.id!);
       saida.resultados.push(r);
-      if (r !== 'SEM_PENDENCIA') saida.capturas++;
+      if (r !== 'SEM_PENDENCIA') { saida.capturas++; tentadas++; }
     } catch (erro) {
       if (!vez.id) {
         if ((erro as { code?: string }).code !== '42703') saida.falhas.push(codigoFalha(erro)); // 42703: 132 ainda não aplicada
         break;
       }
-      tentadas.push(vez.id);
+      vistas.push(vez.id);
+      tentadas++;
       saida.falhas.push(codigoFalha(erro));
       try {
         // Só a marca que falhou é adiada (r3): uma marca nova gravada pelo worker depois do rollback fica como está.
@@ -268,7 +278,8 @@ export async function anonimizarOportunidadesDaConversa(tx: DbExecutor, empresa:
   const vinculos = (await tx.query<{ contato_id: string; convertido: boolean; residuo: boolean }>(`SELECT o.contato_id::text, k.fechamento_id IS NOT NULL AS convertido,
        (EXISTS (SELECT 1 FROM marketing_atribuicoes a WHERE a.empresa_id=k.empresa_id AND (a.contato_id=k.id OR (a.alvo_tipo='CONTATO' AND a.alvo_id=k.id))
           AND (a.detalhe IS NOT NULL OR a.motivo IS NOT NULL OR a.alvo_tipo<>'CONTATO'))
-        OR EXISTS (SELECT 1 FROM eventos_historico_cliente h WHERE h.entidade_tipo='MARKETING_CONTATO' AND h.entidade_id=k.id)) AS residuo
+        OR EXISTS (SELECT 1 FROM eventos_historico_cliente h JOIN clientes cl ON cl.id=h.cliente_id AND cl.empresa_id=k.empresa_id
+          WHERE h.entidade_tipo='MARKETING_CONTATO' AND h.entidade_id=k.id)) AS residuo
      FROM whatsapp_atendimento_oportunidades o JOIN marketing_contatos k ON k.id=o.contato_id AND k.empresa_id=o.empresa_id
      WHERE o.empresa_id=$1 AND o.ambiente=$2 AND o.anonimizado_em IS NULL AND (o.conversa_id=$3 OR k.telefone = ANY($4::text[]))
      ORDER BY o.contato_id FOR UPDATE OF o, k`, [empresa, ambiente, conversaId, variantes])).rows;

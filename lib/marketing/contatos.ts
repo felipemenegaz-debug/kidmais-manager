@@ -1,4 +1,4 @@
-import { vincularContatoNegociacao } from './conversao.ts';
+import { exigirContatoNaoAnonimizado, vincularContatoNegociacao } from './conversao.ts';
 import { z } from "zod";
 import type { DbExecutor } from "../db/contracts.ts";
 import { buscarClientesPorContatoExato, buscarClientesPorEmailExato, criarCliente } from "../clientes/repositories/cliente.repository.ts";
@@ -120,7 +120,13 @@ export function chaveTravaTelefone(empresaId: string, digitos: string) {
   return `funil-telefone|${empresaId}|${/^55\d{10,11}$/.test(digitos) ? digitos.slice(2) : digitos}`;
 }
 async function travarTelefoneNoFunil(tx: DbExecutor, empresaId: string, telefone: string | null | undefined) {
-  if (telefone) await tx.query('SELECT pg_advisory_xact_lock(hashtextextended($1, 0))', [chaveTravaTelefone(empresaId, telefone)]);
+  if (!telefone) return;
+  // Wall-e 1a r6 (P1-2): a empresa ANTES do telefone, como na captura do Wall-e e na exclusão a pedido (empresa → conversa →
+  // telefone → cartões). Sem isto, o INSERT do cartão pediria a empresa (FK, KEY SHARE) segurando o telefone, enquanto a
+  // exclusão segura a empresa (FOR UPDATE do Tenant Context) e espera o telefone: impasse. No registro manual a entrada
+  // administrativa já tem a empresa travada; repetir a trava na mesma transação não espera.
+  await tx.query('SELECT id FROM empresas WHERE id = $1::uuid FOR KEY SHARE', [empresaId]);
+  await tx.query('SELECT pg_advisory_xact_lock(hashtextextended($1, 0))', [chaveTravaTelefone(empresaId, telefone)]);
 }
 export function variantesTelefone(digitos: string) {
   const v = new Set([digitos]);
@@ -243,7 +249,11 @@ async function registrosParaRevisar(tx: DbExecutor, empresaId: string, contatoId
   return r.rows;
 }
 
-export async function detalheContato(tx: DbExecutor, empresaId: string, contatoId: string): Promise<DetalheContato> {
+/**
+ * r6 (P1-3): `revisarPrivacidade` vem da sessão no servidor (papel da Gestão, o mesmo que revisa a Privacidade do
+ * atendimento); quem só vê Marketing recebe a lista vazia. Padrão fechado: sem a opção, nada.
+ */
+export async function detalheContato(tx: DbExecutor, empresaId: string, contatoId: string, opcoes: { revisarPrivacidade?: boolean } = {}): Promise<DetalheContato> {
   const base = (await listarContatosPorId(tx, empresaId, contatoId));
   if (!base) naoEncontrado("Contato não encontrado nesta empresa.");
   const mensagem = await tx.query<{ mensagem: string | null }>(`SELECT mensagem FROM marketing_contatos WHERE id = $1::uuid AND empresa_id = $2::uuid`, [contatoId, empresaId]);
@@ -260,7 +270,7 @@ export async function detalheContato(tx: DbExecutor, empresaId: string, contatoI
   return {
     ...base, mensagem: mensagem.rows[0]?.mensagem ?? null, atribuicoes, origemCliente,
     fechamentosDoCliente: fechamentos.map((f) => ({ id: f.id, dataEvento: f.data_evento, status: f.status, origemDefinida: f.origem_definida, vinculadoAOutroContato: f.outro })),
-    registrosParaRevisar: base.anonimizado ? await registrosParaRevisar(tx, empresaId, contatoId) : [],
+    registrosParaRevisar: base.anonimizado && opcoes.revisarPrivacidade === true ? await registrosParaRevisar(tx, empresaId, contatoId) : [],
   };
 }
 
@@ -344,9 +354,7 @@ export async function executarAcaoContato(
   // r5 (P2): cartão do Wall-e anonimizado a pedido do titular é só leitura. Vincular cliente ou negociação, abrir negociação
   // (que criaria cliente com os dados neutros) ou mudar a situação voltaria a ligá-lo a alguém, e a próxima exclusão (que só
   // alcança vínculos ainda não anonimizados) não o limparia de novo. Sem a 132, não há cartão anonimizado.
-  if ((await tx.query<{ ok: boolean }>("SELECT to_regclass('public.whatsapp_atendimento_oportunidades') IS NOT NULL AS ok")).rows[0]?.ok
-    && (await tx.query("SELECT 1 FROM whatsapp_atendimento_oportunidades WHERE contato_id = $1::uuid AND anonimizado_em IS NOT NULL", [acao.id])).rows.length)
-    throw new MarketingError("MARKETING_CONTATO_ANONIMIZADO", "Este contato foi anonimizado a pedido do titular e não pode ser alterado.", 409);
+  await exigirContatoNaoAnonimizado(tx, acao.id);
   if (acao.acao === "status") {
     if (contato.status === "CONVERTIDO") throw new MarketingError("MARKETING_CONTATO_CONVERTIDO", "Contato já vinculado a uma negociação.", 409);
     if (contato.status === 'DESCARTADO') throw new MarketingError('CONTATO_ENCERRADO','Este contato já foi encerrado.',409);
