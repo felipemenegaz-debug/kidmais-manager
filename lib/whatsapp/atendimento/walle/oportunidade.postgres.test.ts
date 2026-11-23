@@ -10,7 +10,7 @@ import * as modeloOportunidades from "../../../oportunidades/modelo.ts";
 import { carregarAtendimento, cod, withTransaction } from "../harness-postgres.ts";
 import type { ConteudoSaida } from "../transporte.ts";
 import type { PortaWallE } from "../worker.ts";
-import { NOME_ANONIMIZADO, RESUMO_ANONIMIZADO, TELEFONE_ANONIMIZADO, capturarOportunidade, capturarOportunidadesPendentes } from "./oportunidade.ts";
+import { NOME_ANONIMIZADO, RESUMO_ANONIMIZADO, TELEFONE_ANONIMIZADO, capturarOportunidade, capturarOportunidadesPendentes, reiniciarCursorOportunidades } from "./oportunidade.ts";
 import * as ambienteOportunidades from "../../../oportunidades/ambiente.ts";
 import type { Entendimento, ResultadoWallE, TipoIntencao } from "./tipos.ts";
 
@@ -175,9 +175,14 @@ test("Wall-e 1a: pedido de festa vira cartão no funil, sem duplicar, isolado, r
       const naBarreira = "SELECT pid FROM pg_locks WHERE locktype='advisory' AND classid=7426 AND objid=26 AND objsubid=2 AND NOT granted";
       assert.equal(await esperarAte(q, naBarreira), true, "F26: a captura parou na barreira, antes de gravar o cartão");
       const pidCaptura = Number((await q<{ pid: number }>(naBarreira)).rows[0].pid);
+      // r7 (P3-A): cada transação do harness abre conexão nova; a exclusão é a ÚNICA sessão que aparece depois desta foto.
+      const antes26 = (await q<{ pid: number }>("SELECT pid FROM pg_stat_activity WHERE datname=current_database()")).rows.map((r) => Number(r.pid));
       const exclusao26 = bStg.privacidade.excluirConversaAPedido(B.sessao, { conversaId: cv26, motivo: "PEDIDO_DO_TITULAR" });
-      assert.equal(await esperarAte(q, `SELECT 1 FROM pg_stat_activity WHERE datname=current_database() AND pid <> ${pidCaptura} AND ${pidCaptura} = ANY(pg_blocking_pids(pid))`), true,
-        "F26: a exclusão espera a captura (pelo PID)");
+      const novas26 = `SELECT pid FROM pg_stat_activity WHERE datname=current_database() AND NOT (pid = ANY(ARRAY[${antes26.join(",")}]::int[]))`;
+      assert.equal(await esperarAte(q, `SELECT 1 FROM (${novas26}) n WHERE ${pidCaptura} = ANY(pg_blocking_pids(n.pid))`), true, "F26: a exclusão chegou à espera");
+      const pidExclusao = (await q<{ pid: number }>(novas26)).rows.map((r) => Number(r.pid));
+      assert.equal(pidExclusao.length, 1, "F26: só a exclusão é sessão nova");
+      assert.deepEqual((await q<{ b: number[] }>("SELECT pg_blocking_pids($1::int) AS b", [pidExclusao[0]])).rows[0].b.map(Number), [pidCaptura], "F26: o par exato (exclusão espera a captura, pelo PID)");
       await barreira.query("SELECT pg_advisory_unlock(7426, 26)");
       const [res26, ex26] = await Promise.all([captura26, exclusao26]);
       assert.equal(res26, "CRIADO", "F26: a captura termina (sem 40P01)");
@@ -198,25 +203,31 @@ test("Wall-e 1a: pedido de festa vira cartão no funil, sem duplicar, isolado, r
     assert.notEqual((await q<{ m: string | null }>("SELECT oportunidade_pendente_em::text AS m FROM whatsapp_atendimento_conversas WHERE id=$1", [cv27])).rows[0].m, null, "F27: a marca fica");
     await q("UPDATE whatsapp_atendimento_conversas SET oportunidade_pendente_em=NULL WHERE id=$1", [cv27]);
 
-    // F28 (r6, P2-2) — as 10 pendências mais antigas presas por outra transação não gastam o limite do lote: a 11ª é
-    // capturada. A varredura é limitada (nunca repete candidata) e, curta, para antes de chegar nela.
+    // F28 (r6, P2-2; r7, P2-A) — as pendências mais antigas presas por outra transação não gastam o limite do lote, a
+    // varredura é limitada (nunca repete candidata) e o cursor entre lotes leva o lote seguinte adiante: com as 50 mais
+    // antigas presas durante DUAS chamadas com o padrão (limite 10, varredura 50), a 51ª é capturada na segunda.
     const presas = [] as string[];
-    for (let i = 0; i < 10; i++)
-      presas.push(await id(`INSERT INTO whatsapp_atendimento_conversas (empresa_id, ambiente, contato, oportunidade_pendente_em) VALUES ($1, 'staging', $2, clock_timestamp() - make_interval(mins => 60 - $3::int)) RETURNING id::text`, [B.empresa, `55619000089${30 + i}`, i]));
+    for (let i = 0; i < 50; i++)
+      presas.push(await id(`INSERT INTO whatsapp_atendimento_conversas (empresa_id, ambiente, contato, oportunidade_pendente_em) VALUES ($1, 'staging', $2, clock_timestamp() - make_interval(mins => 120 - $3::int)) RETURNING id::text`, [B.empresa, `5561900007${100 + i}`, i]));
     const livre28 = await id(`INSERT INTO whatsapp_atendimento_conversas (empresa_id, ambiente, contato, oportunidade_pendente_em) VALUES ($1, 'staging', '5561900008940', clock_timestamp() - interval '1 minute') RETURNING id::text`, [B.empresa]);
     const c28 = await conectarDescartavel({ travar: false });
     try {
       await c28.query("BEGIN");
       await c28.query("SELECT id FROM whatsapp_atendimento_conversas WHERE id = ANY($1::uuid[]) FOR UPDATE", [presas]);
+      reiniciarCursorOportunidades();
       const curta = await capturarOportunidadesPendentes(withTransaction, "staging", { limite: 10, varredura: 5 });
       assert.deepEqual([curta.capturas, curta.resultados], [0, Array(5).fill("SEM_PENDENCIA")], "F28: varredura limitada a 5 candidatas distintas");
-      const lote28 = await capturarOportunidadesPendentes(withTransaction, "staging", { limite: 10 });
-      assert.deepEqual([lote28.capturas, lote28.resultados.filter((r) => r === "SEM_PENDENCIA").length, lote28.falhas], [1, 10, []], "F28: 10 presas não gastam o limite; a 11ª é capturada");
+      reiniciarCursorOportunidades();
+      const lote28a = await capturarOportunidadesPendentes(withTransaction, "staging");
+      assert.deepEqual([lote28a.capturas, lote28a.resultados, lote28a.falhas], [0, Array(50).fill("SEM_PENDENCIA"), []], "F28: 1ª chamada só vê as 50 presas");
+      const lote28b = await capturarOportunidadesPendentes(withTransaction, "staging");
+      assert.deepEqual([lote28b.capturas, lote28b.resultados[0], lote28b.falhas], [1, "CRIADO", []], "F28: 2ª chamada (presas ainda presas) segue do cursor e captura a 51ª (r7)");
+      assert.equal(lote28b.resultados.filter((r) => r === "SEM_PENDENCIA").length, 49, "F28: e volta ao início da fila sem repetir candidata");
       await c28.query("COMMIT");
     } finally {
       await c28.end();
     }
-    assert.equal((await q("SELECT 1 FROM whatsapp_atendimento_oportunidades WHERE conversa_id=$1", [livre28])).rows.length, 1, "F28: cartão da 11ª");
+    assert.equal((await q("SELECT 1 FROM whatsapp_atendimento_oportunidades WHERE conversa_id=$1", [livre28])).rows.length, 1, "F28: cartão da 51ª");
     await q("UPDATE whatsapp_atendimento_conversas SET oportunidade_pendente_em=NULL WHERE id = ANY($1::uuid[])", [presas]);
     // Fotografia das tabelas de Marketing (exceto o próprio contato) para provar que nenhuma automação roda (F9).
     // marketing_saidas_contato fica de fora: a 127 (guarda, não automação) registra a saída quando a conversa passa a
@@ -647,6 +658,28 @@ test("Wall-e 1a: pedido de festa vira cartão no funil, sem duplicar, isolado, r
       assert.deepEqual(await contagem22(), antes22, "F22: nenhum cliente, ação ou histórico novo (r6)");
       assert.deepEqual((await q<{ cliente_id: string | null; status: string }>("SELECT cliente_id::text, status FROM marketing_contatos WHERE id=$1", [k22.id])).rows[0], { cliente_id: null, status: "NOVO" }, "F22: cartão intacto (r6)");
 
+      // F31 (r7, P1-B) — o cartão do Wall-e de production, escondido em staging, também não é editável pelo UUID: ações do
+      // contato, Oportunidades e o vínculo direto com negociação dão "não encontrado" (404, como o detalhe) e nada muda.
+      const clientePrd = await id("INSERT INTO clientes (nome_completo, empresa_id, telefone, whatsapp, cpf) VALUES ('Cliente r7', $1, '5561900008731', '5561900008731', $2) RETURNING id::text", [A.empresa, cpfValido()]);
+      const linhaPrd = async () => (await q("SELECT cliente_id::text, status, fechamento_id::text, vinculo_cliente FROM marketing_contatos WHERE id=$1", [kPrd.id])).rows[0];
+      const acoesPrd = async () => (await q<{ n: number }>("SELECT count(*)::int AS n FROM oportunidades_acoes WHERE contato_id=$1", [kPrd.id])).rows[0].n;
+      const [antesPrd, antesAcoesPrd] = [await linhaPrd(), await acoesPrd()];
+      const erro404 = (p: Promise<unknown>) => p.then(() => null, (e: unknown) => [(e as { code?: string }).code, (e as { httpStatus?: number }).httpStatus]);
+      for (const acao of [{ acao: "status", id: kPrd.id, status: "EM_ATENDIMENTO" }, { acao: "vincular-cliente", id: kPrd.id, clienteId: clientePrd }, { acao: "preparar-negociacao", id: kPrd.id }])
+        assert.deepEqual(await erro404(contatos.executarAcaoContato(txc, A.empresa, A.usuario, contatos.esquemaAcaoContato.parse(acao))), ["MARKETING_NAO_ENCONTRADO", 404], `F31: Marketing "${acao.acao}" no cartão de production = 404`);
+      const alvoPrd = { tipo: "CONTATO" as const, id: kPrd.id };
+      assert.deepEqual(await erro404(oportunidades.executarOportunidade(txc, A.empresa, A.usuario, { acao: "agendar", alvo: alvoPrd, esperada: null, proxima: { tipo: "Ligar", data: hoje, responsavelId: A.usuario } } as never, true)), ["MARKETING_NAO_ENCONTRADO", 404], "F31: Oportunidades agendar = 404");
+      assert.deepEqual(await erro404(oportunidades.clienteDoAlvo(txc, A.empresa, alvoPrd)), ["MARKETING_NAO_ENCONTRADO", 404], "F31: clienteDoAlvo = 404");
+      assert.deepEqual(await erro404(conversao.vincularContatoNegociacao(txc, A.empresa, A.usuario, { id: kPrd.id, fechamentoId: "00000000-0000-4000-8000-000000000031" })), ["MARKETING_NAO_ENCONTRADO", 404], "F31: vincularContatoNegociacao = 404");
+      assert.deepEqual(await linhaPrd(), antesPrd, "F31: cartão de production intacto");
+      assert.equal(await acoesPrd(), antesAcoesPrd, "F31: nenhuma ação nova");
+      // Controles: o mesmo cartão é editável no próprio ambiente; o de staging, em staging; contato sem vínculo do Wall-e, sempre.
+      await conversao.exigirContatoEditavel(txc, kPrd.id, "production");
+      await conversao.exigirContatoEditavel(txc, kStg.id);
+      const semWalle = await id("INSERT INTO marketing_contatos (empresa_id, canal_atendimento, nome, telefone, chave_idempotencia, vinculo_cliente) VALUES ($1, 'TELEFONE', 'Contato manual r7', '5561900008732', 'r7-sem-walle-0000001', 'SEM_CLIENTE') RETURNING id::text", [A.empresa]);
+      await conversao.exigirContatoEditavel(txc, semWalle);
+      await conversao.exigirContatoEditavel(txc, semWalle, null);
+
       // F29 (r6, P2-3) — evento do histórico de cliente de OUTRA empresa citando o id do cartão não motiva o revisar (mesmo
       // corte do detalhe): o cartão sai anonimizado, sem revisar.
       const f29 = "5561900008602";
@@ -658,6 +691,36 @@ test("Wall-e 1a: pedido de festa vira cartão no funil, sem duplicar, isolado, r
       const ex29 = await aStg.privacidade.excluirConversaAPedido(A.sessao, { conversaId: (await conversa(A.empresa, "staging", f29)).id, motivo: "PEDIDO_DO_TITULAR" });
       assert.deepEqual((ex29 as { funil?: unknown }).funil, { anonimizados: 1, preservados: 0, revisar: 0, revisarIds: [] }, "F29: histórico de outra empresa não motiva o revisar (r6)");
       assert.deepEqual((await contatos.detalheContato(txc, A.empresa, k29.id, { revisarPrivacidade: true })).registrosParaRevisar, [], "F29: e o detalhe concorda (r6)");
+
+      // F32 (r7, P1-A) — a equipe corrigiu a origem do cartão com um motivo que identifica o titular (texto livre). Depois
+      // da exclusão a pedido, o cartão vai a revisar (texto da equipe) e a resposta do detalhe é cortada por perfil.
+      const f32 = "5561900008603";
+      await receber(aStg, f32, FESTA, "Rui WhatsApp");
+      await processar(aStg);
+      const [k32] = await cartoes(A.empresa, [f32]);
+      const MOTIVO32 = "Rui ligou do 61 99999-2929 e disse que veio pela vizinha Marta";
+      const vig32 = (await q<{ id: string }>("SELECT id::text FROM marketing_atribuicoes WHERE empresa_id=$1 AND alvo_tipo='CONTATO' AND alvo_id=$2 AND vigente", [A.empresa, k32.id])).rows[0];
+      if (vig32) await atribuicao.corrigirAtribuicao(txc as never, A.empresa, { alvoTipo: "CONTATO", alvoId: k32.id, origemCodigo: "INDICACAO", metodo: "INFORMADO", detalhe: "Marta, vizinha", contatoId: k32.id, registradoPor: A.usuario, motivo: MOTIVO32, idEsperado: vig32.id });
+      else await q("INSERT INTO marketing_atribuicoes (empresa_id, alvo_tipo, alvo_id, origem_codigo, metodo, detalhe, motivo, contato_id) VALUES ($1, 'CONTATO', $2, 'INDICACAO', 'INFORMADO', 'Marta, vizinha', $3, $2)", [A.empresa, k32.id, MOTIVO32]);
+      // Controle: antes da anonimização, o perfil Marketing vê o motivo (o corte abaixo não passa por acaso).
+      assert.ok(JSON.stringify(await contatos.detalheContato(txc, A.empresa, k32.id, { revisarPrivacidade: false })).includes(MOTIVO32), "F32: motivo visível antes da anonimização");
+      const ex32 = await aStg.privacidade.excluirConversaAPedido(A.sessao, { conversaId: (await conversa(A.empresa, "staging", f32)).id, motivo: "PEDIDO_DO_TITULAR" });
+      assert.deepEqual((ex32 as { funil?: unknown }).funil, { anonimizados: 0, preservados: 0, revisar: 1, revisarIds: [k32.id] }, "F32: motivo da equipe = revisar, com o id");
+      // r7 (P1-A): a resposta COMPLETA do detalhe para o perfil Marketing (e sem a opção) não traz o texto livre da equipe
+      // em parte alguma; a da Gestão traz (é quem revisa). As atribuições continuam listadas (origem, sem os textos).
+      for (const [perfil, opcoes] of [["Marketing", { revisarPrivacidade: false }], ["sem a opção", {}]] as const) {
+        const d = await contatos.detalheContato(txc, A.empresa, k32.id, opcoes);
+        const json = JSON.stringify(d);
+        assert.equal(d.anonimizado, true);
+        assert.ok(d.atribuicoes.some((a) => a.origemCodigo === "INDICACAO"), `F32: ${perfil} ainda vê a origem`);
+        for (const trecho of ["99999-2929", "Marta", "vizinha"]) assert.equal(json.includes(trecho), false, `F32: ${perfil} não recebe "${trecho}" na resposta (r7)`);
+      }
+      const dGestao32 = await contatos.detalheContato(txc, A.empresa, k32.id, { revisarPrivacidade: true });
+      assert.ok(dGestao32.atribuicoes.some((a) => a.motivo === MOTIVO32 && a.detalhe === "Marta, vizinha"), "F32: a Gestão recebe o motivo e o detalhe nas próprias atribuições (r7)");
+      const gestao32 = JSON.stringify(dGestao32);
+      assert.ok(gestao32.includes(MOTIVO32) && gestao32.includes("Marta, vizinha"), "F32: a Gestão recebe o motivo e o detalhe para revisar (r7)");
+      // Controle: cartão não anonimizado com motivo segue mostrando o motivo para o Marketing.
+      assert.equal(JSON.stringify(await contatos.detalheContato(txc, A.empresa, kStg.id, { revisarPrivacidade: false })).includes("Rui ligou"), false);
 
       // F30 (r6, P1-2) — formulário público do site × exclusão a pedido (empresa FOR UPDATE, depois o telefone). A "exclusão"
       // aqui segura a empresa como o Tenant Context; o formulário espera a empresa ANTES de pegar o telefone, então a
@@ -671,9 +734,17 @@ test("Wall-e 1a: pedido de festa vira cartão no funil, sem duplicar, isolado, r
         await exclusao30.query("SET LOCAL lock_timeout = '5s'");
         await exclusao30.query("SELECT id FROM empresas WHERE id=$1 FOR UPDATE", [B.empresa]);
         const pid30 = Number((await exclusao30.query<{ pid: number }>("SELECT pg_backend_pid() AS pid")).rows[0].pid);
-        const form30 = withTransaction((tx) => contatos.capturarContatoPublico(tx, { siteId: site30, empresaId: B.empresa, estabelecimentoId: null },
-          { nome: "Pedido do site", telefone: fone30, email: null, dataDesejada: null, convidados: null, mensagem: null, chave: cod("site-r6-") }, { codigoCampanha: null, utm: {}, descartados: [] } as never));
-        assert.equal(await esperarAte(q, `SELECT 1 FROM pg_stat_activity WHERE datname=current_database() AND ${pid30} = ANY(pg_blocking_pids(pid))`), true, "F30: o formulário espera a empresa");
+        // r7 (P3-A): o PID exato do formulário, lido na própria transação dele.
+        let marcarPid30!: (p: number) => void;
+        const pidForm30 = new Promise<number>((r) => { marcarPid30 = r; });
+        const form30 = withTransaction(async (tx) => {
+          marcarPid30(Number((await tx.query<{ pid: number }>("SELECT pg_backend_pid() AS pid")).rows[0].pid));
+          return contatos.capturarContatoPublico(tx, { siteId: site30, empresaId: B.empresa, estabelecimentoId: null },
+          { nome: "Pedido do site", telefone: fone30, email: null, dataDesejada: null, convidados: null, mensagem: null, chave: cod("site-r6-") }, { codigoCampanha: null, utm: {}, descartados: [] } as never);
+        });
+        const pidF30 = await pidForm30;
+        assert.equal(await esperarAte(q, `SELECT 1 FROM pg_stat_activity WHERE pid=${pidF30} AND ${pid30} = ANY(pg_blocking_pids(pid))`), true, "F30: o formulário espera a empresa");
+        assert.deepEqual((await q<{ b: number[] }>("SELECT pg_blocking_pids($1::int) AS b", [pidF30])).rows[0].b.map(Number), [pid30], "F30: o par exato (formulário espera a exclusão, pelo PID)");
         await exclusao30.query("SELECT pg_advisory_xact_lock(hashtextextended($1, 0))", [contatos.chaveTravaTelefone(B.empresa, fone30)]);
         await exclusao30.query("COMMIT");
         assert.equal((await form30).repetido, false, "F30: o formulário termina depois (sem 40P01)");

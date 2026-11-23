@@ -193,6 +193,14 @@ function codigoFalha(erro: unknown) {
  * uma escolhida e capturada na MESMA transação (FOR UPDATE SKIP LOCKED). A que falha é adiada em transação separada
  * (marca = agora + espera) e não volta neste lote: conversas que falham sempre não travam as outras. Sem a 132, nada.
  */
+/**
+ * r7 (P2-A): cursor por ambiente entre lotes (memória do processo), a última candidata vista (marca, id). O lote seguinte
+ * começa depois dela e volta ao início quando a fila acaba: 50 pendências antigas presas por outras transações não
+ * escondem a 51ª para sempre. Reiniciar o processo só volta a fila ao começo.
+ */
+const cursorDoLote = new Map<string, { marca: string; id: string }>();
+export function reiniciarCursorOportunidades() { cursorDoLote.clear(); }
+
 export async function capturarOportunidadesPendentes(transacao: Transacao, ambiente: string, opcoes: { limite?: number; esperaSegundos?: number; varredura?: number } = {}) {
   const limite = opcoes.limite ?? 10, espera = opcoes.esperaSegundos ?? ESPERA_PADRAO_SEGUNDOS;
   // r6 (P2-2): `limite` conta só as conversas TENTADAS de fato (captura ou falha); as que outra transação segura
@@ -201,17 +209,22 @@ export async function capturarOportunidadesPendentes(transacao: Transacao, ambie
   const varredura = Math.max(1, opcoes.varredura ?? limite * 5);
   const saida = { capturas: 0, adiadas: 0, falhas: [] as string[], resultados: [] as ResultadoCaptura[] };
   const vistas: string[] = [];
-  let tentadas = 0;
+  let tentadas = 0, voltouAoInicio = false;
   while (tentadas < limite && vistas.length < varredura) {
-    const vez: { id: string | null; marca: string | null } = { id: null, marca: null };
+    const vez: { id: string | null; marca: string | null; empresaId: string | null; fimDaFila?: boolean } = { id: null, marca: null, empresaId: null };
     try {
       const r = await transacao(async tx => {
         // r5 (P1): a candidata é escolhida SEM trava; a empresa é travada antes da conversa e a pendência vencida é
         // conferida de novo sob a trava da conversa (SKIP LOCKED: outra captura com ela = SEM_PENDENCIA, segue a próxima).
-        const candidata = (await tx.query<{ id: string; empresa_id: string }>(`SELECT id::text, empresa_id::text FROM whatsapp_atendimento_conversas WHERE oportunidade_pendente_em <= clock_timestamp() AND ambiente=$1
-           AND NOT (id = ANY($2::uuid[])) ORDER BY oportunidade_pendente_em, id LIMIT 1`, [ambiente, vistas])).rows[0];
-        if (!candidata) return null;
+        const cursor = cursorDoLote.get(ambiente) ?? null;
+        const candidata = (await tx.query<{ id: string; empresa_id: string; marca: string }>(`SELECT id::text, empresa_id::text, oportunidade_pendente_em::text AS marca
+           FROM whatsapp_atendimento_conversas WHERE oportunidade_pendente_em <= clock_timestamp() AND ambiente=$1
+           AND NOT (id = ANY($2::uuid[])) AND ($3::timestamptz IS NULL OR (oportunidade_pendente_em, id) > ($3::timestamptz, $4::uuid))
+           ORDER BY oportunidade_pendente_em, id LIMIT 1`, [ambiente, vistas, cursor?.marca ?? null, cursor?.id ?? null])).rows[0];
+        if (!candidata) { vez.fimDaFila = cursor !== null; return null; }
+        cursorDoLote.set(ambiente, { marca: candidata.marca, id: candidata.id });
         vez.id = candidata.id;
+        vez.empresaId = candidata.empresa_id;
         await travarEmpresa(tx, candidata.empresa_id);
         // r6 (P2-1): a releitura sob a trava exige a mesma empresa (a travada) e o ambiente do lote.
         const escolhida = (await tx.query<{ marca: string }>(`SELECT oportunidade_pendente_em::text AS marca FROM whatsapp_atendimento_conversas
@@ -220,7 +233,11 @@ export async function capturarOportunidadesPendentes(transacao: Transacao, ambie
         vez.marca = escolhida.marca;
         return capturarOportunidade(tx, candidata.id, { empresaId: candidata.empresa_id, ambiente });
       });
-      if (r === null) break;
+      if (r === null) {
+        // Fim da fila depois do cursor: volta ao início uma vez por lote (as já vistas neste lote seguem de fora).
+        if (vez.fimDaFila && !voltouAoInicio) { voltouAoInicio = true; cursorDoLote.delete(ambiente); continue; }
+        break;
+      }
       vistas.push(vez.id!);
       saida.resultados.push(r);
       if (r !== 'SEM_PENDENCIA') { saida.capturas++; tentadas++; }
@@ -234,8 +251,9 @@ export async function capturarOportunidadesPendentes(transacao: Transacao, ambie
       saida.falhas.push(codigoFalha(erro));
       try {
         // Só a marca que falhou é adiada (r3): uma marca nova gravada pelo worker depois do rollback fica como está.
-        const adiada = await transacao(tx => tx.query('UPDATE whatsapp_atendimento_conversas SET oportunidade_pendente_em=clock_timestamp()+make_interval(secs => $2) WHERE id=$1 AND oportunidade_pendente_em=$3::timestamptz RETURNING id',
-          [vez.id, espera, vez.marca]));
+        // r7 (P2-B): e só na empresa e no ambiente revalidados sob a trava (os mesmos da releitura).
+        const adiada = await transacao(tx => tx.query('UPDATE whatsapp_atendimento_conversas SET oportunidade_pendente_em=clock_timestamp()+make_interval(secs => $2) WHERE id=$1 AND oportunidade_pendente_em=$3::timestamptz AND empresa_id=$4 AND ambiente=$5 RETURNING id',
+          [vez.id, espera, vez.marca, vez.empresaId, ambiente]));
         if (adiada.rows.length) saida.adiadas++;
       } catch (falhaAoAdiar) { saida.falhas.push(codigoFalha(falhaAoAdiar)); }
     }

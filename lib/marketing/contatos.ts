@@ -1,4 +1,4 @@
-import { exigirContatoNaoAnonimizado, vincularContatoNegociacao } from './conversao.ts';
+import { exigirContatoEditavel, vincularContatoNegociacao } from './conversao.ts';
 import { z } from "zod";
 import type { DbExecutor } from "../db/contracts.ts";
 import { buscarClientesPorContatoExato, buscarClientesPorEmailExato, criarCliente } from "../clientes/repositories/cliente.repository.ts";
@@ -252,12 +252,16 @@ async function registrosParaRevisar(tx: DbExecutor, empresaId: string, contatoId
 /**
  * r6 (P1-3): `revisarPrivacidade` vem da sessão no servidor (papel da Gestão, o mesmo que revisa a Privacidade do
  * atendimento); quem só vê Marketing recebe a lista vazia. Padrão fechado: sem a opção, nada.
+ * r7 (P1-A): o mesmo corte vale para o histórico de atribuições do cartão anonimizado: sem a opção, cada atribuição sai
+ * sem os textos livres da equipe (motivo, detalhe e UTM); ficam origem, canal, campanha e datas, que não identificam.
  */
 export async function detalheContato(tx: DbExecutor, empresaId: string, contatoId: string, opcoes: { revisarPrivacidade?: boolean } = {}): Promise<DetalheContato> {
   const base = (await listarContatosPorId(tx, empresaId, contatoId));
   if (!base) naoEncontrado("Contato não encontrado nesta empresa.");
   const mensagem = await tx.query<{ mensagem: string | null }>(`SELECT mensagem FROM marketing_contatos WHERE id = $1::uuid AND empresa_id = $2::uuid`, [contatoId, empresaId]);
-  const atribuicoes = await historicoAtribuicao(tx, empresaId, "CONTATO", contatoId);
+  const revisar = base.anonimizado && opcoes.revisarPrivacidade === true;
+  const historico = await historicoAtribuicao(tx, empresaId, "CONTATO", contatoId);
+  const atribuicoes = base.anonimizado && !revisar ? historico.map((a) => ({ ...a, motivo: null, detalhe: null, utm: {} })) : historico;
   const origemCliente = base.clienteId ? await atribuicaoVigente(tx, empresaId, "CLIENTE", base.clienteId) : null;
   const fechamentos = base.clienteId ? (await tx.query<{ id: string; data_evento: string; status: string; origem_definida: boolean; outro: boolean }>(
     `SELECT f.id::text, f.data_evento::text, f.status,
@@ -270,7 +274,7 @@ export async function detalheContato(tx: DbExecutor, empresaId: string, contatoI
   return {
     ...base, mensagem: mensagem.rows[0]?.mensagem ?? null, atribuicoes, origemCliente,
     fechamentosDoCliente: fechamentos.map((f) => ({ id: f.id, dataEvento: f.data_evento, status: f.status, origemDefinida: f.origem_definida, vinculadoAOutroContato: f.outro })),
-    registrosParaRevisar: base.anonimizado && opcoes.revisarPrivacidade === true ? await registrosParaRevisar(tx, empresaId, contatoId) : [],
+    registrosParaRevisar: revisar ? await registrosParaRevisar(tx, empresaId, contatoId) : [],
   };
 }
 
@@ -351,10 +355,11 @@ export async function executarAcaoContato(
   );
   const contato = atual.rows[0];
   if (!contato) naoEncontrado("Contato não encontrado nesta empresa.");
+  // r7 (P1-B): cartão do Wall-e de outro ambiente = 404, como no detalhe.
   // r5 (P2): cartão do Wall-e anonimizado a pedido do titular é só leitura. Vincular cliente ou negociação, abrir negociação
   // (que criaria cliente com os dados neutros) ou mudar a situação voltaria a ligá-lo a alguém, e a próxima exclusão (que só
   // alcança vínculos ainda não anonimizados) não o limparia de novo. Sem a 132, não há cartão anonimizado.
-  await exigirContatoNaoAnonimizado(tx, acao.id);
+  await exigirContatoEditavel(tx, acao.id);
   if (acao.acao === "status") {
     if (contato.status === "CONVERTIDO") throw new MarketingError("MARKETING_CONTATO_CONVERTIDO", "Contato já vinculado a uma negociação.", 409);
     if (contato.status === 'DESCARTADO') throw new MarketingError('CONTATO_ENCERRADO','Este contato já foi encerrado.',409);

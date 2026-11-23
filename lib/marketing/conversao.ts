@@ -3,19 +3,26 @@ import { MarketingError, naoEncontrado } from './erros.ts';
 import { atribuicaoVigente, registrarSeAusente } from './atribuicao.ts';
 import { registrarEventoHistorico } from '../clientes/repositories/historico.repository.ts';
 import { herdarAcoesDoContato } from '../oportunidades/conversao.ts';
+import { ambienteDoDeploy } from '../oportunidades/ambiente.ts';
 
 export type OrigemVinculo = 'CRM_INTERNO' | 'FECHAMENTO_PUBLICO';
 
 /**
- * Wall-e 1a (r5/r6): cartão do Wall-e anonimizado a pedido do titular é só leitura em TODO caminho que grava nele (ações do
- * contato, Oportunidades, vínculo com negociação). Chamar com a linha do contato já travada (FOR UPDATE), antes de resolver
- * ou criar cliente: vincular de novo o ligaria a alguém, e a próxima exclusão (que só alcança vínculos ainda não
- * anonimizados) não o limparia. Sem a 132, não há cartão anonimizado.
+ * Wall-e 1a (r5/r6/r7): guarda única de TODO caminho que grava num contato (ações do contato, Oportunidades, vínculo com
+ * negociação). Chamar com a linha do contato já travada (FOR UPDATE), antes de resolver ou criar cliente.
+ * - r7 (P1-B): cartão do Wall-e de OUTRO ambiente não existe para este deploy, como na lista e no detalhe (o mesmo corte
+ *   `IS DISTINCT FROM`): 404 igual ao de contato de outra empresa. Contato sem vínculo do Wall-e não muda.
+ * - r5: cartão anonimizado a pedido do titular é só leitura (409): vincular de novo o ligaria a alguém, e a próxima
+ *   exclusão (que só alcança vínculos ainda não anonimizados) não o limparia.
+ * Sem a 132, não há cartão do Wall-e.
  */
-export async function exigirContatoNaoAnonimizado(tx: DbExecutor, contatoId: string) {
-  if ((await tx.query<{ ok: boolean }>("SELECT to_regclass('public.whatsapp_atendimento_oportunidades') IS NOT NULL AS ok")).rows[0]?.ok
-    && (await tx.query("SELECT 1 FROM whatsapp_atendimento_oportunidades WHERE contato_id = $1::uuid AND anonimizado_em IS NOT NULL", [contatoId])).rows.length)
-    throw new MarketingError("MARKETING_CONTATO_ANONIMIZADO", "Este contato foi anonimizado a pedido do titular e não pode ser alterado.", 409);
+export async function exigirContatoEditavel(tx: DbExecutor, contatoId: string, ambiente: string | null = ambienteDoDeploy()) {
+  if (!(await tx.query<{ ok: boolean }>("SELECT to_regclass('public.whatsapp_atendimento_oportunidades') IS NOT NULL AS ok")).rows[0]?.ok) return;
+  const v = (await tx.query<{ outro: boolean | null; anonimizado: boolean | null }>(
+    'SELECT bool_or(ambiente IS DISTINCT FROM $2::text) AS outro, bool_or(anonimizado_em IS NOT NULL) AS anonimizado FROM whatsapp_atendimento_oportunidades WHERE contato_id = $1::uuid',
+    [contatoId, ambiente])).rows[0];
+  if (v?.outro) naoEncontrado('Contato não encontrado nesta empresa.');
+  if (v?.anonimizado) throw new MarketingError("MARKETING_CONTATO_ANONIMIZADO", "Este contato foi anonimizado a pedido do titular e não pode ser alterado.", 409);
 }
 
 /**
@@ -30,7 +37,7 @@ export async function vincularContatoNegociacao(
   const contato = (await tx.query<{ cliente_id: string | null; fechamento_id: string | null }>(
     'SELECT cliente_id::text,fechamento_id::text FROM marketing_contatos WHERE empresa_id=$1::uuid AND id=$2::uuid FOR UPDATE', [empresaId, acao.id])).rows[0];
   if (!contato) naoEncontrado('Contato não encontrado nesta empresa.');
-  await exigirContatoNaoAnonimizado(tx, acao.id);
+  await exigirContatoEditavel(tx, acao.id);
   // vincular-negociacao: a negociação herda a origem do contato (se ainda não tiver uma). Contrato herda da negociação.
   if (contato.fechamento_id && contato.fechamento_id !== acao.fechamentoId) throw new MarketingError("MARKETING_CONTATO_CONVERTIDO", "Contato já vinculado a uma negociação.", 409);
   if (!contato.cliente_id) throw new MarketingError("MARKETING_CONTATO_SEM_CLIENTE", "Vincule o contato a um cliente antes da negociação.", 409);

@@ -129,7 +129,7 @@ test('r5: empresa (FOR KEY SHARE) antes da conversa na captura e no lote; down e
   assert.doesNotMatch(down, /^BEGIN;$/m);
   const contatos = readFileSync('lib/marketing/contatos.ts', 'utf8');
   const acao = contatos.slice(contatos.indexOf('export async function executarAcaoContato('));
-  const guarda = acao.indexOf('await exigirContatoNaoAnonimizado(tx, acao.id);');
+  const guarda = acao.indexOf('await exigirContatoEditavel(tx, acao.id);');
   assert.ok(guarda > 0 && guarda < acao.indexOf('if (acao.acao === "status")'),'guarda antes das ações de edição');
   const tela = readFileSync('components/admin/marketing/MarketingOrigens.tsx', 'utf8');
   assert.ok(tela.includes('const editavel = podeEditar && !c?.anonimizado;'));
@@ -140,18 +140,23 @@ test('r6: anonimizado recusado em Oportunidades e na conversão; empresa antes d
   const conv = readFileSync('lib/marketing/conversao.ts', 'utf8');
   assert.ok(conv.includes('throw new MarketingError("MARKETING_CONTATO_ANONIMIZADO", "Este contato foi anonimizado a pedido do titular e não pode ser alterado.", 409);'));
   const vinc = conv.slice(conv.indexOf('export async function vincularContatoNegociacao('));
-  const gVinc = vinc.indexOf('await exigirContatoNaoAnonimizado(tx, acao.id);');
+  const gVinc = vinc.indexOf('await exigirContatoEditavel(tx, acao.id);');
   assert.ok(gVinc > vinc.indexOf('FOR UPDATE') && gVinc < vinc.indexOf('UPDATE marketing_contatos SET fechamento_id'), 'conversão: guarda com o contato travado, antes de gravar');
   const serv = readFileSync('lib/oportunidades/service.ts', 'utf8');
   const alvo = serv.slice(serv.indexOf('export async function clienteDoAlvo('));
-  const gAlvo = alvo.indexOf('if (contato) await exigirContatoNaoAnonimizado(tx, alvo.id);');
+  const gAlvo = alvo.indexOf('if (contato) await exigirContatoEditavel(tx, alvo.id);');
   assert.ok(gAlvo > alvo.indexOf('FOR UPDATE') && gAlvo < alvo.indexOf('clienteDoContato(tx'), 'Oportunidades: guarda com o cartão travado, antes de resolver cliente');
   const contatos = readFileSync('lib/marketing/contatos.ts', 'utf8');
   const trava = contatos.slice(contatos.indexOf('async function travarTelefoneNoFunil('));
-  assert.ok(trava.indexOf("FOR KEY SHARE") > 0 && trava.indexOf("FOR KEY SHARE") < trava.indexOf('pg_advisory_xact_lock'), 'empresa antes do telefone');
+  // r7 (P3-B): compara as CHAMADAS executáveis no corpo da função (o comentário também cita as duas travas); as duas precisam existir.
+  const corpoTrava = trava.slice(0, trava.indexOf('\n}\n'));
+  const chamadaEmpresa = corpoTrava.indexOf("await tx.query('SELECT id FROM empresas WHERE id = $1::uuid FOR KEY SHARE', [empresaId]);");
+  const chamadaTelefone = corpoTrava.indexOf("await tx.query('SELECT pg_advisory_xact_lock(hashtextextended($1, 0))', [chaveTravaTelefone(empresaId, telefone)]);");
+  assert.ok(chamadaEmpresa > 0 && chamadaTelefone > 0, 'as duas chamadas existem no corpo');
+  assert.ok(chamadaEmpresa < chamadaTelefone, 'empresa antes do telefone');
   const pub = contatos.slice(contatos.indexOf('export async function capturarContatoPublico('));
   assert.ok(pub.indexOf('await travarTelefoneNoFunil(') < pub.indexOf('INSERT INTO marketing_contatos'), 'site: trava antes do INSERT');
-  assert.ok(contatos.includes('registrosParaRevisar: base.anonimizado && opcoes.revisarPrivacidade === true ?'), 'registros só com a opção');
+  assert.ok(contatos.includes('const revisar = base.anonimizado && opcoes.revisarPrivacidade === true;') && contatos.includes('registrosParaRevisar: revisar ?'), 'registros só com a opção');
   const rota = readFileSync('app/api/admin/marketing/contatos/route.ts', 'utf8');
   assert.ok(rota.includes('detalheContato(tx, empresaId, id, { revisarPrivacidade: tenant.papelAtual === "REPRESENTANTE_AUTORIZADO" })'), 'rota: papel da sessão');
   const op = readFileSync('lib/whatsapp/atendimento/walle/oportunidade.ts', 'utf8');
@@ -162,6 +167,21 @@ test('r6: anonimizado recusado em Oportunidades e na conversão; empresa antes d
   assert.ok(op.includes("eventos_historico_cliente h JOIN clientes cl ON cl.id=h.cliente_id AND cl.empresa_id=k.empresa_id"), 'exclusão: histórico pela empresa');
   const tela = readFileSync('components/admin/marketing/MarketingOrigens.tsx', 'utf8');
   assert.ok(tela.includes('const chamar=c.anonimizado ? null : linkChamar(c.telefone,c.nome);'), 'sem Chamar no anonimizado');
+});
+
+test('r7: guarda de ambiente nas escritas, atribuições cortadas no anonimizado, cursor do lote e adiamento no escopo', () => {
+  const conv = readFileSync('lib/marketing/conversao.ts', 'utf8');
+  assert.ok(conv.includes("'SELECT bool_or(ambiente IS DISTINCT FROM $2::text) AS outro, bool_or(anonimizado_em IS NOT NULL) AS anonimizado FROM whatsapp_atendimento_oportunidades WHERE contato_id = $1::uuid'"));
+  assert.ok(conv.includes("if (v?.outro) naoEncontrado('Contato não encontrado nesta empresa.');"), 'outro ambiente = 404');
+  assert.equal(conv.includes('exigirContatoNaoAnonimizado'), false, 'guarda única');
+  const contatos = readFileSync('lib/marketing/contatos.ts', 'utf8');
+  assert.ok(contatos.includes('const atribuicoes = base.anonimizado && !revisar ? historico.map((a) => ({ ...a, motivo: null, detalhe: null, utm: {} })) : historico;'), 'atribuições sem texto livre fora da Gestão');
+  const op = readFileSync('lib/whatsapp/atendimento/walle/oportunidade.ts', 'utf8');
+  assert.ok(op.includes('AND ($3::timestamptz IS NULL OR (oportunidade_pendente_em, id) > ($3::timestamptz, $4::uuid))'), 'lote começa depois do cursor');
+  assert.ok(op.includes('cursorDoLote.set(ambiente, { marca: candidata.marca, id: candidata.id });'), 'cursor avança');
+  assert.ok(op.includes('if (vez.fimDaFila && !voltouAoInicio) { voltouAoInicio = true; cursorDoLote.delete(ambiente); continue; }'), 'volta ao início uma vez');
+  assert.ok(op.includes('WHERE id=$1 AND oportunidade_pendente_em=$3::timestamptz AND empresa_id=$4 AND ambiente=$5 RETURNING id'), 'adiamento no escopo revalidado');
+  assert.ok(op.includes('[vez.id, espera, vez.marca, vez.empresaId, ambiente]'));
 });
 
 test('worker marca no MESMO UPDATE da memória (r2: atômico) e captura ao fim do lote; exclusão a pedido do titular anonimiza', () => {
