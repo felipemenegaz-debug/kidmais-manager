@@ -368,7 +368,9 @@ export async function acessoAtendimento<T>(sessao: SessaoParaTenant, work: (tx: 
 export function conversaAberta(conversaId?: string | null): string | null {
   return conversaId && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(conversaId) ? conversaId : null;
 }
-export async function listarAtendimento(sessao: SessaoParaTenant, conversaId?: string) {
+export async function listarAtendimento(sessao: SessaoParaTenant, conversaPedida?: string) {
+  // r3 (P3): id fora do formato de uuid vale como nenhuma conversa, na lista e nas mensagens (sem erro 22P02 no banco).
+  const conversaId = conversaAberta(conversaPedida);
   return acessoAtendimento(sessao, async (tx, empresa, papel) => {
     const ambiente = ambienteAtendimento();
     const nomePerfil = await temNomePerfil(tx);
@@ -382,7 +384,7 @@ export async function listarAtendimento(sessao: SessaoParaTenant, conversaId?: s
       CROSS JOIN LATERAL (SELECT CASE WHEN c.contato LIKE '55%' AND length(c.contato) IN (12,13) THEN substr(c.contato,3) END AS sem55) v
       CROSS JOIN LATERAL (SELECT count(*)::int AS clientes, CASE WHEN count(*)=1 THEN max(cl.nome_completo) END AS cliente_nome FROM clientes cl
         WHERE cl.empresa_id=c.empresa_id AND cl.status<>'MESCLADO' AND (cl.telefone IN (c.contato,v.sem55) OR cl.whatsapp IN (c.contato,v.sem55))) cad
-      WHERE c.empresa_id=$1 AND c.ambiente=$2 ORDER BY (c.id IS NOT DISTINCT FROM $3::uuid) DESC,c.atualizada_em DESC LIMIT 100`, [empresa, ambiente, conversaAberta(conversaId)])).rows
+      WHERE c.empresa_id=$1 AND c.ambiente=$2 ORDER BY (c.id IS NOT DISTINCT FROM $3::uuid) DESC,c.atualizada_em DESC LIMIT 100`, [empresa, ambiente, conversaId])).rows
       // Wall-e 1a r2: a conversa pedida (link "Ver conversa" do funil) entra mesmo fora das 100 mais recentes; a ordem da tela segue a de antes.
       .sort((a, b) => new Date(b.atualizada_em as never).getTime() - new Date(a.atualizada_em as never).getTime());
     const midia = await temMidia(tx), r082 = await tem082(tx);

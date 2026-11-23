@@ -2,16 +2,15 @@ import type { DbExecutor } from '../db/contracts.ts';
 import { SQL_ORIGEM_NEGOCIACAO } from '../marketing/atribuicao.ts';
 import { etapaDoEstado, type Oportunidade } from './modelo.ts';
 import { exigirSchema } from './service.ts';
+import { ambienteDoDeploy } from './ambiente.ts';
+/** Ambiente deste deploy (a mesma regra de ambienteAtendimento); fora de staging/production, nenhum cartão do Wall-e entra. */
+export { ambienteDoDeploy };
 
 /**
  * Wall-e 1a (132): cartão criado pela conversa do WhatsApp leva a origem e a conversa; anonimizado a pedido do titular sai
  * das colunas (continua contado nos relatórios por recebido_em). Cartão do Wall-e de OUTRO ambiente (staging x production
  * na mesma base) não aparece nas colunas nem conta nos indicadores (r2). Sem a 132, o funil segue como antes.
  */
-/** Ambiente deste deploy (a mesma regra de ambienteAtendimento); fora de staging/production, nenhum cartão do Wall-e entra. */
-export function ambienteDoDeploy(env: NodeJS.ProcessEnv = process.env): string | null {
-  return env.KIDMAIS_DEPLOY_ENV === 'staging' || env.KIDMAIS_DEPLOY_ENV === 'production' ? env.KIDMAIS_DEPLOY_ENV : null;
-}
 async function tem132(tx: DbExecutor) {
   return !!(await tx.query<{ ok: boolean }>("SELECT to_regclass('public.whatsapp_atendimento_oportunidades') IS NOT NULL AS ok")).rows[0]?.ok;
 }

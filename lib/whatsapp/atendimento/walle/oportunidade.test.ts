@@ -83,8 +83,26 @@ test('o módulo só depende de tipos e node:crypto (as provas em PG o montam den
   const imports = [...fonte.matchAll(/^import (type )?.* from '([^']+)';$/gm)].map(m => `${m[1] ? 'type ' : ''}${m[2]}`);
   assert.deepEqual(imports, ['node:crypto', 'type ../../../db/contracts.ts', 'type ./tipos.ts']);
   // Nenhuma automação, atribuição, histórico ou cadastro de cliente na captura.
+  const exclusao = fonte.indexOf('export async function anonimizarOportunidadesDaConversa(');
+  assert.ok(exclusao > 0);
+  const captura = fonte.slice(0, exclusao);
   for (const proibido of ['marketing_atribuicoes', 'marketing_contato_autorizacoes', 'registrarEventoHistorico', 'clienteDoContato', 'criarCliente', 'INSERT INTO clientes'])
-    assert.equal(fonte.includes(proibido), false, proibido);
+    assert.equal(captura.includes(proibido), false, proibido);
+  // r3: a exclusão só LÊ a atribuição (append-only pela 085) para contar em `revisar`; nunca grava nela.
+  const anon = fonte.slice(exclusao);
+  for (const proibido of ['INSERT INTO marketing_atribuicoes', 'UPDATE marketing_atribuicoes', 'DELETE FROM', 'clienteDoContato', 'registrarEventoHistorico'])
+    assert.equal(anon.includes(proibido), false, `exclusão: ${proibido}`);
+  // r3: a marca das conversas irmãs é descartada ANTES da trava do telefone (mesma ordem da captura: conversa, telefone).
+  assert.ok(anon.indexOf('SET oportunidade_pendente_em=NULL') > 0 && anon.indexOf('SET oportunidade_pendente_em=NULL') < anon.indexOf('await travarTelefone('), 'marca antes da trava');
+  assert.ok(anon.includes('anonimizado_em=clock_timestamp(),conversa_id=NULL'), 'vínculo solto da conversa');
+});
+
+test('r3: site e registro manual procuram o cartão do Wall-e já sob a trava do telefone; Origens corta por ambiente', () => {
+  const fonte = readFileSync('lib/marketing/contatos.ts', 'utf8');
+  const chamadas = [...fonte.matchAll(/await cartaoWalleAberto\(/g)].map(m => m.index!);
+  assert.equal(chamadas.length, 2);
+  for (const i of chamadas) assert.ok(fonte.lastIndexOf('await travarTelefoneNoFunil(', i) > fonte.lastIndexOf('\n}', i), 'trava antes da busca do cartão');
+  assert.ok(fonte.includes("com132 ? sqlListaContatos(CORTE_AMBIENTE_WALLE) : sqlListaContatos('')"), 'lista por ambiente');
 });
 
 test('worker marca no MESMO UPDATE da memória (r2: atômico) e captura ao fim do lote; exclusão a pedido do titular anonimiza', () => {

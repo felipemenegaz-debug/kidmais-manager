@@ -41,8 +41,9 @@ export type OrigemPrivacidade = 'PEDIDO' | 'RETENCAO';
 export type MotivoExclusao = 'PEDIDO_DO_TITULAR' | 'DECISAO_DA_EMPRESA';
 export type ResultadoExclusao =
   | { estado: 'EXCLUIDA'; mensagens: number; pendentesRemovidas: number; controles: { naoContatar: boolean; pausa: boolean; equipe: boolean };
-      /** Wall-e 1a (D-WA-3), só a pedido do titular: cartões do funil anonimizados e os preservados pela Guarda dos clientes. */
-      funil?: { anonimizados: number; preservados: number } }
+      /** Wall-e 1a (D-WA-3), só a pedido do titular: cartões do funil anonimizados, os preservados pela Guarda dos clientes e (r3) os anonimizados cuja
+       *  origem tem texto da equipe, que a 085 não deixa apagar: revisar. */
+      funil?: { anonimizados: number; preservados: number; revisar: number } }
   | { estado: 'EM_PROCESSAMENTO' | 'NAO_ENCONTRADA' | 'RECENTE' | 'CONFIG_ALTERADA' };
 /**
  * Prazo técnico (não é prazo de retenção de dado pessoal): só o hash do id do evento; cobre reentregas do provedor. Igual à

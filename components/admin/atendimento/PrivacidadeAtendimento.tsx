@@ -15,10 +15,12 @@ import styles from './atendimento.module.css';
 type Pendente = { titulo: string; explicacao: string; corpo: Record<string, unknown>; palavra?: 'EXCLUIR' | 'REVOGAR'; sucesso: string };
 /** Wall-e 1a (D-WA-3): o que a exclusão a pedido do titular fez com os cartões do funil, inclusive o que ficou sob a Guarda. */
 function avisoFunil(funil: unknown) {
-  const f = funil as { anonimizados?: unknown; preservados?: unknown } | null | undefined;
+  const f = funil as { anonimizados?: unknown; preservados?: unknown; revisar?: unknown } | null | undefined;
   const anon = typeof f?.anonimizados === 'number' ? f.anonimizados : 0, pres = typeof f?.preservados === 'number' ? f.preservados : 0;
+  const rev = typeof f?.revisar === 'number' ? f.revisar : 0;
   return (anon ? ` ${anon} cartão(ões) do funil anonimizado(s).` : '')
-    + (pres ? ` ${pres} cartão(ões) do funil com negociação não foi(ram) anonimizado(s): seguem a Guarda dos clientes; trate pelo cadastro do cliente.` : '');
+    + (pres ? ` ${pres} cartão(ões) do funil com negociação não foi(ram) anonimizado(s): seguem a Guarda dos clientes; trate pelo cadastro do cliente.` : '')
+    + (rev ? ` ${rev} cartão(ões) anonimizado(s) com observação da equipe na origem, que não pode ser apagada: confira se ela cita o titular.` : '');
 }
 const ESTADO_ARQUIVO = (a: SituacaoPrivacidade['arquivos'][number]) =>
   a.revogadoEm ? 'Revogado (conteúdo apagado)' : a.disponivel ? (a.expiraEm ? `Disponível até ${new Date(a.expiraEm).toLocaleString('pt-BR')}` : 'Disponível') : a.vencido ? 'Vencido' : 'Indisponível';

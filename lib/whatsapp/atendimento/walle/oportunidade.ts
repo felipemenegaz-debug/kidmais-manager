@@ -111,10 +111,10 @@ export async function capturarOportunidade(tx: DbExecutor, conversaId: string): 
   const variantes = variantesDoTelefone(c.contato);
   await travarTelefone(tx, c.empresa_id, c.contato);
   // nao_contatar ou pausa em QUALQUER variante do número (com e sem 55), na conversa ou nos controles guardados depois de
-  // uma exclusão, na mesma empresa e ambiente: nunca vira cartão.
+  // uma exclusão (nao_contatar ou sem_automatico preservados, r3), na mesma empresa e ambiente: nunca vira cartão.
   const bloqueado = (await tx.query(`SELECT 1 FROM whatsapp_atendimento_conversas WHERE empresa_id=$1 AND ambiente=$2 AND contato = ANY($3::text[])
        AND (nao_contatar OR jsonb_typeof(contexto->'semAutomatico')='object')
-     UNION ALL SELECT 1 FROM whatsapp_atendimento_controles_contato WHERE empresa_id=$1 AND ambiente=$2 AND contato = ANY($3::text[]) AND nao_contatar
+     UNION ALL SELECT 1 FROM whatsapp_atendimento_controles_contato WHERE empresa_id=$1 AND ambiente=$2 AND contato = ANY($3::text[]) AND (nao_contatar OR sem_automatico)
      LIMIT 1`, [c.empresa_id, c.ambiente, variantes])).rows.length > 0;
   if (bloqueado) { await limpar(); return 'IGNORADO'; }
   const data = dataValida(c.interesse?.data), convidados = convidadosValidos(c.interesse?.convidados);
@@ -183,11 +183,12 @@ export async function capturarOportunidadesPendentes(transacao: Transacao, ambie
   const saida = { capturas: 0, adiadas: 0, falhas: [] as string[], resultados: [] as ResultadoCaptura[] };
   const tentadas: string[] = [];
   while (tentadas.length < limite) {
-    const vez: { id: string | null } = { id: null };
+    const vez: { id: string | null; marca: string | null } = { id: null, marca: null };
     try {
       const r = await transacao(async tx => {
-        vez.id = (await tx.query<{ id: string }>(`SELECT id::text FROM whatsapp_atendimento_conversas WHERE oportunidade_pendente_em <= clock_timestamp() AND ambiente=$1
-           AND NOT (id = ANY($2::uuid[])) ORDER BY oportunidade_pendente_em, id LIMIT 1 FOR UPDATE SKIP LOCKED`, [ambiente, tentadas])).rows[0]?.id ?? null;
+        const escolhida = (await tx.query<{ id: string; marca: string }>(`SELECT id::text, oportunidade_pendente_em::text AS marca FROM whatsapp_atendimento_conversas WHERE oportunidade_pendente_em <= clock_timestamp() AND ambiente=$1
+           AND NOT (id = ANY($2::uuid[])) ORDER BY oportunidade_pendente_em, id LIMIT 1 FOR UPDATE SKIP LOCKED`, [ambiente, tentadas])).rows[0];
+        vez.id = escolhida?.id ?? null; vez.marca = escolhida?.marca ?? null;
         return vez.id ? capturarOportunidade(tx, vez.id) : null;
       });
       if (r === null) break;
@@ -202,34 +203,51 @@ export async function capturarOportunidadesPendentes(transacao: Transacao, ambie
       tentadas.push(vez.id);
       saida.falhas.push(codigoFalha(erro));
       try {
-        await transacao(tx => tx.query('UPDATE whatsapp_atendimento_conversas SET oportunidade_pendente_em=clock_timestamp()+make_interval(secs => $2) WHERE id=$1 AND oportunidade_pendente_em IS NOT NULL',
-          [vez.id, espera]));
-        saida.adiadas++;
+        // Só a marca que falhou é adiada (r3): uma marca nova gravada pelo worker depois do rollback fica como está.
+        const adiada = await transacao(tx => tx.query('UPDATE whatsapp_atendimento_conversas SET oportunidade_pendente_em=clock_timestamp()+make_interval(secs => $2) WHERE id=$1 AND oportunidade_pendente_em=$3::timestamptz RETURNING id',
+          [vez.id, espera, vez.marca]));
+        if (adiada.rows.length) saida.adiadas++;
       } catch (falhaAoAdiar) { saida.falhas.push(codigoFalha(falhaAoAdiar)); }
     }
   }
   return saida;
 }
 
+/** Texto que substitui o resumo diário guardado quando um contato dele é anonimizado (o e-mail já enviado não volta). */
+export const RESUMO_ANONIMIZADO = 'Resumo removido: um contato deste resumo foi anonimizado a pedido do titular.';
+
 /**
  * D-WA-3, dentro da exclusão a pedido do titular (antes de apagar a conversa). Alcança os cartões do Wall-e do TITULAR na
- * empresa e ambiente: os desta conversa e os do mesmo número com e sem 55 (inclusive os que perderam a conversa pela
- * retenção). Cartão sem negociação é anonimizado: nome e telefone neutros, demais dados pessoais nulos, o cliente
- * desvinculado (o cadastro do cliente não muda) e as observações das ações do funil apagadas; fica só como número na
- * estatística (DELETE segue proibido pela 085). Cartão com negociação (convertido de fato) fica intacto: Guarda dos
- * clientes. Correspondência de telefone com um cliente NÃO é conversão. Sem a 132, nada a fazer.
+ * empresa e ambiente: os desta conversa e os do mesmo número com e sem 55 (inclusive os de outra conversa ainda viva e os
+ * que perderam a conversa pela retenção).
+ * - Marcas pendentes das conversas do mesmo número (com e sem 55) são descartadas ANTES da trava do telefone (r3): a
+ *   captura trava a conversa e depois o telefone; aqui a ordem é a mesma (conversa, depois telefone), sem impasse. Uma
+ *   captura já em curso termina primeiro e o cartão que ela gravar é alcançado logo abaixo.
+ * - Cartão sem negociação é anonimizado: nome e telefone neutros, demais dados pessoais nulos, cliente desvinculado (o
+ *   cadastro do cliente não muda), observações das ações do funil apagadas, resumos diários guardados que o citam
+ *   substituídos (e não enviados, se pendentes) e o vínculo solto da conversa (r3: conversa_id nulo, nada aponta mais
+ *   para o número). Fica só como número na estatística (DELETE segue proibido pela 085).
+ * - A atribuição de origem é append-only pela 085 (sem UPDATE nem DELETE): se a equipe escreveu texto livre nela
+ *   (detalhe ou motivo), o cartão é anonimizado igual, mas contado em `revisar`, nunca em `anonimizados` (r3).
+ * - Cartão com negociação (convertido de fato) fica intacto: Guarda dos clientes. Correspondência de telefone com um
+ *   cliente NÃO é conversão. Sem a 132, nada a fazer.
  */
 export async function anonimizarOportunidadesDaConversa(tx: DbExecutor, empresa: string, ambiente: string, conversaId: string, contato: string) {
-  if (!(await tx.query<{ ok: boolean }>("SELECT to_regclass('public.whatsapp_atendimento_oportunidades') IS NOT NULL AS ok")).rows[0]?.ok) return { anonimizados: 0, preservados: 0 };
+  if (!(await tx.query<{ ok: boolean }>("SELECT to_regclass('public.whatsapp_atendimento_oportunidades') IS NOT NULL AS ok")).rows[0]?.ok) return { anonimizados: 0, preservados: 0, revisar: 0 };
+  const variantes = variantesDoTelefone(contato);
+  await tx.query(`UPDATE whatsapp_atendimento_conversas SET oportunidade_pendente_em=NULL WHERE empresa_id=$1 AND ambiente=$2 AND (id=$3 OR contato = ANY($4::text[]))
+    AND oportunidade_pendente_em IS NOT NULL`, [empresa, ambiente, conversaId, variantes]);
   if (/^[0-9]{10,15}$/.test(contato)) await travarTelefone(tx, empresa, contato);
-  const vinculos = (await tx.query<{ contato_id: string; convertido: boolean }>(`SELECT o.contato_id::text, k.fechamento_id IS NOT NULL AS convertido
+  const vinculos = (await tx.query<{ contato_id: string; convertido: boolean; texto_equipe: boolean }>(`SELECT o.contato_id::text, k.fechamento_id IS NOT NULL AS convertido,
+       EXISTS (SELECT 1 FROM marketing_atribuicoes a WHERE a.empresa_id=k.empresa_id AND (a.contato_id=k.id OR (a.alvo_tipo='CONTATO' AND a.alvo_id=k.id))
+         AND (a.detalhe IS NOT NULL OR a.motivo IS NOT NULL)) AS texto_equipe
      FROM whatsapp_atendimento_oportunidades o JOIN marketing_contatos k ON k.id=o.contato_id AND k.empresa_id=o.empresa_id
      WHERE o.empresa_id=$1 AND o.ambiente=$2 AND o.anonimizado_em IS NULL AND (o.conversa_id=$3 OR k.telefone = ANY($4::text[]))
-     ORDER BY o.contato_id FOR UPDATE OF o, k`, [empresa, ambiente, conversaId, variantesDoTelefone(contato)])).rows;
+     ORDER BY o.contato_id FOR UPDATE OF o, k`, [empresa, ambiente, conversaId, variantes])).rows;
   // perda_observacao e as ações chegam com a 122; sem ela, o resto da anonimização vale igual.
   const comPerda = (await tx.query<{ ok: boolean }>("SELECT EXISTS(SELECT 1 FROM pg_attribute WHERE attrelid=to_regclass('public.marketing_contatos') AND attname='perda_observacao' AND NOT attisdropped) AS ok")).rows[0]?.ok;
-  const comAcoes = (await tx.query<{ ok: boolean }>("SELECT to_regclass('public.oportunidades_acoes') IS NOT NULL AS ok")).rows[0]?.ok;
-  let anonimizados = 0;
+  const comAcoes = (await tx.query<{ ok: boolean }>("SELECT to_regclass('public.oportunidades_acoes') IS NOT NULL AND to_regclass('public.oportunidades_resumos') IS NOT NULL AS ok")).rows[0]?.ok;
+  let anonimizados = 0, revisar = 0;
   for (const v of vinculos) {
     if (v.convertido) continue;
     await tx.query(comPerda
@@ -237,9 +255,14 @@ export async function anonimizarOportunidadesDaConversa(tx: DbExecutor, empresa:
         WHERE id=$1 AND empresa_id=$2 AND fechamento_id IS NULL`
       : `UPDATE marketing_contatos SET nome=$3,telefone=$4,email=NULL,mensagem=NULL,data_desejada=NULL,convidados=NULL,cliente_id=NULL,vinculo_cliente='SEM_CLIENTE',atualizado_em=clock_timestamp()
         WHERE id=$1 AND empresa_id=$2 AND fechamento_id IS NULL`, [v.contato_id, empresa, NOME_ANONIMIZADO, TELEFONE_ANONIMIZADO]);
-    if (comAcoes) await tx.query('UPDATE oportunidades_acoes SET observacao=NULL WHERE empresa_id=$1 AND contato_id=$2 AND observacao IS NOT NULL', [empresa, v.contato_id]);
-    await tx.query('UPDATE whatsapp_atendimento_oportunidades SET anonimizado_em=clock_timestamp() WHERE contato_id=$1', [v.contato_id]);
-    anonimizados++;
+    if (comAcoes) {
+      const acoes = (await tx.query<{ id: string }>('UPDATE oportunidades_acoes SET observacao=NULL WHERE empresa_id=$1 AND contato_id=$2 RETURNING id::text', [empresa, v.contato_id])).rows.map(a => a.id);
+      // O resumo diário guardado cita o nome do cartão pelo id da ação: o texto sai e o pendente não é mais enviado.
+      if (acoes.length) await tx.query(`UPDATE oportunidades_resumos SET mensagem=jsonb_set(jsonb_set(mensagem,'{mensagem,texto}',to_jsonb($3::text)),'{mensagem,html}',to_jsonb($3::text)),
+          estado=CASE WHEN estado='PENDENTE' THEN 'OBSOLETO' ELSE estado END WHERE empresa_id=$1 AND mensagem->'acoes' ?| $2::text[]`, [empresa, acoes, RESUMO_ANONIMIZADO]);
+    }
+    await tx.query('UPDATE whatsapp_atendimento_oportunidades SET anonimizado_em=clock_timestamp(),conversa_id=NULL WHERE contato_id=$1', [v.contato_id]);
+    if (v.texto_equipe) revisar++; else anonimizados++;
   }
-  return { anonimizados, preservados: vinculos.length - anonimizados };
+  return { anonimizados, preservados: vinculos.length - anonimizados - revisar, revisar };
 }

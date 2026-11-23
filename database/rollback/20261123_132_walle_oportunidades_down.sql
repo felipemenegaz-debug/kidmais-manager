@@ -2,6 +2,9 @@
 -- Apagar o vínculo perde a origem Wall-e dos cartões e a marca de anonimização (os contatos anonimizados continuam
 -- anonimizados em marketing_contatos, mas voltariam às colunas do funil). Por isso só roda com a confirmação explícita na
 -- mesma sessão:  SET kidmais.rollback_132 = 'descartar-vinculos';  Sem ela, recusa sem alterar nada.
+-- r3: depois do primeiro vínculo gravado (inclusive anonimizado), recusa MESMO com a confirmação: o vínculo carrega a
+-- origem e a prova da anonimização a pedido do titular, e apagá-lo devolveria o cartão às colunas. Daí em diante a
+-- correção é para frente (nova migration), nunca este down.
 BEGIN;
 SET LOCAL lock_timeout = '5s';
 SET LOCAL statement_timeout = '60s';
@@ -14,6 +17,9 @@ BEGIN
   END IF;
   IF to_regclass('public.whatsapp_atendimento_oportunidades') IS NULL THEN
     RAISE EXCEPTION '132 down: a 132 não está aplicada';
+  END IF;
+  IF EXISTS (SELECT 1 FROM whatsapp_atendimento_oportunidades) THEN
+    RAISE EXCEPTION '132 down: já há vínculo do Wall-e gravado; rollback recusado (correção para frente); nada foi alterado';
   END IF;
 END $$;
 

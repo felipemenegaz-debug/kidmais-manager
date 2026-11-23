@@ -17,6 +17,7 @@ import { perdaSchema } from '../oportunidades/modelo.ts';
 import { gravarPerda } from '../oportunidades/perda.ts';
 import { herdarAcoesDoContato } from '../oportunidades/conversao.ts';
 import { travarConfiguracaoAgenda } from '../agenda/trava-configuracao.ts';
+import { ambienteDoDeploy } from '../oportunidades/ambiente.ts';
 
 export const ORIGEM_SITE = "SITE_PUBLICO";
 export const STATUS_CONTATO = ["NOVO", "EM_ATENDIMENTO", "CONVERTIDO", "DESCARTADO"] as const;
@@ -62,7 +63,22 @@ export async function capturarContatoPublico(
   captura: CapturaCampanha,
 ): Promise<{ contatoId: string; repetido: boolean }> {
   await travarTelefoneNoFunil(tx, site.empresaId, entrada.telefone);
-  const inserido = await tx.query<{ id: string }>(
+  const repetidoPelaChave = await tx.query<{ id: string }>(
+    `SELECT id::text FROM marketing_contatos WHERE empresa_id = $1::uuid AND chave_idempotencia = $2`, [site.empresaId, entrada.chave]);
+  if (repetidoPelaChave.rows.length) return { contatoId: repetidoPelaChave.rows[0].id, repetido: true };
+  // r3 (P2): o Wall-e já abriu o cartão deste telefone neste ambiente → o pedido do site completa esse cartão (um por telefone).
+  const walle = await cartaoWalleAberto(tx, site.empresaId, entrada.telefone);
+  if (walle) {
+    if (await atribuicaoVigente(tx, site.empresaId, "CONTATO", walle.id)) return { contatoId: walle.id, repetido: true };
+    // site_id fica como está: a 085 o torna imutável; a origem Site fica na atribuição.
+    await tx.query(
+      `UPDATE marketing_contatos SET nome = $3, email = coalesce($4, email), data_desejada = coalesce($5::date, data_desejada), convidados = coalesce($6, convidados),
+         mensagem = coalesce($7, mensagem), estabelecimento_id = coalesce(estabelecimento_id, $8::uuid), atualizado_em = clock_timestamp()
+       WHERE id = $1::uuid AND empresa_id = $2::uuid`,
+      [walle.id, site.empresaId, entrada.nome, entrada.email, entrada.dataDesejada, entrada.convidados, entrada.mensagem, site.estabelecimentoId],
+    );
+  }
+  const inserido = walle ? { rows: [{ id: walle.id }] } : await tx.query<{ id: string }>(
     `INSERT INTO marketing_contatos (empresa_id, estabelecimento_id, site_id, canal_atendimento, nome, telefone, email, data_desejada, convidados,
        mensagem, chave_idempotencia, vinculo_cliente)
      VALUES ($1::uuid, $2::uuid, $3::uuid, 'FORMULARIO_SITE', $4, $5, $6, $7::date, $8, $9, $10, 'SEM_CLIENTE')
@@ -85,8 +101,9 @@ export async function capturarContatoPublico(
     : { ...atribuicaoDesconhecida("CONTATO", contatoId, "FORMULARIO_SITE", utm), contatoId };
   await registrarSeAusente(tx, site.empresaId, { ...atribuicaoBase, alvoTipo: "CONTATO", alvoId: contatoId });
 
-  const { clienteId, novo } = await clienteDoContato(tx, site.empresaId, entrada);
-  await tx.query(
+  // Cartão do Wall-e já vinculado (correspondência única) mantém o cliente; os demais seguem a regra do site.
+  const { clienteId, novo } = walle?.clienteId ? { clienteId: walle.clienteId, novo: false } : await clienteDoContato(tx, site.empresaId, entrada);
+  if (!walle?.clienteId) await tx.query(
     `UPDATE marketing_contatos SET cliente_id = $2::uuid, vinculo_cliente = $3, atualizado_em = clock_timestamp() WHERE id = $1::uuid`,
     [contatoId, clienteId, novo ? "NOVO" : "EXISTENTE_CONTATO"],
   );
@@ -120,6 +137,25 @@ export function chaveTravaTelefone(empresaId: string, digitos: string) {
 }
 async function travarTelefoneNoFunil(tx: DbExecutor, empresaId: string, telefone: string | null | undefined) {
   if (telefone) await tx.query('SELECT pg_advisory_xact_lock(hashtextextended($1, 0))', [chaveTravaTelefone(empresaId, telefone)]);
+}
+/**
+ * r3 (P2): cartão aberto que o Wall-e criou para este telefone (com e sem 55) neste ambiente, sem negociação e não
+ * anonimizado. Chamado já sob a trava do telefone; o cartão fica em FOR UPDATE. Sem a 132 ou fora de staging/production, nenhum.
+ */
+async function cartaoWalleAberto(tx: DbExecutor, empresaId: string, telefone: string | null | undefined) {
+  const ambiente = ambienteDoDeploy();
+  if (!telefone || !ambiente) return null;
+  if (!(await tx.query<{ ok: boolean }>("SELECT to_regclass('public.whatsapp_atendimento_oportunidades') IS NOT NULL AS ok")).rows[0]?.ok) return null;
+  const r = await tx.query<{ id: string; cliente_id: string | null; status: StatusContato }>(
+    `SELECT k.id::text, k.cliente_id::text, k.status FROM marketing_contatos k
+       JOIN whatsapp_atendimento_oportunidades o ON o.contato_id = k.id AND o.empresa_id = k.empresa_id
+      WHERE k.empresa_id = $1::uuid AND o.ambiente = $2::text AND o.anonimizado_em IS NULL AND k.fechamento_id IS NULL
+        AND k.status IN ('NOVO', 'EM_ATENDIMENTO') AND k.telefone = ANY($3::text[])
+      ORDER BY k.recebido_em DESC, k.id LIMIT 1 FOR UPDATE OF k`,
+    [empresaId, ambiente, variantesTelefone(telefone)],
+  );
+  const k = r.rows[0];
+  return k ? { id: k.id, clienteId: k.cliente_id, status: k.status } : null;
 }
 export function variantesTelefone(digitos: string) {
   const v = new Set([digitos]);
@@ -160,17 +196,9 @@ export type ContatoLista = {
   campanhaNome: string | null; unidadeId: string | null;
 };
 
-export async function listarContatos(
-  tx: DbExecutor, empresaId: string,
-  filtros: { id?: string | null; de?: string | null; ate?: string | null; status?: StatusContato | null; unidadeId?: string | null; campanhaId?: string | null; limite?: number },
-): Promise<ContatoLista[]> {
-  const r = await tx.query<{
-    id: string; nome: string; telefone: string | null; email: string | null; canal_atendimento: CanalAtendimento; status: StatusContato; recebido_em: string;
-    data_desejada: string | null; convidados: number | null; cliente_id: string | null; cliente_nome: string | null; vinculo_cliente: string;
-    fechamento_id: string | null; origem_codigo: string | null; metodo: string | null; campanha_id: string | null; campanha_nome: string | null;
-    estabelecimento_id: string | null;
-  }>(
-    `SELECT k.id::text, k.nome, k.telefone, k.email, k.canal_atendimento, k.status, k.recebido_em::text, k.data_desejada::text, k.convidados,
+/** r3 (P1): cartão do Wall-e de OUTRO ambiente (staging x production na mesma base) não aparece na lista nem no detalhe. */
+const CORTE_AMBIENTE_WALLE = ' AND NOT EXISTS (SELECT 1 FROM whatsapp_atendimento_oportunidades wo WHERE wo.contato_id = k.id AND wo.ambiente IS DISTINCT FROM $9::text)';
+const sqlListaContatos = (corte: string) => `SELECT k.id::text, k.nome, k.telefone, k.email, k.canal_atendimento, k.status, k.recebido_em::text, k.data_desejada::text, k.convidados,
             k.cliente_id::text, c.nome_completo AS cliente_nome, k.vinculo_cliente, k.fechamento_id::text, a.origem_codigo, a.metodo,
             a.campanha_id::text, cp.nome AS campanha_nome, k.estabelecimento_id::text
        FROM marketing_contatos k
@@ -183,11 +211,24 @@ export async function listarContatos(
         AND ($4::text IS NULL OR k.status = $4)
         AND ($5::uuid IS NULL OR k.estabelecimento_id = $5::uuid)
         AND ($6::uuid IS NULL OR a.campanha_id = $6::uuid)
-        AND ($8::uuid IS NULL OR k.id = $8::uuid)
+        AND ($8::uuid IS NULL OR k.id = $8::uuid)${corte}
       ORDER BY k.recebido_em DESC, k.id
-      LIMIT $7`,
+      LIMIT $7`;
+export async function listarContatos(
+  tx: DbExecutor, empresaId: string,
+  filtros: { id?: string | null; de?: string | null; ate?: string | null; status?: StatusContato | null; unidadeId?: string | null; campanhaId?: string | null; limite?: number },
+  ambiente: string | null = ambienteDoDeploy(),
+): Promise<ContatoLista[]> {
+  const com132 = !!(await tx.query<{ ok: boolean }>("SELECT to_regclass('public.whatsapp_atendimento_oportunidades') IS NOT NULL AS ok")).rows[0]?.ok;
+  const r = await tx.query<{
+    id: string; nome: string; telefone: string | null; email: string | null; canal_atendimento: CanalAtendimento; status: StatusContato; recebido_em: string;
+    data_desejada: string | null; convidados: number | null; cliente_id: string | null; cliente_nome: string | null; vinculo_cliente: string;
+    fechamento_id: string | null; origem_codigo: string | null; metodo: string | null; campanha_id: string | null; campanha_nome: string | null;
+    estabelecimento_id: string | null;
+  }>(
+    com132 ? sqlListaContatos(CORTE_AMBIENTE_WALLE) : sqlListaContatos(''),
     [empresaId, filtros.de ?? null, filtros.ate ?? null, filtros.status ?? null, filtros.unidadeId ?? null, filtros.campanhaId ?? null,
-      Math.min(Math.max(filtros.limite ?? 200, 1), 500), filtros.id ?? null],
+      Math.min(Math.max(filtros.limite ?? 200, 1), 500), filtros.id ?? null, ...(com132 ? [ambiente] : [])],
   );
   return r.rows.map((l) => ({
     id: l.id, nome: l.nome, telefone: l.telefone, email: l.email, canal: l.canal_atendimento, status: l.status, recebidoEm: l.recebido_em,
@@ -266,7 +307,23 @@ export async function executarAcaoContato(
       `SELECT id::text FROM marketing_campanhas WHERE id = $1::uuid AND empresa_id = $2::uuid`, [acao.campanhaId, empresaId]) : null;
     if (campanha && campanha.rows.length !== 1) throw new MarketingError("MARKETING_CAMPANHA_INVALIDA", "Campanha não encontrada nesta empresa.", 404);
     await travarTelefoneNoFunil(tx, empresaId, acao.telefone);
-    const r = await tx.query<{ id: string }>(
+    const repetidoPelaChave = await tx.query<{ id: string }>(`SELECT id::text FROM marketing_contatos WHERE empresa_id = $1::uuid AND chave_idempotencia = $2`, [empresaId, acao.chave]);
+    if (repetidoPelaChave.rows.length) return { id: repetidoPelaChave.rows[0].id, repetido: true };
+    // r3 (P2): o Wall-e já abriu o cartão deste telefone neste ambiente → o registro manual completa esse cartão.
+    const walle = await cartaoWalleAberto(tx, empresaId, acao.telefone);
+    if (walle) {
+      if (await atribuicaoVigente(tx, empresaId, "CONTATO", walle.id)) return { id: walle.id, repetido: true };
+      await tx.query(
+        `UPDATE marketing_contatos SET nome = $3, email = coalesce($4, email), data_desejada = coalesce($5::date, data_desejada), convidados = coalesce($6, convidados),
+           mensagem = coalesce($7, mensagem), estabelecimento_id = coalesce(estabelecimento_id, $8::uuid),
+           cliente_id = coalesce(cliente_id, $9::uuid), vinculo_cliente = CASE WHEN cliente_id IS NULL AND $9::uuid IS NOT NULL THEN 'MANUAL' ELSE vinculo_cliente END,
+           status = 'EM_ATENDIMENTO', atualizado_por = $10::uuid, atualizado_em = clock_timestamp()
+         WHERE id = $1::uuid AND empresa_id = $2::uuid`,
+        [walle.id, empresaId, acao.nome, acao.email ?? null, acao.dataDesejada ?? null, acao.convidados ?? null, acao.mensagem || null, unidade,
+          acao.clienteId ?? null, usuarioId],
+      );
+    }
+    const r = walle ? { rows: [{ id: walle.id }] } : await tx.query<{ id: string }>(
       `INSERT INTO marketing_contatos (empresa_id, estabelecimento_id, cliente_id, canal_atendimento, nome, telefone, email, data_desejada, convidados,
          mensagem, chave_idempotencia, vinculo_cliente, status, atualizado_por)
        VALUES ($1::uuid, $2::uuid, $3::uuid, $4, $5, $6, $7, $8::date, $9, $10, $11, $12, 'EM_ATENDIMENTO', $13::uuid)
