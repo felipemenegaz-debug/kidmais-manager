@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { readFileSync } from 'node:fs';
-import { chaveDoCartao, chaveTravaTelefone, nomeDoCartao, qualificaPedidoFesta, variantesDoTelefone } from './oportunidade.ts';
+import { campanhaDaMensagemSite, chaveDoCartao, chaveTravaTelefone, nomeDoCartao, qualificaPedidoFesta, variantesDoTelefone } from './oportunidade.ts';
 import type { Entendimento, Intencao, Passagem, ResultadoWallE, TipoIntencao } from './tipos.ts';
 
 const vazio = { data: null, turno: null, convidados: null, pacotes: [], unidade: null, tema: null };
@@ -37,6 +37,23 @@ test('D-WA-2: saudação, dúvida, suporte a contrato, pagamento, reclamação, 
     assert.equal(qualificaPedidoFesta(resultado(entendimento(['PRECOS']), { passagem: passagem(m) })), false, m);
   assert.equal(qualificaPedidoFesta(resultado(entendimento(['PRECOS']), { parar: true })), false, 'resultado parar');
   assert.equal(qualificaPedidoFesta(resultado(entendimento(['PRECOS']), { silencio: true })), false, 'silêncio');
+});
+
+test('Ref do site: mais de uma linha de referência é ambígua (sem atribuição); citação no meio da frase não conta', () => {
+  const antes = process.env.MARKETING_SITE_KIDMAIS_EMPRESA_ID;
+  process.env.MARKETING_SITE_KIDMAIS_EMPRESA_ID = 'empresa-sintetica';
+  try {
+    const a = '11111111-1111-4111-8111-111111111111', b = '22222222-2222-4222-8222-222222222222';
+    const ref = (id: string) => `Ref. iA.Fest: ${id}`;
+    const ler = (texto: string) => campanhaDaMensagemSite('empresa-sintetica', texto);
+    assert.equal(ler(`Pedido sintético\n${ref(a)}\n${ref(a)}`), null, 'duas referências iguais');
+    assert.equal(ler(`Pedido sintético\n${ref(a)}\n${ref(b)}`), null, 'duas referências diferentes');
+    assert.equal(ler(`Pedido sintético\n  ${ref(a)}\nOrigem: instagram\n${ref(b)}`), null, 'uma no meio (com espaços à esquerda) e uma no fim');
+    assert.equal(ler(`Pedido sintético\nOrigem: instagram\n${ref(b)}`), b, 'uma única na última linha');
+    assert.equal(ler(`Vi no site o texto "Ref. iA.Fest: ${a}" e quero orçar\n${ref(b)}`), b, 'citação no meio da frase não conta');
+  } finally {
+    if (antes === undefined) delete process.env.MARKETING_SITE_KIDMAIS_EMPRESA_ID; else process.env.MARKETING_SITE_KIDMAIS_EMPRESA_ID = antes;
+  }
 });
 
 test('nome do cartão: perfil higienizado (2–120) ou "WhatsApp final NNNN"', () => {

@@ -7,6 +7,8 @@ import { comandoSchema } from '@/lib/oportunidades/modelo';
 import { executarOportunidade, clienteDoAlvo, exigirSchema } from '@/lib/oportunidades/service';
 import { contadoresMes, listarOportunidades, responsaveis } from '@/lib/oportunidades/consultas';
 import { MarketingError } from '@/lib/marketing/erros';
+import { lerOrigens } from '@/lib/marketing/origens';
+import { listarCampanhas } from '@/lib/marketing/campanhas';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -15,8 +17,10 @@ export async function GET(request: NextRequest) {
   return rotaMarketing(request,exigirApiAdminCrmDisponivel,{capacidade:'MARKETING_VISUALIZAR'},async({tx,tenant,capacidades})=>{
     const responsavelId=parametroUuid(request.nextUrl.searchParams.get('responsavelId'));
     if (request.nextUrl.searchParams.has('responsavelId') && !responsavelId) throw new MarketingError('FILTRO_INVALIDO','Responsável inválido.',400);
-    const empresaId=tenant.empresaComprovada,hoje=hojeSaoPaulo();
-    return {hoje,usuarioId:tenant.usuarioId,podeEditar:capacidades.includes('MARKETING_CAMPANHAS_EDITAR'),itens:await listarOportunidades(tx,empresaId,responsavelId),responsaveis:await responsaveis(tx,empresaId),contadores:await contadoresMes(tx,empresaId,hoje,responsavelId)};
+    const empresaId=tenant.empresaComprovada,hoje=hojeSaoPaulo(),podeEditar=capacidades.includes('MARKETING_CAMPANHAS_EDITAR');
+    // "Como conheceu" no Novo contato: as mesmas listas da tela Pedidos e contatos, só para quem registra (sem campanha arquivada).
+    const opcoesRegistro=podeEditar?{origens:await lerOrigens(tx,empresaId),campanhas:(await listarCampanhas(tx,empresaId)).map(c=>({id:c.id,nome:c.nome}))}:{};
+    return {hoje,usuarioId:tenant.usuarioId,podeEditar,...opcoesRegistro,itens:await listarOportunidades(tx,empresaId,responsavelId),responsaveis:await responsaveis(tx,empresaId),contadores:await contadoresMes(tx,empresaId,hoje,responsavelId)};
   });
 }
 export async function POST(request: NextRequest) {

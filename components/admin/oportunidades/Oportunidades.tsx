@@ -4,9 +4,13 @@ import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { ETAPAS, TIPOS_ACAO, type Oportunidade } from '@/lib/oportunidades/modelo';
 import { MotivoPerda } from './MotivoPerda';
 import { EstadoCarga, enviarMarketing, useMarketing } from '../marketing/comum';
+import type { OpcaoOrigem } from '@/lib/marketing/origens';
 import styles from './oportunidades.module.css';
 
-type Dados = {podeEditar:boolean;hoje:string;usuarioId:string;itens:Oportunidade[];responsaveis:Array<{id:string;nome:string}>;contadores:{fechadas:number;perdidas:number;fechadasSemData:number}};
+// origens/campanhas: só para quem registra (a rota omite para o leitor); ausentes, o Novo contato fica como antes.
+type Dados = {podeEditar:boolean;hoje:string;usuarioId:string;itens:Oportunidade[];responsaveis:Array<{id:string;nome:string}>;contadores:{fechadas:number;perdidas:number;fechadasSemData:number};origens?:OpcaoOrigem[];campanhas?:Array<{id:string;nome:string}>};
+// Por onde o pedido chegou quando é registrado à mão (o formulário do site entra sozinho).
+const CANAIS_REGISTRO:Array<[string,string]>=[['TELEFONE','Telefone'],['WHATSAPP','WhatsApp'],['PRESENCIAL','Presencial'],['EMAIL','E-mail'],['OUTRO','Outro']];
 const moeda=(valor:string|null)=>valor===null?'Valor a definir':Number(valor).toLocaleString('pt-BR',{style:'currency',currency:'BRL'});
 const dia=(valor:string)=>valor.split('-').reverse().join('/');
 export default function Oportunidades() {
@@ -43,7 +47,7 @@ export default function Oportunidades() {
       <footer className={styles.contadores}><p><strong>{dados.contadores.fechadas}</strong> fechadas no mês</p><Link href="/admin/marketing#funil"><strong>{dados.contadores.perdidas}</strong> perdidas no mês · Ver motivos</Link>{dados.contadores.fechadasSemData>0&&<small>{dados.contadores.fechadasSemData} confirmação(ões) anterior(es) sem data conhecida, fora do contador mensal.</small>}</footer>
     </>}
     {podeEditar && janela && dados && <JanelaAcao key={janela.item.id} item={janela.item} feito={janela.feito} dados={dados} fechar={()=>setJanela(null)} salvo={()=>{setJanela(null);recarregar();}}/>}
-    {podeEditar && novo&&<NovoContato fechar={()=>setNovo(false)} salvo={()=>{setNovo(false);recarregar();}}/>}
+    {podeEditar && novo&&<NovoContato origens={dados?.origens} campanhas={dados?.campanhas} fechar={()=>setNovo(false)} salvo={()=>{setNovo(false);recarregar();}}/>}
   </main>;
 }
 function Modal({titulo,fechar,children,busy=false}:{titulo:string;fechar:()=>void;children:ReactNode;busy?:boolean}) {
@@ -61,11 +65,17 @@ function JanelaAcao({item,feito,dados,fechar,salvo}:{item:Oportunidade;feito:boo
       <label>{perder && motivo==='Outro' ? 'Explique o motivo' : 'Observação (opcional)'}<textarea required={perder && motivo==='Outro'} maxLength={1000} value={observacao} disabled={busy} onChange={e=>setObservacao(e.target.value)}/></label>{erro&&<p role="alert" className={styles.alerta}>{erro}</p>}<button disabled={busy || (perder && motivo==='Outro' && !observacao.trim())}>{busy?'Salvando…':perder?'Confirmar perda':feito?'Concluir e agendar':'Salvar próxima ação'}</button>
     </form></Modal>;
 }
-function NovoContato({fechar,salvo}:{fechar:()=>void;salvo:()=>void}) {
+export function NovoContato({fechar,salvo,origens,campanhas}:{fechar:()=>void;salvo:()=>void;origens?:OpcaoOrigem[];campanhas?:Array<{id:string;nome:string}>}) {
   const [nome,setNome]=useState(''),[telefone,setTelefone]=useState(''),[mensagem,setMensagem]=useState(''),[busy,setBusy]=useState(false),[erro,setErro]=useState('');
+  const [canal,setCanal]=useState('TELEFONE'),[origemCodigo,setOrigemCodigo]=useState(''),[campanhaId,setCampanhaId]=useState('');
   const chave=useRef<string>('');
+  // Sem a lista de origens (leitor ou resposta antiga), o corpo é o de sempre: a origem fica desconhecida.
   async function salvar(e:React.FormEvent){e.preventDefault();setBusy(true);setErro('');if(!chave.current)chave.current=crypto.randomUUID();try{
-    await enviarMarketing('/api/admin/oportunidades',{acao:'registrar',nome,telefone:telefone.replace(/\D/g,''),canal:'TELEFONE',mensagem,chave:chave.current});salvo();
+    await enviarMarketing('/api/admin/oportunidades',{acao:'registrar',nome,telefone:telefone.replace(/\D/g,''),canal,mensagem,chave:chave.current,...(origens&&origemCodigo?{origemCodigo}:{}),...(origens&&campanhaId?{campanhaId}:{})});salvo();
   }catch(e){setErro(e instanceof Error?e.message:'Não foi possível registrar.');}finally{setBusy(false);}}
-  return <Modal titulo="Novo contato" fechar={fechar} busy={busy}><form onSubmit={salvar}><label>Nome<input autoFocus required minLength={2} maxLength={120} value={nome} disabled={busy} onChange={e=>setNome(e.target.value)}/></label><label>Telefone com DDD<input required type="tel" maxLength={25} value={telefone} disabled={busy} onChange={e=>setTelefone(e.target.value)}/></label><label>Observação (opcional)<textarea maxLength={1000} value={mensagem} disabled={busy} onChange={e=>setMensagem(e.target.value)}/></label>{erro&&<p role="alert" className={styles.alerta}>{erro}</p>}<button disabled={busy}>{busy?'Registrando…':'Registrar contato'}</button></form></Modal>;
+  return <Modal titulo="Novo contato" fechar={fechar} busy={busy}><form onSubmit={salvar}><label>Nome<input autoFocus required minLength={2} maxLength={120} value={nome} disabled={busy} onChange={e=>setNome(e.target.value)}/></label><label>Telefone com DDD<input required type="tel" maxLength={25} value={telefone} disabled={busy} onChange={e=>setTelefone(e.target.value)}/></label>
+    <label>Chegou por<select value={canal} disabled={busy} onChange={e=>setCanal(e.target.value)}>{CANAIS_REGISTRO.map(([v,r])=><option key={v} value={v}>{r}</option>)}</select></label>
+    {origens&&<label>Como conheceu<select value={origemCodigo} disabled={busy} onChange={e=>setOrigemCodigo(e.target.value)}><option value="">Não sei / não perguntado</option>{origens.filter(o=>o.ativa).map(o=><option key={o.codigo} value={o.codigo}>{o.rotulo}</option>)}</select></label>}
+    {origens&&!!campanhas?.length&&<label>Campanha (opcional)<select value={campanhaId} disabled={busy} onChange={e=>setCampanhaId(e.target.value)}><option value="">Nenhuma</option>{campanhas.map(c=><option key={c.id} value={c.id}>{c.nome}</option>)}</select></label>}
+    <label>Observação (opcional)<textarea maxLength={1000} value={mensagem} disabled={busy} onChange={e=>setMensagem(e.target.value)}/></label>{erro&&<p role="alert" className={styles.alerta}>{erro}</p>}<button disabled={busy}>{busy?'Registrando…':'Registrar contato'}</button></form></Modal>;
 }

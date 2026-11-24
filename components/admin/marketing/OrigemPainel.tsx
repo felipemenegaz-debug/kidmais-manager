@@ -36,6 +36,10 @@ export default function OrigemPainel({ alvoTipo, alvoId, titulo }: { alvoTipo: A
   if (falha) return falha.codigo === 'MARKETING_INDISPONIVEL' ? null : <p className={styles.muted}>Origem indisponível: {falha.mensagem}</p>;
   if (!dados) return null;
   const v = dados.vigente;
+  // Contato registrado sem origem nasce com "desconhecida (sem evidência)". Informar a primeira de verdade não é corrigir
+  // um erro: a troca continua no histórico, com motivo fixo, sem pedir justificativa à equipe.
+  const informarSobreDesconhecida = alvoTipo === 'CONTATO' && v?.metodo === 'DESCONHECIDO';
+  const pedeMotivo = !!v && !informarSobreDesconhecida;
 
   function abrir() {
     setOrigem(v && v.origemCodigo !== 'DESCONHECIDA' ? v.origemCodigo : ''); setCanal(v?.canalAtendimento ?? ''); setCampanhaId(v?.campanhaId ?? '');
@@ -48,7 +52,7 @@ export default function OrigemPainel({ alvoTipo, alvoId, titulo }: { alvoTipo: A
     try {
       await enviarMarketing('/api/admin/marketing/atribuicoes', {
         alvoTipo, alvoId, origemCodigo: origem, canalAtendimento: canal || null, campanhaId: campanhaId || null, detalhe: detalhe || null,
-        ...(v ? { corrigeId: v.id, motivo } : {}),
+        ...(v ? { corrigeId: v.id, motivo: pedeMotivo ? motivo : 'Origem informada pela equipe (antes sem evidência).' } : {}),
       });
       setEditando(false); recarregar();
     } catch (erro) { setAviso(erro instanceof Error ? erro.message : 'Não foi possível salvar.'); }
@@ -62,7 +66,7 @@ export default function OrigemPainel({ alvoTipo, alvoId, titulo }: { alvoTipo: A
       : dados.herdadaDoCliente ? <p><strong>{rotulo(dados.herdadaDoCliente.origemCodigo, dados.origens)}</strong>{dados.herdadaDoCliente.campanhaNome ? ` · campanha ${dados.herdadaDoCliente.campanhaNome}` : ''}
         <br /><span className={styles.muted}>herdada do cliente: é a primeira negociação dele e não tem origem própria. Informe outra se esta negociação veio por outro caminho.</span></p>
       : <p className={styles.muted}>Não registrada. {alvoTipo === 'CLIENTE' ? 'Sem evidência, a origem fica desconhecida (nada é presumido).' : 'Informe como este contato chegou.'}</p>}
-    {!editando && <button type="button" className={styles.secundario} onClick={abrir}>{v ? 'Corrigir origem' : 'Informar origem'}</button>}
+    {!editando && <button type="button" className={styles.secundario} onClick={abrir}>{pedeMotivo ? 'Corrigir origem' : 'Informar origem'}</button>}
     {editando && <form onSubmit={salvar} className={styles.editor} style={{ marginTop: 12 }}>
       <div className={styles.grade2}>
         <label className={styles.campo}>Origem<select value={origem} onChange={(e) => setOrigem(e.target.value)} required>
@@ -73,7 +77,7 @@ export default function OrigemPainel({ alvoTipo, alvoId, titulo }: { alvoTipo: A
           <option value="">Nenhuma</option>{dados.campanhas.map((c) => <option key={c.id} value={c.id}>{c.nome}</option>)}</select></label>}
         <label className={styles.campo}>Detalhe (indicador, parceiro…)<input maxLength={200} value={detalhe} onChange={(e) => setDetalhe(e.target.value)} /></label>
       </div>
-      {v && <label className={styles.campo}>Motivo da correção (fica no histórico)<input required minLength={3} maxLength={300} value={motivo} onChange={(e) => setMotivo(e.target.value)} /></label>}
+      {pedeMotivo && <label className={styles.campo}>Motivo da correção (fica no histórico)<input required minLength={3} maxLength={300} value={motivo} onChange={(e) => setMotivo(e.target.value)} /></label>}
       {aviso && <p className={styles.erro} role="alert">{aviso}</p>}
       <div className={styles.acoes}><button type="button" className={styles.fantasma} onClick={() => setEditando(false)} disabled={enviando}>Cancelar</button>
         <button type="submit" className={styles.secundario} disabled={enviando}>{enviando ? 'Salvando…' : 'Salvar origem'}</button></div>

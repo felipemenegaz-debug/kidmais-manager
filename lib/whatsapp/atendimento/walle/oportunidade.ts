@@ -95,8 +95,11 @@ type ConversaCaptura = { id: string; empresa_id: string; ambiente: string; conta
 // Formato gerado pelo site do buffet. Só o identificador da campanha é usado na consulta.
 export function campanhaDaMensagemSite(empresa: string, texto: string | null): string | null {
   if (!texto || empresa !== empresaDoSiteKidmais()) return null;
-  const rodape = texto.trimEnd().split(/\r?\n/).at(-1) ?? '';
+  const linhas = texto.trimEnd().split(/\r?\n/);
+  const rodape = linhas.at(-1) ?? '';
   const prefixo = 'Ref. iA.Fest: ';
+  // Mais de uma linha de referência é ambígua: nenhuma atribuição automática.
+  if (linhas.filter(l => l.trimStart().startsWith(prefixo)).length > 1) return null;
   const id = rodape.startsWith(prefixo) ? rodape.slice(prefixo.length) : '';
   return ID_CAMPANHA.test(id) ? id.toLowerCase() : null;
 }
