@@ -165,7 +165,11 @@ const OPERACOES_CREDITOS: Array<Record<string, unknown>> = [
     { acao: 'resolver_bloqueio', pagamentoId: 'pay_1', resultado: 'CANCELAR', referencia: 'Ref 1' },
 ];
 
+/** D-LAN-4 (23/11/2026): iniciar e estender teste pelo painel não passam pela trava em ambiente nenhum. */
+const FORA_DA_TRAVA = new Set(['operarComercial iniciar-teste', 'operarComercial estender-teste']);
 type Entrada = { nome: string; ponto: string; chamar: () => Promise<unknown> };
+const guardadas = () => entradas().filter((e) => !FORA_DA_TRAVA.has(e.nome));
+const foraDaTrava = () => entradas().filter((e) => FORA_DA_TRAVA.has(e.nome));
 function entradas(): Entrada[] {
     const comercial = req('lib/desenvolvedor/comercial.ts');
     const creditos = req('lib/desenvolvedor/creditos.ts');
@@ -264,12 +268,21 @@ for (const cenario of CENARIOS) {
     test(`${cenario.nome}: toda entrada C1 e todo ponto guardado recusam, sem mudança e sem provedor`, async () => {
         await comAmbiente(cenario.env, async () => {
             const antes = await fotografia();
-            for (const entrada of entradas()) {
+            for (const entrada of guardadas()) {
                 sqls = []; efeitos.length = 0;
                 const { r, avisos } = await capturandoAvisos(() => resultado(entrada.chamar()));
                 assert.equal(r, 'COBRANCA_TRAVADA', entrada.nome);
                 assert.ok(avisos.some((a) => a.startsWith(`[trava cobrança] recusa em ${entrada.ponto}:`)), `${entrada.nome}: a recusa veio da guarda`);
                 assertSoGuarda(entrada.nome);
+            }
+            // D-LAN-4: o teste não lê a guarda e chega ao resultado de domínio (com esta fixture, assinatura ATIVA: CONFLITO).
+            for (const entrada of foraDaTrava()) {
+                sqls = []; efeitos.length = 0;
+                const { r, avisos } = await capturandoAvisos(() => resultado(entrada.chamar()));
+                assert.equal(r, ESPERADO_ABERTO[entrada.nome], entrada.nome);
+                assert.ok(!avisos.some((a) => a.startsWith('[trava cobrança]')), `${entrada.nome}: sem recusa da trava`);
+                assert.ok(!sqlDeDominio().includes(LEITURA_BANCO), `${entrada.nome}: não lê a guarda`);
+                assert.deepEqual(efeitos, [], `${entrada.nome}: sem efeito no conflito`);
             }
             assert.deepEqual(await fotografia(), antes, 'nenhuma tabela mudou');
         });
@@ -333,12 +346,20 @@ test('banco chamado de verdade kidmais_production, sem nenhuma variável de prod
             assert.equal(r, false);
             // O banco está vazio: qualquer SQL além da guarda estouraria em tabela inexistente, e a sequência também o mostraria.
             client = c;
-            for (const entrada of entradas()) {
+            for (const entrada of guardadas()) {
                 sqls = []; efeitos.length = 0;
                 const { r: codigo, avisos } = await capturandoAvisos(() => resultado(entrada.chamar()));
                 assert.equal(codigo, 'COBRANCA_TRAVADA', entrada.nome);
                 assert.ok(avisos.some((a) => a.endsWith('BANCO_PRODUCTION.')), `${entrada.nome}: motivo`);
                 assertSoGuarda(entrada.nome);
+            }
+            // D-LAN-4: no banco vazio o teste passa da trava e para na primeira tabela inexistente, nunca em COBRANCA_TRAVADA.
+            for (const entrada of foraDaTrava()) {
+                sqls = []; efeitos.length = 0;
+                const { r: codigo, avisos } = await capturandoAvisos(() => resultado(entrada.chamar()));
+                assert.equal(codigo, 'GENERICO:42P01', entrada.nome);
+                assert.ok(!avisos.some((a) => a.startsWith('[trava cobrança]')), `${entrada.nome}: sem recusa da trava`);
+                assert.deepEqual(efeitos, [], `${entrada.nome}: sem efeito`);
             }
             client = principal;
             for (const chamar of [() => resend(pedidoResend(bounce('email_renovacao_b25'), 'msg_nome'), naTransacao), () => asaas(pedidoAsaas(TOKEN), naTransacao)]) {
@@ -408,7 +429,10 @@ for (const aberto of ABERTOS) {
                 const soGuarda = entrada.ponto === 'POST /api/cadastro';
                 if (r !== ESPERADO_ABERTO[entrada.nome]) divergencias.push({ entrada: entrada.nome, obtido: r, esperado: ESPERADO_ABERTO[entrada.nome] });
                 if (avisos.some((a) => a.startsWith('[trava cobrança]'))) divergencias.push({ entrada: entrada.nome, log: 'recusa da trava' });
-                if (dominio[0] !== LEITURA_BANCO) divergencias.push({ entrada: entrada.nome, primeiroSql: dominio[0] ?? null });
+                if (FORA_DA_TRAVA.has(entrada.nome)) {
+                    if (dominio.includes(LEITURA_BANCO)) divergencias.push({ entrada: entrada.nome, leuGuarda: true });
+                }
+                else if (dominio[0] !== LEITURA_BANCO) divergencias.push({ entrada: entrada.nome, primeiroSql: dominio[0] ?? null });
                 if (!soGuarda && dominio.length < 2) divergencias.push({ entrada: entrada.nome, semPassoSeguinte: true });
             }
             assert.deepEqual(divergencias, []);
@@ -481,5 +505,82 @@ test('rota POST /api/cadastro: em production recusa antes do after(); em execuç
         const r = await rota.POST(pedidoRota());
         assert.equal(r.status, 202, 'rota: caminho aberto');
         assert.equal(agendados, 1, 'rota: after no caminho aberto');
+    });
+});
+
+/** CNPJ válido e único por chamada, para a contratante nova da prova D-LAN-4. */
+function cnpjSintetico() {
+    const base = `7${String(Math.floor(Math.random() * 1e7)).padStart(7, '0')}0001`;
+    const dv = (b: string) => { let s = 0, p = 2; for (let i = b.length - 1; i >= 0; i--) { s += (b.charCodeAt(i) - 48) * p; p = p === 9 ? 2 : p + 1; } const r = s % 11; return r <= 1 ? 0 : 11 - r; };
+    const d1 = dv(base); return base + d1 + dv(base + d1);
+}
+
+test('D-LAN-4, production declarado: o painel inicia e estende o teste de uma contratante sem cobrança; exceção continua travada', async () => {
+    const documento = cnpjSintetico();
+    const empresa = (await client.query<{ id: string }>("INSERT INTO empresas (codigo, nome, status) VALUES ($1, 'Buffet D-LAN-4', 'PROVISIONAMENTO') RETURNING id",
+        [`dlan4${randomBytes(4).toString('hex')}`])).rows[0].id;
+    await client.query("UPDATE empresas SET status = 'ATIVA' WHERE id = $1", [empresa]);
+    await client.query(`INSERT INTO plataforma_empresas_cadastro (empresa_id, nome_empresarial, documento_fiscal, responsavel_nome, email, criado_por, atualizado_por)
+        VALUES ($1, 'Festas D-LAN-4 Ltda', $2, 'Responsável', $3, $4, $4)`, [empresa, documento, `dlan4${randomBytes(3).toString('hex')}@example.test`, ids.usuario]);
+    const comercial = req('lib/desenvolvedor/comercial.ts');
+    const operar = (op: Record<string, unknown>) => (comercial.operarComercial as unknown as (...x: unknown[]) => Promise<Record<string, unknown>>)(sessao(), empresa, op, ctx(), depsPainel());
+    const atendimento = req('lib/whatsapp/atendimento/multiempresa.ts');
+    const situacaoWallE = () => (atendimento.situacaoDireitoAtendimento as unknown as (tx: unknown, e: string) => Promise<string>)(client, empresa);
+    const direitoWallE = () => (atendimento.direitoAtendimentoWhatsApp as unknown as (tx: unknown, e: string) => Promise<boolean>)(client, empresa);
+    await comAmbiente(CENARIOS[1].env, async () => {
+        assert.equal(await situacaoWallE(), 'SEM_INFORMACAO', 'antes do teste: sem Wall-e');
+        assert.equal(await direitoWallE(), false);
+        efeitos.length = 0;
+        const { r: inicio, avisos } = await capturandoAvisos(() => operar({ operacao: 'iniciar-teste', dias: 15, motivo: 'Venda assistida D-LAN-4' }));
+        assert.ok(!avisos.some((a) => a.startsWith('[trava cobrança]')), 'iniciar: sem recusa da trava');
+        assert.equal(inicio.operacao, 'iniciar-teste');
+        const linha = (await client.query<{ situacao: string; dias: number; documento_teste: string; sem_contrato: boolean }>(
+            `SELECT situacao, round(extract(epoch FROM teste_fim - teste_inicio) / 86400)::int AS dias, documento_teste, contratacao_atual_id IS NULL AS sem_contrato FROM empresa_assinaturas WHERE empresa_id = $1`, [empresa])).rows[0];
+        assert.deepEqual(linha, { situacao: 'TESTE', dias: 15, documento_teste: documento, sem_contrato: true }, 'teste sem plano confirmado: tudo incluído, como o Premium');
+        assert.equal(await situacaoWallE(), 'TESTE', 'prazo original: Wall-e liberado');
+        assert.equal(await direitoWallE(), true);
+
+        const fimAntes = (await client.query<{ f: Date }>('SELECT teste_fim AS f FROM empresa_assinaturas WHERE empresa_id = $1', [empresa])).rows[0].f;
+        const { r: extensao, avisos: avisos2 } = await capturandoAvisos(() => operar({ operacao: 'estender-teste', dias: 10, motivo: 'Cliente pagou à mão (D-LAN-6)' }));
+        assert.ok(!avisos2.some((a) => a.startsWith('[trava cobrança]')), 'estender: sem recusa da trava');
+        assert.equal(extensao.operacao, 'estender-teste');
+        const fimDepois = (await client.query<{ f: Date }>('SELECT teste_fim AS f FROM empresa_assinaturas WHERE empresa_id = $1', [empresa])).rows[0].f;
+        assert.equal(Math.round((fimDepois.getTime() - fimAntes.getTime()) / 86400000), 10, 'teste_fim avança 10 dias');
+        const excecoes = (await client.query<{ tipo: string }>('SELECT tipo FROM empresa_excecoes_comerciais WHERE empresa_id = $1', [empresa])).rows.map((x) => x.tipo);
+        assert.deepEqual(excecoes, ['EXTENSAO_TESTE']);
+        assert.deepEqual(efeitos, ['auditoria', 'auditoria'], 'só a auditoria do painel, sem provedor nem e-mail');
+
+        // O resto do painel comercial segue travado em production, mesmo com a empresa agora em teste.
+        sqls = []; efeitos.length = 0;
+        const { r: cortesia, avisos: avisos3 } = await capturandoAvisos(() => resultado(operar({ operacao: 'conceder-excecao', tipo: 'CORTESIA', dias: 5, motivo })));
+        assert.equal(cortesia, 'COBRANCA_TRAVADA');
+        assert.ok(avisos3.some((a) => a.startsWith('[trava cobrança] recusa em operarComercial:')));
+        assertSoGuarda('conceder-excecao depois do teste');
+
+        // Wall-e: a mesma decisão usada pelo atendimento (C4), na mesma linha. A 068 não deixa recuar datas da assinatura, então
+        // o relógio é simulado: o único clock_timestamp() da consulta vira o instante pedido (e a troca tem de acontecer).
+        const noInstante = async <T>(instante: Date, decidir: (tx: unknown) => Promise<T>) => {
+            let trocas = 0;
+            const relogio = { query: (sql: string, valores?: unknown[]) => {
+                const n = sql.split('clock_timestamp()').length - 1;
+                trocas += n;
+                return client.query(n ? sql.split('clock_timestamp()').join(`'${instante.toISOString()}'::timestamptz`) : sql, valores);
+            } };
+            const r = await decidir(relogio);
+            assert.equal(trocas, 1, 'a decisão compara teste_fim com o relógio uma vez');
+            return r;
+        };
+        const decisao = (tx: unknown) => (atendimento.situacaoDireitoAtendimento as unknown as (tx: unknown, e: string) => Promise<string>)(tx, empresa);
+        const direito = (tx: unknown) => (atendimento.direitoAtendimentoWhatsApp as unknown as (tx: unknown, e: string) => Promise<boolean>)(tx, empresa);
+        const hora = 3600000;
+        const casos: Array<[string, Date, string, boolean]> = [
+            ['prazo original, 1 h antes do fim de 15 dias', new Date(fimAntes.getTime() - hora), 'TESTE', true],
+            ['período acrescido, 1 dia depois do fim original', new Date(fimAntes.getTime() + 24 * hora), 'TESTE', true],
+            ['1 min depois do novo vencimento', new Date(fimDepois.getTime() + 60000), 'LEGADO', false],
+        ];
+        for (const [nome, instante, situacao, liberado] of casos) {
+            assert.equal(await noInstante(instante, decisao), situacao, nome);
+            assert.equal(await noInstante(instante, direito), liberado, `${nome}: Wall-e`);
+        }
     });
 });
