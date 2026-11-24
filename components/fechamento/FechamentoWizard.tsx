@@ -287,7 +287,7 @@ async function lerErroApi(resposta: Response, fallback: string) {
 }
 
 
-export default function FechamentoWizard({ empresa = null, logo = null }: { empresa?: string | null; logo?: string | null } = {}) {
+export default function FechamentoWizard({ empresa = null, logo = null, base }: { empresa?: string | null; logo?: string | null; base?: string | null } = {}) {
   const marca = useMarcaPublica();
   // Endereço por empresa: regras entregues pela página (servidor). Endereço atual: regras da empresa configurada,
   // lidas em /api/fechamentos/pacotes; até chegarem (ou antes da 077), o legado — o mesmo que o servidor aplica.
@@ -506,12 +506,12 @@ export default function FechamentoWizard({ empresa = null, logo = null }: { empr
 
       // O fluxo público oficial sempre começa em Disponibilidade.
       if (!interna && (!origemDisponibilidade || !convidadosParam)) {
-        router.replace(paginaPublica("/disponibilidade", empresa) + (convidadosParam ? `?convidados=${convidadosParam}` : ""));
+        router.replace(paginaPublica("/disponibilidade", empresa, base) + (convidadosParam ? `?convidados=${convidadosParam}` : ""));
         return;
       }
 
       if (origemDisponibilidade && !parametrosDisponibilidadeValidos) {
-        router.replace(paginaPublica("/disponibilidade", empresa) + (convidadosParam ? `?convidados=${convidadosParam}` : ""));
+        router.replace(paginaPublica("/disponibilidade", empresa, base) + (convidadosParam ? `?convidados=${convidadosParam}` : ""));
         return;
       }
 
@@ -579,7 +579,7 @@ export default function FechamentoWizard({ empresa = null, logo = null }: { empr
             if (situacao.tipo !== "livre") {
               // R-D1: salão que deixou de servir → aviso e volta à escolha (nunca segue com outro em silêncio).
               params.set("aviso", "salao");
-              router.replace(`${paginaPublica("/saloes", empresa)}?${params.toString()}`);
+              router.replace(`${paginaPublica("/saloes", empresa, base)}?${params.toString()}`);
               return;
             }
             setSalaoPreferido(situacao.salao);
@@ -612,7 +612,7 @@ export default function FechamentoWizard({ empresa = null, logo = null }: { empr
     return () => {
       cancelado = true;
     };
-  }, [router, empresa]);
+  }, [router, empresa, base]);
 
   // Início e fim do candidato escolhido (a agenda é a fonte; nada é recalculado na tela).
   const intervaloSelecionado = useMemo(
@@ -1436,7 +1436,7 @@ export default function FechamentoWizard({ empresa = null, logo = null }: { empr
     const p = new URLSearchParams(window.location.search);
     p.set("convidados", String(convidados));
     p.delete("aviso");
-    return `${paginaPublica("/saloes", empresa)}?${p.toString()}`;
+    return `${paginaPublica("/saloes", empresa, base)}?${p.toString()}`;
   };
 
   // S-C: novo número no chip: a cotação é refeita (a chave inclui os convidados) e o horário é revalidado; se o pacote
@@ -1556,7 +1556,7 @@ export default function FechamentoWizard({ empresa = null, logo = null }: { empr
       if (!resposta.ok) {
         const falha = await resposta.json().catch(() => null);
         // E2b: salão recusado no envio (genérico ou com motivo) → volta à escolha de salões, sem pré-selecionar nada.
-        const volta = destinoDaRecusaDoSalao(empresa, new URLSearchParams(window.location.search), enviado, falha);
+        const volta = destinoDaRecusaDoSalao(base ?? empresa, new URLSearchParams(window.location.search), enviado, falha);
         if (volta) {
           router.replace(volta);
           return;
@@ -1618,7 +1618,7 @@ export default function FechamentoWizard({ empresa = null, logo = null }: { empr
           <p className={styles.successText}>
             {erro || "O horário selecionado não está mais disponível."}
           </p>
-          <a className={styles.primaryButton} href={paginaPublica("/disponibilidade", empresa) + (convidados ? `?convidados=${convidados}` : "")}>
+          <a className={styles.primaryButton} href={paginaPublica("/disponibilidade", empresa, base) + (convidados ? `?convidados=${convidados}` : "")}>
             Voltar para disponibilidade
           </a>
         </section>
@@ -1689,6 +1689,7 @@ export default function FechamentoWizard({ empresa = null, logo = null }: { empr
           </p>
           </>}
           {!marca.kidmais && <ContatoEmpresa nome={marca.nome} contato={marca.contato} titulo={`Fale com ${marca.nome}`} />}
+          {!origemInterna && <a className={`${styles.secondaryButton} ${styles.smallMuted}`} href={base == null && empresa ? `/b/${encodeURIComponent(empresa)}/meu-pedido` : "/meu-pedido"}>Meu pedido</a>}
         </section>
       </main>
     );
@@ -1751,7 +1752,7 @@ export default function FechamentoWizard({ empresa = null, logo = null }: { empr
               <div className={styles.packageIntro}>
               {preselecaoDisponibilidade && form.dataFesta && intervaloSelecionado ? (
                 <div className={styles.infoBox}>
-                  <a className={styles.secondaryButton} href={paginaPublica("/disponibilidade", empresa) + (convidados ? `?convidados=${convidados}` : "")}>
+                  <a className={styles.secondaryButton} href={paginaPublica("/disponibilidade", empresa, base) + (convidados ? `?convidados=${convidados}` : "")}>
                     Alterar data ou horário
                   </a>
                 </div>
@@ -1871,7 +1872,7 @@ export default function FechamentoWizard({ empresa = null, logo = null }: { empr
                     {form.dataFesta.split("-").reverse().join("/")} · {horario}.
                     A consulta não reservou a data e o horário será revalidado novamente antes da confirmação.
                   </p>
-                  <a className={styles.secondaryButton} href={paginaPublica("/disponibilidade", empresa) + (convidados ? `?convidados=${convidados}` : "")}>
+                  <a className={styles.secondaryButton} href={paginaPublica("/disponibilidade", empresa, base) + (convidados ? `?convidados=${convidados}` : "")}>
                     Alterar data ou horário
                   </a>
                 </div>

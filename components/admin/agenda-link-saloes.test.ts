@@ -27,7 +27,7 @@ async function telaCarregada(agenda: ReturnType<typeof agendaDe>, vitrine = fals
     './agenda-configuracao.module.css': cssFalso, './workspace.module.css': cssFalso };
   const assistente = carregarComponente('components/admin/AssistenteAgenda.tsx', base);
   const combinados = carregarComponente('components/admin/SaloesCombinados.tsx', base);
-  const tela = carregarComponente('components/admin/AgendaConfiguracao.tsx', { ...base, './AssistenteAgenda': assistente.modulo, './SaloesCombinados': combinados.modulo });
+  const tela = carregarComponente('components/admin/AgendaConfiguracao.tsx', { ...base, './AssistenteAgenda': assistente.modulo, './SaloesCombinados': combinados.modulo, './PreReservaConfiguracao': { PreReservaConfiguracao: () => null } });
   // Na vitrine (prévia do assistente) os dados vêm por props e nada é buscado.
   const props = vitrine ? { vitrine: { dados } } : {};
   const render = () => tela.render('default', props);

@@ -2,8 +2,9 @@
 import { dialogo } from '@/components/JanelaConfirmacao';
 import { adminFetch } from "@/lib/http/admin-fetch";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { SaloesDoDia } from "./SaloesDoDia";
+import { formatarInstanteSP, type OcupacaoPreReserva } from "@/lib/pre-reserva/apresentacao-admin";
 import { PACOTES } from "@/components/fechamento/data";
 import { HorarioBase, PacoteId } from "@/components/fechamento/types";
 import { horarioLegadoDoCodigo, rotuloPeriodo } from "@/components/fechamento/periodos";
@@ -61,6 +62,7 @@ function intervalosSobrepoem(
 }
 
 type AdminPayload = DisponibilidadeConfig & {
+  preReservas?: OcupacaoPreReserva[];
   bloqueios?: BloqueioAgendaRecord[];
   dias?: DisponibilidadeDataPublica[] | null;
   agendaPorEscopo?: boolean;
@@ -77,14 +79,23 @@ type AdminPayload = DisponibilidadeConfig & {
   unidadeId?: string | null;
 };
 
+function chaveConsulta({ ano, mes, unidadeId }: { ano: number; mes: number; unidadeId: string }) {
+  return `${iso(ano, mes, 1)}:${unidadeId}`;
+}
+
 export default function AdminDisponibilidade() {
+  const [preReservas, setPreReservas] = useState<{ unidade: string; ocupacoes: OcupacaoPreReserva[] } | null>(null);
+  const [revisaoSaloes, setRevisaoSaloes] = useState(0);
   const hoje = new Date();
   const hojeIso = iso(hoje.getFullYear(), hoje.getMonth(), hoje.getDate());
   const [pacote, setPacote] = useState<PacoteId>("pocket");
   // Horário configurado em foco (configuracao_agenda.id); "" = o primeiro horário da agenda carregada.
   const [configuracaoId, setConfiguracaoId] = useState("");
-  const [mes, setMes] = useState(hoje.getMonth());
-  const [ano, setAno] = useState(hoje.getFullYear());
+  // "" consulta a única unidade ou a empresa inteira.
+  const [consulta, setConsulta] = useState({ ano: hoje.getFullYear(), mes: hoje.getMonth(), unidadeId: "" });
+  const { ano, mes, unidadeId } = consulta;
+  const consultaVigente = useRef(consulta);
+  const geracaoConsulta = useRef(0);
   const [config, setConfig] = useState<DisponibilidadeConfig>(CONFIG_SEM_RESPOSTA);
   const [bloqueios, setBloqueios] = useState<BloqueioAgendaRecord[]>([]);
   const [operacionalPorData, setOperacionalPorData] = useState<
@@ -105,8 +116,6 @@ export default function AdminDisponibilidade() {
   const [observacoesBloqueio, setObservacoesBloqueio] = useState("");
   // O formulário de bloqueio físico fica recolhido até a pessoa pedir ("Bloquear esta data").
   const [bloqueioAberto, setBloqueioAberto] = useState(false);
-  // Agenda por empresa/unidade (062): a unidade escolhida é o recurso consultado; "" = a única ou a empresa inteira.
-  const [unidadeId, setUnidadeId] = useState("");
   const [unidades, setUnidades] = useState<Array<{ id: string; nome: string }>>([]);
   const [agendaPorEscopo, setAgendaPorEscopo] = useState(false);
   const [podeResolverLegado, setPodeResolverLegado] = useState(false);
@@ -136,11 +145,19 @@ export default function AdminDisponibilidade() {
   const periodoEmFoco = periodosDoMes.find((p) => p.configuracaoId === idHorario);
   // Legado almoco/noite (regras manuais e descontos por data em JSON): só TURNO_1/TURNO_2; "" nos demais horários.
   const horario: HorarioBase | "" = horarioLegadoDoCodigo(periodoEmFoco?.codigo);
+  const formularioDesconto = useRef({ pacote, selecionada, horario });
+  useLayoutEffect(() => {
+    formularioDesconto.current = { pacote, selecionada, horario };
+  }, [pacote, selecionada, horario]);
 
-  async function carregarGestaoUnidades() {
-    const r = await adminFetch("/api/admin/disponibilidade/unidades", { cache: "no-store" });
-    const json = await r.json().catch(() => null);
-    setGestaoUnidades(r.ok && Array.isArray(json?.unidades) ? json.unidades : []);
+  async function carregarGestaoUnidades(vigente: () => boolean) {
+    try {
+      const r = await adminFetch("/api/admin/disponibilidade/unidades", { cache: "no-store" });
+      const json = await r.json().catch(() => null);
+      if (vigente()) setGestaoUnidades(r.ok && Array.isArray(json?.unidades) ? json.unidades : []);
+    } catch {
+      if (vigente()) setGestaoUnidades([]);
+    }
   }
 
   async function decidirUnidade(acao: "habilitar" | "revogar", unidade: UnidadeAgendaGestao) {
@@ -165,7 +182,7 @@ export default function AdminDisponibilidade() {
       setMensagemUnidade(acao === "habilitar"
         ? `${unidade.nome} habilitada para a agenda.`
         : `${unidade.nome} revogada. ${json?.data?.reservasFuturasPreservadas ?? 0} reserva(s) futura(s) mantida(s); novas contratações e remarcações nela ficam bloqueadas.`);
-      await Promise.all([carregarGestaoUnidades(), carregar()]);
+      await carregar();
     } catch {
       setMensagemUnidade("Não foi possível salvar.");
     } finally {
@@ -173,11 +190,11 @@ export default function AdminDisponibilidade() {
     }
   }
 
-  async function buscarDadosMes(anoAlvo: number, mesAlvo: number, unidadeAlvo = unidadeId) {
+  async function buscarDadosMes(anoAlvo: number, mesAlvo: number, unidadeAlvo: string) {
     const inicio = iso(anoAlvo, mesAlvo, 1);
     const ultimoDia = new Date(Date.UTC(anoAlvo, mesAlvo + 1, 0)).getUTCDate();
     const fim = iso(anoAlvo, mesAlvo, ultimoDia);
-    const parametros = new URLSearchParams({ inicio, fim });
+    const parametros = new URLSearchParams({ inicio, fim, preReservas: "1" });
     if (unidadeAlvo) parametros.set("unidadeId", unidadeAlvo);
 
     // Agenda da empresa comprovada pela sessão (não a API pública, que não conhece o tenant).
@@ -190,6 +207,7 @@ export default function AdminDisponibilidade() {
     const dias: DisponibilidadeDataPublica[] = admin.dias ?? [];
 
     return {
+      preReservas: { unidade: unidadeAlvo, ocupacoes: admin.preReservas ?? [] },
       unidades: admin.unidades ?? [],
       agendaPorEscopo: admin.agendaPorEscopo === true,
       podeResolverLegado: admin.podeResolverLegado === true,
@@ -241,11 +259,17 @@ export default function AdminDisponibilidade() {
     }
   }
 
-  async function carregar() {
-    setCarregando(true);
+  async function carregar(atualizacao = true) {
+    const alvo = consultaVigente.current;
+    const chave = chaveConsulta(alvo);
+    const geracao = ++geracaoConsulta.current;
+    const vigente = () => chave === chaveConsulta(consultaVigente.current) && geracao === geracaoConsulta.current;
+    if (atualizacao) setCarregando(true);
     try {
-      const dados = await buscarDadosMes(ano, mes);
+      const dados = await buscarDadosMes(alvo.ano, alvo.mes, alvo.unidadeId);
+      if (!vigente()) return;
       setConfig(dados.config);
+      setPreReservas(dados.preReservas);
       setBloqueios(dados.bloqueios);
       setOperacionalPorData(dados.operacionalPorData);
       setUnidades(dados.unidades);
@@ -255,57 +279,31 @@ export default function AdminDisponibilidade() {
       setRegrasPacotes(dados.regrasPacotes);
       aplicarPacotesEmpresa(dados.pacotes);
       setTelaDoCliente(dados.telaDoCliente);
-      sincronizarDescontoFormulario(
-        dados.config,
-        pacote,
-        selecionada,
-        horario,
-      );
+      if (atualizacao) {
+        setRevisaoSaloes((anterior) => anterior + 1);
+        const { pacote, selecionada, horario } = formularioDesconto.current;
+        sincronizarDescontoFormulario(dados.config, pacote, selecionada, horario);
+      }
+      if (dados.agendaPorEscopo) void carregarGestaoUnidades(vigente);
     } catch {
+      if (!vigente()) return;
       setConfig(CONFIG_SEM_RESPOSTA);
+      setPreReservas(null);
       setBloqueios([]);
       setOperacionalPorData({});
       setMensagem("Não foi possível carregar a disponibilidade agora.");
     } finally {
-      setCarregando(false);
+      if (vigente()) setCarregando(false);
     }
   }
 
   useEffect(() => {
-    let cancelado = false;
-
-    void (async () => {
-      try {
-        const dados = await buscarDadosMes(ano, mes);
-        if (cancelado) return;
-        setConfig(dados.config);
-        setBloqueios(dados.bloqueios);
-        setOperacionalPorData(dados.operacionalPorData);
-        setUnidades(dados.unidades);
-        setAgendaPorEscopo(dados.agendaPorEscopo);
-        setPodeResolverLegado(dados.podeResolverLegado);
-        setConfiguracaoComercial(dados.configuracaoComercial);
-        setRegrasPacotes(dados.regrasPacotes);
-        aplicarPacotesEmpresa(dados.pacotes);
-        setTelaDoCliente(dados.telaDoCliente);
-        if (dados.agendaPorEscopo) void carregarGestaoUnidades().catch(() => setGestaoUnidades([]));
-      } catch {
-        if (cancelado) return;
-        setConfig(CONFIG_SEM_RESPOSTA);
-        setBloqueios([]);
-        setOperacionalPorData({});
-        setMensagem("Não foi possível carregar a disponibilidade agora.");
-      } finally {
-        if (!cancelado) setCarregando(false);
-      }
-    })();
-
+    void carregar(false);
     return () => {
-      cancelado = true;
+      geracaoConsulta.current += 1;
     };
-    // buscarDadosMes lê a unidade do estado; a dependência explícita é unidadeId.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [mes, ano, unidadeId]);
+  }, [ano, mes, unidadeId]);
 
   const diasMes = useMemo(() => {
     const primeiro = new Date(Date.UTC(ano, mes, 1)).getUTCDay();
@@ -313,12 +311,19 @@ export default function AdminDisponibilidade() {
     return { primeiro, total };
   }, [ano, mes]);
 
-  function mudarMes(delta: number) {
-    const d = new Date(Date.UTC(ano, mes + delta, 1));
-    setAno(d.getUTCFullYear());
-    setMes(d.getUTCMonth());
+  function mudarConsulta(proxima: typeof consulta) {
+    // Invalida a carga já no clique, antes de o efeito iniciar a nova consulta.
+    geracaoConsulta.current += 1;
+    consultaVigente.current = proxima;
+    setConsulta(proxima);
+    setCarregando(true);
     setSelecionada("");
     setMensagem("");
+  }
+
+  function mudarMes(delta: number) {
+    const d = new Date(Date.UTC(ano, mes + delta, 1));
+    mudarConsulta({ ano: d.getUTCFullYear(), mes: d.getUTCMonth(), unidadeId });
   }
 
   function periodoOperacional(
@@ -526,11 +531,7 @@ export default function AdminDisponibilidade() {
               <span>Unidade</span>
               <select
                 value={unidadeId}
-                onChange={(e) => {
-                  setUnidadeId(e.target.value);
-                  setSelecionada("");
-                  setMensagem("");
-                }}
+                onChange={(e) => mudarConsulta({ ano, mes, unidadeId: e.target.value })}
               >
                 <option value="">Todas as unidades da empresa</option>
                 {unidades.map((u) => <option value={u.id} key={u.id}>{u.nome}</option>)}
@@ -587,7 +588,7 @@ export default function AdminDisponibilidade() {
               <button type="button" onClick={() => mudarMes(-1)}>←</button>
               <strong>{MESES[mes]} de {ano}</strong>
               <div className={styles.toolbarActions}>
-                <button type="button" onClick={carregar} disabled={carregando}>
+                <button type="button" onClick={() => carregar()} disabled={carregando}>
                   {carregando ? "…" : "↻"}
                 </button>
                 <button type="button" onClick={() => mudarMes(1)}>→</button>
@@ -752,7 +753,19 @@ export default function AdminDisponibilidade() {
                     </div>
                   )}
 
-                  <SaloesDoDia data={selecionada} unidadeId={unidadeId} classes={{
+                  {preReservas?.unidade === unidadeId && <div className={styles.candidateList}>
+                    {preReservas.ocupacoes.filter((item) => item.data === selecionada).map((item, indice) => {
+                      const rotulo = `Pré-reserva garantida até ${formatarInstanteSP(item.garantiaAte)}`;
+                      return <div key={item.fechamentoId ?? indice} className={styles.preReserva}>
+                        <span>{item.inicio}–{item.fim}{item.salao && ` · ${item.salao}`}</span>
+                        <b>{item.fechamentoId
+                          ? <a href={`/admin/fechamentos/${encodeURIComponent(item.fechamentoId)}/revisao`}>{rotulo}</a>
+                          : rotulo}</b>
+                      </div>;
+                    })}
+                  </div>}
+
+                  <SaloesDoDia key={revisaoSaloes} data={selecionada} unidadeId={unidadeId} classes={{
                     painel: styles.candidatePanel, lista: styles.candidateList,
                     livre: styles.candidateAvailable, ocupado: styles.candidateUnavailable,
                   }} />

@@ -10,6 +10,17 @@ Branch `whatsapp/wall-e-atendimento`, sobre a fase B (`1f938d2`). Entrega **loca
 de banco descartável, ativado no Gupshup ou enviado a número real. A publicação continua bloqueada pelo S11 e exige
 autorização própria (docs/OPERACAO_AGENTES.md).
 
+## Resultado do atendimento
+
+Em **Atendimento → Resultado**, a equipe vê o mês corrente e o anterior no horário de São Paulo para a empresa ativa e
+o ambiente do atendimento. A tela mostra entradas, saídas por estado e autoria, custo estimado de IA por moeda e chamadas
+com preço ausente. `ENTREGUE` indica entrega confirmada. São medidas internas de uso do iA.Fest. A fatura da Meta é separada.
+
+Para cada contato, a primeira entrada abre uma sessão de 24 horas. Entradas dentro da janela pertencem à mesma sessão. A
+primeira entrada a partir do fim da janela abre outra sessão, no mês em que ela começa. Uma sessão pode atravessar a virada
+do mês. A data da mensagem mais antiga ainda guardada indica a cobertura disponível. A retenção e a exclusão apagam
+mensagens e podem reduzir a cobertura mesmo depois dessa data.
+
 ## 1. O que o Wall-e faz
 
 O cliente escreve no WhatsApp; o Wall-e entende, consulta as fontes oficiais da empresa **na hora** e responde em

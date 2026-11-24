@@ -169,7 +169,7 @@ export type Anexo = { prontaId: string; versao: number; finalidade: string; tipo
 /** Uma mensagem a enviar: texto, ou anexo com legenda. */
 export type Saida = { texto: string | null; anexo: Anexo | null; fontes: Fonte[] };
 
-export const MOTIVOS_PASSAGEM = ['PEDIDO_CLIENTE', 'NEGOCIACAO', 'INFORMACAO_INDISPONIVEL', 'CONTRATACAO', 'CONTRATO_PROPRIO', 'RESTRICAO_ALIMENTAR', 'RECLAMACAO', 'PAGAMENTO', 'INSTRUCAO_SUSPEITA', 'FALHA', 'PARAR_A_CONFIRMAR', 'BLOQUEADO_A_PEDIDO', 'SEM_RESPOSTA_AUTOMATICA', 'LIMITE_DIARIO'] as const;
+export const MOTIVOS_PASSAGEM = ['PEDIDO_CLIENTE', 'NEGOCIACAO', 'INFORMACAO_INDISPONIVEL', 'CONTRATACAO', 'CONTRATO_PROPRIO', 'RESTRICAO_ALIMENTAR', 'RECLAMACAO', 'PAGAMENTO', 'INSTRUCAO_SUSPEITA', 'FALHA', 'PARAR_A_CONFIRMAR', 'BLOQUEADO_A_PEDIDO', 'SEM_RESPOSTA_AUTOMATICA', 'LIMITE_DIARIO', 'LIMITE_MENSAL'] as const;
 export type MotivoPassagem = (typeof MOTIVOS_PASSAGEM)[number];
 export const NOME_MOTIVO: Record<MotivoPassagem, string> = {
   PEDIDO_CLIENTE: 'Cliente pediu para falar com a equipe',
@@ -186,6 +186,7 @@ export const NOME_MOTIVO: Record<MotivoPassagem, string> = {
   BLOQUEADO_A_PEDIDO: 'Contato pediu para não receber mensagens: bloqueado, nada será enviado',
   SEM_RESPOSTA_AUTOMATICA: 'Mensagem não respondida automaticamente (fila atrasada ou automação desligada): nada foi enviado ao cliente',
   LIMITE_DIARIO: 'Limite diário de respostas automáticas atingido: nada foi enviado ao cliente e o pedido não foi classificado',
+  LIMITE_MENSAL: 'A resposta automática ultrapassaria o limite mensal do Wall-e: nada foi enviado ao cliente e a conversa foi encaminhada à equipe',
 };
 /**
  * Frase de passagem ao CLIENTE (rodada 18): linguagem simples, sem motivo técnico ("instruções ao sistema",
@@ -206,6 +207,7 @@ export const PASSAGEM_AO_CLIENTE: Record<MotivoPassagem, string> = {
   BLOQUEADO_A_PEDIDO: 'Vou passar sua conversa para a equipe.',
   SEM_RESPOSTA_AUTOMATICA: 'Vou passar sua conversa para a equipe.',
   LIMITE_DIARIO: 'Vou passar sua conversa para a equipe.',
+  LIMITE_MENSAL: 'Vou passar sua conversa para a equipe.',
 };
 /** Resumo para a equipe na passagem (082: whatsapp_atendimento_conversas.passagem). */
 export type Passagem = {

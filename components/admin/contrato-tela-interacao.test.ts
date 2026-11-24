@@ -5,6 +5,7 @@ import * as contratoUrl from './contrato-url.ts';
 import * as contratoTela from './contrato-tela.ts';
 import * as versaoReferencia from '../../lib/contratos/versao-referencia.ts';
 import * as fonteDocumento from '../../lib/contratos/documento/fonte.ts';
+import * as futuroOrdem from '../../lib/pagamentos/futuro-ordem.ts';
 
 /** Regressões da revisão do código da fase 1 (C-1 a C-4): navegação por versão, confirmação de agenda e recusa financeira. */
 const ID = '00000000-0000-4000-8000-000000000001', OUTRO = '00000000-0000-4000-8000-000000000002';
@@ -118,7 +119,7 @@ test('C-3: recusa numa leitura posterior do painel financeiro tira os números d
   const painel = { valorVigente: '600000', posicao: { obrigacao: '600000', liquido: '200000', saldo: '400000', credito: '0', reservado: '0' }, cobranca: { encerrada: false, saldoACobrar: '400000', acertoAdministrativoPendente: false }, futuro: [] };
   const tela = carregarComponente('components/admin/PagamentosResumo.tsx', {
     '@/lib/http/admin-fetch': { adminFetch: async () => Response.json({ ok: true, data: { painel } }) },
-    './FinanceiroContrato': { default: Fin }, './contrato-tela': contratoTela, './contratos-ux.module.css': cssFalso,
+    './FinanceiroContrato': { default: Fin }, './contrato-tela': contratoTela, './contratos-ux.module.css': cssFalso, '@/lib/pagamentos/futuro-ordem': futuroOrdem,
   });
   const render = () => tela.render('default', { contratoId: ID, temVigente: true });
   render(); tela.efeitos(); await tique(); await tique();
@@ -350,3 +351,45 @@ test('Frente C UX: botões principais da tela de contratos com a classe visual d
   assert.ok(principais.some(e => texto(e) === 'Preparar documento'), 'preparação mostra "Preparar documento"');
   for (const b of principais) assert.equal(b.props.className, 'primario', texto(b));
 }));
+
+/** Achado P1 de 23/11/2026 (F5 Theo): Pix 2.315 + 2×2.000; entrada paga e R$ 800 da parcela de 23/12. */
+const THEO = { entrada: { parcelaId: 'p-entrada', numero: 1, itemId: null, vencimento: '2026-11-23', valorCentavos: '0' },
+  dez: { parcelaId: 'p-dez', numero: 2, itemId: null, vencimento: '2026-12-23', valorCentavos: '120000' }, jan: { parcelaId: 'p-jan', numero: 3, itemId: null, vencimento: '2027-01-23', valorCentavos: '200000' } };
+
+test('Próxima parcela (Theo): mesmo com o futuro fora de ordem, o topo mostra 23/12/2026 com o saldo de R$ 1.200,00', async () => {
+  function Fin() { return null; }
+  const painel = { valorVigente: '631500', posicao: { obrigacao: '631500', liquido: '311500', saldo: '320000', credito: '0', reservado: '0' }, cobranca: { encerrada: false, saldoACobrar: '320000', acertoAdministrativoPendente: false },
+    futuro: [THEO.entrada, THEO.jan, THEO.dez] };
+  const tela = carregarComponente('components/admin/PagamentosResumo.tsx', {
+    '@/lib/http/admin-fetch': { adminFetch: async () => Response.json({ ok: true, data: { painel } }) },
+    './FinanceiroContrato': { default: Fin }, './contrato-tela': contratoTela, './contratos-ux.module.css': cssFalso, '@/lib/pagamentos/futuro-ordem': futuroOrdem,
+  });
+  tela.render('default', { contratoId: ID, temVigente: true }); tela.efeitos(); await tique(); await tique();
+  const t = texto(tela.render('default', { contratoId: ID, temVigente: true }));
+  assert.match(t, /Próxima parcela: R\$\s1\.200,00 em 23\/12\/2026\./);
+  assert.doesNotMatch(t, /2\.000,00 em 23\/01\/2027/);
+});
+
+// P2 do Astra (24/11): o número exibido é o gravado na parcela. No cronograma consolidado a entrada fica fora do futuro,
+// e dezembro/janeiro continuam sendo as parcelas 2 e 3 (a posição na lista daria 1 e 2).
+for (const consolidado of [false, true]) test(`Numeração (Theo, consolidado=${consolidado}): programação e "Registrar recebimento" mostram o número gravado da parcela, em ordem de vencimento`, async () => {
+  const base = { numero: 1, id: 'v1', snapshot: { evento: { data: '2027-02-20' }, comercial: { valorFinalContrato: 6315 } } };
+  const painel = { valorVigente: '631500', motivos: [], posicao: { obrigacao: '631500', recebido: '311500', estornado: '0', devolvido: '0', liquido: '311500', saldo: '320000', credito: '0', reservado: '0', disponivel: '0' },
+    cobranca: { encerrada: false, saldoACobrar: '320000', acertoAdministrativoPendente: false }, futuro: consolidado ? [THEO.dez, THEO.jan] : [THEO.entrada, THEO.dez, THEO.jan], pagamento: { id: 'p', status: 'PARCIAL', valor_total_contratado: '6315.00' }, contrato: { id: ID, status: 'ASSINADO' },
+    original: base, vigente: base, reconhecida: base, posicaoHash: 'a'.repeat(64), parcelas: [], planos: [], recebimentos: [], estornos: [], devolucoes: [], reservas: [], ajustes: [], versoes: [], tratamentos: [], pendencias: [], origens: [], provas: [], timeline: [], excecoesHistoricas: [], itens: [], cronograma: consolidado ? { id: 'cr', estado: 'ATIVO' } : null, forma: 'PIX_PARCELADO' };
+  const tela = carregarComponente('components/admin/FinanceiroContrato.tsx', {
+    '@/lib/http/admin-fetch': { adminFetch: async () => Response.json({ ok: true, data: { painel, papel: 'REPRESENTANTE_AUTORIZADO' } }) },
+    './financeiro.module.css': cssFalso,
+    './financeiro-apresentacao': { propostaDeParcelas: () => [], origemApresentacao: String, dataApresentacao: String, textoHistorico: String },
+    '@/lib/pagamentos/services/projecao-tratamento': { projetarTratamento: () => ({ delta: '0', saldo: '0', credito: '0' }), serializarEscolhaCredito: String },
+  });
+  const render = () => tela.render('default', { contratoId: ID });
+  render(); tela.efeitos(); for (let i = 0; i < 6; i++) await tique();
+  const linhas = elementos(render()).filter(e => e.type === 'tr').map(e => texto(e)).filter(l => /\d{2}\/\d{2}\/\d{4}/.test(l));
+  assert.deepEqual(linhas.map(l => l.slice(0, 11)), consolidado ? ['223/12/2026', '323/01/2027'] : ['123/11/2026', '223/12/2026', '323/01/2027']);
+  clicar(render(), 'Registrar recebimento');
+  const opcoes = elementos(render()).filter(e => e.type === 'option').map(e => texto(e)).filter(o => o.startsWith('Parcela '));
+  assert.equal(opcoes.length, 2, 'só as parcelas em aberto');
+  assert.match(opcoes[0], /^Parcela 2 ·\s*2026-12-23 · R\$\s1\.200,00$/);
+  assert.match(opcoes[1], /^Parcela 3 ·\s*2027-01-23 · R\$\s2\.000,00$/);
+});

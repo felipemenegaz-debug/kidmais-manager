@@ -83,6 +83,8 @@ export default function AtendimentoWhatsapp() {
   useEffect(() => { const contador = pedidoAtual; const inicio = window.setTimeout(() => void carregar(),0); const timer = window.setInterval(() => { if (!document.hidden) void carregar(); },10000); return () => { ++contador.current; window.clearTimeout(inicio); window.clearInterval(timer); }; },[carregar]);
   const conversa = dados?.conversas.find(c => c.id === selecionada);
   useEffect(() => { selecionadaAtual.current = selecionada; }, [selecionada]);
+  // Wall-e 1a: o cartão do funil abre a conversa por ?conversa=<id> (o servidor confere empresa, ambiente e acesso).
+  useEffect(() => { const t = window.setTimeout(() => { const id = new URLSearchParams(window.location?.search ?? '').get('conversa'); if (id && /^[0-9a-f-]{36}$/i.test(id)) { focarConversa.current = true; setSelecionada(id); } }, 0); return () => window.clearTimeout(t); }, []);
   // Resumo aberto por padrão só em tela larga (três colunas); em telas menores ele abre por cima, a pedido.
   useEffect(() => { const t = window.setTimeout(() => { if (typeof window.matchMedia === 'function' && window.matchMedia('(min-width: 1180px)').matches) setResumoAberto(true); }, 0); return () => window.clearTimeout(t); }, []);
   // Celular e teclado: ao escolher uma conversa, o foco vai para ela (a lista pode ter até 100 itens acima).
@@ -155,7 +157,7 @@ export default function AtendimentoWhatsapp() {
   const sugestaoAtual = sugestao && sugestao.conversaId === selecionada ? sugestao : null;
   const comEquipe = !!conversa && (conversa.estado === 'HUMANO' || conversa.estado === 'AGUARDANDO_HUMANO');
   return <main className={styles.pagina}>
-    <header className={styles.topo}><div><h1>Atendimento</h1><p>Conversas do WhatsApp com o Wall-e e a equipe.</p></div><div className={styles.acoes}><Link href="/admin/atendimento/biblioteca">Biblioteca</Link>{dados?.podeConfigurar && <Link href="/admin/atendimento/configuracao">Configurações</Link>}{dados?.podeConfigurar && <Link href="/admin/atendimento/privacidade">Privacidade</Link>}<button onClick={()=>void carregar()} disabled={ocupado}>Atualizar</button></div></header>
+    <header className={styles.topo}><div><h1>Atendimento</h1><p>Conversas do WhatsApp com o Wall-e e a equipe.</p></div><div className={styles.acoes}><Link href="/admin/atendimento/biblioteca">Biblioteca</Link><Link href="/admin/atendimento/resultado">Resultado</Link>{dados?.podeConfigurar && <Link href="/admin/atendimento/configuracao">Configurações</Link>}{dados?.podeConfigurar && <Link href="/admin/atendimento/privacidade">Privacidade</Link>}<button onClick={()=>void carregar()} disabled={ocupado}>Atualizar</button></div></header>
     {bloqueio && <section className={styles.bloqueio} role="alert" aria-labelledby="bloqueio-atendimento" data-bloqueio={bloqueio.tipo}><h2 id="bloqueio-atendimento">{bloqueio.titulo}</h2><p>{bloqueio.orientacao}</p></section>}
     {erro && <p className={styles.erro} role="alert">{erro}</p>}
     {statusAcao && <p role="status" className={styles.aviso}>{statusAcao}</p>}
@@ -230,6 +232,7 @@ export default function AtendimentoWhatsapp() {
               <dt>Cadastro</dt><dd className={id.ambiguo ? styles.fila : undefined}>{id.cadastro}</dd>
               <dt>Perfil no WhatsApp</dt><dd className={styles.naoVerificado}>{id.perfil}</dd>
             </dl></details>; })()}
+          {conversa.funil && <p className={styles.nota}>Funil: Novo contato · <Link href="/admin/oportunidades">Ver em Oportunidades</Link></p>}
           {dados.wallE?.disponivel && comEquipe && <div className={styles.sugestao}>
             <h3>Sugestão do Wall-e</h3>
             <p className={styles.nota}>Baseada nas fontes oficiais e na última mensagem do cliente. Nada é enviado: você revisa no campo de resposta.</p>

@@ -260,8 +260,21 @@ const approvedFiles = [
   // 128: dados do disco persistente no banco (regras legadas da agenda e bytes do PDF da tabela de pacotes), LOCAL 20/11/2026,
   // vault "Convites geracao sobrevive ao deploy 20261120". Tabela nova + coluna opcional; 128 conferida livre. Exige 021.
   '20261120_128_dados_fora_do_disco.sql',
+  // 129: registro de tentativas de migration no banco (troca o marcador do disco), LOCAL 21/11/2026, vault "Registro de
+  // migrations no banco 20261120". Só pelo bootstrap de scripts/registro-migrations-banco.cjs; 130+ passam a exigi-la.
+  '20261121_129_registro_migrations.sql',
   '20261120_130_pre_reserva_manual.sql',
   '20261120_131_pre_reserva_agenda.sql',
+  // 132: Wall-e fatia 1a (vínculo contato do funil x conversa, pendência da captura), LOCAL 23/11/2026, vault "Plano melhoria Wall-e atendimento 20261122". Exige 082 e 085.
+  '20261123_132_walle_oportunidades.sql',
+  // 133: ocupações do recurso filtradas por empresa (Agenda lenta F3/F6), LOCAL 23/11/2026, vault "Agenda lentidao diagnostico 20261122". Exige 062, 094 e 131.
+  '20261123_133_ocupacoes_por_empresa.sql',
+  // 134: marca Cliente/Interna da contratante (Contratantes fase 2, D-INT-1), LOCAL 23/11/2026, vault "Contratantes desativadas 20261123".
+  // Tabela nova; sem ela tudo conta como Cliente. Exige 063 (e a 133 no registro).
+  '20261123_134_empresas_uso.sql',
+  // 135: consumo mensal do atendimento WhatsApp pela Cloud API (teto do Wall-e, 3b/D-LAN-3), LOCAL 23/11/2026, vault "Quem paga a
+  // Meta no WhatsApp do buffet 20261123". Tabela nova sem dado pessoal + carga inicial do mês; 135 conferida livre. Exige 060.
+  '20261123_135_whatsapp_consumo_mensal.sql',
 ];
 // From 013 on each migration has database/checks/<date>_<id>_precheck.sql and _postcheck.sql,
 // except these explicit, reviewed shapes (anything else falls back to the default and fails closed):
@@ -290,7 +303,7 @@ const checkFiles = {
   '081': ['20261011_081_postcheck.sql'],
   '082': ['20261011_082_postcheck.sql'],
 };
-const requiresExplicitAuthorization = ['055a', '055b', '055c', '055d', '056', '057', '058', '059', '060', '061', '062', '063', '064', '065', '066', '067', '068', '069', '070', '071', '072', '073', '074', '074a', '075', '076', '077', '078', '079', '080', '081', '082', '083', '084', '085', '086', '087', '088', '089', '090', '091', '092', '093', '094', '095', '096', '097', '098', '099', '100', '102', '103', '104', '105', '106', '107', '108', '109', '112', '114', '116', '117', '118', '120', '121', '110', '111', '115', '123', '122', '124', '125', '126', '127', '128', '130', '131'];
+const requiresExplicitAuthorization = ['055a', '055b', '055c', '055d', '056', '057', '058', '059', '060', '061', '062', '063', '064', '065', '066', '067', '068', '069', '070', '071', '072', '073', '074', '074a', '075', '076', '077', '078', '079', '080', '081', '082', '083', '084', '085', '086', '087', '088', '089', '090', '091', '092', '093', '094', '095', '096', '097', '098', '099', '100', '102', '103', '104', '105', '106', '107', '108', '109', '112', '114', '116', '117', '118', '120', '121', '110', '111', '115', '123', '122', '124', '125', '126', '127', '128', '129', '130', '131', '132', '133', '134', '135'];
 const idLabel = id => /^\d+$/.test(id) ? String(Number(id)) : id.replace(/^0+/, '');
 const requiredChecks = file => {
   const id = file.split('_')[1];
@@ -338,7 +351,7 @@ function inspectInventory(entries, hasCheck) {
   r.pending.push('073_NOT_APPLIED_REQUIRES_EXPLICIT_AUTHORIZATION');
   for (const id of ['074', '074A', '075', '076', '077', '078']) r.pending.push(id + '_NOT_APPLIED_REQUIRES_EXPLICIT_AUTHORIZATION');
   r.pending.push('079_NOT_APPLIED_REQUIRES_EXPLICIT_AUTHORIZATION');
-  for (const id of ['080', '081', '082', '083', '084', '085', '086', '087', '088', '089', '090', '091', '092', '093', '094', '095', '096', '097', '098', '099', '100', '102', '103', '104', '105', '106', '107', '108', '109', '112', '114', '110', '111', '115', '123', '124', '125', '126', '127', '128', '130', '131']) r.pending.push(id + '_NOT_APPLIED_REQUIRES_EXPLICIT_AUTHORIZATION');
+  for (const id of ['080', '081', '082', '083', '084', '085', '086', '087', '088', '089', '090', '091', '092', '093', '094', '095', '096', '097', '098', '099', '100', '102', '103', '104', '105', '106', '107', '108', '109', '112', '114', '110', '111', '115', '123', '124', '125', '126', '127', '128', '129', '130', '131', '132', '133', '134', '135']) r.pending.push(id + '_NOT_APPLIED_REQUIRES_EXPLICIT_AUTHORIZATION');
   return r;
 }
 async function check(env, options = {}) {

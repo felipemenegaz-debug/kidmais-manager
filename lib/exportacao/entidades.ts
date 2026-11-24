@@ -336,6 +336,7 @@ const BASE: readonly Entidade[] = [
     { arquivo: 'whatsapp/controles_contato', tabela: 'whatsapp_atendimento_controles_contato', grupo: 'WhatsApp', descricao: 'Controles por contato (não contatar, sem automático).', onde: EMP },
     { arquivo: 'whatsapp/privacidade', tabela: 'whatsapp_atendimento_privacidade', grupo: 'WhatsApp', descricao: 'Pedidos de privacidade atendidos.', onde: EMP },
     { arquivo: 'whatsapp/auditoria', tabela: 'whatsapp_atendimento_auditoria', grupo: 'WhatsApp', descricao: 'Auditoria do atendimento.', onde: EMP },
+    { arquivo: 'whatsapp/oportunidades', tabela: 'whatsapp_atendimento_oportunidades', grupo: 'WhatsApp', descricao: 'Vínculo entre a conversa e o cartão do funil criado pelo Wall-e (ambiente, cliente vinculado e anonimização).', onde: EMP, migracao: '132' },
 
     // Importação de documentos e skills (IA)
     { arquivo: 'ia/documentos', tabela: 'ia_documentos', grupo: 'Importações', descricao: 'Documentos enviados para leitura.', onde: EMP },
@@ -369,6 +370,8 @@ export const FORA_DO_ESCOPO: Readonly<Record<string, string>> = {
     // 110: caixa de saída simulada do e-mail (só ambiente local/teste; o texto contém o link da pesquisa).
     satisfacao_email_simulado: 'Simulação técnica local de envio de e-mail da pesquisa (contém o link); não existe envio real.',
     kidmais107_reparos: 'Registro técnico da migration 107 (nomes de índices, CHECKs e gatilhos reparados); não é dado da empresa.',
+    // 129 (registro de migrations no banco, 21/11/2026): tentativas de aplicação de migration, global e sem empresa.
+    operacao_migration_tentativas: 'Registro técnico global das tentativas de aplicar migration (ambiente, backup, situação); não é dado da empresa.',
     // Canal MCP (105): delegação OAuth a assistentes externos — mesmo critério das sessões (credenciais e segurança).
     mcp_oauth_clientes: 'Canal MCP: cache global dos metadados públicos dos aplicativos (ChatGPT, Claude); não é dado da empresa.',
     mcp_oauth_pedidos: 'Canal MCP: pedidos de autorização pendentes (hash de segredo, minutos de vida).',
@@ -382,6 +385,7 @@ export const FORA_DO_ESCOPO: Readonly<Record<string, string>> = {
     plataforma_desenvolvedores: 'Acesso de desenvolvedores da plataforma.',
     plataforma_interessadas: 'Registro interno da plataforma sobre interessadas.',
     plataforma_empresas_cadastro: 'Registro interno da plataforma (inclui observações internas); os dados cadastrais da empresa saem em empresa/perfil_empresa e empresa/cadastro.',
+    plataforma_empresas_uso: 'Marca interna da plataforma (Cliente/Interna) usada só na lista de Contratantes do painel de desenvolvedor.',
     festa_usuario_capacidades: 'Capacidades por pessoa, sem empresa (não são dados de uma empresa).',
     cobranca_eventos: 'Eventos brutos do provedor de cobrança (Asaas).',
     assinatura_fundadores: 'Controle interno das concessões do plano Fundador (vagas legadas, janela e lote posterior; 090).',
@@ -411,6 +415,7 @@ export const FORA_DO_ESCOPO: Readonly<Record<string, string>> = {
     whatsapp_atendimento_eventos_excluidos: 'Lista técnica de eventos já excluídos (impede reprocessamento).',
     whatsapp_atendimento_retencao_execucoes: 'Execuções da rotina de retenção (todas as empresas).',
     whatsapp_atendimento_rodizio: 'Controle técnico da vez de cada empresa na fila do atendimento (117; só um contador).',
+    whatsapp_atendimento_consumo_mensal: 'Contador técnico do teto mensal do Wall-e (135; só a contagem do mês, derivada das mensagens, que já saem em whatsapp/mensagens).',
     whatsapp_atendimento_status_colisoes: 'Identificadores técnicos do provedor vistos em mais de uma saída (117; sem conteúdo nem empresa).',
     whatsapp_onboarding_tentativas: 'Tentativas técnicas de conexão com a Meta.',
     agenda_062_bloqueios_resolucao: 'Tabela técnica da migração da agenda (062).',

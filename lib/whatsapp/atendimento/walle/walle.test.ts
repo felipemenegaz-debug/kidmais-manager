@@ -2987,6 +2987,26 @@ test('link por empresa preserva o endereço global e as recusas da Kidmais', asy
   }
 });
 
+test('link por empresa da Kidmais usa a origem do produto quando a virada está ligada', async () => {
+  const empresa = 'a1111111-1111-4111-8111-111111111111';
+  const semBanco = () => { throw new Error('o link da Kidmais não deve consultar o banco'); };
+  const env = {
+    AGENDA_PUBLICA_EMPRESA_ID: empresa, AGENDA_PUBLICA_ORIGEM: 'https://agenda.exemplo.test',
+    AGENDA_PUBLICA_EMPRESA_CODIGO: 'kidmais-teste', ENDERECOS_KIDMAIS_EM_N: 'true',
+    SITE_URL: 'https://site.exemplo.test', ADMIN_AUTH_ORIGIN: 'https://admin.exemplo.test',
+  };
+  const legado = { ok: true, link: 'https://agenda.exemplo.test/disponibilidade' };
+  assert.deepEqual(await linkDisponibilidadeDaEmpresa(empresa, { ...env, ENDERECOS_KIDMAIS_EM_N: 'false' }, semBanco), legado);
+  assert.deepEqual(await linkDisponibilidadeDaEmpresa(empresa, { ...env, AGENDA_PUBLICA_EMPRESA_CODIGO: '../kidmais' }, semBanco), legado);
+  assert.deepEqual(linkDisponibilidadePublica(empresa, env), legado);
+  assert.deepEqual(await linkDisponibilidadeDaEmpresa(empresa, env, semBanco),
+    { ok: true, link: 'https://site.exemplo.test/b/kidmais-teste/disponibilidade' });
+  assert.deepEqual(await linkDisponibilidadeDaEmpresa(empresa, { ...env, SITE_URL: undefined }, semBanco),
+    { ok: true, link: 'https://admin.exemplo.test/b/kidmais-teste/disponibilidade' });
+  assert.deepEqual(await linkDisponibilidadeDaEmpresa(empresa, { ...env, SITE_URL: 'http://site.exemplo.test' }, semBanco),
+    { ok: false, motivo: 'ORIGEM_NAO_SEGURA' });
+});
+
 test('link por empresa usa o endereço do produto e exige o escopo público da conversa', async () => {
   const empresa = '22222222-2222-4222-8222-222222222222';
   const global = '11111111-1111-4111-8111-111111111111';
@@ -3007,6 +3027,9 @@ test('link por empresa usa o endereço do produto e exige o escopo público da c
   } satisfies NonNullable<Parameters<typeof linkDisponibilidadeDaEmpresa>[3]>;
   assert.deepEqual(await linkDisponibilidadeDaEmpresa(empresa, env, semBanco, deps),
     { ok: true, link: 'https://site.exemplo.test/b/buffet-bravo/disponibilidade' });
+  assert.deepEqual(await linkDisponibilidadeDaEmpresa(empresa, {
+    ...env, ENDERECOS_KIDMAIS_EM_N: 'true', AGENDA_PUBLICA_EMPRESA_CODIGO: 'kidmais-teste',
+  }, semBanco, deps), { ok: true, link: 'https://site.exemplo.test/b/buffet-bravo/disponibilidade' });
   assert.deepEqual(await linkDisponibilidadeDaEmpresa(empresa, { ...env, SITE_URL: undefined, AGENDA_PUBLICA_EMPRESA_ID: ' ' }, semBanco, deps),
     { ok: true, link: 'https://admin.exemplo.test/b/buffet-bravo/disponibilidade' });
   const indisponivel = { ok: false, motivo: 'PAGINA_INDISPONIVEL' };

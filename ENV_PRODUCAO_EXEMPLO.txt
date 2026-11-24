@@ -40,6 +40,11 @@ CONTRACT_IMPORT_INTEGRATION_ENABLED=false
 # Vazias = alcance anterior (agenda global, conservadora). Definidas e inválidas = agenda pública indisponível (503).
 AGENDA_PUBLICA_EMPRESA_ID=
 AGENDA_PUBLICA_UNIDADE_ID=
+# Código (empresas.codigo) da empresa acima para servir o fluxo global em /b/<código> (modo legado).
+# Vazio ou inválido = /b/<código> normal. Código definido que não confere com a empresa ativa = 404 nesse código.
+AGENDA_PUBLICA_EMPRESA_CODIGO=
+# Virada da Kidmais para N/b/<código> (redirecionamento de A só em ENDERECOS_MODO=ATIVA; link do Wall-e sempre). Só "true" liga; exige AGENDA_PUBLICA_EMPRESA_CODIGO. Desligar = reversão.
+ENDERECOS_KIDMAIS_EM_N=
 # JEV: classificador auxiliar (só sugere leitura/triagem; nunca autoriza ação). Desligado = nada muda.
 AI_JEV_ENABLED=false
 # Opcional: empresas liberadas (uuid separados por vírgula). Definida e inválida = nenhuma empresa.

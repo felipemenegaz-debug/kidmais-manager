@@ -47,11 +47,17 @@ function montar({ gerado = false, id = contratoId, recusa }: { gerado?: boolean;
           estados[posicao] = typeof valor === "function" ? valor(estados[posicao]) : valor;
         }];
       },
-      useRef: (current: unknown) => ({ current }),
-      useEffect: (executar: () => unknown) => { efeito ??= executar; },
+      useRef(current: unknown) {
+        const posicao = indice++;
+        if (!(posicao in estados)) estados[posicao] = { current };
+        return estados[posicao];
+      },
+      useCallback: (fn: unknown) => fn,
+      useLayoutEffect: (executar: () => unknown) => { efeito ??= executar; },
     },
     "react/jsx-runtime": { jsx: createElement, jsxs: createElement },
     "RevisaoComercial.module.css": {},
+    "MotivoPerda.module.css": {},
     "http/admin-fetch": {
       async adminFetch(url: string, init: RequestInit) {
         if (url === urlRevisao && !init.method) return Response.json({ ok: true, data: dados });

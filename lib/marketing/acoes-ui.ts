@@ -1,6 +1,6 @@
 /** Atalhos locais: abrir WhatsApp nunca envia uma mensagem pelo servidor. */
 export function linkChamar(telefone:string|null|undefined,nome:string,texto?:string){
- let numero=(telefone??'').replace(/\D/g,''); if(/^\d{10,11}$/.test(numero))numero='55'+numero;
+ let numero=(telefone??'').replace(/\D/g,''); if(/^0+$/.test(numero))return null; if(/^\d{10,11}$/.test(numero))numero='55'+numero;
  if(!/^\d{12,15}$/.test(numero))return null;
  return 'https://wa.me/'+numero+'?text='+encodeURIComponent(texto??('Olá, '+nome+'! Recebemos seu pedido de orçamento. Podemos conversar sobre a festa?'));
 }

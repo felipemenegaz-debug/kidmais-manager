@@ -47,7 +47,7 @@ function telas(opcoes: { gets: unknown[]; posts: Array<Resposta | (() => Promise
     './agenda-configuracao.module.css': cssFalso, './workspace.module.css': cssFalso };
   const assistente = carregarComponente('components/admin/AssistenteAgenda.tsx', base);
   const combinados = carregarComponente('components/admin/SaloesCombinados.tsx', base);
-  const tela = carregarComponente('components/admin/AgendaConfiguracao.tsx', { ...base, './AssistenteAgenda': assistente.modulo, './SaloesCombinados': combinados.modulo });
+  const tela = carregarComponente('components/admin/AgendaConfiguracao.tsx', { ...base, './AssistenteAgenda': assistente.modulo, './SaloesCombinados': combinados.modulo, './PreReservaConfiguracao': { PreReservaConfiguracao: () => null } });
   return { tela, assistente, combinados, pedidos, contagem };
 }
 

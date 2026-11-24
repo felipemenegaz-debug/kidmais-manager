@@ -2,9 +2,9 @@ import CartoesConfiguracoes, { type CartaoConfiguracao } from '@/components/admi
 import styles from '@/components/admin/workspace.module.css';
 
 const cards: CartaoConfiguracao[] = [
-  { route:'origens', title:'Opções de origem', text:'Como os clientes conheceram o buffet.', icon:'contact' },
   { route:'perfil-empresa', title:'Perfil da empresa', text:'Cadastro da empresa, endereço da unidade, contatos e chave Pix de recebimento.', icon:'profile' },
-  { route:'agenda', title:'Agenda', text:'Horários de festa, salões, quantas festas por dia e o intervalo entre elas, por unidade.', icon:'calendar' },
+  { route:'origens', title:'Opções de origem', text:'Como os clientes conheceram o buffet.', icon:'contact' },
+  { route:'agenda', title:'Agenda', text:'Horários de festa, salões, quantas festas por dia e o intervalo entre elas, por unidade, e a pré-reserva com sinal por Pix.', icon:'calendar' },
   { route:'saloes', title:'Salões', text:'Como cada salão aparece para o cliente: fotos, capacidade, o que tem e o que é só da festa.', icon:'calendar' },
   { route:'pacotes', title:'Pacotes', text:'Nome, duração, dias, preços e o que está incluído. O histórico das festas já contratadas permanece.', icon:'packages' },
   { route:'importar-documentos', title:'Importar documentos', text:'Envie em PDF a tabela de preços, o contrato da loja ou o contrato antigo de uma festa: o iA.Fest lê e você revisa.', icon:'pdf' },

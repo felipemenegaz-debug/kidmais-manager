@@ -7,6 +7,7 @@ import { buscarRevisaoDaVersao } from '../fechamentos/repositories/revisao.repos
 import { cancelarPreparacao } from '../fechamentos/services/revisao-operacional.service.ts';
 import { travarConfiguracaoAgenda } from '../agenda/trava-configuracao.ts';
 import { clienteDoContato } from '../marketing/contatos.ts';
+import { exigirContatoEditavel } from '../marketing/conversao.ts';
 import { conflito, MarketingError, naoEncontrado } from '../marketing/erros.ts';
 import { gravarPerda } from './perda.ts';
 import { comandoSchema, etapaDoEstado, type Alvo, type Comando } from './modelo.ts';
@@ -22,6 +23,9 @@ export async function clienteDoAlvo(tx: DbExecutor, empresaId: string, alvo: Alv
     `SELECT cliente_id::text,status${contato ? ',nome,telefone,email' : ''} FROM ${contato ? 'marketing_contatos' : 'fechamentos'} WHERE empresa_id=$1::uuid AND id=$2::uuid FOR UPDATE`, [empresaId, alvo.id])).rows[0];
   if (!r) naoEncontrado();
   if (estadoExigido && r.status !== estadoExigido) conflito("O pedido já não está aguardando contrato. Atualize a revisão.");
+  // Wall-e 1a r6 (P1-1)/r7 (P1-B): com o cartão travado e ANTES de resolver ou criar cliente, o anonimizado a pedido do
+  // titular é recusado (409) e o cartão do Wall-e de outro ambiente não existe (404) em todo comando de Oportunidades.
+  if (contato) await exigirContatoEditavel(tx, alvo.id);
   if (!r.cliente_id && contato) {
     const cliente = await clienteDoContato(tx, empresaId, { nome: r.nome!, telefone: r.telefone ?? null, email: r.email ?? null });
     r.cliente_id = cliente.clienteId;

@@ -8,7 +8,7 @@ import type { DbExecutor } from "../../db/contracts.ts";
 import { executarNoTenant, type SessaoParaTenant } from "../../saas/provar-tenant.ts";
 import { carregarComponente } from "../../../components/admin/teste-componente.ts";
 import * as core from "./core.ts";
-import { entendimentoSoRegras as modoRegrasReal } from "./configuracao.ts";
+import { canalEnvio as canalReal, entendimentoSoRegras as modoRegrasReal } from "./configuracao.ts";
 import * as arquivos from "./arquivos.ts";
 import * as entendimento from "./walle/entendimento.ts";
 // Pesquisa de satisfação (110): módulos REAIS; sem a tabela da 110 no modelo, PARAR não suprime nada.
@@ -18,6 +18,8 @@ import type { ConteudoSaida } from "./transporte.ts";
 import { transporteSemRede } from "./harness-postgres.ts";
 import * as multiempresa from "./multiempresa.ts";
 import * as motivoFalha from "./motivo-falha.ts";
+import * as tetoMensal from "./teto-mensal.ts";
+import * as oportunidade from "./walle/oportunidade.ts";
 // B5 (revisão de 69dc301): o harness segue a regra de modo da produção. Esta suíte exercita a fase B com o modelo
 // SIMULADO (porta `interpretar` de teste, nenhuma rede): declara o modo modelo com uma autorização R6 sintética.
 Object.assign(process.env, { WHATSAPP_ATENDIMENTO_WALLE_ENTENDIMENTO: "modelo", WHATSAPP_ATENDIMENTO_IA_AUTORIZACAO: "R6-teste-sintetico", WHATSAPP_ATENDIMENTO_CONTATOS_PERMITIDOS: "5561900000000" });
@@ -75,7 +77,7 @@ const db = () => ({ query: async (sql: string, v?: unknown[]) => { const c = awa
 type Servico = typeof import("./service.ts");
 type Worker = typeof import("./worker.ts");
 function carregar(empresaPiloto: string) {
-  const configuracao = { entendimentoSoRegras: () => modoRegrasReal(process.env), ambienteAtendimento: () => "staging", empresaPiloto: () => empresaPiloto, atendimentoAtivo: () => true, recepcaoAtiva: () => true, receptorDoNumero: () => true, contatoPermitido: (contato: string) => contato.startsWith("55619") };
+  const configuracao = { entendimentoSoRegras: () => modoRegrasReal(process.env), ambienteAtendimento: () => "staging", canalEnvio: () => canalReal(process.env), empresaPiloto: () => empresaPiloto, atendimentoAtivo: () => true, recepcaoAtiva: () => true, receptorDoNumero: () => true, contatoPermitido: (contato: string) => contato.startsWith("55619") };
   const postgres = { withTransaction, db };
   const servico = carregarComponente("lib/whatsapp/atendimento/service.ts", {
     "../../db/postgres.ts": postgres,
@@ -87,9 +89,10 @@ function carregar(empresaPiloto: string) {
     "../../satisfacao/supressao.ts": supressao,
     "../../marketing/automacoes/preferencias.ts": preferencias,
     "./multiempresa.ts": multiempresa,
+    "./teto-mensal.ts": tetoMensal,
   }).modulo as Servico;
   const worker = carregarComponente("lib/whatsapp/atendimento/worker.ts", {
-    "../../db/postgres.ts": postgres, "./configuracao.ts": configuracao, "./core.ts": core, "./service.ts": servico, "./transporte.ts": transporteSemRede, "./arquivos.ts": arquivos, "./multiempresa.ts": multiempresa, "./motivo-falha.ts": motivoFalha,
+    "../../db/postgres.ts": postgres, "./configuracao.ts": configuracao, "./core.ts": core, "./service.ts": servico, "./transporte.ts": transporteSemRede, "./arquivos.ts": arquivos, "./multiempresa.ts": multiempresa, "./motivo-falha.ts": motivoFalha, "./walle/oportunidade.ts": oportunidade, "./teto-mensal.ts": tetoMensal,
   }).modulo as Worker;
   return { servico, worker };
 }

@@ -31,8 +31,9 @@ test('a navegação só lista páginas existentes e esconde configuração sem G
     assert.equal(gestao.some((item) => item.rotulo === 'Tabelas de Preços' || item.href.includes('tabelas-preco')), false);
     const configuracao = gestao.filter((item) => item.grupo === 'Configurações').map((item) => item.rotulo);
     assert.deepEqual(configuracao, [
-        'Opções de origem',
+        // 23/11/2026 (pedido de Felipe): Perfil da empresa primeiro; a Pré-reserva virou seção da Agenda.
         'Perfil da empresa',
+        'Opções de origem',
         'Agenda',
         'Salões',
         'Pacotes',
@@ -51,8 +52,9 @@ test('a navegação só lista páginas existentes e esconde configuração sem G
 test('plano sem financeiro completo esconde contas a pagar, fluxo e relatórios; mantém visão e contas a receber', () => {
     const financeiro = (financeiroCompleto?: boolean) => itensNavegacao({ gestaoEmpresa: true, plataforma: false, financeiroCompleto })
         .filter((item) => item.grupo === 'Financeiro').map((item) => item.href);
-    assert.deepEqual(financeiro(false), ['/admin/financeiro', '/admin/financeiro/contas-receber']);
-    const completo = ['/admin/financeiro', '/admin/financeiro/contas-receber', '/admin/financeiro/contas-pagar', '/admin/financeiro/fluxo-caixa', '/admin/financeiro/relatorios'];
+    const devolucoes = '/admin/financeiro/devolucoes-pre-reserva';
+    assert.deepEqual(financeiro(false), ['/admin/financeiro', '/admin/financeiro/contas-receber', devolucoes]);
+    const completo = ['/admin/financeiro', '/admin/financeiro/contas-receber', '/admin/financeiro/contas-pagar', '/admin/financeiro/fluxo-caixa', '/admin/financeiro/relatorios', devolucoes];
     assert.deepEqual(financeiro(true), completo);
     assert.deepEqual(financeiro(undefined), completo, 'sem informação do plano (teste, legado, isenta) nada é escondido');
     assert.equal(itensNavegacao({ gestaoEmpresa: true, plataforma: false, financeiroCompleto: false }).some((i) => i.href === '/admin/configuracoes/perfil-empresa'), true);
@@ -97,6 +99,7 @@ test('hub de Configurações: cartões da plataforma só para a plataforma; da e
     // Para toda rota do menu, o cartão segue exatamente o item do menu.
     for (const p of [empresaSemPlataforma, equipe, plataforma, { gestaoEmpresa: true, plataforma: true }]) {
         const menu = new Set(itensNavegacao(p).map((i) => i.href));
+        assert.equal(menu.has('/admin/financeiro/devolucoes-pre-reserva'), p.gestaoEmpresa);
         for (const href of ['/admin/configuracoes/perfil-empresa', '/admin/configuracoes/agenda', '/admin/configuracoes/pacotes', '/admin/configuracoes/catalogo', '/admin/configuracoes/acessos', '/admin/configuracoes/whatsapp', '/admin/configuracoes/importar-documentos'])
             assert.equal(configuracaoVisivel(href, p), menu.has(href), href);
     }
@@ -120,7 +123,7 @@ test('menu e hub (pedido de Felipe, 23/10/2026): Importar documentos em Configur
     assert.equal(gestao.some((item) => item.href.includes('tabela-pacotes')), false);
     const documentos = gestao.find((item) => item.href === '/admin/configuracoes/importar-documentos');
     assert.deepEqual(documentos, { href: '/admin/configuracoes/importar-documentos', rotulo: 'Importar documentos', grupo: 'Configurações' });
-    assert.deepEqual(gestao.filter((item) => item.grupo === 'Configurações').map((item) => item.rotulo), ['Opções de origem', 'Perfil da empresa', 'Agenda', 'Salões', 'Pacotes', 'Itens do Buffet', 'Importar documentos', 'Usuários e acessos', 'Descontos e formas de pagamento', 'WhatsApp', 'IA e créditos']);
+    assert.deepEqual(gestao.filter((item) => item.grupo === 'Configurações').map((item) => item.rotulo), ['Perfil da empresa', 'Opções de origem', 'Agenda', 'Salões', 'Pacotes', 'Itens do Buffet', 'Importar documentos', 'Usuários e acessos', 'Descontos e formas de pagamento', 'WhatsApp', 'IA e créditos']);
     const hub = readFileSync('app/admin/configuracoes/page.tsx', 'utf8');
     assert.doesNotMatch(hub, /tabela-pacotes|PDF de Pacotes/);
     assert.match(hub, /route:'importar-documentos'/);

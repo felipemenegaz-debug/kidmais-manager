@@ -52,7 +52,7 @@ test('sessão escolhida prevalece sobre URL; perda de acesso não seleciona outr
 test('menu: Configurações de empresa (inclusive o WhatsApp, 083, e Importar documentos) só com Gestão na empresa; o PDF de Pacotes saiu do menu', () => {
     const conf = (p: { gestaoEmpresa: boolean; plataforma: boolean }) => itensNavegacao(p).filter((i) => i.grupo === 'Configurações').map((i) => i.href);
     assert.deepEqual(conf({ gestaoEmpresa: false, plataforma: false }), []);
-    assert.deepEqual(conf({ gestaoEmpresa: true, plataforma: false }), ['/admin/configuracoes/origens', '/admin/configuracoes/perfil-empresa', '/admin/configuracoes/agenda', '/admin/configuracoes/saloes', '/admin/configuracoes/pacotes', '/admin/configuracoes/catalogo', '/admin/configuracoes/importar-documentos', '/admin/configuracoes/acessos', '/admin/configuracoes/descontos', '/admin/configuracoes/whatsapp', '/admin/configuracoes/creditos']);
+    assert.deepEqual(conf({ gestaoEmpresa: true, plataforma: false }), ['/admin/configuracoes/perfil-empresa', '/admin/configuracoes/origens', '/admin/configuracoes/agenda', '/admin/configuracoes/saloes', '/admin/configuracoes/pacotes', '/admin/configuracoes/catalogo', '/admin/configuracoes/importar-documentos', '/admin/configuracoes/acessos', '/admin/configuracoes/descontos', '/admin/configuracoes/whatsapp', '/admin/configuracoes/creditos']);
     // 23/10/2026 (pedido de Felipe): o PDF de Pacotes saiu do menu e do hub; a tela e a API continuam (só plataforma).
     assert.deepEqual(conf({ gestaoEmpresa: false, plataforma: true }), []);
 });
@@ -74,6 +74,10 @@ test('cada item do menu tem a autorização correspondente na API do servidor; o
         const texto = arquivos.map((f) => readFileSync(f, 'utf8')).join('\n');
         assert.match(texto, /exigirGestaoNoTenant|tenant\.papelAtual !== 'REPRESENTANTE_AUTORIZADO'|tenant\.papelAtual !== GESTAO|SELECT u\.id, m\.papel|exigirGestaoDaEmpresa\(tenant\.papelAtual/, `${href}: papel da membership no servidor`);
     }
+    // 23/11/2026: a Pré-reserva saiu do menu e virou seção da Agenda (item de Gestão); a API dela continua de Gestão.
+    assert.equal(autoridadeDaConfiguracao('/admin/configuracoes/pre-reserva'), null);
+    assert.match(['app/api/admin/configuracoes/pre-reserva/route.ts', 'lib/pre-reserva/configuracao.ts'].map((f) => readFileSync(f, 'utf8')).join('\n'),
+        /exigirGestaoNoTenant|tenant\.papelAtual !== 'REPRESENTANTE_AUTORIZADO'|tenant\.papelAtual !== GESTAO|SELECT u\.id, m\.papel|exigirGestaoDaEmpresa\(tenant\.papelAtual/);
     // PDF de Pacotes fora do menu: a API continua exigindo a autoridade de plataforma.
     assert.equal(autoridadeDaConfiguracao('/admin/configuracoes/tabela-pacotes'), null);
     assert.match(readFileSync('app/api/admin/configuracoes/tabela-pacotes/route.ts', 'utf8'), /temAutoridadeDePlataforma\(sessao\)/);

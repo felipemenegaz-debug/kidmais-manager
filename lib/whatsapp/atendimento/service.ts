@@ -2,6 +2,7 @@ import { withTransaction, db } from '../../db/postgres.ts';
 import type { DbExecutor } from '../../db/contracts.ts';
 import { withTenantTransaction, type SessaoParaTenant, type TenantComprovado } from '../../saas/provar-tenant.ts';
 import { atendimentoAtivo, ambienteAtendimento, contatoPermitido, empresaPiloto, recepcaoAtiva, receptorDoNumero } from './configuracao.ts';
+import { contaNoTeto, reservarConsumo } from './teto-mensal.ts';
 import { APP_META, JANELA_REENTREGA_DIAS, configuracaoSchema, comandoDireto, passagemSemRespostaAutomatica, pausaPedidaNaRecepcao, semAutomatico, janelaAberta, nomePerfilSeguro, situacaoCadastro, type CadastroContato, type Entrada } from './core.ts';
 import { ARQUIVO_DISPONIVEL_SQL, caminhoPublicoArquivo } from './arquivos.ts';
 import { registroDaPausa, registroDoBloqueio } from './walle/entendimento.ts';
@@ -19,9 +20,16 @@ export type Mensagem = { id: string; conversa_id: string; empresa_id: string; am
  * piloto comprovada). Leva o número completo, o vínculo com o cadastro DA EMPRESA (sem escolher entre vários) e o nome
  * de perfil do WhatsApp, que NÃO é verificado. Nada disso vai ao modelo nem a logs.
  */
-export type ConversaLista = Conversa & { contato_final: string; responsavel_nome: string | null; nome_perfil: string | null; cadastro: CadastroContato };
+/** `funil` (Wall-e 1a, com a 132): a conversa tem cartão aberto do Wall-e em "Novo contato" nas Oportunidades. */
+export type ConversaLista = Conversa & { contato_final: string; responsavel_nome: string | null; nome_perfil: string | null; cadastro: CadastroContato; funil?: boolean };
 type LinhaConversa = Omit<ConversaLista, 'cadastro'> & { clientes: number; cliente_nome: string | null };
 
+/** Wall-e 1a: a 132 (vínculo da conversa com o cartão do funil) pode não estar aplicada; sem ela, nada muda na tela. */
+async function tem132(tx: DbExecutor) {
+  return !!(await tx.query<{ ok: boolean }>("SELECT to_regclass('public.whatsapp_atendimento_oportunidades') IS NOT NULL AS ok")).rows[0]?.ok;
+}
+const FUNIL_SQL = `EXISTS(SELECT 1 FROM whatsapp_atendimento_oportunidades o JOIN marketing_contatos k ON k.id=o.contato_id AND k.empresa_id=o.empresa_id
+        WHERE o.empresa_id=c.empresa_id AND o.ambiente=c.ambiente AND o.conversa_id=c.id AND o.anonimizado_em IS NULL AND k.fechamento_id IS NULL AND k.status IN ('NOVO','EM_ATENDIMENTO'))`;
 /**
  * A coluna nome_perfil chega com a migration 065; sem ela (ou depois do rollback), o atendimento segue sem o nome de
  * perfil. Consulta de catálogo a cada uso, sem cache: aplicar ou reverter a 065 não exige reiniciar a aplicação.
@@ -357,20 +365,29 @@ export async function acessoAtendimento<T>(sessao: SessaoParaTenant, work: (tx: 
     return work(tx, tenant.empresaComprovada, tenant.papelAtual);
   });
 }
-export async function listarAtendimento(sessao: SessaoParaTenant, conversaId?: string) {
+/** Conversa pedida na tela: só um uuid entra no ORDER BY; o resto vira null (nenhuma conversa é puxada). */
+export function conversaAberta(conversaId?: string | null): string | null {
+  return conversaId && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(conversaId) ? conversaId : null;
+}
+export async function listarAtendimento(sessao: SessaoParaTenant, conversaPedida?: string) {
+  // r3 (P3): id fora do formato de uuid vale como nenhuma conversa, na lista e nas mensagens (sem erro 22P02 no banco).
+  const conversaId = conversaAberta(conversaPedida);
   return acessoAtendimento(sessao, async (tx, empresa, papel) => {
     const ambiente = ambienteAtendimento();
     const nomePerfil = await temNomePerfil(tx);
+    const funil = await tem132(tx);
     // Nome do responsável só quando ele tem vínculo ativo com a mesma empresa (o mesmo critério do envio humano).
     // Cadastro: clientes DESTA empresa, não mesclados, com o número no telefone ou no WhatsApp, com e sem o 55 (mesma
     // regra de buscarClientesPorContatoExato + variantesTelefone). Com mais de um, só a quantidade: nenhum é escolhido.
     const conversas = (await tx.query<LinhaConversa>(`SELECT c.id,c.empresa_id,c.ambiente,c.contato,right(c.contato,4) AS contato_final,c.estado,c.responsavel_id,c.nao_contatar,c.versao,c.ultima_entrada_em,c.atualizada_em,c.interesse,u.nome AS responsavel_nome,
-        ${nomePerfil ? 'c.nome_perfil' : 'NULL::text'} AS nome_perfil,cad.clientes,cad.cliente_nome FROM whatsapp_atendimento_conversas c
+        ${nomePerfil ? 'c.nome_perfil' : 'NULL::text'} AS nome_perfil,${funil ? FUNIL_SQL : 'false'} AS funil,cad.clientes,cad.cliente_nome FROM whatsapp_atendimento_conversas c
       LEFT JOIN usuarios_administrativos u ON u.id=c.responsavel_id AND EXISTS(SELECT 1 FROM memberships m WHERE m.usuario_id=u.id AND m.empresa_id=c.empresa_id AND m.status='ATIVA')
       CROSS JOIN LATERAL (SELECT CASE WHEN c.contato LIKE '55%' AND length(c.contato) IN (12,13) THEN substr(c.contato,3) END AS sem55) v
       CROSS JOIN LATERAL (SELECT count(*)::int AS clientes, CASE WHEN count(*)=1 THEN max(cl.nome_completo) END AS cliente_nome FROM clientes cl
         WHERE cl.empresa_id=c.empresa_id AND cl.status<>'MESCLADO' AND (cl.telefone IN (c.contato,v.sem55) OR cl.whatsapp IN (c.contato,v.sem55))) cad
-      WHERE c.empresa_id=$1 AND c.ambiente=$2 ORDER BY c.atualizada_em DESC LIMIT 100`, [empresa, ambiente])).rows;
+      WHERE c.empresa_id=$1 AND c.ambiente=$2 ORDER BY (c.id IS NOT DISTINCT FROM $3::uuid) DESC,c.atualizada_em DESC LIMIT 100`, [empresa, ambiente, conversaId])).rows
+      // Wall-e 1a r2: a conversa pedida (link "Ver conversa" do funil) entra mesmo fora das 100 mais recentes; a ordem da tela segue a de antes.
+      .sort((a, b) => new Date(b.atualizada_em as never).getTime() - new Date(a.atualizada_em as never).getTime());
     const midia = await temMidia(tx), r082 = await tem082(tx);
     // Com a 082: nome do arquivo próprio e o caminho público (token) para conferir; várias saídas da mesma entrada na ordem.
     const colunasMidia = r082 ? `m.midia_tipo,m.midia_url,m.midia_nome,m.ordem,a.id AS arquivo_id,a.token AS arquivo_token${(await temControlesPrivacidade(tx)) ? ',m.motivo_cancelamento' : ''}`
@@ -428,6 +445,8 @@ export async function controlarAtendimento(sessao: SessaoParaTenant, pedido: { a
           [conversa.id, empresa, ambiente, pedido.texto || null, Number(conversa.versao) + 1, sessao.usuario_id, midia.tipo, midia.arquivo_id, midia.nome, pedido.prontaMidiaId, midia.versao, JSON.stringify({ tipo: 'PRONTA', id: pedido.prontaMidiaId, versao: midia.versao, por: 'ATENDENTE' })]);
         else await tx.query(`INSERT INTO whatsapp_atendimento_mensagens(conversa_id,empresa_id,ambiente,direcao,texto,estado,versao_conversa,autor_usuario_id,midia_tipo,midia_url,midia_pronta_id,midia_pronta_versao) VALUES($1,$2,$3,'SAIDA',$4,'PENDENTE',$5,$6,$7,$8,$9,$10)`, [conversa.id, empresa, ambiente, pedido.texto || null, Number(conversa.versao) + 1, sessao.usuario_id, midia.tipo, midia.midia_url, pedido.prontaMidiaId, midia.versao]);
       } else await tx.query(`INSERT INTO whatsapp_atendimento_mensagens(conversa_id,empresa_id,ambiente,direcao,texto,estado,versao_conversa,autor_usuario_id) VALUES($1,$2,$3,'SAIDA',$4,'PENDENTE',$5,$6)`, [conversa.id, empresa, ambiente, pedido.texto, Number(conversa.versao) + 1,sessao.usuario_id]);
+      // 3b (135): a resposta da equipe sai pelo mesmo número e conta para a Meta; soma sem limite (a equipe sempre responde).
+      if (contaNoTeto(empresa, pilotoOpcional(empresaPiloto))) await reservarConsumo(tx, empresa, ambiente, 1, null);
     }
     const estado = pedido.acao === 'retomar' ? 'IA' : pedido.acao === 'encerrar' ? 'ENCERRADA' : 'HUMANO';
     if (pedido.acao === 'retomar' && (!atendimentoAtivo() || !(await configuracao(tx, empresa))?.ativo)) throw new Error('ATENDIMENTO_AUTOMACAO_DESLIGADA');

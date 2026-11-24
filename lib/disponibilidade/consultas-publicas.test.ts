@@ -22,6 +22,8 @@ function executorInstrumentado(comCapacidade: boolean, antesDeResponder?: (sql: 
   const respostas: Array<[RegExp, object[]]> = [
     [/kidmais062_ocupacoes_escopo.*AS instalada$/, [{ instalada: true }]],
     [/kidmais094_conflito_ocupacao.*AS ok$/, [{ ok: true }]],
+    // 133 (Agenda lenta F6) ausente, como em staging e production hoje: o repositório segue lendo a 094.
+    [/kidmais133_ocupacoes_escopo.*AS ok$/, [{ ok: false }]],
     [/AS marcador114$/, [{ funcoes: Object.keys(FUNCOES_COMBINADOS).length, funcoes_qualquer: Object.keys(FUNCOES_COMBINADOS).length,
       combinado: true, membros: true, check_ok: true, gatilhos_ok: 6, gatilhos_qualquer: 6,
       conflito: HASHES_COMBINADOS.conflito108, contrato: HASHES_COMBINADOS.contrato,
@@ -134,11 +136,12 @@ async function respostaAnterior(db: () => DbExecutor, codigo: string | null) {
 }
 
 for (const { codigo, comCapacidade, antes, depois } of [
-  { codigo: null, comCapacidade: false, antes: 19, depois: 14 },
-  { codigo: "buffet-a", comCapacidade: false, antes: 19, depois: 14 },
+  // +1 em cada lado desde a 133 (Agenda lenta F6): a sonda da função de ocupações por empresa.
+  { codigo: null, comCapacidade: false, antes: 20, depois: 15 },
+  { codigo: "buffet-a", comCapacidade: false, antes: 20, depois: 15 },
   // Com configuração de capacidade e combinados. Em /b também passa por plano e assinatura instalados.
-  { codigo: null, comCapacidade: true, antes: 23, depois: 17 },
-  { codigo: "buffet-a", comCapacidade: true, antes: 31, depois: 23 },
+  { codigo: null, comCapacidade: true, antes: 24, depois: 18 },
+  { codigo: "buffet-a", comCapacidade: true, antes: 32, depois: 24 },
 ]) {
   test(`disponibilidade em 61 dias, ${codigo ?? "Kidmais"}: ${antes} → ${depois} consultas`, async t => {
     for (const [chave, valor] of Object.entries({

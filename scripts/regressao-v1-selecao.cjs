@@ -173,6 +173,8 @@ const ESTADO_POSTGRES = {
   "lib/whatsapp/atendimento/pausa-limite.postgres.test.ts": { descartavel: "atual" },
   // M1: limite diário esgotado ⇒ equipe em silêncio (sem modelo nem texto fixo, sem inventar pausa); origem das marcas.
   "lib/whatsapp/atendimento/limite-silencio.postgres.test.ts": { descartavel: "atual" },
+  // 3b (D-LAN-3): teto mensal de mensagens do número atingido ⇒ Wall-e para e a conversa vai em silêncio para a equipe.
+  "lib/whatsapp/atendimento/teto-mensal.postgres.test.ts": { descartavel: "atual" },
   // 11/10: ordem da premissa do staging (061…079 presentes; 060/065/080–082 depois) × ordem do inventário (modelo "082", no
   // banco de rollback): mesmo schema; rollback nas duas ordens; downs da 078/079 com o atendimento presente.
   "lib/whatsapp/atendimento/ordem-staging-real.postgres.test.ts": { descartavel: "079-sem-atendimento", rollback: "082" },
@@ -185,6 +187,8 @@ const ESTADO_POSTGRES = {
   "lib/whatsapp/atendimento/revogacao-envio.postgres.test.ts": { descartavel: "082" },
   // D2/D3: exclusão (pedido e retenção), PARAR preservado, tarefas pendentes, revogação/troca de link/expiração de arquivos.
   "lib/whatsapp/atendimento/privacidade.postgres.test.ts": { descartavel: "082" },
+  // Modelo 082: o "atual" não tem as tabelas do atendimento nem ia_uso_modelo (055a).
+  "lib/whatsapp/atendimento/resultado.postgres.test.ts": { descartavel: "082" },
   // 12/10: correções da revisão independente de 69dc301 (H2, M1, M5, M3, B2, M4, B1).
   "lib/whatsapp/atendimento/revisao-correcoes.postgres.test.ts": { descartavel: "082" },
   // 12/10: correções da revisão independente de 5699dfc (A1 configuração vigente, M1 posse da retenção, M2 callbacks).
@@ -316,6 +320,12 @@ const ESTADO_POSTGRES = {
   "lib/guarda/saidas-contato.postgres.test.ts": { descartavel: "127" },
   // 20/11/2026 (LOCAL): dados fora do disco (128): travas, armazém, PDF pelo banco, script de cópia e ciclo up/down.
   "lib/pre-reserva/agenda.postgres.test.ts": { descartavel: "130" },
+  "lib/pre-reserva/devolucao.postgres.test.ts": { descartavel: "131" },
+  "lib/pre-reserva/meu-pedido.postgres.test.ts": { descartavel: "131" },
+  // Wall-e 1a (132, LOCAL 23/11/2026): modelo 131 + a 132 aplicada pela própria suíte (pré, migration e pós).
+  "lib/whatsapp/atendimento/walle/oportunidade.postgres.test.ts": { descartavel: "131" },
+  // Agenda lenta F3/F6 (133, LOCAL 23/11/2026): modelo 131 + a 133 aplicada pela própria suíte (pré, migration, pós e down).
+  "lib/disponibilidade/ocupacoes-133.postgres.test.ts": { descartavel: "131" },
   "lib/pre-reserva/modelo.postgres.test.ts": { descartavel: "128" },
   "lib/disponibilidade/migration-128.postgres.test.ts": { descartavel: "128" },
   // 20/11/2026 (LOCAL): guarda fase 3, mapa dos dados pessoais (toda coluna de texto/bytea/JSON/inet classificada).

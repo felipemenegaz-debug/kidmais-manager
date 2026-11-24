@@ -7,6 +7,7 @@
 //   - o aplicador da 092–094 de produção só tem dois escopos (092-093 e 094): são dois passos, e o 094 exige antes o deploy
 //     do código novo (regra do próprio aplicador, scripts/migration-092-094-production.cjs);
 //   - 120, 121, 110, 111, 115 e 123 não têm aplicador próprio: passam pelo genérico (scripts/migration-generico-production.cjs);
+//   - a 129 (bootstrap) e a 130+ ficam FORA desta cadeia (PELO_REGISTRO): vão por scripts/registro-migrations-banco.cjs;
 //   - os adaptadores de 102–103, 104–106, 107–108 e 109 são do OUTRO lote da promoção (PENDENTES_DO_OUTRO_LOTE): este arquivo
 //     só aponta o caminho combinado; as flags deles aqui são as do núcleo de cada um.
 // Cada passo tem 3 fases, nesta ordem: CONFERIR (só leitura) → APLICAR → CONFERIR_DEPOIS. Qualquer código de saída
@@ -30,6 +31,9 @@ const doMeuLote = (id, escopo) => proprio(id, escopo, {bloco: `node scripts/bloc
 const grupo = (id, migrations, escopo, extra = {}) => proprio(id, escopo, {migrations, bloco: 'node scripts/bloco-shell-' + id + '-production.cjs <CONFERIR|APLICAR> <rotulo>', outroLote: true, ...extra});
 const generico = (id, escopo) => ({id, situacao: 'APLICAR', migrations: [id], aplicador: 'generico', arquivo: GENERICO, conferir: `--conferir ${id}`, aplicar: `--aplicar-autorizado ${id}`,
   bloco: `node scripts/bloco-shell-promocao-production.cjs ${id} <CONFERIR|APLICAR> <rotulo>`, escopo});
+/** 129 (bootstrap) e 130+ saem desta cadeia: vão pelo registro no banco, com fluxo e códigos próprios (sem marcador em disco). */
+const REGISTRO = 'scripts/registro-migrations-banco.cjs';
+const pelRegistro = (id, escopo) => ({id, situacao: 'PELO_REGISTRO', migrations: [id], aplicador: null, registro: REGISTRO, escopo});
 const fora = (id, situacao, escopo) => ({id, situacao, migrations: [id], aplicador: null, escopo});
 const congelar = p => Object.freeze({...p, migrations: Object.freeze(p.migrations)});
 
@@ -77,8 +81,13 @@ const ORDEM = Object.freeze([
   generico('127', 'guarda dos clientes 1a: marca de saída das campanhas por telefone/e-mail, gatilhos e carga inicial; trava por instantes clientes, marketing_contato_preferencias e whatsapp_atendimento_conversas'),
   // 128 (dados fora do disco) DEPOIS da 127: exige só a 021 (já aplicada); vem ANTES do código que lê disponibilidade_config_legada (que tolera a ausência).
   generico('128', 'dados fora do disco: tabela das regras legadas da agenda e coluna com os bytes do PDF público; trava por instantes documentos_publicos'),
-  generico('130', 'pré-reserva manual: configuração, aceites e recebimentos; os índices únicos bloqueiam escritas em fechamentos e contratos durante a instalação'),
-  generico('131', 'agenda da pré-reserva: ocupação temporária e proteção do destino pago; exige a 130'),
+  pelRegistro('129', `registro de tentativas no banco: bootstrap único por ${REGISTRO} --ambiente production --aplicar-129-bootstrap-autorizado --backup "<registro-do-backup>"`),
+  pelRegistro('130', `pré-reserva manual; aplicar só por ${REGISTRO} --ambiente production --aplicar-130-autorizado --backup "<registro-do-backup>" (o genérico recusa)`),
+  pelRegistro('131', `agenda da pré-reserva; exige a 130; aplicar só por ${REGISTRO} --ambiente production --aplicar-131-autorizado --backup "<registro-do-backup>" (o genérico recusa)`),
+  pelRegistro('132', `Wall-e fatia 1a: vínculo do contato do funil com a conversa e pendência da captura (o código só captura com ela); exige 082, 085 e, no registro, a 131; aplicar só por ${REGISTRO} --ambiente production --aplicar-132-autorizado --backup "<registro-do-backup>" (o genérico recusa)`),
+  pelRegistro('133', `ocupações da agenda por empresa (função nova; o código funciona sem ela); exige a 131; aplicar só por ${REGISTRO} --ambiente production --aplicar-133-autorizado --backup "<registro-do-backup>" (o genérico recusa)`),
+  pelRegistro('134', `marca Cliente/Interna da contratante (tabela nova; o código funciona sem ela); exige a 133; aplicar só por ${REGISTRO} --ambiente production --aplicar-134-autorizado --backup "<registro-do-backup>" (o genérico recusa)`),
+  pelRegistro('135', `consumo mensal do Wall-e pela Meta (tabela nova + carga do mês sob LOCK); exige a 060; PORTÃO DE DEPLOY: código novo LIVE no web e no worker, nenhum gravador antigo vivo e SET kidmais.portao_135 na MESMA sessão (sem ele a 135 recusa); o registro AINDA NÃO tem esta flag (caminho a autorizar, preservando a sessão do SET): aplicar só por ${REGISTRO} --ambiente production --aplicar-135-autorizado --backup "<registro-do-backup>" (o genérico recusa)`),
 ].map(congelar));
 
 /** Só os passos que rodam (sem a 098 excluída nem a 099/105 já aplicadas). */
@@ -131,6 +140,7 @@ function roteiro() {
     '- Cada passo tem três fases, nesta ordem: **CONFERIR** (só leitura) → **APLICAR** (uma vez; marcador exclusivo no disco persistente) → **CONFERIR** de novo.',
     '- **Qualquer código de saída diferente de 0 para a cadeia.** Não repetir o passo, não seguir para o próximo: copiar a saída e o marcador e decidir com Felipe. `proximoPasso()` deste script devolve PARAR nesses casos.',
     '- A 098 é histórica e **nunca** entra (a 102 e a 108 recusam se ela existir). A 099 e a 105 já estão em production.',
+    `- A 129 e a 130+ ficam **fora desta cadeia** (PELO_REGISTRO): bootstrap da 129 e cada 130+ só por \`${REGISTRO}\`, com o registro de tentativas no banco no lugar do marcador em disco; o genérico recusa aplicá-las (ID_PELO_REGISTRO).`,
     '- O aplicador da 092–094 de production tem dois escopos: 092-093 e 094. O 094 exige antes o deploy do código novo.',
     `- Os adaptadores de ${PENDENTES_DO_OUTRO_LOTE.map(a => '`' + a + '`').join(', ')} são do outro lote desta promoção: os comandos deles abaixo usam as flags do núcleo e precisam ser conferidos contra o adaptador entregue.`, '',
     '## Colagem interrompida de um bloco de Shell', '',
@@ -170,4 +180,4 @@ if (require.main === module) {
   if (process.argv[2] === '--roteiro') process.stdout.write(roteiro());
   else console.log(JSON.stringify({ordem: ORDEM, pontoSemVoltaPorDeploy: PONTO_SEM_VOLTA_POR_DEPLOY, pendentesDoOutroLote: PENDENTES_DO_OUTRO_LOTE}, null, 2));
 }
-module.exports = {ORDEM, PASSOS, FASES, GENERICO, PENDENTES_DO_OUTRO_LOTE, PONTO_SEM_VOLTA_POR_DEPLOY, SIGNIFICADO, comando, volta, proximoPasso, roteiro};
+module.exports = {ORDEM, PASSOS, FASES, GENERICO, REGISTRO, PENDENTES_DO_OUTRO_LOTE, PONTO_SEM_VOLTA_POR_DEPLOY, SIGNIFICADO, comando, volta, proximoPasso, roteiro};

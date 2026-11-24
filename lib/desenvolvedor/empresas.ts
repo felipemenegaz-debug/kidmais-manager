@@ -51,7 +51,7 @@ type LinhaEmpresa = {
     id: string; codigo: string; nome: string; status: StatusEmpresa; criado_em: string; atualizado_em: string;
     cad_empresa: string | null; nome_empresarial: string | null; documento_fiscal: string | null; responsavel_nome: string | null; email: string | null;
     telefone: string | null; observacoes: string | null; interessada_id: string | null; implantacao: Implantacao | null; implantacao_concluida_em: string | null;
-    cad_revisao: number | null; membros_ativos: number; convites_pendentes: number;
+    cad_revisao: number | null; membros_ativos: number; convites_pendentes: number; uso?: string | null;
 };
 const COLUNAS = `e.id, e.codigo, e.nome, e.status, e.criado_em::text, e.atualizado_em::text, c.empresa_id AS cad_empresa, c.nome_empresarial, c.documento_fiscal,
   c.responsavel_nome, c.email, c.telefone, c.observacoes, c.interessada_id, c.implantacao, c.implantacao_concluida_em::text, c.revisao::int AS cad_revisao,
@@ -63,19 +63,35 @@ export type EmpresaResumo = {
     id: string; codigo: string; nome: string; status: StatusEmpresa; situacao: Situacao; situacaoRotulo: string; criadoEm: string;
     implantacao: Implantacao | null; implantacaoRotulo: string | null; responsavelNome: string | null; email: string | null;
     membrosAtivos: number; convitesPendentes: number; temCadastro: boolean;
+    /** 134: CLIENTE (padrão, inclusive sem a 134) ou INTERNA (teste, demonstração, suporte). */
+    uso: UsoEmpresa;
 };
+export type UsoEmpresa = 'CLIENTE' | 'INTERNA';
+/** A 134 pode ainda não estar aplicada (o código sobe antes dela): sem a tabela, toda empresa conta como CLIENTE. */
+async function usoInstalado(tx: DbExecutor) {
+    return (await tx.query<{ ok: boolean }>(`SELECT to_regclass('public.plataforma_empresas_uso') IS NOT NULL AS ok`)).rows[0]?.ok === true;
+}
+/** Expressão do uso de `e` (sem a 134, a constante: a consulta nunca cita a tabela ausente). */
+const usoSql = (instalado: boolean) => instalado ? `COALESCE((SELECT u.uso FROM plataforma_empresas_uso u WHERE u.empresa_id = e.id), 'CLIENTE')` : `'CLIENTE'`;
+/** Na lista: junção pela PK da 134 (uma leitura por empresa); sem a 134, nada a juntar e a constante. */
+const usoJuncao = (instalado: boolean) => instalado ? 'LEFT JOIN plataforma_empresas_uso u ON u.empresa_id = e.id' : '';
+const usoDaJuncao = (instalado: boolean) => instalado ? `COALESCE(u.uso, 'CLIENTE')` : `'CLIENTE'`;
+
 function resumo(l: LinhaEmpresa): EmpresaResumo {
     const situacao = situacaoEmpresa(l.status, l.implantacao);
     return {
         id: l.id, codigo: l.codigo, nome: l.nome, status: l.status, situacao, situacaoRotulo: ROTULO_SITUACAO[situacao], criadoEm: l.criado_em,
         implantacao: l.implantacao, implantacaoRotulo: l.implantacao ? ROTULO_IMPLANTACAO[l.implantacao] : null, responsavelNome: l.responsavel_nome,
         email: l.email, membrosAtivos: l.membros_ativos, convitesPendentes: l.convites_pendentes, temCadastro: Boolean(l.cad_empresa),
+        uso: l.uso === 'INTERNA' ? 'INTERNA' : 'CLIENTE',
     };
 }
 
 const filtrosSchema = z.object({
     busca: z.string().max(120).optional().transform((v) => (v ?? '').trim()),
-    situacao: z.enum(['TODAS', 'EM_IMPLANTACAO', 'ATIVA', 'SUSPENSA', 'DESATIVADA', 'AGUARDANDO_PRIMEIRO_ACESSO', 'EM_CONFIGURACAO']).optional().default('TODAS'),
+    // EM_USO (23/11/2026, pedido de Felipe): clientes não desativadas — é o filtro com que a tela de Contratantes abre.
+    // Com a 134 (D-INT-1), as marcadas como INTERNA também ficam fora; INTERNAS = internas não desativadas.
+    situacao: z.enum(['TODAS', 'EM_USO', 'INTERNAS', 'EM_IMPLANTACAO', 'ATIVA', 'SUSPENSA', 'DESATIVADA', 'AGUARDANDO_PRIMEIRO_ACESSO', 'EM_CONFIGURACAO']).optional().default('TODAS'),
     pagina: z.coerce.number().int().min(1).max(1000).optional().default(1),
 }).strict();
 
@@ -87,24 +103,48 @@ export async function listarEmpresas(sessao: SessaoAdmin, raw: unknown, deps: Pa
         const termo = filtros.busca ? `%${filtros.busca.toLowerCase().replace(/[\\%_]/g, (ch) => `\\${ch}`)}%` : null;
         // CNPJ e telefone ficam só com dígitos no cadastro: "97.310.458/0001-89" também encontra (3+ dígitos, como em interessadas).
         const digitos = filtros.busca.replace(/\D/g, '');
-        const condicoes = `($1::text IS NULL OR lower(e.nome) LIKE $1 OR e.codigo LIKE $1 OR lower(coalesce(c.nome_empresarial, '')) LIKE $1
+        const instalado = await usoInstalado(tx);
+        const uso = usoDaJuncao(instalado);
+        const busca = `($1::text IS NULL OR lower(e.nome) LIKE $1 OR e.codigo LIKE $1 OR lower(coalesce(c.nome_empresarial, '')) LIKE $1
               OR coalesce(c.email, '') LIKE $1 OR lower(coalesce(c.responsavel_nome, '')) LIKE $1 OR coalesce(c.documento_fiscal, '') LIKE $1
-              OR ($3::text <> '' AND (coalesce(c.documento_fiscal, '') LIKE '%' || $3 || '%' OR coalesce(c.telefone, '') LIKE '%' || $3 || '%')))
-          AND (CASE $2::text
+              OR ($3::text <> '' AND (coalesce(c.documento_fiscal, '') LIKE '%' || $3 || '%' OR coalesce(c.telefone, '') LIKE '%' || $3 || '%')))`;
+        const naSituacao = `(CASE $2::text
                 WHEN 'TODAS' THEN true
+                WHEN 'EM_USO' THEN e.status <> 'DESATIVADA' AND ${uso} = 'CLIENTE'
+                WHEN 'INTERNAS' THEN e.status <> 'DESATIVADA' AND ${uso} = 'INTERNA'
                 WHEN 'EM_IMPLANTACAO' THEN e.status = 'ATIVA' AND c.implantacao IN ('AGUARDANDO_PRIMEIRO_ACESSO', 'EM_CONFIGURACAO')
                 WHEN 'ATIVA' THEN e.status = 'ATIVA' AND (c.implantacao IS NULL OR c.implantacao = 'CONCLUIDA')
                 WHEN 'AGUARDANDO_PRIMEIRO_ACESSO' THEN e.status = 'ATIVA' AND c.implantacao = 'AGUARDANDO_PRIMEIRO_ACESSO'
                 WHEN 'EM_CONFIGURACAO' THEN e.status = 'ATIVA' AND c.implantacao = 'EM_CONFIGURACAO'
                 ELSE e.status = $2::text END)`;
-        const params = [termo, filtros.situacao, digitos.length >= 3 ? digitos : ''];
-        const total = (await tx.query<{ n: number }>(`SELECT count(*)::int AS n ${FROM} WHERE ${condicoes}`, params)).rows[0].n;
-        const linhas = (await tx.query<LinhaEmpresa>(`SELECT ${COLUNAS} ${FROM} WHERE ${condicoes} ORDER BY e.atualizado_em DESC LIMIT ${porPagina} OFFSET $4`, [...params, (filtros.pagina - 1) * porPagina])).rows;
+        // Astra r1 (P2): página, total e as contagens do aviso numa única consulta = um snapshot só. Assim uma empresa
+        // marcada como interna por outra pessoa no meio da leitura não aparece na lista E no aviso ao mesmo tempo.
+        // base = empresas que batem com a busca, já com o uso classificado uma vez; desativadas e internas com a mesma
+        // busca (as duas contagens não se sobrepõem: interna desativada conta só como desativada).
+        const params = [termo, filtros.situacao, digitos.length >= 3 ? digitos : '', (filtros.pagina - 1) * porPagina];
+        const linhas = (await tx.query<LinhaEmpresa & { total: number; desativadas: number; internas: number }>(
+            `WITH base AS MATERIALIZED (
+               SELECT e.id, e.status, e.atualizado_em AS ordem, ${uso} AS uso, ${naSituacao} AS no_filtro
+                 ${FROM} ${usoJuncao(instalado)} WHERE ${busca})
+             SELECT t.total, t.desativadas, t.internas, p.*
+               FROM (SELECT (count(*) FILTER (WHERE no_filtro))::int AS total,
+                            (count(*) FILTER (WHERE status = 'DESATIVADA'))::int AS desativadas,
+                            (count(*) FILTER (WHERE status <> 'DESATIVADA' AND uso = 'INTERNA'))::int AS internas FROM base) t
+               LEFT JOIN LATERAL (
+                 SELECT ${COLUNAS}, b.uso, b.ordem AS ordem_lista FROM base b JOIN empresas e ON e.id = b.id
+                   LEFT JOIN plataforma_empresas_cadastro c ON c.empresa_id = e.id
+                  WHERE b.no_filtro ORDER BY b.ordem DESC, b.id LIMIT ${porPagina} OFFSET $4) p ON true
+              ORDER BY p.ordem_lista DESC, p.id`, params)).rows;
+        const cont = linhas[0] ?? { total: 0, desativadas: 0, internas: 0 };
+        const total = cont.total;
+        const desativadasOcultas = filtros.situacao === 'EM_USO' ? cont.desativadas : 0;
+        const internasOcultas = filtros.situacao === 'EM_USO' && instalado ? cont.internas : 0;
+        const pagina = linhas.filter((l) => l.id != null);
         // E5: plano e situação comercial por empresa (sem a 067, "sem cobrança").
         const itens = [];
-        for (const l of linhas)
+        for (const l of pagina)
             itens.push({ ...resumo(l), comercial: await comercialResumo(tx, l.id) });
-        return { itens, total, pagina: filtros.pagina, porPagina };
+        return { itens, total, pagina: filtros.pagina, porPagina, desativadasOcultas, internasOcultas, usoDisponivel: instalado };
     });
 }
 
@@ -172,7 +212,8 @@ export async function obterEmpresa(sessao: SessaoAdmin, id: string, deps: Painel
     const uuid = z.string().uuid().parse(id);
     return deps.withTransaction(async (tx) => {
         await exigirDesenvolvedorNaTransacao(tx, sessao);
-        const l = (await tx.query<LinhaEmpresa>(`SELECT ${COLUNAS} ${FROM} WHERE e.id = $1::uuid`, [uuid])).rows[0];
+        const instalado = await usoInstalado(tx);
+        const l = (await tx.query<LinhaEmpresa>(`SELECT ${COLUNAS}, ${usoSql(instalado)} AS uso ${FROM} WHERE e.id = $1::uuid`, [uuid])).rows[0];
         if (!l)
             throw erroAcesso('NAO_ENCONTRADO', 'Empresa não encontrada.', 404);
         const email = situacaoEmail();
@@ -190,6 +231,7 @@ export async function obterEmpresa(sessao: SessaoAdmin, id: string, deps: Painel
             comercial: await comercialDaEmpresa(tx, uuid),
             representacao: await representacaoDaEmpresa(tx, uuid),
             whatsapp: await whatsappDaEmpresa(tx, uuid),
+            usoDisponivel: instalado,
         };
     });
 }
@@ -509,6 +551,35 @@ export async function alterarSituacaoEmpresa(sessao: SessaoAdmin, id: string, ac
             antes: { status: de }, depois: { status: para, usuariosComSessaoEncerrada: sessoes.usuarios, sessoesEncerradas: sessoes.sessoes }, justificativa: input.motivo, ctx,
         });
         return { status: para, sessoesEncerradas: sessoes.sessoes, usuariosDesconectados: sessoes.usuarios };
+    });
+}
+
+const usoSchema = z.object({ uso: z.enum(['CLIENTE', 'INTERNA']), motivo: z.string().trim().min(3, 'Informe o motivo.').max(500) }).strict();
+
+/**
+ * 134 (23/11/2026, D-INT-1): marca a contratante como CLIENTE ou INTERNA (teste, demonstração, suporte). Só muda a lista
+ * do painel; acesso, cobrança e dados da empresa não mudam. Motivo obrigatório; a troca vai para a auditoria.
+ */
+export async function alterarUsoEmpresa(sessao: SessaoAdmin, id: string, raw: unknown, ctx: ContextoPainel, deps: PainelDeps = painelDepsPadrao) {
+    const empresaId = z.string().uuid().parse(id);
+    const input = usoSchema.parse(raw);
+    return deps.withTransaction(async (tx) => {
+        await exigirDesenvolvedorNaTransacao(tx, sessao);
+        if (!await usoInstalado(tx))
+            throw erroAcesso('CONFLITO', 'A marcação Cliente/Interna ainda não está disponível neste ambiente (migration 134 pendente).', 409);
+        await empresaTravada(tx, empresaId);
+        const de = (await tx.query<{ uso: UsoEmpresa }>('SELECT uso FROM plataforma_empresas_uso WHERE empresa_id = $1::uuid FOR UPDATE', [empresaId])).rows[0]?.uso ?? 'CLIENTE';
+        if (de === input.uso)
+            return { uso: de, alterado: false };
+        await tx.query(
+            `INSERT INTO plataforma_empresas_uso (empresa_id, uso, atualizado_por) VALUES ($1, $2, $3)
+             ON CONFLICT (empresa_id) DO UPDATE SET uso = EXCLUDED.uso, atualizado_por = EXCLUDED.atualizado_por, atualizado_em = clock_timestamp()`,
+            [empresaId, input.uso, sessao.usuario_id]);
+        await auditarPainel(deps.registrarAuditoria, tx, {
+            atorId: sessao.usuario_id, acao: 'EMPRESA_USO_ALTERADO', entidadeTipo: 'EMPRESA', entidadeId: empresaId, empresaId, resultado: 'SUCESSO',
+            antes: { uso: de }, depois: { uso: input.uso }, justificativa: input.motivo, ctx,
+        });
+        return { uso: input.uso, alterado: true };
     });
 }
 

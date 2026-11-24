@@ -148,9 +148,11 @@ const MIGRATIONS = Object.freeze({
     privilegios: {criaNoSchema: true, alteradas: ['documentos_publicos'], funcoes: [], referenciadas: []}}),
   '130': congelar({escopo: 'pré-reserva manual: configuração, aceites e recebimentos; os índices únicos bloqueiam escritas em fechamentos e contratos durante a instalação',
     arquivos: [['precheck', 'database/checks/20261120_130_precheck.sql', '53f95ec68a5ce4aeaebda793dc5de0400851c578191541da7a8b8a39b9356c4b'],
-      ['migration', 'database/migrations/20261120_130_pre_reserva_manual.sql', '310c08a8b98eef226a0bc03e37dd5945c37d5f2bbf78902f3afb20cdc9ceff8f'],
-      ['postcheck', 'database/checks/20261120_130_postcheck.sql', 'c39191f55708c05ebdd2b2f525cb6d03696dc6b89dafa0267b16bb4889b7682d']],
+      ['migration', 'database/migrations/20261120_130_pre_reserva_manual.sql', 'f1333015ac9ac692f24e04d6a6fd381fba0c0b8432674863e56a97c918141411'],
+      ['postcheck', 'database/checks/20261120_130_postcheck.sql', '0379143e198e88b9e599bdf5ce0908b6670063d17f17a668a67c666fefb1e250']],
     criados: ['pre_reserva_configuracoes','pre_reserva_aceites','pre_reserva_recebimentos','pre_reserva_situacoes','pre_reserva_fechamento_titular','pre_reserva_contrato_pedido','pre_reserva_um_sinal_por_pedido','pre_reserva_pendencias_por_empresa'].map(tabela),
+    // Runtime do gatilho: fechamentos e contratos (SELECT/FOR UPDATE), pre_reserva_aceites,
+    // contrato_fluxos, contrato_versoes, pagamentos e pagamento_recebimentos (SELECT).
     privilegios: {criaNoSchema: true, alteradas: ['fechamentos','contratos'], funcoes: [], referenciadas: ['empresas','memberships','fechamentos','estabelecimentos','agenda_saloes','contratos']}}),
   '131': congelar({escopo: 'agenda da pré-reserva: ocupação temporária e proteção do destino pago; exige a 130',
     arquivos: [['precheck', 'database/checks/20261120_131_precheck.sql', '127326b37ee9cac39ccb9cc856f707fc51079d90bbf6cdce47ccfa3138d37e38'],
@@ -158,9 +160,35 @@ const MIGRATIONS = Object.freeze({
       ['postcheck', 'database/checks/20261120_131_postcheck.sql', '41122734e0cc753fc56568c515f62d354ab599332a807e58dbe14409dce78e9d']],
     criados: [funcao('pre_reserva_exigir_configuracao()'), funcao('pre_reserva_preservar_destino()')],
     privilegios: {criaNoSchema: true, alteradas: ['fechamentos','pre_reserva_recebimentos','pre_reserva_aceites'], funcoes: ['kidmais094_ocupacoes(date,date)','kidmais062_ocupacoes_escopo(date,date)'], referenciadas: []}}),
+  '132': congelar({escopo: 'Wall-e fatia 1a: vínculo do contato do funil com a conversa (whatsapp_atendimento_oportunidades) e pendência da captura na conversa; exige 082 e 085',
+    arquivos: [['precheck', 'database/checks/20261123_132_precheck.sql', '46e0ac2b6e92c9594290a3050b9faf6b32f0a1bdbf67a61830a2f315c30bdcce'],
+      ['migration', 'database/migrations/20261123_132_walle_oportunidades.sql', '20f351aa99c1829d35afedcdb49e6819a4570ef1a5e155c0ddd940c588b5f30f'],
+      ['postcheck', 'database/checks/20261123_132_postcheck.sql', '592182a0f8ef0174acecfcb87220932e2eab293c9fd7939cc7d47b89c8acf30d']],
+    // Sentinelas = o que o precheck da 132 usa para dizer "já presente": a tabela nova e a coluna da pendência.
+    criados: [tabela('whatsapp_atendimento_oportunidades'), coluna('whatsapp_atendimento_conversas', 'oportunidade_pendente_em')],
+    // ADD COLUMN e índice em whatsapp_atendimento_conversas exigem a posse dela; a função do gatilho é criada pela 132 e lê
+    // marketing_contatos e whatsapp_atendimento_conversas; as chaves estrangeiras referenciam contatos, empresas e conversas.
+    privilegios: {criaNoSchema: true, alteradas: ['whatsapp_atendimento_conversas'], funcoes: [],
+      referenciadas: ['empresas', 'marketing_contatos', 'whatsapp_atendimento_conversas']}}),
+  '133': congelar({escopo: 'ocupações da agenda recortadas por empresa antes das funções por linha (função nova; a 094 não muda); exige a 131',
+    arquivos: [['precheck', 'database/checks/20261123_133_precheck.sql', '37aeb74714185551299e5642a0a74197b90ba5e699e629c413c19045cf6cfe8a'],
+      ['migration', 'database/migrations/20261123_133_ocupacoes_por_empresa.sql', '6630c89ba1e4afe5167cb1744a559ad0c790d20eeb18110201b89eb2042c7eac'],
+      ['postcheck', 'database/checks/20261123_133_postcheck.sql', '9dac4af97e1b3bf1df4f2a30ce02dd84bf68980f63998bf2d55f8dde3f9d44ae']],
+    criados: [funcao('kidmais133_ocupacoes_escopo(date,date,uuid,uuid)')],
+    // Só CREATE FUNCTION: não altera tabela nem substitui função existente.
+    privilegios: {criaNoSchema: true, alteradas: [], funcoes: [], referenciadas: []}}),
+  '134': congelar({escopo: 'marca Cliente/Interna da contratante (tabela nova; ausente = Cliente; o código funciona sem ela); exige a 133 no registro',
+    arquivos: [['precheck', 'database/checks/20261123_134_precheck.sql', '9e85205d602d84f310d5a73130e68bea60e230107129df7c66b88d09795fc963'],
+      ['migration', 'database/migrations/20261123_134_empresas_uso.sql', 'e3cfc224228ce09a13bdf8b0014b6414f5428f05509df12cd07f8f5322208c57'],
+      ['postcheck', 'database/checks/20261123_134_postcheck.sql', 'be6af36afdb576f90abc52d5827a257be19a62012dbd2eecf2f0fe3946f4fba4']],
+    criados: [tabela('plataforma_empresas_uso')],
+    // Só CREATE TABLE (chaves para empresas e usuarios_administrativos): não altera tabela existente.
+    privilegios: {criaNoSchema: true, alteradas: [], funcoes: [], referenciadas: ['empresas', 'usuarios_administrativos']}}),
 });
-/** Ordem do inventário (scripts/production/check-migrations.mjs, approvedFiles): 120, 121, 110, 111, 115, 123, 124, 125, 126, 127, 128, 130, 131. */
-const IDS = Object.freeze(['120', '121', '110', '111', '115', '123', '124', '125', '126', '127', '128', '130', '131']);
+/** Ordem do inventário (scripts/production/check-migrations.mjs, approvedFiles): 120, 121, 110, 111, 115, 123, 124, 125, 126, 127, 128.
+ * A 130, a 131, a 132, a 133 e a 134 continuam em MIGRATIONS (SQL revisados e sentinelas que o registro no banco carrega e o --conferir lê), mas não
+ * são aplicadas por aqui: ver SO_PELO_REGISTRO. */
+const IDS = Object.freeze(['120', '121', '110', '111', '115', '123', '124', '125', '126', '127', '128']);
 const definicao = id => { assert.ok(typeof id === 'string' && Object.hasOwn(MIGRATIONS, id), 'MIGRATION_FORA_DA_LISTA'); return MIGRATIONS[id]; };
 const marcadorDe = id => `migration-${id}.json`;
 const curta = e => String(e?.message ?? e).replace(/postgres(?:ql)?:\/\/\S+/gi, '<url>').slice(0, 300);
@@ -331,6 +359,7 @@ async function preflightNoCliente(db, {id, sqlIdentidade = SQL_IDENTIDADE, ident
 
 /** Aplicação: o estado é relido aqui, imediatamente antes; presente = só o postcheck (READ ONLY), nada é reaplicado. */
 async function aplicarNoCliente(db, {id, raiz, sqlIdentidade = SQL_IDENTIDADE, identidade = prd.identidade, registrar = () => {}}) {
+  exigirForaDoRegistro(id);
   const corpos = carregar(raiz, id);
   const r = {id, etapas: []};
   r.conexao = identidade((await somenteLeitura(db, sqlIdentidade)).rows[0]); registrar(r);
@@ -359,11 +388,14 @@ const situacoes = r => Object.fromEntries((r.etapas ?? []).filter(x => x.commit)
 const commitadas = r => Object.entries(situacoes(r)).filter(([, c]) => c === 'CONFIRMADO').map(([id]) => id);
 
 const BACKUP = /^[A-Za-z0-9:._/ -]{6,120}$/;
+/** 130+ só pelo registro no banco (scripts/registro-migrations-banco.cjs): aqui a definição só serve para carregar os SQL revisados. */
+const SO_PELO_REGISTRO = Object.freeze(['130', '131', '132', '133', '134']);
+const exigirForaDoRegistro = id => { if (SO_PELO_REGISTRO.includes(id)) assert.fail(`ID_PELO_REGISTRO ${id}: aplicar só por scripts/registro-migrations-banco.cjs`); };
 function modo(argv) {
   if (argv.length === 0) return {modo: 'plano'};
   if (argv.length === 2 && argv[0] === FLAG_CONFERIR) { definicao(argv[1]); return {modo: 'conferir', id: argv[1]}; }
   if (argv.length === 4 && argv[0] === FLAG_APLICAR && argv[2] === FLAG_BACKUP) {
-    definicao(argv[1]);
+    definicao(argv[1]); exigirForaDoRegistro(argv[1]);
     assert.match(argv[3], BACKUP, 'BACKUP_INVALIDO');
     return {modo: 'aplicar', id: argv[1], backup: argv[3]};
   }
@@ -405,6 +437,7 @@ async function conferir({env, id, raiz = raizPadrao, Client = require('pg').Clie
   finally { await db.end().catch(() => {}); }
 }
 async function executar({env, id, backup, dir = DIR, raiz = raizPadrao, Client = require('pg').Client, disco = () => exigirDisco()}) {
+  exigirForaDoRegistro(id);
   const opts = alvo(env, id); disco();
   assert.match(String(backup ?? ''), BACKUP, 'BACKUP_OBRIGATORIO');
   carregar(raiz, id);
@@ -456,6 +489,6 @@ function cli() {
   }).catch(e => { console.error('RECUSADO ' + curta(e)); process.exitCode = 1; });
 }
 if (require.main === module) cli();
-module.exports = {ALVO, DIR, SQL_IDENTIDADE, PG_HERDADAS_RECUSADAS, MIGRATIONS, IDS, sqlPrivilegios, lerPrivilegios, FLAG_CONFERIR, FLAG_APLICAR, FLAG_BACKUP, CODIGO, marcadorDe, sqlEstado, lerEstado,
+module.exports = {SO_PELO_REGISTRO, ALVO, DIR, SQL_IDENTIDADE, PG_HERDADAS_RECUSADAS, MIGRATIONS, IDS, sqlPrivilegios, lerPrivilegios, FLAG_CONFERIR, FLAG_APLICAR, FLAG_BACKUP, CODIGO, marcadorDe, sqlEstado, lerEstado,
   planoEtapas, corpoMigration, corpoCheck, carregar, exigirAprovado, conferirNoCliente, aplicarNoCliente, modo, alvo, identidade, exigirDisco, plano, conferir, executar,
   principal, cli};
