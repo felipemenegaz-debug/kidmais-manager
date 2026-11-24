@@ -13,14 +13,14 @@ import FundoFesta from './FundoFesta';
 import Planos from './Planos';
 import { AntesDepois, ComoFunciona, Confianca, Duvidas, Hero, Modulos, Paineis, WallE } from './secoes';
 import { PausaGlobal } from './interativos';
-import { filtrar, modulos, paineis, visivel } from '@/lib/site/catalogo';
+import { filtrar, modulos, paineis, RECURSOS_SECAO_WALLE, visivel } from '@/lib/site/catalogo';
 
 /** Links do menu e do rodapé: só para seções que aparecem na página. */
 export function linksSite(): [string, string][] {
     return [
         ...(filtrar(paineis).length ? [['recursos', 'Recursos'] as [string, string]] : []),
         ...(filtrar(modulos).length ? [['modulos', 'Módulos'] as [string, string]] : []),
-        ...(visivel(['walle_whatsapp']) ? [['wall-e', 'Wall-e'] as [string, string]] : []),
+        ...(visivel(RECURSOS_SECAO_WALLE) ? [['wall-e', 'Wall-e'] as [string, string]] : []),
         ['como-funciona', 'Como funciona'], ['confianca', 'Confiança'], ['planos', 'Planos'], ['duvidas', 'Dúvidas'],
     ];
 }
@@ -49,9 +49,9 @@ export default async function SiteVenda({ somentePlanos = false }: { somentePlan
         <div className={cx('founder-bar')}><div className={cx('wrap')}><span>{fundador.barra.startsWith('Plano Fundador') ? fundador.barra : <><strong>Plano Fundador:</strong> {fundador.barra}</>}</span>{fundador.cta && <a href="#fundador">{fundador.cta}</a>}</div></div>
         <NavegacaoSite prefixo={prefixo} aberto={aberto} links={linksSite()} pausa={<PausaGlobal />}><Marca href={`${prefixo}#topo`} /></NavegacaoSite>
         <main id="topo" data-planos={somentePlanos || undefined}>
-            {somentePlanos ? <div className={cx('wrap')} style={{ paddingTop: 48 }}><h1>Planos iA.Fest</h1></div> : <><SecaoAnimada><Hero aberto={aberto} config={config} /><AntesDepois /></SecaoAnimada><SecaoAnimada><Paineis /></SecaoAnimada><SecaoAnimada><Modulos /></SecaoAnimada>{visivel(['walle_whatsapp']) && <SecaoAnimada><WallE /></SecaoAnimada>}<SecaoAnimada><ComoFunciona /></SecaoAnimada><SecaoAnimada><Confianca /></SecaoAnimada></>}
+            {somentePlanos ? <div className={cx('wrap')} style={{ paddingTop: 48 }}><h1>Planos iA.Fest</h1></div> : <><SecaoAnimada><Hero aberto={aberto} config={config} /><AntesDepois /></SecaoAnimada><SecaoAnimada><Paineis /></SecaoAnimada><SecaoAnimada><Modulos /></SecaoAnimada>{visivel(RECURSOS_SECAO_WALLE) && <SecaoAnimada><WallE /></SecaoAnimada>}<SecaoAnimada><ComoFunciona /></SecaoAnimada><SecaoAnimada><Confianca /></SecaoAnimada></>}
             {somentePlanos ? <Planos publicado={config.precosPublicados} aberto={aberto} contato={config} fundador={fundador} cpf={cpfContratacaoLigado()} /> : <SecaoAnimada><Planos publicado={config.precosPublicados} aberto={aberto} contato={config} fundador={fundador} cpf={cpfContratacaoLigado()} /></SecaoAnimada>}
-            {!somentePlanos && <><SecaoAnimada><Duvidas fundador={fundador} /></SecaoAnimada><SecaoAnimada><section className={cx('final')} id="demonstracao" aria-labelledby="t-final"><div className={cx('wrap', 'final-grid')}><div className={cx('final-copy')}><div className={cx('eyebrow')}>Próximo passo</div><h2 id="t-final">A próxima fase<br />do seu espaço começa aqui.</h2><p className={cx('lead')}>Comece o teste agora ou converse com a equipe. Mostramos o sistema com uma festa do jeito que o seu buffet trabalha.</p><div className={cx('actions')}><Cadastro aberto={aberto} /></div></div>
+            {!somentePlanos && <><SecaoAnimada><Duvidas fundador={fundador} /></SecaoAnimada><SecaoAnimada><section className={cx('final')} id="demonstracao" aria-labelledby="t-final"><div className={cx('wrap', 'final-grid')}><div className={cx('final-copy')}><div className={cx('eyebrow')}>Próximo passo</div><h2 id="t-final">A próxima fase<br />do seu espaço começa aqui.</h2><p className={cx('lead')}>Comece o teste agora ou converse com a equipe. Mostramos o sistema com uma festa do jeito que o seu buffet trabalha.</p><div className={cx('actions')}><Cadastro aberto={aberto} contato={config} /></div></div>
                 <div className={cx('panel', 'contactPanel')}><h3>Conheça o iA.Fest</h3><p>Fale com a equipe para conhecer o sistema e tirar suas dúvidas.</p><Contato config={config} /></div>
             </div></section></SecaoAnimada></>}
         </main>

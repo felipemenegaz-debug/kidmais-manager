@@ -5,7 +5,7 @@
 import type { ReactNode } from 'react';
 import { cx } from './estilos';
 import { Cadastro, Contato } from './elementos';
-import { comercial, confianca, filtrar, modulos, paineis, passos, perguntas, roteiroWallE, tituloFluxo, visivel, type PainelId, type RecursoId } from '@/lib/site/catalogo';
+import { comercial, confianca, filtrar, modulos, paineis, passos, perguntas, RECURSOS_SECAO_WALLE, roteiroWallE, tituloFluxo, visivel, type PainelId, type RecursoId } from '@/lib/site/catalogo';
 import type { ConfiguracaoSite } from '@/lib/site/configuracao';
 import { dias } from '@/lib/assinatura/texto';
 import { textoFundador, type TextoFundador } from '@/lib/site/fundador';
@@ -27,7 +27,8 @@ export function Hero({ aberto, config }: { aberto: boolean; config: Configuracao
                 <div className={cx('eyebrow')}>Para buffets infantis e espaços de festa</div>
                 {demo ? <h1 id="t-hero">Monte uma festa agora.<br /><em>O contrato sai pronto.</em></h1> : <h1 id="t-hero">O sistema do seu<br /><em>buffet infantil.</em></h1>}
                 <p className={cx('lead')}>{demo ? `Escolha a data, o pacote${visivel(['horarios']) ? ' e o horário' : ''} aqui ao lado. ` : ''}{juntos ? `No iA.Fest, você tem ${juntos} no mesmo lugar.` : 'Feito dentro de um buffet infantil, para a rotina de quem vende festas.'}</p>
-                <div className={cx('actions')}><Cadastro aberto={aberto} /><Contato config={config} /></div>
+                {/* Cadastro fechado: "Agendar demonstração" já leva ao mesmo canal; "Falar com a equipe" fica para quando o teste abre sozinho. */}
+                <div className={cx('actions')}><Cadastro aberto={aberto} contato={config} />{(aberto || !(config.demonstracao || config.demonstracaoEmail)) && <Contato config={config} />}</div>
                 <div className={cx('fineprint')}><span>{dias(comercial.testeDias)} grátis</span><span>Sem cartão</span>{visivel(['implantacao']) && <span>Implantação guiada incluída</span>}</div>
             </div>
             {demo && <div className={cx('halo')} data-fundo-proteger><div className={cx('app', 'demoCaixa')}><DemoFesta horarios={visivel(['horarios'])} pix={visivel(['pix'])} /></div></div>}
@@ -132,7 +133,7 @@ export function Modulos() {
 }
 
 export function WallE() {
-    if (!visivel(['walle_whatsapp'])) return null;
+    if (!visivel(RECURSOS_SECAO_WALLE)) return null;
     return <section className={cx('block')} id="wall-e" aria-labelledby="t-walle"><div className={cx('wrap')}>
         <Cabecalho olho="Wall-e no WhatsApp" id="t-walle" titulo="Escolha a pergunta. Veja o Wall-e responder." texto="Conversa de exemplo com roteiro fixo. No seu buffet, ele responde com a sua agenda e os seus preços e chama a equipe quando precisa." />
         <div data-fundo-proteger><ChatWallE roteiro={roteiroWallE} /><Ficticio /></div>
