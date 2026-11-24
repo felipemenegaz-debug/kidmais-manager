@@ -3,7 +3,7 @@ import test from 'node:test';
 import { createElement, type ComponentType } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { readFileSync, readdirSync } from 'node:fs';
-import { adicionais, CICLOS_VENDIDOS, comercial, custoPorFesta, descricaoPlano, filtrar, modulos, paineis, passos, perguntas, planos, precoExibido, recursos, tituloFluxo, valorPlano, visivel, type RecursoId } from './catalogo.ts';
+import { adicionais, CICLOS_VENDIDOS, comercial, custoPorFesta, descricaoPlano, filtrar, modulos, paineis, passos, perguntas, roteiroWallE, planos, precoExibido, recursos, tituloFluxo, valorPlano, visivel, type RecursoId } from './catalogo.ts';
 import { configuracaoSite, linkEmail, linkWhatsApp, AGENDAR_DEMONSTRACAO, CADASTRO_FECHADO } from './configuracao.ts';
 import { robotsDaPlataforma, sitemapDaPlataforma } from './indexacao.ts';
 import { carregarModulo } from '../acessos/teste-carregador.ts';
@@ -295,9 +295,9 @@ test('implantação guiada incluída: nenhum adicional pago de implantação', (
     assert.match(render(secao('Hero'), { aberto: false, config: configuracaoSite({}) }), /Implantação guiada incluída/);
 });
 
-test('horário nobre em todos os planos; contrato separado da assinatura', () => {
+test('adicionais na cotação em todos os planos; contrato separado da assinatura', () => {
     const essencial = planos.find(p => p.id === 'essencial')!;
-    assert.ok(essencial.itens.some(i => i.recursos.includes('horarios') && !i.excluido), 'horário nobre sem barreira por plano');
+    assert.ok(essencial.itens.some(i => i.recursos.includes('horarios') && !i.excluido), 'adicionais sem barreira por plano');
     assert.ok(!essencial.itens.some(i => i.excluido && i.recursos.includes('horarios')));
     // O contrato não depende da assinatura por código; o item da assinatura, sim, depende do contrato (assinar exige contrato).
     for (const plano of planos) for (const item of plano.itens) if (item.recursos.includes('contratos') && !/assinatura/i.test(item.texto)) assert.ok(!item.recursos.includes('assinatura_codigo'), item.texto);
@@ -551,8 +551,12 @@ test('topo pelo catálogo: sem agenda, festas ou contratos o topo vira instituci
     }
     const html = render(secao('Hero'), { aberto: true, config: configuracaoSite({}) });
     assert.match(html, /Monte uma festa agora/);
-    assert.match(html, /Horário nobre/);
+    assert.match(html, /Horário e adicionais/);
     assert.match(html, /Pix copia e cola/);
+    // 24/11/2026: horário nobre saiu da oferta; nem a simulação nem o resto do site o anunciam.
+    assert.doesNotMatch(html, /nobre|promocional/i);
+    for (const pagina of [render(Planos, { publicado: true, aberto: true, contato: configuracaoSite({}) }), render(secao('Hero'), { aberto: false, config: configuracaoSite({}) })]) assert.doesNotMatch(pagina, /horário nobre|horário promocional/i);
+    assert.doesNotMatch(JSON.stringify([planos, roteiroWallE, passos, perguntas()]), /nobre|promocional/i);
 });
 
 test('descrição dos planos pelo catálogo: sem permissões, nenhum plano promete equipe ou "sem limite" (achado do Astra r3)', () => {

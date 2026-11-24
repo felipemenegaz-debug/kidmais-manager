@@ -17,7 +17,8 @@ export const recursos = {
     festas: { nome: 'Festas e pacotes', status: 'disponivel', termos: ['pacote'], evidencia: 'Núcleo do sistema em production; pacotes P_ LIVE em production (nota "Disponibilidade pacotes 20261022").' },
     contratos: { nome: 'Contrato com o modelo do buffet', status: 'disponivel', termos: ['contrato'], evidencia: 'Contratos LIVE em production; tela simplificada fases 1+2 LIVE em production (23/10/2026).' },
     assinatura_codigo: { nome: 'Assinatura do contrato por código', status: 'disponivel', termos: ['por código', 'assinatura do contrato', 'assinado', 'aguardando assinatura', 'aceitar e assinar'], evidencia: 'Código por WhatsApp com reserva por e-mail: PR #414 LIVE em production 8e18941e, reserva ligada e provada em production em 15/11/2026 (PEDIDO_CLIENTE 14:38Z).' },
-    horarios: { nome: 'Horário nobre e adicionais na cotação', status: 'disponivel', termos: ['horário nobre', 'horário promocional', 'adicionais'], evidencia: 'Fechamento com horários e adicionais: PR #358 LIVE em production a56fa0f2 (08/11/2026), conferido logado.' },
+    // 24/11/2026 (decisão de Felipe): horário nobre saiu da oferta; empresa nova nasce com todos os horários como PADRAO e nenhuma tela marca nobre (D2 do plano de descontos).
+    horarios: { nome: 'Horário e adicionais na cotação', status: 'disponivel', termos: ['adicionais'], evidencia: 'Fechamento com horários e adicionais: PR #358 LIVE em production a56fa0f2 (08/11/2026), conferido logado.' },
     pix: { nome: 'Parcelas com Pix copia e cola', status: 'disponivel', termos: ['pix'], evidencia: 'Pix copia e cola com a chave do buffet em production desde a V1; production 8e18941e.' },
     financeiro: { nome: 'Contas a receber', status: 'disponivel', termos: ['recebimento', 'dar baixa', 'dá baixa', 'a receber', 'recebida'], evidencia: 'Financeiro P1 (recebimento parcial e data real da baixa) LIVE em staging e production (nota "Evolucao financeiro basico e avancado 20261106").' },
     exportacao: { nome: 'Exportação dos dados', status: 'disponivel', termos: ['exporta'], evidencia: 'Rota app/api/admin/exportacao e lib/exportacao presentes em production 8e18941e, sem trava de ambiente (conferido em 15/11/2026).' },
@@ -50,7 +51,7 @@ export type RecursoId = keyof typeof recursos;
 export function visivel(ids: readonly RecursoId[]): boolean {
     return ids.every(id => recursos[id].status === 'disponivel');
 }
-/** Seção do Wall-e: a conversa de exemplo fala de data livre, pacote e horário nobre. */
+/** Seção do Wall-e: a conversa de exemplo fala de data livre, pacote e preço. */
 export const RECURSOS_SECAO_WALLE: readonly RecursoId[] = ['walle_whatsapp', 'agenda', 'festas', 'horarios'];
 export function filtrar<T extends { recursos: readonly RecursoId[] }>(itens: readonly T[]): T[] {
     return itens.filter(item => visivel(item.recursos));
@@ -74,8 +75,8 @@ export const planos: Plano[] = [
         { texto: 'Contrato com o seu modelo', recursos: ['contratos'] },
         { texto: 'Assinatura do contrato por código, sem aplicativo', recursos: ['contratos', 'assinatura_codigo'] },
         { texto: 'Pix copia e cola e contas a receber', recursos: ['pix', 'financeiro'] },
-        // Horário nobre e adicionais não têm barreira por plano (lib/assinatura/recursos-plano.ts): valem em todos.
-        { texto: 'Horário nobre e adicionais na cotação', recursos: ['horarios'] },
+        // Horários e adicionais não têm barreira por plano (lib/assinatura/recursos-plano.ts): valem em todos.
+        { texto: 'Horários e adicionais na cotação', recursos: ['horarios'] },
         { texto: 'Convite da festa com IA', recursos: ['convite'] },
         { texto: 'Importação por IA na implantação: até 5 documentos (tabela de preços e contratos antigos)', recursos: ['importacao'] },
         // 01/11/2026 (D-PL-3): IA que ajuda o dono entra em todos os planos; os tamanhos das franquias só vão ao site depois do piloto.
@@ -202,7 +203,7 @@ export const confianca: { titulo: string; texto: string; recursos: RecursoId[] }
 /** Roteiro fixo da conversa de exemplo do Wall-e (sem IA na página). */
 export const roteiroWallE: { pergunta: string; respostas: string[]; passagem?: string }[] = [
     { pergunta: 'Tem data dia 13 à tarde?', respostas: ['Sábado, dia 13, está livre às 15h. Para quantos convidados é a festa?'] },
-    { pergunta: 'Quanto fica para 40 convidados?', respostas: ['O Pacote Diversão atende até 40 convidados: R$ 5.200,00 no horário nobre.', 'Quer que eu envie o orçamento para conferir?'] },
+    { pergunta: 'Quanto fica para 40 convidados?', respostas: ['O Pacote Diversão atende até 40 convidados: R$ 5.200,00.', 'Quer que eu envie o orçamento para conferir?'] },
     { pergunta: 'Dá para visitar o espaço?', respostas: ['Claro! Vou chamar a Carla, do atendimento, para combinar o horário com você.'], passagem: 'Wall-e passou a conversa para a Carla' },
 ];
 
