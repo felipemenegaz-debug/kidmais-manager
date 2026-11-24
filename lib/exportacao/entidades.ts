@@ -385,6 +385,7 @@ export const FORA_DO_ESCOPO: Readonly<Record<string, string>> = {
     plataforma_desenvolvedores: 'Acesso de desenvolvedores da plataforma.',
     plataforma_interessadas: 'Registro interno da plataforma sobre interessadas.',
     plataforma_empresas_cadastro: 'Registro interno da plataforma (inclui observações internas); os dados cadastrais da empresa saem em empresa/perfil_empresa e empresa/cadastro.',
+    plataforma_empresas_uso: 'Marca interna da plataforma (Cliente/Interna) usada só na lista de Contratantes do painel de desenvolvedor.',
     festa_usuario_capacidades: 'Capacidades por pessoa, sem empresa (não são dados de uma empresa).',
     cobranca_eventos: 'Eventos brutos do provedor de cobrança (Asaas).',
     assinatura_fundadores: 'Controle interno das concessões do plano Fundador (vagas legadas, janela e lote posterior; 090).',

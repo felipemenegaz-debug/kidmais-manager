@@ -28,9 +28,9 @@ const prd = require('./conexao-production.cjs');
 const stg = require('./conexao-staging.cjs');
 const s116 = require('./migration-116-staging.cjs');
 
-const ORDEM = Object.freeze(['130', '131', '132', '133']);
-// 132 (Wall-e 1a) e 133 (agenda) são independentes entre si: as duas têm a 131 como antecessora no registro.
-const ANTECESSORA = Object.freeze({'130': '129', '131': '130', '132': '131', '133': '131'});
+const ORDEM = Object.freeze(['130', '131', '132', '133', '134']);
+// 132 (Wall-e 1a) e 133 (agenda) são independentes entre si: as duas têm a 131 como antecessora no registro; a 134 segue a 133.
+const ANTECESSORA = Object.freeze({'130': '129', '131': '130', '132': '131', '133': '131', '134': '133'});
 const ESCOPO_129 = Object.freeze(['--conferir-tentativa', '--concluir-verificacao', '--arquivar-tentativa']);
 const ARQUIVOS_129 = Object.freeze([
   Object.freeze(['precheck', 'database/checks/20261121_129_precheck.sql', '7625809dbd28aec433af30582387f353908627697e5be818391a44d74904e78d']),
@@ -42,7 +42,7 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 const AMBIENTES_VALIDOS = Object.freeze(['production', 'staging']);
 /** Chave da trava advisory (sessão ou transação) de uma migration: a mesma para o registro e para o adaptador genérico de staging. */
 const chaveTrava = (amb, id) => { assert.ok(AMBIENTES_VALIDOS.includes(amb), 'AMBIENTE_INVALIDO'); return amb + ':' + id; };
-/** Chaves que o registro trava (129 no bootstrap, 130, 131, 132 e 133 pela ORDEM), nos dois ambientes: insumo do teste de colisão de hashtext. */
+/** Chaves que o registro trava (129 no bootstrap, 130, 131, 132, 133 e 134 pela ORDEM), nos dois ambientes: insumo do teste de colisão de hashtext. */
 const CHAVES_TRAVA = Object.freeze(AMBIENTES_VALIDOS.flatMap(a => ['129', ...ORDEM].map(id => chaveTrava(a, id))));
 const raizPadrao = path.resolve(__dirname, '..');
 const curta = e => String(e?.message ?? e).replace(/postgres(?:ql)?:\/\/\S+/gi, '<url>').replace(/\s+/g, ' ').slice(0, 300);

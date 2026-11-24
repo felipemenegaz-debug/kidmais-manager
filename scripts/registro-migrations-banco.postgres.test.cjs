@@ -93,6 +93,39 @@ test('133 (agenda por empresa): sem a 131 = antecessora pendente (3); depois da 
   assert.deepEqual(linhas.map(l => `${l.migration}:${l.situacao}`), ['129:CONCLUIDA', '130:CONCLUIDA', '131:CONCLUIDA', '133:CONCLUIDA']);
 });
 
+test('134 (Cliente/Interna): sem a 133 = antecessora pendente (3); depois da 133 aplica com postcheck; repetida e conferida = já aplicada; diagnóstico 0', {skip: pular}, async () => {
+  const b = await comRegistro();
+  ok(await rodar(b, ['--aplicar-130-autorizado', '--backup', BACKUP]), /APLICADA_POSTCHECK_PASS 130/);
+  ok(await rodar(b, ['--aplicar-131-autorizado', '--backup', BACKUP]), /APLICADA_POSTCHECK_PASS 131/);
+  ok(await rodar(b, ['--aplicar-134-autorizado', '--backup', BACKUP]), /ANTECESSORA_PENDENTE 133 sem linha/, 3);
+  assert.equal((await sql(b, "SELECT to_regclass('public.plataforma_empresas_uso') IS NULL AS ausente")).rows[0].ausente, true);
+  ok(await rodar(b, ['--aplicar-133-autorizado', '--backup', BACKUP]), /APLICADA_POSTCHECK_PASS 133/);
+  ok(await rodar(b, ['--aplicar-134-autorizado', '--backup', BACKUP]), /APLICADA_POSTCHECK_PASS 134/);
+  ok(await rodar(b, ['--conferir-134']), /JA_APLICADA_POSTCHECK_PASS 134/);
+  ok(await rodar(b, ['--aplicar-134-autorizado', '--backup', BACKUP]), /JA_APLICADA_POSTCHECK_PASS 134/);
+  ok(await rodar(b, ['--conferir-registro']), /POSTCHECK 134 PASS[\s\S]*DIAGNOSTICO_CODIGO 0/);
+  const linhas = (await sql(b, 'SELECT migration, situacao FROM operacao_migration_tentativas ORDER BY id')).rows;
+  assert.deepEqual(linhas.map(l => `${l.migration}:${l.situacao}`), ['129:CONCLUIDA', '130:CONCLUIDA', '131:CONCLUIDA', '133:CONCLUIDA', '134:CONCLUIDA']);
+});
+
+test('Astra r1 (134): postcheck recusa UNIQUE extra e NOT NULL não validado; down recusa com tentativa ativa no registro', {skip: pular}, async () => {
+  const b = await comRegistro();
+  for (const m of ['130', '131', '133', '134']) ok(await rodar(b, [`--aplicar-${m}-autorizado`, '--backup', BACKUP]), new RegExp('APLICADA_POSTCHECK_PASS ' + m));
+  const pos = fs.readFileSync(path.join(raiz, 'database/checks/20261123_134_postcheck.sql'), 'utf8');
+  const down = fs.readFileSync(path.join(raiz, 'database/rollback/20261123_134_empresas_uso_down.sql'), 'utf8');
+  await sql(b, pos);
+  await sql(b, 'SET quote_all_identifiers = on;\n' + pos); // Astra r2 (P3)
+  await sql(b, 'CREATE UNIQUE INDEX t134_extra ON plataforma_empresas_uso (uso)');
+  await assert.rejects(sql(b, pos), /forma divergente/);
+  await sql(b, 'DROP INDEX t134_extra');
+  await sql(b, 'ALTER TABLE plataforma_empresas_uso ALTER COLUMN uso DROP NOT NULL; ALTER TABLE plataforma_empresas_uso ADD CONSTRAINT t134_nn NOT NULL uso NOT VALID');
+  await assert.rejects(sql(b, pos), /forma divergente/);
+  await sql(b, 'ALTER TABLE plataforma_empresas_uso VALIDATE CONSTRAINT t134_nn');
+  await assert.rejects(sql(b, "SET kidmais.rollback_134 = 'descartar-marcas';\n" + down), /tentativa ativa no registro/);
+  assert.equal((await sql(b, "SELECT to_regclass('public.plataforma_empresas_uso') IS NOT NULL AS existe")).rows[0].existe, true);
+  ok(await rodar(b, ['--conferir-134']), /JA_APLICADA_POSTCHECK_PASS 134/);
+});
+
 test('bootstrap: repetido = 0; identidade recusada = 1 sem DDL; antecessoras pendentes = 3 sem DDL', {skip: pular}, async () => {
   const b = await comRegistro();
   ok(await rodar(b, ['--aplicar-129-bootstrap-autorizado', '--backup', BACKUP]), /JA_APLICADA_POSTCHECK_PASS 129/);
