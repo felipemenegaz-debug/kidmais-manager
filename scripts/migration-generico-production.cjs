@@ -160,6 +160,16 @@ const MIGRATIONS = Object.freeze({
       ['postcheck', 'database/checks/20261120_131_postcheck.sql', '41122734e0cc753fc56568c515f62d354ab599332a807e58dbe14409dce78e9d']],
     criados: [funcao('pre_reserva_exigir_configuracao()'), funcao('pre_reserva_preservar_destino()')],
     privilegios: {criaNoSchema: true, alteradas: ['fechamentos','pre_reserva_recebimentos','pre_reserva_aceites'], funcoes: ['kidmais094_ocupacoes(date,date)','kidmais062_ocupacoes_escopo(date,date)'], referenciadas: []}}),
+  '132': congelar({escopo: 'Wall-e fatia 1a: vínculo do contato do funil com a conversa (whatsapp_atendimento_oportunidades) e pendência da captura na conversa; exige 082 e 085',
+    arquivos: [['precheck', 'database/checks/20261123_132_precheck.sql', '46e0ac2b6e92c9594290a3050b9faf6b32f0a1bdbf67a61830a2f315c30bdcce'],
+      ['migration', 'database/migrations/20261123_132_walle_oportunidades.sql', '20f351aa99c1829d35afedcdb49e6819a4570ef1a5e155c0ddd940c588b5f30f'],
+      ['postcheck', 'database/checks/20261123_132_postcheck.sql', '592182a0f8ef0174acecfcb87220932e2eab293c9fd7939cc7d47b89c8acf30d']],
+    // Sentinelas = o que o precheck da 132 usa para dizer "já presente": a tabela nova e a coluna da pendência.
+    criados: [tabela('whatsapp_atendimento_oportunidades'), coluna('whatsapp_atendimento_conversas', 'oportunidade_pendente_em')],
+    // ADD COLUMN e índice em whatsapp_atendimento_conversas exigem a posse dela; a função do gatilho é criada pela 132 e lê
+    // marketing_contatos e whatsapp_atendimento_conversas; as chaves estrangeiras referenciam contatos, empresas e conversas.
+    privilegios: {criaNoSchema: true, alteradas: ['whatsapp_atendimento_conversas'], funcoes: [],
+      referenciadas: ['empresas', 'marketing_contatos', 'whatsapp_atendimento_conversas']}}),
   '133': congelar({escopo: 'ocupações da agenda recortadas por empresa antes das funções por linha (função nova; a 094 não muda); exige a 131',
     arquivos: [['precheck', 'database/checks/20261123_133_precheck.sql', '37aeb74714185551299e5642a0a74197b90ba5e699e629c413c19045cf6cfe8a'],
       ['migration', 'database/migrations/20261123_133_ocupacoes_por_empresa.sql', '6630c89ba1e4afe5167cb1744a559ad0c790d20eeb18110201b89eb2042c7eac'],
@@ -169,7 +179,7 @@ const MIGRATIONS = Object.freeze({
     privilegios: {criaNoSchema: true, alteradas: [], funcoes: [], referenciadas: []}}),
 });
 /** Ordem do inventário (scripts/production/check-migrations.mjs, approvedFiles): 120, 121, 110, 111, 115, 123, 124, 125, 126, 127, 128.
- * A 130, a 131 e a 133 continuam em MIGRATIONS (SQL revisados e sentinelas que o registro no banco carrega e o --conferir lê), mas não
+ * A 130, a 131, a 132 e a 133 continuam em MIGRATIONS (SQL revisados e sentinelas que o registro no banco carrega e o --conferir lê), mas não
  * são aplicadas por aqui: ver SO_PELO_REGISTRO. */
 const IDS = Object.freeze(['120', '121', '110', '111', '115', '123', '124', '125', '126', '127', '128']);
 const definicao = id => { assert.ok(typeof id === 'string' && Object.hasOwn(MIGRATIONS, id), 'MIGRATION_FORA_DA_LISTA'); return MIGRATIONS[id]; };
@@ -372,7 +382,7 @@ const commitadas = r => Object.entries(situacoes(r)).filter(([, c]) => c === 'CO
 
 const BACKUP = /^[A-Za-z0-9:._/ -]{6,120}$/;
 /** 130+ só pelo registro no banco (scripts/registro-migrations-banco.cjs): aqui a definição só serve para carregar os SQL revisados. */
-const SO_PELO_REGISTRO = Object.freeze(['130', '131', '133']);
+const SO_PELO_REGISTRO = Object.freeze(['130', '131', '132', '133']);
 const exigirForaDoRegistro = id => { if (SO_PELO_REGISTRO.includes(id)) assert.fail(`ID_PELO_REGISTRO ${id}: aplicar só por scripts/registro-migrations-banco.cjs`); };
 function modo(argv) {
   if (argv.length === 0) return {modo: 'plano'};

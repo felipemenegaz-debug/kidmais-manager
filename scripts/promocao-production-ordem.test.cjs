@@ -31,12 +31,12 @@ test('a ordem bate com approvedFiles do inventário: mesma ordem relativa a part
   // Fora da cadeia: só a 098 (excluída) e a 099/105 (já aplicadas), marcadas explicitamente e sem aplicador.
   const fora = o.ORDEM.filter(p => p.situacao !== 'APLICAR');
   assert.deepEqual(fora.map(p => [p.id, p.situacao, p.aplicador]), [['098', 'EXCLUIDA', null], ['099', 'JA_APLICADA', null], ['105', 'JA_APLICADA', null],
-    ['129', 'PELO_REGISTRO', null], ['130', 'PELO_REGISTRO', null], ['131', 'PELO_REGISTRO', null], ['133', 'PELO_REGISTRO', null]]);
+    ['129', 'PELO_REGISTRO', null], ['130', 'PELO_REGISTRO', null], ['131', 'PELO_REGISTRO', null], ['132', 'PELO_REGISTRO', null], ['133', 'PELO_REGISTRO', null]]);
   for (const p of fora.filter(x => x.situacao === 'PELO_REGISTRO')) { assert.equal(p.registro, o.REGISTRO); assert.ok(p.escopo.includes(o.REGISTRO + ' --ambiente production --aplicar-' + (p.id === '129' ? '129-bootstrap' : p.id) + '-autorizado'), p.id); }
   assert.match(fora[0].escopo, /nunca entra/); assert.match(fora[0].escopo, /a 102 e a 108 recusam/);
   // Os passos que rodam, achatados, são o inventário sem 098, 099 e 105, NA MESMA ORDEM.
   const executadas = o.PASSOS.flatMap(p => p.migrations);
-  assert.deepEqual(executadas, daPromocao.filter(id => !['098', '099', '105', '129', '130', '131', '133'].includes(id)));
+  assert.deepEqual(executadas, daPromocao.filter(id => !['098', '099', '105', '129', '130', '131', '132', '133'].includes(id)));
   assert.ok(!executadas.includes('098') && !o.PASSOS.some(p => /098/.test(p.id) || /098/.test(arquivoDe(p))));
   // A cadeia pedida, passo a passo.
   assert.deepEqual(o.PASSOS.map(p => p.id), ['089', '090', '091', '092-093', '094', '095', '096', '097', '100', '102-103', '104-106', '107-108', '109',
