@@ -252,5 +252,5 @@ test('8.4 (parte estática): chaves do adaptador e do registro são distintas e 
   const s = require('./migration-generico-staging.cjs');
   const todas = [...s.CHAVES_TRAVA, ...reg.CHAVES_TRAVA];
   assert.equal(new Set(todas).size, todas.length);
-  assert.deepEqual([...reg.CHAVES_TRAVA].sort(), ['production:129', 'production:130', 'production:131', 'production:133', 'staging:129', 'staging:130', 'staging:131', 'staging:133']);
+  assert.deepEqual([...reg.CHAVES_TRAVA].sort(), ['production:129', 'production:130', 'production:131', 'production:132', 'production:133', 'staging:129', 'staging:130', 'staging:131', 'staging:132', 'staging:133']);
 });
