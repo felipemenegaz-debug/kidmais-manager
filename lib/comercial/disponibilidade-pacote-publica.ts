@@ -51,6 +51,32 @@ export async function lerRegrasDisponibilidadePacote(tx: DbExecutor, pacoteId: s
   return regrasPublicasDoPacote(r.rows);
 }
 
+/**
+ * As mesmas regras de `lerRegrasDisponibilidadePacote` (mesmo filtro e mesma ordem dentro de cada pacote) para vários
+ * pacotes numa única ida ao banco, em vez de uma por pacote (Agenda lenta F2, 23/11/2026). Pacote sem regra = [].
+ */
+export async function lerRegrasDisponibilidadeDosPacotes(tx: DbExecutor, pacoteIds: readonly string[]): Promise<Map<string, RegraPacoteEmpresa[]>> {
+  const porPacote = new Map<string, RegraPacoteEmpresa[]>();
+  if (pacoteIds.length === 0) return porPacote;
+  const r = await tx.query<Linha & { pacote_id: string }>(
+    `SELECT r.pacote_id::text AS pacote_id, r.dia_semana, c.codigo, c.id::text AS configuracao_id, r.estado, r.vigencia_inicio::text AS vigencia_inicio, r.vigencia_fim::text AS vigencia_fim
+       FROM regras_disponibilidade_pacote r
+       JOIN configuracao_agenda c ON c.id = r.configuracao_agenda_id
+      WHERE r.pacote_id = ANY($1::uuid[])
+        AND r.ativo
+        AND (r.vigencia_fim IS NULL OR r.vigencia_fim >= CURRENT_DATE)
+      ORDER BY r.pacote_id, r.dia_semana, c.codigo, r.vigencia_inicio`,
+    [[...new Set(pacoteIds)]],
+  );
+  const linhas = new Map<string, Linha[]>();
+  for (const { pacote_id, ...linha } of r.rows) {
+    const id = pacote_id.toLowerCase();
+    (linhas.get(id) ?? linhas.set(id, []).get(id)!).push(linha);
+  }
+  for (const id of pacoteIds) porPacote.set(id, regrasPublicasDoPacote(linhas.get(id.toLowerCase()) ?? []));
+  return porPacote;
+}
+
 /** Lista dos pacotes contratáveis da empresa — a mesma da cotação pública e do servidor (injetada para teste). */
 export type ListarPacotesDaEmpresa = (empresaId: string, tx: DbExecutor) => Promise<Array<{
   id: string; codigo: string; nome?: string; convidadosMinimos?: number | null; convidadosMaximos?: number | null;
@@ -75,8 +101,10 @@ export async function pacotesDaAgendaDaEmpresa(
 ): Promise<PacotesDaAgendaDaEmpresa> {
   const pacotes: PacotesDaAgendaDaEmpresa["pacotes"] = [];
   const regras: Record<string, RegraPacoteEmpresa[]> = {};
-  for (const pacote of await listarPacotes(empresaId, tx)) {
-    regras[pacote.codigo] = await lerRegrasDisponibilidadePacote(tx, pacote.id);
+  const lista = await listarPacotes(empresaId, tx);
+  const porPacote = await lerRegrasDisponibilidadeDosPacotes(tx, lista.map((pacote) => pacote.id));
+  for (const pacote of lista) {
+    regras[pacote.codigo] = porPacote.get(pacote.id) ?? [];
     pacotes.push({
       id: pacote.codigo, nome: pacote.nome?.trim() || pacote.codigo,
       convidadosMinimos: pacote.convidadosMinimos ?? null, convidadosMaximos: pacote.convidadosMaximos ?? null,

@@ -149,6 +149,7 @@ export function carregarMultiempresa() {
   const portaWallE = carregarComponente("lib/whatsapp/atendimento/walle/porta.ts", {
     "../../../db/postgres.ts": postgres, "../../../clientes/repositories/cliente.repository": clientes, "../../../fechamentos/contratacoes.ts": { listarContratacoes },
     "../core.ts": core, "../configuracao.ts": configuracao, "../prontas-link.ts": prontasLink, "./contexto.ts": contextoWallE, "./entendimento.ts": entendimento,
+    "../multiempresa.ts": multiempresa, "../motivo-falha.ts": motivoFalha,
     "./fontes-postgres.ts": fontesWallE, "./link-disponibilidade.ts": linkWallE, "./resolver.ts": resolverWallE,
   }).modulo as typeof import("./walle/porta.ts");
   return { servico, worker, meta, privacidade, biblioteca, portaWallE };

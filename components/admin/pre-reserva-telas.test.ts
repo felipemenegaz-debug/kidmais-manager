@@ -9,12 +9,14 @@ import { carregarModulo, executorFalso } from '../../lib/acessos/teste-carregado
 
 const pedido = '11111111-1111-4111-8111-111111111111';
 const pix = 'E12345678202611201234Ab123456789';
+function MotivoPerda() { return null; }
 const deps = {
   '@/lib/pre-reserva/apresentacao-admin': preReserva,
   '@/lib/contratos/documento/formatters': { formatarMoeda: (valor: number) => `R$ ${valor.toFixed(2)}` },
   '@/components/admin/AdminPrimaryButton': { AdminPrimaryButton: 'button' },
   '@/components/admin/workspace.module.css': cssFalso,
   './RevisaoComercial.module.css': cssFalso,
+  './oportunidades/MotivoPerda': { MotivoPerda },
 };
 
 function clicar(arvore: unknown, rotulo: string) {
@@ -29,7 +31,7 @@ function digitar(arvore: unknown, rotulo: RegExp, value: string) {
 test('configuração explica os dois pré-requisitos e salva com reautenticação e versão', async () => {
   const config = { habilitada: false, sinalCentavos: 10000, versao: 3, orcamentoOnline: false, recebedorPix: false };
   const chamadas: unknown[] = [];
-  const tela = carregarComponente('app/admin/configuracoes/pre-reserva/page.tsx', {
+  const tela = carregarComponente('components/admin/PreReservaConfiguracao.tsx', {
     ...deps,
     '@/lib/http/admin-fetch': {
       reautenticarSessao: async (senha: string) => { chamadas.push(senha); return { ok: true }; },
@@ -40,16 +42,16 @@ test('configuração explica os dois pré-requisitos e salva com reautenticaçã
       },
     },
   });
-  tela.render();
+  tela.render('PreReservaConfiguracao');
   tela.efeitos();
   await tique();
-  const estado = tela.render();
+  const estado = tela.render('PreReservaConfiguracao');
   assert.match(texto(estado), /orçamento online.*recebedor Pix/);
   assert.equal(achar(achar(estado, 'label', /Piloto ligado/), 'input').props.disabled, true);
   digitar(estado, /Sua senha/, 'senha sintética');
-  await (achar(tela.render(), 'form').props.onSubmit as (e: object) => Promise<void>)({ preventDefault() {} });
+  await (achar(tela.render('PreReservaConfiguracao'), 'form').props.onSubmit as (e: object) => Promise<void>)({ preventDefault() {} });
   assert.deepEqual(chamadas, ['senha sintética', { habilitada: false, sinalCentavos: 10000, versao: 3 }]);
-  assert.match(texto(tela.render()), /Atualize a configuração/);
+  assert.match(texto(tela.render('PreReservaConfiguracao')), /Atualize a configuração/);
 });
 
 test('revisão recarrega no 409 e pede uma ação separada para confirmar o Pix divergente', async () => {
@@ -150,9 +152,8 @@ test('revisão mantém o pedido recusado quando a leitura da confirmação chega
   assert.equal(leituras, 2);
 
   clicar(render(), 'Recusar pedido');
-  const motivo = achar(achar(render(), 'dialog'), 'select');
-  const opcao = achar(motivo, 'option', 'Outro');
-  (motivo.props.onChange as (e: object) => void)({ target: { value: texto(opcao) } });
+  // Motivo em opções de escolha única (23/11/2026): a janela entrega o componente com o valor e o callback.
+  (achar(achar(render(), 'dialog'), MotivoPerda).props.aoMudar as (m: string) => void)('Outro');
   const observacao = achar(achar(render(), 'dialog'), 'textarea');
   (observacao.props.onChange as (e: object) => void)({ target: { value: 'Recusa de teste' } });
   submeter(achar(achar(render(), 'dialog'), 'form'));
@@ -459,11 +460,17 @@ test('GET da agenda inclui link comercial para Equipe da empresa comprovada', as
     'lib/disponibilidade/escopo': {
       escopoDaEmpresa: (_: unknown, empresa: string) => ({ empresaId: empresa, estabelecimentoId: null }),
       agendaPorEscopoInstalada: async () => false,
+      escopoEUnidadesDaEmpresa: async (_: unknown, empresa: string) => ({ escopo: { empresaId: empresa, estabelecimentoId: null }, porEscopo: false, unidades: [] }),
     },
     'lib/disponibilidade/services': {
       duracaoAceita: () => null, duracaoDoPacoteDaEmpresa: async () => 240, consultarDisponibilidadeData: async () => ({}),
     },
-    'lib/disponibilidade/repositories': { listarTodosBloqueiosAtivos: async () => [] },
+    // Sem a 133 (Agenda lenta F6), como em staging e production hoje: a projeção segue na 094.
+    'lib/disponibilidade/repositories': {
+      listarTodosBloqueiosAtivos: async () => [],
+      ocupacoesPorEmpresaInstaladas: async () => false,
+      fonteOcupacoesDoRecurso: (v133: boolean) => (v133 ? 'kidmais133_ocupacoes_escopo($1::date,$2::date,$3::uuid,$4::uuid) o' : 'kidmais094_ocupacoes($1::date,$2::date) o'),
+    },
     'lib/disponibilidade/config-legada': { ehDonaDaConfigLegada: async () => false },
     'lib/comercial/disponibilidade-pacote-publica': { pacotesDaAgendaDaEmpresa: async () => null },
     'lib/comercial/descontos-dia-publico': { descontosPublicosDaEmpresa: async () => null },

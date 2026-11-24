@@ -6,7 +6,7 @@ import type { ConfiguracaoAtendimento as Configuracao } from '@/lib/whatsapp/ate
 import { bloqueioDoCodigo, type BloqueioAtendimento } from '@/lib/whatsapp/atendimento/acesso-tela';
 import styles from './atendimento.module.css';
 
-type LinkPublico = { ok: true; link: string } | { ok: false; motivo: 'OUTRA_EMPRESA' | 'NAO_CONFIGURADO' | 'ORIGEM_NAO_SEGURA' };
+type LinkPublico = { ok: true; link: string } | { ok: false; motivo: 'OUTRA_EMPRESA' | 'NAO_CONFIGURADO' | 'ORIGEM_NAO_SEGURA' | 'PAGINA_INDISPONIVEL' };
 type Dados = { configuracao: Configuracao | null; automacaoDisponivel: boolean; podeConfigurar: boolean; wallE?: { disponivel: boolean; linkPublico?: LinkPublico } };
 const nova = (): Configuracao => ({ ativo: false, nome: '', perguntas: [], limites: { respostasPor24h: 20 }, wallE: { ativo: false } });
 /** Sem a 082 o Wall-e não existe neste ambiente: a chave não é gravada (o atendimento da fase B segue igual). */
@@ -16,6 +16,7 @@ const SEM_LINK: Record<Extract<LinkPublico, { ok: false }>['motivo'], string> = 
   NAO_CONFIGURADO: 'A página pública de disponibilidade ainda não está ligada neste servidor. Enquanto isso, o Wall-e consulta a agenda e a equipe conduz a contratação.',
   OUTRA_EMPRESA: 'A página pública deste servidor atende outra empresa. O Wall-e não envia esse link nas conversas desta empresa.',
   ORIGEM_NAO_SEGURA: 'O endereço público do sistema precisa usar https para o link ser enviado aos clientes.',
+  PAGINA_INDISPONIVEL: 'A página pública desta empresa ainda não está disponível (depende do orçamento online no plano e do endereço por empresa ligado neste servidor). Enquanto isso, o Wall-e consulta a agenda e a equipe conduz a contratação.',
 };
 
 /**

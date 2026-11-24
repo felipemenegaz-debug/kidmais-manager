@@ -322,6 +322,8 @@ const ESTADO_POSTGRES = {
   "lib/pre-reserva/meu-pedido.postgres.test.ts": { descartavel: "131" },
   // Wall-e 1a (132, LOCAL 23/11/2026): modelo 131 + a 132 aplicada pela própria suíte (pré, migration e pós).
   "lib/whatsapp/atendimento/walle/oportunidade.postgres.test.ts": { descartavel: "131" },
+  // Agenda lenta F3/F6 (133, LOCAL 23/11/2026): modelo 131 + a 133 aplicada pela própria suíte (pré, migration, pós e down).
+  "lib/disponibilidade/ocupacoes-133.postgres.test.ts": { descartavel: "131" },
   "lib/pre-reserva/modelo.postgres.test.ts": { descartavel: "128" },
   "lib/disponibilidade/migration-128.postgres.test.ts": { descartavel: "128" },
   // 20/11/2026 (LOCAL): guarda fase 3, mapa dos dados pessoais (toda coluna de texto/bytea/JSON/inet classificada).

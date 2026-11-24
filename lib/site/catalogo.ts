@@ -37,9 +37,9 @@ export const recursos = {
     familia: { nome: 'Área da família', status: 'oculto', termos: ['área da família', 'minha festa'], evidencia: 'F1+F2 só em staging com a trava desligada; F3 local (nota "Kidmais área da família 14/11").' },
     pesquisa: { nome: 'Pesquisa de satisfação', status: 'oculto', termos: ['pesquisa de satisfação', 'pós-festa'], evidencia: 'SATISFACAO_* desligadas em production (rotas /p respondem 503); #391 só em staging.' },
     mensagens: { nome: 'Mensagens programadas', status: 'oculto', termos: ['mensagens programadas', 'mensagem programada'], evidencia: 'Transporte só "simulado"; não há envio real implementado (nota "Variaveis production 20261112").' },
-    logo_convite: { nome: 'Logo do buffet no convite', status: 'oculto', termos: ['logo do buffet no convite'], evidencia: '#421 LIVE só em staging; production pendente.' },
-    marca: { nome: 'Marca do buffet nas telas e PDFs', status: 'oculto', termos: ['marca do seu buffet', 'sua logo', 'nos pdfs'], evidencia: '#361 LIVE só em staging; production só com o R-5.' },
-    walle_whatsapp: { nome: 'Wall-e no WhatsApp', status: 'oculto', termos: ['wall-e'], evidencia: 'Envio real e WhatsApp multiempresa ainda não em production.' },
+    logo_convite: { nome: 'Logo do buffet no convite', status: 'disponivel', termos: ['logo do buffet no convite'], evidencia: '#421 e #429 (73a33e67, 060edb8d) na branch production desde a promoção 2 (c43b63d8, 18/11/2026); conferido com git merge-base em 23/11/2026.' },
+    marca: { nome: 'Marca do buffet nas telas e PDFs', status: 'oculto', termos: ['marca do seu buffet', 'sua logo', 'nos pdfs'], evidencia: '#361 em production desde a promoção 3 (263eda9a, 19/11/2026), mas ela tira a Kidmais das telas e PDFs de outros buffets e põe o nome do buffet. O painel promete logo e cores do buffet nas telas do cliente e nos documentos, o que não existe (23/11/2026).' },
+    walle_whatsapp: { nome: 'Wall-e no WhatsApp', status: 'disponivel', termos: ['wall-e'], evidencia: 'WhatsApp multiempresa em production: número 5359 da Kidmais conectado e prova de resposta do Wall-e em 18/11/2026 23:47Z; modo modelo provado em 21/11/2026 (nota "WhatsApp multiempresa acompanhamento 20261112").' },
     multiunidade: { nome: 'Unidade extra', status: 'oculto', termos: ['unidade extra'], evidencia: 'Sem fluxo para contratar, cobrar ou provisionar unidade extra (docs/MATRIZ_RECURSOS_PLANOS_20261010.md).' },
     creditos: { nome: 'Créditos extras de IA', status: 'oculto', termos: ['créditos', 'franquia'], evidencia: 'CREDITOS_* com catálogo oculto e sem compra em production.' },
     cartao: { nome: 'Cartão de crédito nas parcelas', status: 'oculto', termos: ['parcelas no cartão', 'cartão de crédito nas parcelas', 'pagar com cartão'], evidencia: 'Depende da conexão Asaas da conta do buffet; não comprovada.' },
@@ -50,6 +50,8 @@ export type RecursoId = keyof typeof recursos;
 export function visivel(ids: readonly RecursoId[]): boolean {
     return ids.every(id => recursos[id].status === 'disponivel');
 }
+/** Seção do Wall-e: a conversa de exemplo fala de data livre, pacote e horário nobre. */
+export const RECURSOS_SECAO_WALLE: readonly RecursoId[] = ['walle_whatsapp', 'agenda', 'festas', 'horarios'];
 export function filtrar<T extends { recursos: readonly RecursoId[] }>(itens: readonly T[]): T[] {
     return itens.filter(item => visivel(item.recursos));
 }
@@ -95,7 +97,6 @@ export const planos: Plano[] = [
         { texto: 'Importação por IA sempre que precisar: até 10 documentos por mês', recursos: ['importacao'] },
         { texto: 'Copiloto de IA, franquia maior', recursos: ['copiloto'] },
         { texto: 'Convite da festa com IA, franquia maior', recursos: ['convite', 'creditos'] },
-        { texto: 'Wall-e no WhatsApp como adicional', recursos: ['walle_whatsapp'] },
     ] },
     { id: 'premium', ...planosComerciais.premium, descricao: 'Atenda 24 h. Para buffets com equipe grande e implantação acompanhada de perto.', descricaoRecursos: ['walle_whatsapp', 'permissoes', 'implantacao'], descricaoAtual: 'Sem limite de equipe. Para buffets grandes.', descricaoAtualRecursos: ['permissoes'], descricaoMinima: 'Para buffets grandes.', itens: [
         { texto: 'Tudo do Profissional, mais:', recursos: [], introducao: true },
@@ -105,6 +106,8 @@ export const planos: Plano[] = [
         { texto: 'Convite da festa com IA, franquia ampla', recursos: ['convite', 'creditos'] },
         // 13/11/2026 (D-OF-1): incluído com uso justo, sem número de conversas até medir.
         { texto: 'Wall-e no WhatsApp incluído, com uso justo', recursos: ['walle_whatsapp'] },
+        // D-LAN-4 (23/11/2026): o teste grátis libera tudo do Premium para qualquer buffet (portão do atendimento: TESTE = sim).
+        { texto: `Teste grátis de ${dias(condicoesComerciais.testeDias)} com tudo do Premium, aberto a todos os buffets`, recursos: [] },
         // 19/10: suporte só por e-mail por enquanto (decisão de Felipe); a prioridade é na fila de resposta.
         { texto: 'Suporte prioritário por e-mail', recursos: ['suporte'] },
         { texto: 'Implantação dedicada, com a conexão do seu WhatsApp', recursos: ['implantacao', 'walle_whatsapp'] },
@@ -114,10 +117,10 @@ export function descricaoPlano(plano: Plano): string {
     if (visivel(plano.descricaoRecursos)) return plano.descricao;
     return visivel(plano.descricaoAtualRecursos) ? plano.descricaoAtual : plano.descricaoMinima;
 }
-/** Implantação não é adicional pago (15/11/2026): está incluída em todos os planos. */
+/** Implantação não é adicional pago (15/11/2026): está incluída em todos os planos.
+ * D-OF-1 (13/11/2026): o Wall-e é só do Premium; o adicional de R$ 197 para o Profissional saiu da vitrine. */
 export const adicionais: { nome: string; recursos: RecursoId[]; centavos: number | null; periodo: string; descricao: string }[] = [
     { nome: 'Unidade extra', recursos: ['multiunidade'], centavos: 14700, periodo: '/mês', descricao: 'Outra unidade da operação, com condições próprias.' },
-    { nome: 'Wall-e no WhatsApp', recursos: ['walle_whatsapp'], centavos: 19700, periodo: '/mês', descricao: 'Para o Profissional, com uso justo. Quando um limite é atingido, a conversa passa para a sua equipe, sem cobrança extra.' },
     { nome: 'Créditos extras de IA', recursos: ['creditos', 'copiloto'], centavos: null, periodo: '', descricao: 'Para quem usa a IA além do que o plano inclui. Condições a definir.' },
 ];
 
@@ -209,7 +212,7 @@ export function perguntas(teste = dias(condicoesComerciais.testeDias)): Pergunta
         { pergunta: 'O iA.Fest recebe o pagamento dos meus clientes?', resposta: 'Não. O Pix usa a chave da sua empresa e o dinheiro cai direto na sua conta.', recursos: ['pix'] },
         { pergunta: 'Meu cliente precisa instalar algum aplicativo?', resposta: 'Não. Contrato, parcelas e convite abrem por link, no navegador do celular.', recursos: ['contratos', 'assinatura_codigo', 'convite'] },
         { pergunta: 'Já tenho tabela de preços e contratos em PDF. Perco o que fiz?', resposta: 'Não. A IA lê os PDFs e prepara pacotes, contratos e festas já vendidas. Você revisa antes de aplicar.', recursos: ['importacao'] },
-        { pergunta: 'O que é o Wall-e?', resposta: 'O atendente de IA do buffet no WhatsApp. Ele responde com a sua agenda e os seus preços e passa a conversa para a equipe quando precisa.', recursos: ['walle_whatsapp'] },
+        { pergunta: 'O que é o Wall-e?', resposta: 'O atendente de IA do buffet no WhatsApp. Ele responde com a sua agenda e os seus preços e passa a conversa para a equipe quando precisa.', recursos: ['walle_whatsapp', 'agenda'] },
         { pergunta: 'Posso usar o ChatGPT ou o Claude com o iA.Fest?', resposta: 'Sim. Você conecta o assistente que já usa e consulta a agenda e os recebíveis do buffet por conversa. Ele só lê; não altera nada.', recursos: ['mcp'] },
         { pergunta: 'A implantação é cobrada?', resposta: 'Não. A implantação guiada está incluída em todos os planos.', recursos: ['implantacao'] },
         { pergunta: 'Posso cancelar quando quiser?', resposta: 'Sim, pelos mesmos canais de atendimento. Seus dados continuam disponíveis para exportação conforme os termos de uso.', recursos: ['exportacao'] },

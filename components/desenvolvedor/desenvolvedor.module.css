@@ -24,6 +24,7 @@ a.metrica:hover { border-color:color-mix(in srgb,var(--km-teal) 40%,transparent)
 .lista span { color:var(--secondary-text); font-size:12px; }
 .filtros { display:flex; flex-wrap:wrap; gap:8px; align-items:center; margin:0 0 16px; }
 .filtros button[aria-pressed=true] { background:var(--primary-violet) !important; border-color:transparent !important; color:#fff !important; }
+.avisoOcultas { display:flex; flex-wrap:wrap; gap:8px 12px; align-items:center; margin:-4px 0 16px; }
 .busca { display:flex; gap:12px; flex-wrap:wrap; align-items:flex-end; margin-bottom:12px; }
 .busca label { flex:1; min-width:220px; margin:0 !important; }
 .formGrid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:0 20px; }

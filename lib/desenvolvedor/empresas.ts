@@ -75,7 +75,8 @@ function resumo(l: LinhaEmpresa): EmpresaResumo {
 
 const filtrosSchema = z.object({
     busca: z.string().max(120).optional().transform((v) => (v ?? '').trim()),
-    situacao: z.enum(['TODAS', 'EM_IMPLANTACAO', 'ATIVA', 'SUSPENSA', 'DESATIVADA', 'AGUARDANDO_PRIMEIRO_ACESSO', 'EM_CONFIGURACAO']).optional().default('TODAS'),
+    // EM_USO (23/11/2026, pedido de Felipe): todas menos as desativadas — é o filtro com que a tela de Contratantes abre.
+    situacao: z.enum(['TODAS', 'EM_USO', 'EM_IMPLANTACAO', 'ATIVA', 'SUSPENSA', 'DESATIVADA', 'AGUARDANDO_PRIMEIRO_ACESSO', 'EM_CONFIGURACAO']).optional().default('TODAS'),
     pagina: z.coerce.number().int().min(1).max(1000).optional().default(1),
 }).strict();
 
@@ -92,6 +93,7 @@ export async function listarEmpresas(sessao: SessaoAdmin, raw: unknown, deps: Pa
               OR ($3::text <> '' AND (coalesce(c.documento_fiscal, '') LIKE '%' || $3 || '%' OR coalesce(c.telefone, '') LIKE '%' || $3 || '%')))
           AND (CASE $2::text
                 WHEN 'TODAS' THEN true
+                WHEN 'EM_USO' THEN e.status <> 'DESATIVADA'
                 WHEN 'EM_IMPLANTACAO' THEN e.status = 'ATIVA' AND c.implantacao IN ('AGUARDANDO_PRIMEIRO_ACESSO', 'EM_CONFIGURACAO')
                 WHEN 'ATIVA' THEN e.status = 'ATIVA' AND (c.implantacao IS NULL OR c.implantacao = 'CONCLUIDA')
                 WHEN 'AGUARDANDO_PRIMEIRO_ACESSO' THEN e.status = 'ATIVA' AND c.implantacao = 'AGUARDANDO_PRIMEIRO_ACESSO'
@@ -100,11 +102,15 @@ export async function listarEmpresas(sessao: SessaoAdmin, raw: unknown, deps: Pa
         const params = [termo, filtros.situacao, digitos.length >= 3 ? digitos : ''];
         const total = (await tx.query<{ n: number }>(`SELECT count(*)::int AS n ${FROM} WHERE ${condicoes}`, params)).rows[0].n;
         const linhas = (await tx.query<LinhaEmpresa>(`SELECT ${COLUNAS} ${FROM} WHERE ${condicoes} ORDER BY e.atualizado_em DESC LIMIT ${porPagina} OFFSET $4`, [...params, (filtros.pagina - 1) * porPagina])).rows;
+        // Em uso: quantas desativadas (com a mesma busca) ficaram fora, para o aviso da tela — a mesma condição com $2 = DESATIVADA.
+        const desativadasOcultas = filtros.situacao === 'EM_USO'
+            ? (await tx.query<{ n: number }>(`SELECT count(*)::int AS n ${FROM} WHERE ${condicoes}`, [termo, 'DESATIVADA', params[2]])).rows[0].n
+            : 0;
         // E5: plano e situação comercial por empresa (sem a 067, "sem cobrança").
         const itens = [];
         for (const l of linhas)
             itens.push({ ...resumo(l), comercial: await comercialResumo(tx, l.id) });
-        return { itens, total, pagina: filtros.pagina, porPagina };
+        return { itens, total, pagina: filtros.pagina, porPagina, desativadasOcultas };
     });
 }
 

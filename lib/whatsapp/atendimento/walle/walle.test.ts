@@ -4,7 +4,7 @@ import { pausaPedidaNaRecepcao, type ConfiguracaoAtendimento } from '../core.ts'
 import { pedidoDeParar } from '../opt-out.ts';
 import { mesclarContexto, lerContexto } from './contexto.ts';
 import { CLAUSULAS_POR_TEMA, clausulasDoTema, modeloVigente } from './contrato-modelo.ts';
-import { linkDisponibilidadePublica } from './link-disponibilidade.ts';
+import { linkDisponibilidadeDaEmpresa, linkDisponibilidadePublica } from './link-disponibilidade.ts';
 import { DESISTE_CONTRATAR, entenderPorRegras, extrairConvidados, extrairTurno, itensCitados, juntarSinais, limitar, limparTema, pratoSemCadastro, registroDoBloqueio, revalidarEntendimento, type SaidaModelo } from './entendimento.ts';
 import { LIMITE_MENSAGEM, partirMensagem, resolverWallE, type Composicao, type FontesWallE, type PeriodoAgenda, type PrecoAdicional, type ProntaAutorizada } from './resolver.ts';
 import type { Catalogos, ContextoWallE, EscopoAgendaConsultado, Intencao, ResultadoWallE } from './tipos.ts';
@@ -2970,6 +2970,58 @@ test('rodada 40 — cumprimento devolvido, apresentação só na primeira respos
   // A marca é lida da memória gravada; valor estranho é ignorado.
   assert.equal(lerContexto({ apresentado: true, fechamentoEm: '2026-10-08T12:00:00.000Z' }).apresentado, true);
   assert.equal(lerContexto({ apresentado: 'sim' }).apresentado, undefined);
+});
+
+test('link por empresa preserva o endereço global e as recusas da Kidmais', async () => {
+  const empresa = 'a1111111-1111-4111-8111-111111111111';
+  const semBanco = () => { throw new Error('o link global não deve consultar o banco'); };
+  const env = { AGENDA_PUBLICA_EMPRESA_ID: ` ${empresa.toUpperCase()} `, ADMIN_AUTH_ORIGIN: 'https://admin.exemplo.test', SITE_URL: 'https://site.exemplo.test' };
+  const origemAgenda = { ...env, AGENDA_PUBLICA_ORIGEM: ' https://agenda.exemplo.test/ ' };
+  assert.deepEqual(await linkDisponibilidadeDaEmpresa(` ${empresa} `, origemAgenda, semBanco), { ok: true, link: 'https://agenda.exemplo.test/disponibilidade' });
+  assert.deepEqual(await linkDisponibilidadeDaEmpresa(empresa, env, semBanco), { ok: true, link: 'https://admin.exemplo.test/disponibilidade' });
+  for (const origem of ['http://agenda.exemplo.test', 'https://agenda.exemplo.test/admin', 'https://u:s@agenda.exemplo.test', 'nada', undefined]) {
+    const invalido = { ...env, AGENDA_PUBLICA_ORIGEM: origem, ADMIN_AUTH_ORIGIN: undefined };
+    const esperado = { ok: false, motivo: 'ORIGEM_NAO_SEGURA' };
+    assert.deepEqual(linkDisponibilidadePublica(empresa, invalido), esperado);
+    assert.deepEqual(await linkDisponibilidadeDaEmpresa(empresa, invalido, semBanco), esperado);
+  }
+});
+
+test('link por empresa usa o endereço do produto e exige o escopo público da conversa', async () => {
+  const empresa = '22222222-2222-4222-8222-222222222222';
+  const global = '11111111-1111-4111-8111-111111111111';
+  const env = {
+    AGENDA_PUBLICA_EMPRESA_ID: global, AGENDA_PUBLICA_ORIGEM: 'https://agenda.exemplo.test',
+    SITE_URL: 'https://site.exemplo.test', ADMIN_AUTH_ORIGIN: 'https://admin.exemplo.test',
+  };
+  const semBanco = () => { throw new Error('banco proibido no teste'); };
+  const deps = {
+    lerCodigo: async (_conexao, id) => {
+      assert.equal(id, empresa);
+      return 'buffet-bravo';
+    },
+    escopo: async (_conexao, codigo) => {
+      assert.equal(codigo, 'buffet-bravo');
+      return { empresaId: empresa };
+    },
+  } satisfies NonNullable<Parameters<typeof linkDisponibilidadeDaEmpresa>[3]>;
+  assert.deepEqual(await linkDisponibilidadeDaEmpresa(empresa, env, semBanco, deps),
+    { ok: true, link: 'https://site.exemplo.test/b/buffet-bravo/disponibilidade' });
+  assert.deepEqual(await linkDisponibilidadeDaEmpresa(empresa, { ...env, SITE_URL: undefined, AGENDA_PUBLICA_EMPRESA_ID: ' ' }, semBanco, deps),
+    { ok: true, link: 'https://admin.exemplo.test/b/buffet-bravo/disponibilidade' });
+  const indisponivel = { ok: false, motivo: 'PAGINA_INDISPONIVEL' };
+  assert.deepEqual(await linkDisponibilidadeDaEmpresa(empresa, { ...env, SITE_URL: 'http://site.exemplo.test' }, semBanco, deps), indisponivel);
+  assert.deepEqual(await linkDisponibilidadeDaEmpresa(empresa, { ...env, SITE_URL: undefined, ADMIN_AUTH_ORIGIN: undefined }, semBanco, deps), indisponivel);
+  const falha = async () => { throw new Error('página indisponível'); };
+  for (const alteracao of [
+    { escopo: falha },
+    { escopo: async () => ({ empresaId: global }) },
+    { lerCodigo: async () => null },
+    { lerCodigo: async () => '../kidmais' },
+    { lerCodigo: falha },
+  ]) {
+    assert.deepEqual(await linkDisponibilidadeDaEmpresa(empresa, env, semBanco, { ...deps, ...alteracao }), indisponivel);
+  }
 });
 
 test('rodada 40 — link público de disponibilidade: agenda e contratação, uma vez por conversa na agenda, nunca reserva', async () => {

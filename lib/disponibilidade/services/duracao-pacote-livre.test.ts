@@ -58,10 +58,11 @@ test('P2 wizard administrativo: a rota da agenda usa a duração do pacote da em
     '@/lib/http/admin-crm-api': { exigirApiAdminCrmDisponivel: async () => ({ usuario_id: 'u' }) },
     '@/lib/http/api-response': { apiErrorResponse: (e: Error) => Response.json({ erro: e.message }, { status: 500 }) },
     '@/lib/saas/provar-tenant': { withTenantTransaction: async (_s: unknown, _e: unknown, fn: (t: unknown, tenant: object) => unknown) => fn(tx, { empresaComprovada: EMPRESA }) },
-    '@/lib/disponibilidade/escopo': { escopoDaEmpresa: async () => ESCOPO, agendaPorEscopoInstalada: async () => false, unidadesDaEmpresa: async () => [] },
+    '@/lib/disponibilidade/escopo': { escopoDaEmpresa: async () => ESCOPO, agendaPorEscopoInstalada: async () => false, unidadesDaEmpresa: async () => [], escopoEUnidadesDaEmpresa: async () => ({ escopo: ESCOPO, porEscopo: false, unidades: [] }) },
     '@/lib/disponibilidade/services': { ...m, duracaoAceita: utils.duracaoAceita },
     '@/lib/fechamentos/comercial-input': { PACOTE_CODIGO_BANCO: { compacta: 'COMPACTA' } },
     '@/lib/disponibilidade/config-legada': { ehDonaDaConfigLegada: async () => false, exigirDonaDaConfigLegada: async () => {} },
+    '@/lib/db/sondagens-catalogo': { comSondagensDeCatalogoReutilizadas: (executor: unknown) => executor },
   }, false) as { GET: (r: object) => Promise<Response> };
   const get = async (q: string) => (await (await rota.GET({ nextUrl: new URL(`https://x.invalid/api/admin/disponibilidade?${q}`) })).json()) as { dias: Array<{ periodos: Array<{ horarios: Array<{ inicio: string; fim: string; status: string }> }> }> };
   const pacote = await get('data=2026-11-20&pacote=compacta');
@@ -165,7 +166,7 @@ test('Wall-e: com pacote de 4 h e só 15h–18h livre, não há horário; o paco
           return [await s.m.consultarDisponibilidadeData(i, s.tx, undefined, ESCOPO, op)].map((d) => ({ ...d, data: i }));
         },
       },
-      '../../../disponibilidade/escopo.ts': { agendaPorEscopoInstalada: async () => false, unidadesDaEmpresa: async () => [] },
+      '../../../disponibilidade/escopo.ts': { agendaPorEscopoInstalada: async () => false, unidadesDaEmpresa: async () => [], escopoEUnidadesDaEmpresa: async () => ({ escopo: ESCOPO, porEscopo: false, unidades: [] }) },
       // E2b: o helper sempre dublado (o Proxy não estrito devolveria [] — verdadeiro).
       '../../../agenda/combinados-publicos.ts': { combinadosPublicos: async () => combinados },
     }, false) as { fontesPostgres: (ex: unknown, alvo: object) => { disponibilidade: (d: string, u: string | null, p?: string | null) => Promise<{ periodos: Array<{ disponivel: boolean }> }>; alternativas: (d: string, u: string | null, t: string | null, q: number, p?: string | null) => Promise<unknown[]> } };

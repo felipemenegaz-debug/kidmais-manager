@@ -41,7 +41,7 @@ function telas(pedidos: Array<Record<string, unknown>>, gets: { n: number }, esp
   const assistente = carregarComponente('components/admin/AssistenteAgenda.tsx', base);
   const combinados = carregarComponente('components/admin/SaloesCombinados.tsx', base);
   const tela = carregarComponente('components/admin/AgendaConfiguracao.tsx', {
-    ...base, './AssistenteAgenda': assistente.modulo, './SaloesCombinados': combinados.modulo,
+    ...base, './AssistenteAgenda': assistente.modulo, './SaloesCombinados': combinados.modulo, './PreReservaConfiguracao': { PreReservaConfiguracao: () => null },
   });
   return { tela, assistente, SaloesCombinados: combinados.modulo.SaloesCombinados };
 }

@@ -6,16 +6,21 @@ import {
   desativarBloqueioAgendaPorId,
   desativarBloqueiosExatos,
   existeBloqueioAgendaAtivoExato,
+  fonteOcupacoesDoRecurso,
   listarBloqueiosAtivosPorPeriodo,
+  ocupacoesPorEmpresaInstaladas,
   listarConfiguracoesAgendaAtivas,
   listarTodosBloqueiosAtivos,
 } from "@/lib/disponibilidade/repositories";
 import {
   agendaPorEscopoInstalada,
   escopoDaEmpresa,
+  escopoEUnidadesDaEmpresa,
   unidadesDaEmpresa,
   type EscopoAgenda,
+  type UnidadeAgenda,
 } from "@/lib/disponibilidade/escopo";
+import { comSondagensDeCatalogoReutilizadas } from "@/lib/db/sondagens-catalogo";
 import {
   AvailabilityServiceError,
   consultarDisponibilidadeData,
@@ -147,11 +152,13 @@ async function preReservasDaAgenda(
   if (!schema?.instalada) return [];
   // A revisão comercial usa a mesma autorização da agenda: sessão administrativa
   // com acesso comercial e pedido da empresa comprovada, inclusive para a Equipe.
+  // Com a 133, a segunda leitura das ocupações fica restrita à empresa (F3/F6 da Agenda lenta, 23/11/2026).
+  const fonte = fonteOcupacoesDoRecurso(await ocupacoesPorEmpresaInstaladas(tx));
   const { rows } = await tx.query<OcupacaoPreReserva>(`
     SELECT o.data::text, left(o.horario_inicio::text, 5) AS inicio,
            left(o.horario_fim::text, 5) AS fim, s.nome AS salao,
            p.garantia_ate AS "garantiaAte", o.fechamento_id AS "fechamentoId"
-    FROM kidmais094_ocupacoes($1::date,$2::date) o
+    FROM ${fonte}
     JOIN pre_reserva_recebimentos p ON (p.empresa_id,p.fechamento_id)=(o.empresa_id,o.fechamento_id)
     LEFT JOIN agenda_saloes s ON (s.empresa_id,s.id)=(o.empresa_id,o.salao_id)
     WHERE o.origem='PRE_RESERVA' AND o.empresa_id=$3 AND p.garantia_ate > statement_timestamp()
@@ -161,13 +168,16 @@ async function preReservasDaAgenda(
   return rows;
 }
 
-async function montarConfigAdmin(tx: DbExecutor, escopo: EscopoAgenda, empresaComprovada: string) {
+/** O que o GET já leu na mesma transação (Agenda lenta F2, 23/11/2026); o POST lê de novo depois de gravar. */
+type JaLidoNoPedido = { dona: boolean; porEscopo: boolean; unidades: UnidadeAgenda[] };
+
+async function montarConfigAdmin(tx: DbExecutor, escopo: EscopoAgenda, empresaComprovada: string, jaLido?: JaLidoNoPedido) {
   // E2: o arquivo é da instalação (agenda pública); só a empresa dona o vê. As demais recebem listas vazias.
-  const configuracaoComercial = await ehDonaDaConfigLegada(tx, empresaComprovada);
+  const configuracaoComercial = jaLido ? jaLido.dona : await ehDonaDaConfigLegada(tx, empresaComprovada);
   const comercial: ConfigLegada = configuracaoComercial ? await lerConfigLegada(tx) : { pacoteOverrides: [], descontos: [] };
   const bloqueios = await listarTodosBloqueiosAtivos(tx, escopo);
-  const porEscopo = await agendaPorEscopoInstalada(tx);
-  const unidades = porEscopo && escopo.empresaId ? await unidadesDaEmpresa(tx, escopo.empresaId) : [];
+  const porEscopo = jaLido ? jaLido.porEscopo : await agendaPorEscopoInstalada(tx);
+  const unidades = jaLido ? jaLido.unidades : porEscopo && escopo.empresaId ? await unidadesDaEmpresa(tx, escopo.empresaId) : [];
   // Status comercial dos pacotes: a dona da agenda pública mantém a regra legada (null, como em /fechamento); as demais
   // empresas, as regras configuradas por ELAS — a mesma leitura da cotação pública em /b/<código> e do servidor.
   // O seletor de pacote dessas empresas lista só os pacotes que elas têm (empresa nova = nenhum, sem catálogo Kidmais),
@@ -180,7 +190,9 @@ async function montarConfigAdmin(tx: DbExecutor, escopo: EscopoAgenda, empresaCo
   // Astra r1, P2: a agenda do painel mostra o desconto por dia que a cotação do servidor cobra (regras da empresa,
   // as mesmas de /api/disponibilidade), e não os 15% fixos nem os descontos por data do arquivo. A dona da agenda
   // pública usa os ids V1 dos pacotes (como no endereço legado); as demais, o código do pacote.
-  const regrasDia = await descontosPublicosDaEmpresa(tx, empresaComprovada);
+  // Código da empresa lido uma vez: serve aos descontos e ao endereço público (antes, duas idas iguais).
+  const codigo = (await tx.query<{ codigo: string }>("SELECT codigo FROM public.empresas WHERE id = $1::uuid", [empresaComprovada])).rows[0]?.codigo ?? null;
+  const regrasDia = await descontosPublicosDaEmpresa(tx, empresaComprovada, codigo);
   const descontosEmpresa = regrasDia ? (configuracaoComercial ? descontosPorIdV1(regrasDia) : regrasDia) : null;
 
   return {
@@ -198,7 +210,7 @@ async function montarConfigAdmin(tx: DbExecutor, escopo: EscopoAgenda, empresaCo
     regrasPacotes,
     pacotes,
     // "Ver tela do cliente": a dona continua no endereço atual; as demais, no endereço público delas (/b/<código>).
-    telaDoCliente: configuracaoComercial ? telaDoClienteGlobal(process.env) : await telaDoClienteDaEmpresa(tx, empresaComprovada),
+    telaDoCliente: configuracaoComercial ? telaDoClienteGlobal(process.env) : await telaDoClienteDaEmpresa(tx, empresaComprovada, codigo),
     bloqueios,
   };
 }
@@ -208,8 +220,7 @@ async function montarConfigAdmin(tx: DbExecutor, escopo: EscopoAgenda, empresaCo
  * COTACAO_PUBLICA_POR_EMPRESA, empresa ATIVA, Orçamento online no plano, situação comercial, unidade). Recusada,
  * null (a tela explica em vez de levar a um 404). A consulta roda num savepoint para não abortar a transação.
  */
-async function telaDoClienteDaEmpresa(tx: DbExecutor, empresaId: string) {
-  const codigo = (await tx.query<{ codigo: string }>("SELECT codigo FROM empresas WHERE id = $1::uuid", [empresaId])).rows[0]?.codigo;
+async function telaDoClienteDaEmpresa(tx: DbExecutor, empresaId: string, codigo: string | null) {
   if (!codigo) return null;
   await tx.query("SAVEPOINT kidmais_tela_do_cliente");
   try {
@@ -231,11 +242,16 @@ export async function GET(request: NextRequest) {
     const fim = q.get("fim");
     // 2c-2: duração da festa (minutos) para os inícios do horário livre; sem ela, 4 horas. Parecer do Astra (P2): com
     // `?pacote=` (id da tela), a do pacote vigente da empresa comprovada, lida no servidor.
-    const resposta = await withTenantTransaction(sessao, q.get("empresaId"), async (tx, tenant) => {
-      const escopo = await escopoDoPedido(tx, tenant.empresaComprovada, q.get("unidadeId"));
+    const resposta = await withTenantTransaction(sessao, q.get("empresaId"), async (transacao, tenant) => {
+      // Agenda lenta F1 (23/11/2026): leitura só; a mesma sondagem de catálogo vai ao banco uma vez por requisição.
+      const tx = comSondagensDeCatalogoReutilizadas(transacao);
+      // F2: escopo, unidades e dona lidos uma vez e reaproveitados abaixo (antes, de novo em montarConfigAdmin).
+      const lido = await escopoEUnidadesDaEmpresa(tx, tenant.empresaComprovada, unidadeSchema.parse(q.get("unidadeId") || null));
+      const escopo = lido.escopo;
+      const dona = await ehDonaDaConfigLegada(tx, tenant.empresaComprovada);
       // Id da tela → código, como no fechamento administrativo: dona da agenda pública = ids V1; demais = código próprio.
       const pacoteDaTela = q.get("pacote");
-      const pacoteCodigo = pacoteDaTela ? codigoDoPacoteDaTela(pacoteDaTela, !(await ehDonaDaConfigLegada(tx, tenant.empresaComprovada))) ?? undefined : undefined;
+      const pacoteCodigo = pacoteDaTela ? codigoDoPacoteDaTela(pacoteDaTela, !dona) ?? undefined : undefined;
       const opcoes = { duracaoMinutos: duracaoAceita(q.get("duracao")) ?? await duracaoDoPacoteDaEmpresa(tx, tenant.empresaComprovada, pacoteCodigo), incluirCombinados: true };
       // Horários calculados do recurso (substitui, no painel, a API pública sem tenant).
       const dias = data
@@ -248,8 +264,8 @@ export async function GET(request: NextRequest) {
       const preReservas = primeiroDia && ultimoDia && q.get("preReservas") === "1"
         ? await preReservasDaAgenda(tx, escopo, primeiroDia, ultimoDia)
         : undefined;
-      return { ...(await montarConfigAdmin(tx, escopo, tenant.empresaComprovada)), dias,
-        ...(preReservas && { preReservas }), podeResolverLegado: await agendaPorEscopoInstalada(tx) && await podeResolverBloqueioLegado(tx, sessao.usuario_id) };
+      return { ...(await montarConfigAdmin(tx, escopo, tenant.empresaComprovada, { dona, porEscopo: lido.porEscopo, unidades: lido.unidades })), dias,
+        ...(preReservas && { preReservas }), podeResolverLegado: lido.porEscopo && await podeResolverBloqueioLegado(tx, sessao.usuario_id) };
     });
     return NextResponse.json(resposta, {
       headers: { "Cache-Control": "no-store" },

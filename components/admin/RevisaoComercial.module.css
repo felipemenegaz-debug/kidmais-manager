@@ -29,6 +29,6 @@
 .page small { color:var(--secondary-text); font-size:13px; font-weight:400; }
 @media(max-width:800px) { .page { padding-top:80px; } .page input,.page textarea { font-size:16px; } }
 
-.dialogo { width: min(30rem, calc(100% - 2rem)); max-height: 90dvh; overflow: auto; padding: 24px; color: var(--main-text); background: var(--main-bg); border: 1px solid var(--input-border); border-radius: 12px; }
+.dialogo { margin: auto; width: min(30rem, calc(100% - 2rem)); max-height: 90dvh; overflow: auto; padding: 24px; color: var(--main-text); background: var(--main-bg); border: 1px solid var(--input-border); border-radius: 12px; }
 .dialogo::backdrop { background: rgb(0 0 0 / 65%); }
-.dialogo select { padding: 10px; font: inherit; color: var(--main-text); background: var(--input-bg); }
+.dialogo textarea { min-height: 80px; resize: vertical; }

@@ -377,6 +377,24 @@ export async function capacidadeAgendaInstalada(customDb?: DbExecutor) {
 }
 
 /**
+ * 133 instalada: kidmais133_ocupacoes_escopo devolve as mesmas linhas de kidmais094_ocupacoes filtradas por
+ * kidmais062_mesmo_recurso, mas sem varrer as festas das outras empresas. Sem ela, a leitura segue pela 094.
+ */
+export async function ocupacoesPorEmpresaInstaladas(customDb?: DbExecutor) {
+  const r = await executor(customDb).query<{ ok: boolean }>(
+    `SELECT to_regprocedure('public.kidmais133_ocupacoes_escopo(date,date,uuid,uuid)') IS NOT NULL AS ok`,
+  );
+  return r.rows[0]?.ok === true;
+}
+
+/** FROM das ocupações do recurso ($1 início, $2 fim, $3 empresa, $4 unidade), pela 133 quando instalada. */
+export function fonteOcupacoesDoRecurso(v133: boolean) {
+  return v133
+    ? "kidmais133_ocupacoes_escopo($1::date,$2::date,$3::uuid,$4::uuid) o"
+    : "kidmais094_ocupacoes($1::date,$2::date) o";
+}
+
+/**
  * Salões combinados habilitados: instalação completa da 098 histórica ou da 108. PARCIAL recusa (ErroCombinadosParcial):
  * a disponibilidade nunca devolve o combinado como candidato nem tira os conjuntos das ocupações (parecer de 29/10, P1-1).
  */
@@ -464,10 +482,12 @@ export async function listarFechamentosConfirmadosPorPeriodo(
   const ex = executor(customDb);
   const v062 = await agendaPorEscopoInstalada(ex);
   if (v062 && (await capacidadeAgendaInstalada(ex))) {
+    // A 133 já aplica o mesmo filtro de recurso por dentro; repeti-lo aqui é inócuo e mantém a 094 como alternativa.
+    const fonte = fonteOcupacoesDoRecurso(await ocupacoesPorEmpresaInstaladas(ex));
     const r = await ex.query<{ fechamento_id: string; data: string; horario_inicio: string; horario_fim: string; configuracao_agenda_id: string | null; salao_id: string | null }>(
       `SELECT fechamento_id, data::text AS data, horario_inicio::text AS horario_inicio, horario_fim::text AS horario_fim,
               configuracao_agenda_id::text AS configuracao_agenda_id, salao_id::text AS salao_id
-         FROM kidmais094_ocupacoes($1::date,$2::date) o
+         FROM ${fonte}
         WHERE kidmais062_mesmo_recurso($3::uuid, $4::uuid, o.empresa_id, o.estabelecimento_id)
         ORDER BY data ASC, horario_inicio ASC`,
       [inicio, fim, ...parametrosEscopo(escopo)],

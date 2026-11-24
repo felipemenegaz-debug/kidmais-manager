@@ -8,6 +8,9 @@ import type { DbExecutor } from '../db/contracts.ts';
  * abertura é entrega futura própria, dentro da D-COBRANCA-LIVE. Por isso esta decisão não lê nenhuma flag comercial e não
  * consulta linhas do domínio: a recusa em production é incondicional.
  *
+ * Exceção decidida por Felipe na D-LAN-4 (23/11/2026): "iniciar-teste" e "estender-teste" do painel do desenvolvedor não
+ * chamam esta guarda (`OPERACOES_FORA_DA_TRAVA` em `lib/desenvolvedor/comercial.ts`). A guarda em si não muda.
+ *
  * Fecha se QUALQUER sinal indicar production ou se o ambiente não for reconhecido; sinais contraditórios fecham. Abre só
  * com staging declarado, banco e serviço que não sejam de production, ou em execução local (nenhum sinal de deploy).
  *

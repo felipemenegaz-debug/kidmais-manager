@@ -75,7 +75,7 @@ test('leitura do banco: sem linha fecha; erro sobe, nunca vira aberta; recusa é
 
 test('amarração: a guarda é o primeiro passo de cada ponto, e o pedido de cadastro recusa antes do after()', () => {
     const primeiroPasso: Array<[string, RegExp]> = [
-        ['lib/desenvolvedor/comercial.ts', /comPosCommit\(deps\.withTransaction, async \(tx, depois\) => \{\s*await exigirCobrancaDestravada\(tx, 'operarComercial'\);/],
+        ['lib/desenvolvedor/comercial.ts', /comPosCommit\(deps\.withTransaction, async \(tx, depois\) => \{\s*if \(!OPERACOES_FORA_DA_TRAVA\.has\(input\.operacao\)\) await exigirCobrancaDestravada\(tx, 'operarComercial'\);/],
         ['lib/desenvolvedor/creditos.ts', /return await deps\.withTransaction\(async \(tx\) => \{\s*if \(op\.acao !== 'simular_corte'\) await exigirCobrancaDestravada\(tx, 'operarCreditos'\);/],
         ['lib/desenvolvedor/cobranca.ts', /return deps\.withTransaction\(async \(tx\) => \{\s*await exigirCobrancaDestravada\(tx, 'sincronizarCobrancaEmpresa'\);/],
         ['lib/desenvolvedor/cobranca.ts', /withTransaction\(async \(tx\) => \{\s*await exigirCobrancaDestravada\(tx, 'liberarIntencaoCobranca'\);/],
@@ -89,6 +89,8 @@ test('amarração: a guarda é o primeiro passo de cada ponto, e o pedido de cad
         ['lib/assinatura/webhook-asaas.ts', /const triagem = await deps\.withTransaction\(async \(tx\) => \{\s*if \(!await cobrancaDestravada\(tx, 'webhook Asaas', deps\.env\)\)\s*return 503;/],
         ['lib/assinatura/renovacao-entrega.ts', /withTransaction\(async \(tx\) => \{\s*if \(!await cobrancaDestravada\(tx, 'webhook Resend', deps\.env\)\)\s*return 'TRAVADA' as const;/],
     ];
+    // D-LAN-4 (23/11/2026): só iniciar e estender teste ficam fora da trava; nenhuma outra operação comercial.
+    assert.match(readFileSync('lib/desenvolvedor/comercial.ts', 'utf8'), /const OPERACOES_FORA_DA_TRAVA: ReadonlySet<string> = new Set\(\['iniciar-teste', 'estender-teste'\]\);/);
     for (const [arquivo, padrao] of primeiroPasso)
         assert.match(readFileSync(arquivo, 'utf8'), padrao, arquivo);
     const checkout = readFileSync('lib/assinatura/cobranca.ts', 'utf8');

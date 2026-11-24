@@ -142,6 +142,14 @@ export async function comPosCommit<T extends Record<string, unknown>>(withTransa
     catch { return r; }
 }
 
+/**
+ * D-LAN-4 (Felipe, 23/11/2026): teste grátis de 15 dias com o Premium inteiro, Wall-e incluído, pela venda assistida.
+ * Iniciar e estender o teste pelo painel ficam FORA da trava B-25 (D-VZ-5) em todo ambiente: gravam só a linha TESTE de
+ * `empresa_assinaturas` (e a exceção EXTENSAO_TESTE na extensão), sem Asaas, sem e-mail e sem dinheiro. O resto do painel
+ * comercial (exceções, continuidade, arrependimento, vínculo) segue travado em production, como o cadastro público.
+ */
+const OPERACOES_FORA_DA_TRAVA: ReadonlySet<string> = new Set(['iniciar-teste', 'estender-teste']);
+
 export async function operarComercial(sessao: SessaoAdmin, id: string, raw: unknown, ctx: ContextoPainel,
     deps: PainelDeps & { provedor?: () => ProvedorRecuperacao | null; enviarEmail?: EnviarEmail | null } = painelDepsPadrao) {
     exigirReautenticacaoRecente(sessao);
@@ -149,7 +157,7 @@ export async function operarComercial(sessao: SessaoAdmin, id: string, raw: unkn
     const input = operacaoSchema.parse(raw);
     const notificacao = { withTransaction: deps.withTransaction as never, env: process.env, enviarEmail: deps.enviarEmail === undefined ? criarEnviarEmail() : deps.enviarEmail };
     return comPosCommit(deps.withTransaction, async (tx, depois) => {
-        await exigirCobrancaDestravada(tx, 'operarComercial');
+        if (!OPERACOES_FORA_DA_TRAVA.has(input.operacao)) await exigirCobrancaDestravada(tx, 'operarComercial');
         await exigirDesenvolvedorNaTransacao(tx, sessao);
         const empresa = (await tx.query<{ status: string; codigo: string }>('SELECT status, codigo FROM empresas WHERE id = $1::uuid FOR UPDATE', [empresaId])).rows[0];
         if (!empresa)

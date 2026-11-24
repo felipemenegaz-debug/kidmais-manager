@@ -1,7 +1,7 @@
 "use client";
 import { adminFetch } from "@/lib/http/admin-fetch";
 
-import { MOTIVOS_PERDA } from '@/lib/oportunidades/modelo';
+import { MotivoPerda } from './oportunidades/MotivoPerda';
 import { useCallback, useLayoutEffect, useRef, useState } from "react";
 import type { AprovacaoNegociacaoRecord, FechamentoRecord } from "@/lib/fechamentos/repositories/models";
 import { calcularCondicaoComercial, centavosComerciais } from "@/lib/comercial/condicao-pagamento";
@@ -240,10 +240,7 @@ export default function RevisaoComercial({ fechamentoId }: { fechamentoId: strin
             <p>{dados.recusa === 'COM_PREPARACAO'
               ? 'O contrato em preparação será cancelado junto com o pedido.'
               : 'Se um contrato entrar em preparação antes da confirmação, ele também poderá ser cancelado.'}</p>
-            <label>Motivo da perda<select required value={motivoPerda} disabled={ocupado} onChange={e => setMotivoPerda(e.target.value)}>
-              <option value="">Selecione o motivo</option>
-              {MOTIVOS_PERDA.map(m => <option key={m}>{m}</option>)}
-            </select></label>
+            <MotivoPerda nome="motivo-recusa" valor={motivoPerda} aoMudar={setMotivoPerda} desativado={ocupado} />
             <label>{motivoPerda === 'Outro' ? 'Explique o motivo' : 'Observação (opcional)'}
               <textarea maxLength={1000} required={motivoPerda === 'Outro'} value={observacao} disabled={ocupado} onChange={e => setObservacao(e.target.value)} />
             </label>

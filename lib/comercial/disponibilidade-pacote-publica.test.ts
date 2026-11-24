@@ -178,10 +178,16 @@ test("tela: toda decisão de disponibilidade do pacote no fechamento passa as re
 
 // ---- Administração (AdminDisponibilidade): mesmas regras da cotação pública, só da empresa ativa; dona da agenda = legado.
 
+// Agenda lenta F2: a administração lê as regras de todos os pacotes numa ida só (pacote_id = ANY($1)); cada pedido é a lista.
 function bancoDeRegras(regras: Record<string, ReturnType<typeof linha>[]>) {
   const pedidos: unknown[] = [];
   return { pedidos, banco: { async query(sql: string, params: unknown[] = []) {
-    if (/FROM regras_disponibilidade_pacote/.test(sql)) { pedidos.push(params[0]); return { rows: regras[String(params[0])] ?? [], rowCount: 0 }; }
+    if (/FROM regras_disponibilidade_pacote/.test(sql)) {
+      assert.match(sql, /WHERE r\.pacote_id = ANY\(\$1::uuid\[\]\)/);
+      const ids = params[0] as string[];
+      pedidos.push(ids);
+      return { rows: ids.flatMap((id) => (regras[id] ?? []).map((l) => ({ pacote_id: id, ...l }))), rowCount: 0 };
+    }
     return { rows: [], rowCount: 0 };
   } } as unknown as DbExecutor };
 }
@@ -197,16 +203,18 @@ test("administração: regras de todos os pacotes da empresa ativa, pela mesma l
   assert.deepEqual(Object.keys(deA), ["POCKET"], "por código do pacote, só os que a empresa tem");
   assert.equal(deA.POCKET.length, 7);
   assert.deepEqual(listas, [EMPRESA_A], "só a empresa informada (comprovada pela sessão)");
-  assert.deepEqual(pedidos, [POCKET_A]);
+  assert.deepEqual(pedidos, [[POCKET_A]], "uma ida só, com os pacotes da empresa");
   const deB = await regrasDosPacotesDaEmpresa(banco, EMPRESA_B, listar);
   assert.deepEqual(deB.POCKET, regrasPublicasDoPacote([linha(3, "TURNO_1")]), "mesmo código, regras da outra empresa não vazam");
 });
 
 test("administração: empresa nova sem pacote não herda o catálogo Kidmais no seletor; lista só os pacotes dela, com o nome dela", async () => {
   const { banco } = bancoDeRegras({ [POCKET_A]: [linha(1, "TURNO_1")] });
-  const nova = await pacotesDaAgendaDaEmpresa(banco, EMPRESA_B, async () => []);
+  const { banco: bancoVazio, pedidos: pedidosVazio } = bancoDeRegras({});
+  const nova = await pacotesDaAgendaDaEmpresa(bancoVazio, EMPRESA_B, async () => []);
   assert.deepEqual(nova.pacotes, [], "buffet novo: nenhum pacote");
   assert.deepEqual(nova.regras, {});
+  assert.deepEqual(pedidosVazio, [], "sem pacote, nenhuma ida ao banco");
   const comPocket = await pacotesDaAgendaDaEmpresa(banco, EMPRESA_A, async () => [{ id: POCKET_A, codigo: "POCKET", nome: "Festinha do Buffet A" }]);
   assert.deepEqual(comPocket.pacotes, [{ id: "POCKET", nome: "Festinha do Buffet A", convidadosMinimos: null, convidadosMaximos: null }]);
   assert.equal(comPocket.regras.POCKET.length, 1);
@@ -226,6 +234,18 @@ test("administração: empresa nova sem pacote não herda o catálogo Kidmais no
   assert.match(tela, /async function carregar\([\s\S]*?aplicarPacotesEmpresa\(dados\.pacotes\);/);
   assert.match(tela, /useEffect\(\(\) => \{\s*void carregar\(false\);/);
   assert.match(tela, /onClick=\{\(\) => carregar\(\)\} disabled=\{carregando\}/);
+});
+
+test("F2: leitura única = leitura por pacote (mesmas regras, mesma ordem); pacote sem regra = []; 10 pacotes, 1 ida", async () => {
+  const ids = Array.from({ length: 10 }, (_, i) => `${String(i).repeat(8)}-0000-4000-8000-000000000000`);
+  const regras = Object.fromEntries(ids.slice(0, 7).map((id, i) => [id, [linha(i + 1, "TURNO_1"), linha(i + 1, "TURNO_2", "SOB_CONSULTA", "2026-03-01")]]));
+  const { banco, pedidos } = bancoDeRegras(regras);
+  const lista = ids.map((id, i) => ({ id, codigo: `P_${i}` }));
+  const agenda = await pacotesDaAgendaDaEmpresa(banco, EMPRESA_A, async () => lista);
+  assert.equal(pedidos.length, 1);
+  assert.deepEqual(agenda.pacotes.map((p) => p.id), lista.map((p) => p.codigo), "ordem da lista da empresa");
+  for (const [i, id] of ids.entries()) assert.deepEqual(agenda.regras[`P_${i}`], regrasPublicasDoPacote(regras[id] ?? []), id);
+  assert.deepEqual(agenda.regras.P_9, []);
 });
 
 test("coerência administração = cotação pública: mesmas regras e mesmo status em 5 semanas × 2 períodos × 7 pacotes", async () => {

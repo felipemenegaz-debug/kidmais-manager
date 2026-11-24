@@ -1,10 +1,11 @@
 import type { DbExecutor } from '../../../db/contracts.ts';
+import { db } from '../../../db/postgres.ts';
 import type { SessaoParaTenant } from '../../../saas/provar-tenant.ts';
 import { ambienteAtendimento } from '../configuracao.ts';
 import { acessoAtendimento, tem082 } from '../service.ts';
 import { lerContexto } from './contexto.ts';
 import { NOME_MOTIVO, type MotivoPassagem, type Passagem, type TipoIntencao } from './tipos.ts';
-import { ambienteDoLink, linkDisponibilidadePublica } from './link-disponibilidade.ts';
+import { ambienteDoLink, linkDisponibilidadeDaEmpresa } from './link-disponibilidade.ts';
 import { listarConfiguracoesAgendaAtivas } from '../../../disponibilidade/repositories/disponibilidade.repository.ts';
 import { escopoDaConsulta } from './fontes-postgres.ts';
 
@@ -49,10 +50,11 @@ export async function resumoDaConversa(tx: DbExecutor, empresa: string, ambiente
 
 /** Para a tela: a 082 está aplicada (Wall-e, biblioteca completa) e o resumo da conversa aberta. */
 export async function estadoWallE(sessao: SessaoParaTenant, conversaId: string | null) {
-  return acessoAtendimento(sessao, async (tx, empresa) => {
-    // Rodada 40: o link público de disponibilidade desta empresa (o mesmo que o Wall-e envia), para a Configuração.
-    const linkPublico = linkDisponibilidadePublica(empresa, ambienteDoLink());
-    if (!(await tem082(tx))) return { disponivel: false, conversaId, resumo: null, linkPublico };
-    return { disponivel: true, conversaId, resumo: conversaId ? await resumoDaConversa(tx, empresa, ambienteAtendimento(), conversaId) : null, linkPublico };
+  const { empresa, ...estado } = await acessoAtendimento(sessao, async (tx, empresa) => {
+    const disponivel = await tem082(tx);
+    const resumo = disponivel && conversaId ? await resumoDaConversa(tx, empresa, ambienteAtendimento(), conversaId) : null;
+    return { empresa, disponivel, conversaId, resumo };
   });
+  const linkPublico = await linkDisponibilidadeDaEmpresa(empresa, ambienteDoLink(), db);
+  return { ...estado, linkPublico };
 }
