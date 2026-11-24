@@ -7,6 +7,7 @@ import * as domain from '../../festas/domain.ts';
 import { situacaoCobranca } from './cancelamento-core.ts';
 import { PagamentoServiceError } from './errors.ts';
 import * as financeiroCore from './alteracao-financeira-core.ts';
+import * as futuroOrdem from '../futuro-ordem.ts';
 import { hashSnapshotContrato } from '../../contratos/services/snapshot-core.ts';
 import { nomePapelSistema } from '../../autenticacao/papeis.ts';
 import * as travaConfiguracao from '../../agenda/trava-configuracao.ts';
@@ -184,7 +185,7 @@ for (const consolidado of [false, true]) test(`consulta real sinaliza acerto e r
   } };
   const repository = carregar('lib/pagamentos/repositories/alteracao-financeira.repository.ts', {
     '../services/cancelamento-core': { situacaoCobranca }, '../../contratos/services/snapshot-core': { hashSnapshotContrato },
-    '../services/alteracao-financeira-core': financeiroCore,
+    '../services/alteracao-financeira-core': financeiroCore, '../futuro-ordem': futuroOrdem,
   });
   const result = await repository.lerPosicaoFinanceira(tx, 'c') as { cobranca: ReturnType<typeof situacaoCobranca>; futuro: unknown[]; posicao: { recebido: bigint; obrigacao: bigint; saldo: bigint } };
   assert.deepEqual(result.futuro, []); assert.equal(result.cobranca.saldoACobrar, 0n);

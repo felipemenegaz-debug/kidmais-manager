@@ -1,6 +1,7 @@
 'use client';
 import { useCallback, useEffect, useState } from 'react';
 import { adminFetch } from '@/lib/http/admin-fetch';
+import { proximaParcelaEmAberto } from '@/lib/pagamentos/futuro-ordem';
 import FinanceiroContrato from './FinanceiroContrato';
 import { erroPagamentos } from './contrato-tela';
 import styles from './contratos-ux.module.css';
@@ -41,7 +42,8 @@ export default function PagamentosResumo({ contratoId, temVigente, onReady }: { 
   if (!painel) return <p role="status" data-pagamentos="CARREGANDO">Carregando pagamentos…</p>;
   const { posicao, cobranca } = painel, obrigacao = BigInt(posicao.obrigacao), liquido = BigInt(posicao.liquido);
   const largura = obrigacao > 0n ? Math.min(100, Number((liquido * 100n) / obrigacao)) : liquido > 0n ? 100 : 0;
-  const proxima = painel.futuro.find(f => BigInt(f.valorCentavos) > 0n);
+  // Próxima = em aberto de vencimento mais cedo, com o saldo dela (não a primeira da lista: achado P1 de 23/11).
+  const proxima = proximaParcelaEmAberto(painel.futuro);
   return <>
     <div className={styles.cartoes} data-pagamentos="OK">
       <div className={styles.cartao}><span>Valor do contrato</span><strong>{moeda(painel.valorVigente)}</strong></div>
