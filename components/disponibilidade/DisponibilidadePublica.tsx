@@ -17,6 +17,8 @@ import type {
   HorarioCandidatoPublico,
   PeriodoDisponibilidadePublica,
 } from "@/lib/disponibilidade/services/models";
+import type { DescontosEmpresaPublicos } from "@/lib/comercial/descontos-dia";
+import { avisoDescontoAgenda, descontoDoDia } from "./desconto-tela";
 import styles from "./DisponibilidadePublica.module.css";
 
 const MESES = [
@@ -72,7 +74,12 @@ async function buscarDisponibilidadeMes(ano: number, mes: number, empresa: strin
   const json = await resposta.json().catch(() => null);
   // Agenda pública sem contexto configurado no servidor (062): mensagem do servidor, sem horário de ninguém.
   if (!resposta.ok) throw new AgendaPublicaIndisponivel(String(json?.codigo ?? "").startsWith("AGENDA_PUBLICA_") ? String(json.erro) : null);
-  return (Array.isArray(json.data) ? json.data : []) as DisponibilidadeDataPublica[];
+  const descontos = json?.comercial?.descontosEmpresa;
+  return {
+    dias: (Array.isArray(json.data) ? json.data : []) as DisponibilidadeDataPublica[],
+    // Desconto por dia da semana (23/11): as mesmas regras que a cotação cobra; sem o campo, nenhum selo.
+    descontos: descontos && typeof descontos === "object" && !Array.isArray(descontos) ? (descontos as DescontosEmpresaPublicos) : null,
+  };
 }
 
 class AgendaPublicaIndisponivel extends Error {
@@ -90,6 +97,7 @@ export default function DisponibilidadePublica({ empresa = null }: { empresa?: s
   const [mes, setMes] = useState(agora.getMonth());
   const [ano, setAno] = useState(agora.getFullYear());
   const [porData, setPorData] = useState<Record<string, DisponibilidadeDataPublica>>({});
+  const [descontos, setDescontos] = useState<DescontosEmpresaPublicos | null>(null);
   const [carregando, setCarregando] = useState(true);
   const [erro, setErro] = useState("");
   const [dataSelecionada, setDataSelecionada] = useState("");
@@ -120,9 +128,10 @@ export default function DisponibilidadePublica({ empresa = null }: { empresa?: s
 
     void (async () => {
       try {
-        const dias = await buscarDisponibilidadeMes(ano, mes, empresa, convidados);
+        const { dias, descontos: regras } = await buscarDisponibilidadeMes(ano, mes, empresa, convidados);
         if (cancelado) return;
         setPorData(Object.fromEntries(dias.map((item) => [item.data, item])));
+        setDescontos(regras);
         setErro("");
       } catch (falha) {
         if (cancelado) return;
@@ -195,6 +204,10 @@ export default function DisponibilidadePublica({ empresa = null }: { empresa?: s
   const legendaCobranca = legendaMinimo(doMes(porData, ano, mes).filter(d => d.data >= hojeIso()), convidados);
   const alternativasSemMinimo = minimoSelecionado ? datasProximas(porData, dataSelecionada, hojeIso(), 3, undefined, true) : [];
   const algumSemSalao = doMes(porData, ano, mes).some((d) => estadoDoDia(d) === "SEM_SALAO");
+  const avisoDesconto = avisoDescontoAgenda(descontos, hojeIso());
+  const descontoSelecionado = dataSelecionada ? descontoDoDia(descontos, dataInfo) : null;
+  const descontosDoMes = doMes(porData, ano, mes).filter((d) => d.data >= hojeIso()).map((d) => descontoDoDia(descontos, d)).filter((d) => d !== null);
+  const seloLegenda = (descontosDoMes.find((d) => !d.ate) ?? descontosDoMes[0])?.selo ?? null;
   const classeDoDia: Record<EstadoDia, string> = {
     MINIMO: styles.dayMinimum,
     NEUTRO: styles.dayNeutral,
@@ -335,8 +348,18 @@ export default function DisponibilidadePublica({ empresa = null }: { empresa?: s
             </div>
 
             {Number.isFinite(minimoPublicado) && convidados < minimoPublicado && <p role="status">Nossos pacotes começam em {minimoPublicado} convidados. Com {convidados} presentes, vale o mínimo faturado do pacote escolhido.</p>}
+            {avisoDesconto ? (
+              <div className={styles.discountBanner} role="note">
+                <span className={styles.discountIcon} aria-hidden="true">%</span>
+                <div>
+                  <strong>{avisoDesconto}</strong>
+                  <small>As datas com o selo de desconto têm desconto no valor do pacote. Adicionais são calculados à parte.</small>
+                </div>
+              </div>
+            ) : null}
             <div className={styles.legend}>
               <span><i className={styles.legendAvailable} /> Disponível</span>
+              {seloLegenda ? <span><b aria-hidden="true" className={styles.discountChip}>{seloLegenda}</b> Desconto no pacote</span> : null}
               {legendaCobranca && <span><b aria-hidden="true" className={styles.minimumSymbol}>≥</b> {legendaCobranca}</span>}
               <span><i className={styles.legendPartial} /> Parcial</span>
               <span><i className={styles.legendUnavailable} /> Sem horários</span>
@@ -361,17 +384,20 @@ export default function DisponibilidadePublica({ empresa = null }: { empresa?: s
                 const passado = data < hojeIso();
                 const estado = estadoDoDia(info);
                 const classeStatus = classeDoDia[estado];
+                const desconto = passado ? null : descontoDoDia(descontos, info);
+                const rotulo = !passado && estado === "MINIMO" ? `${formatarData(data)}, mínimo de ${minimoDoDia(info)} convidados` : undefined;
 
                 return (
                   <button
                     key={data}
                     type="button"
-                    aria-label={!passado && estado === "MINIMO" ? `${formatarData(data)}, mínimo de ${minimoDoDia(info)} convidados` : undefined}
+                    aria-label={desconto ? `${rotulo ?? formatarData(data)}, ${desconto.titulo.toLowerCase()}` : rotulo}
                     disabled={passado || carregando || !info}
                     onClick={() => selecionarData(data)}
-                    className={`${styles.day} ${classeStatus} ${passado ? styles.dayPast : ""} ${dataSelecionada === data ? styles.daySelected : ""}`}
+                    className={`${styles.day} ${classeStatus} ${passado ? styles.dayPast : ""} ${desconto ? styles.dayDiscount : ""} ${dataSelecionada === data ? styles.daySelected : ""}`}
                   >
                     <strong>{dia}</strong>
+                    {desconto ? <em className={styles.discountBadge} aria-hidden="true">{desconto.selo}</em> : null}
                     {!passado && info ? (
                       <small aria-label={estado === "PARCIAL" ? "Disponibilidade parcial" : estado === "SEM_PACOTE" ? `Sem pacote para ${convidados} convidados` : estado === "SEM_SALAO" ? `Sem salão para ${convidados}` : undefined}>
                         {estado === "MINIMO" ? "≥" : estado === "SEM_PACOTE" ? "◇" : estado === "SEM_SALAO" ? "↔" : estado === "INDISPONIVEL" ? "×" : estado === "PARCIAL" ? "◐" : "✓"}
@@ -390,6 +416,15 @@ export default function DisponibilidadePublica({ empresa = null }: { empresa?: s
                 <span>2</span>
                 <h2>Escolha uma data</h2>
                 <p>Depois você verá os períodos disponíveis para esse dia.</p>
+                {avisoDesconto ? (
+                  <div className={styles.discountInfo}>
+                    <span className={styles.discountChip} aria-hidden="true">%</span>
+                    <div>
+                      <strong>{avisoDesconto}</strong>
+                      <small>O valor final aparece na escolha do pacote.</small>
+                    </div>
+                  </div>
+                ) : null}
               </div>
             ) : (
               <>
@@ -397,6 +432,24 @@ export default function DisponibilidadePublica({ empresa = null }: { empresa?: s
                   <span>Data selecionada</span>
                   <strong>{formatarData(dataSelecionada)}</strong>
                 </div>
+
+                {descontoSelecionado ? (
+                  <div className={styles.discountInfo} role="status">
+                    <span className={styles.discountChip} aria-hidden="true">{descontoSelecionado.selo}</span>
+                    <div>
+                      <span>Desconto nesta data</span>
+                      <strong>{descontoSelecionado.titulo}</strong>
+                      <small>{descontoSelecionado.regra ? `${descontoSelecionado.regra}. ` : ""}O valor final aparece na escolha do pacote.</small>
+                    </div>
+                  </div>
+                ) : avisoDesconto && !semEncaixe ? (
+                  <div className={`${styles.discountInfo} ${styles.discountInfoNeutral}`}>
+                    <div>
+                      <span>Sem desconto nesta data</span>
+                      <small>{avisoDesconto}</small>
+                    </div>
+                  </div>
+                ) : null}
 
                 <section className={styles.selectionStep}>
                   <div className={styles.stepHeading}>
