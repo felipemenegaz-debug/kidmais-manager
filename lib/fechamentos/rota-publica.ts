@@ -12,12 +12,14 @@ export function apiPublica(caminho: string, empresa?: string | null) {
  * Páginas do fluxo público. `/orcamento` é o nome do pedido de orçamento no endereço do buffet (/b/<código>/orcamento);
  * sem empresa, o endereço atual continua /fechamento. /b/<código>/fechamento segue respondendo, com a mesma tela, para
  * os links já enviados.
+ * A base opcional mantém as páginas do fluxo global sob /b/<código>, sem alterar o escopo das APIs.
  */
 export type PaginaPublica = "/fechamento" | "/orcamento" | "/disponibilidade" | "/saloes";
 
-export function paginaPublica(caminho: PaginaPublica, empresa?: string | null) {
-  if (!empresa) return caminho === "/orcamento" ? "/fechamento" : caminho;
-  return `/b/${encodeURIComponent(empresa)}${caminho}`;
+export function paginaPublica(caminho: PaginaPublica, empresa?: string | null, base?: string | null) {
+  const codigo = base ?? empresa;
+  const destino = caminho === "/orcamento" && (base != null || !empresa) ? "/fechamento" : caminho;
+  return codigo ? `${paginaInicialPublica(codigo)}${destino}` : destino;
 }
 
 /** Página inicial do buffet: /b/<código>. */

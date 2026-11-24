@@ -63,6 +63,22 @@ test('upgrade completo: bootstrap 129, aplicar 130 e 131, diagnóstico 0', {skip
   assert.deepEqual(linhas.map(l => `${l.migration}:${l.situacao}:${l.versao}`), ['129:CONCLUIDA:2', '130:CONCLUIDA:3', '131:CONCLUIDA:3']);
 });
 
+test('132 (Wall-e 1a): sem a 131 = antecessora pendente (3); depois da 131 aplica com postcheck; repetida e conferida = já aplicada; diagnóstico 0', {skip: pular}, async () => {
+  const b = await comRegistro();
+  ok(await rodar(b, ['--aplicar-130-autorizado', '--backup', BACKUP]), /APLICADA_POSTCHECK_PASS 130/);
+  ok(await rodar(b, ['--aplicar-132-autorizado', '--backup', BACKUP]), /ANTECESSORA_PENDENTE 131 sem linha/, 3);
+  assert.equal((await sql(b, "SELECT to_regclass('public.whatsapp_atendimento_oportunidades') IS NULL AS ausente")).rows[0].ausente, true);
+  ok(await rodar(b, ['--aplicar-131-autorizado', '--backup', BACKUP]), /APLICADA_POSTCHECK_PASS 131/);
+  ok(await rodar(b, ['--aplicar-132-autorizado', '--backup', BACKUP]), /APLICADA_POSTCHECK_PASS 132/);
+  ok(await rodar(b, ['--conferir-132']), /JA_APLICADA_POSTCHECK_PASS 132/);
+  ok(await rodar(b, ['--aplicar-132-autorizado', '--backup', BACKUP]), /JA_APLICADA_POSTCHECK_PASS 132/);
+  // A 133 não depende da 132: aplica com a 131 e o diagnóstico fecha com as duas.
+  ok(await rodar(b, ['--aplicar-133-autorizado', '--backup', BACKUP]), /APLICADA_POSTCHECK_PASS 133/);
+  ok(await rodar(b, ['--conferir-registro']), /POSTCHECK 132 PASS[\s\S]*POSTCHECK 133 PASS[\s\S]*DIAGNOSTICO_CODIGO 0/);
+  const linhas = (await sql(b, 'SELECT migration, situacao FROM operacao_migration_tentativas ORDER BY id')).rows;
+  assert.deepEqual(linhas.map(l => `${l.migration}:${l.situacao}`), ['129:CONCLUIDA', '130:CONCLUIDA', '131:CONCLUIDA', '132:CONCLUIDA', '133:CONCLUIDA']);
+});
+
 test('133 (agenda por empresa): sem a 131 = antecessora pendente (3); depois da 131 aplica com postcheck; repetida e conferida = já aplicada; diagnóstico 0', {skip: pular}, async () => {
   const b = await comRegistro();
   ok(await rodar(b, ['--aplicar-130-autorizado', '--backup', BACKUP]), /APLICADA_POSTCHECK_PASS 130/);

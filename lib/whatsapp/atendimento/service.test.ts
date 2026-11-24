@@ -162,10 +162,21 @@ test('lista mostra o responsável só com vínculo ativo na mesma empresa e a si
   const dados = await modulo.listarAtendimento(sessao, 'c');
   const lista = sqls('FROM whatsapp_atendimento_conversas c')[0];
   assert.match(lista.sql, /LEFT JOIN usuarios_administrativos u ON u\.id=c\.responsavel_id AND EXISTS\(SELECT 1 FROM memberships m WHERE m\.usuario_id=u\.id AND m\.empresa_id=c\.empresa_id AND m\.status='ATIVA'\)/);
-  assert.deepEqual(lista.args, ['e', 'staging']);
+  // Wall-e 1a r2: o 3º parâmetro é a conversa pedida, só quando é um uuid ('c' não é: nenhuma conversa é puxada).
+  assert.deepEqual(lista.args, ['e', 'staging', null]);
+  assert.match(lista.sql, /ORDER BY \(c\.id IS NOT DISTINCT FROM \$3::uuid\) DESC,c\.atualizada_em DESC LIMIT 100/);
   assert.doesNotMatch(lista.sql, /c\.\*/, 'só as colunas da tela, nunca a linha inteira');
-  assert.match(sqls('autor_usuario_id IS NOT NULL AS humana')[0].sql, /m\.empresa_id=\$1 AND m\.ambiente=\$2 AND m\.conversa_id=\$3/);
+  // r3 (P3): o mesmo id normalizado vale para as mensagens: 'c' não puxa mensagem nenhuma (sem 22P02 no banco).
+  assert.equal(sqls('autor_usuario_id IS NOT NULL AS humana').length, 0, 'id fora do formato: sem consulta de mensagens');
+  assert.deepEqual(dados.mensagens, []);
   assert.deepEqual(dados.canal, { ambiente: 'staging', receptor: true, recepcao: true, envio: true });
+  const uuid = '0f8fad5b-d9cb-469f-a165-70867728950e';
+  const comUuid = carregar();
+  await comUuid.modulo.listarAtendimento(sessao, uuid);
+  assert.deepEqual(comUuid.sqls('FROM whatsapp_atendimento_conversas c')[0].args, ['e', 'staging', uuid]);
+  const msg = comUuid.sqls('autor_usuario_id IS NOT NULL AS humana')[0];
+  assert.match(msg.sql, /m\.empresa_id=\$1 AND m\.ambiente=\$2 AND m\.conversa_id=\$3/);
+  assert.deepEqual(msg.args, ['e', 'staging', uuid]);
 });
 
 test('tela autorizada: número completo, cadastro só da empresa (sem mesclados, com e sem 55) e vários cadastros sem escolha', async () => {

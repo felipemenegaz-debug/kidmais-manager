@@ -122,6 +122,52 @@ test('ATIVA, host A: Grupo P servido, atalho e resto vão para N', () => {
     assert.deepEqual(decide(ATIVA, hA, p), vai(`${N}${p}`), p);
 });
 
+const VIRADA = { ENDERECOS_KIDMAIS_EM_N: 'true', AGENDA_PUBLICA_EMPRESA_CODIGO: 'kidmais-teste' };
+
+test('ATIVA, host A: a virada preserva a query e leva o fluxo público ao buffet em N', () => {
+  const env = { ...ATIVA, ...VIRADA, ENDERECOS_KIDMAIS_EM_N: ' true ' };
+  const query = '?origem=CLIENTE&data=2026-12-12&configuracaoId=7&ajuste=+10&inicio=15%3A00&fim=19%3a00&convidados=80&utm_source=a%20b&utm_medium=email&empresa=outro-buffet';
+  for (const [caminho, pagina] of [
+    ['/', '/disponibilidade'], ['/disponibilidade', '/disponibilidade'],
+    ['/disponibilidade/', '/disponibilidade'], ['/fechamento', '/fechamento'], ['/fechamento/', '/fechamento'],
+  ]) {
+    assert.deepEqual(decide(env, hA, `${caminho}${query}`), vai(`${N}/b/kidmais-teste${pagina}${query}`));
+  }
+  for (const caminho of ['/fechamento?contexto=ADMIN', '/fechamento/?origem=ATENDIMENTO_KIDMAIS&x=1']) {
+    assert.deepEqual(decide(env, hA, caminho), vai(`${N}/clientes?acao=fechamento`));
+  }
+  assert.deepEqual(decide(env, hA, '/contrato/x'), PASSA);
+  assert.deepEqual(decide(env, hA, '/clientes'), vai(`${N}/clientes`));
+  assert.deepEqual(decide(env, hN, `/disponibilidade${query}`), vai(`${N}/conheca`));
+  assert.equal(telaDoClienteGlobal(env), '/b/kidmais-teste/disponibilidade');
+});
+
+test('ATIVA: chave desligada ou código inválido preserva o resultado anterior', () => {
+  const variacoes = [
+    ...[undefined, '', 'false', 'TRUE', '1'].map(ENDERECOS_KIDMAIS_EM_N => ({ ENDERECOS_KIDMAIS_EM_N })),
+    ...[undefined, '', 'kidmais/teste', '..', 'Kidmais', ' kidmais '].map(AGENDA_PUBLICA_EMPRESA_CODIGO => ({ AGENDA_PUBLICA_EMPRESA_CODIGO })),
+  ];
+  for (const variacao of variacoes) {
+    const env = { ...ATIVA, ...VIRADA, ...variacao };
+    for (const caminho of ['/', '/disponibilidade/', '/fechamento?data=1', '/fechamento?contexto=ADMIN', '/contrato/x', '/clientes']) {
+      assert.deepEqual(decide(env, hA, caminho), decide(ATIVA, hA, caminho));
+    }
+    assert.equal(telaDoClienteGlobal(env), `${A}/disponibilidade`);
+  }
+});
+
+test('fora de ATIVA, a chave preserva a decisão nos dois hosts e a tela do cliente', () => {
+  for (const env of [PREPARACAO, REVERSAO, { ...AUSENTE, ENDERECOS_MODO: 'DESLIGADO' }, { ...ATIVA, ADMIN_AUTH_ORIGIN: A }]) {
+    const comChave = { ...env, ...VIRADA };
+    for (const host of [hA, hN]) {
+      for (const caminho of ['/', '/disponibilidade/', '/fechamento?data=1', '/fechamento?contexto=ADMIN', '/contrato/x', '/clientes']) {
+        assert.deepEqual(decide(comChave, host, caminho), decide(env, host, caminho));
+      }
+    }
+    assert.equal(telaDoClienteGlobal(comChave), '/disponibilidade');
+  }
+});
+
 test('ATIVA, host N: invariante; o resto serve', () => {
   for (const p of ['/', '/disponibilidade', '/fechamento']) assert.deepEqual(decide(ATIVA, hN, p), vai(`${N}/conheca`), p);
   assert.deepEqual(decide(ATIVA, hN, '/fechamento?contexto=ADMIN'), vai(`${N}/clientes?acao=fechamento`));

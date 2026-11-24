@@ -1,7 +1,8 @@
 import { createHash } from 'node:crypto';
+import { enderecoPublicoAbsoluto } from '../fechamentos/rota-publica.ts';
 import { urlsMcp } from '../integracoes/mcp/config.ts';
 import { normalizarHost } from '../marketing/dominios/hosts.ts';
-import { avaliarConfiguracao, type AmbienteEnderecos, type CodigoEnderecos, type ModoEfetivo, type ModoSolicitado } from './roteamento.ts';
+import { avaliarConfiguracao, codigoKidmaisEmN, type AmbienteEnderecos, type CodigoEnderecos, type ModoEfetivo, type ModoSolicitado } from './roteamento.ts';
 
 /**
  * Diagnóstico público da troca de host: só estados e booleanos, nunca o valor de uma variável. Não acessa banco, não
@@ -26,6 +27,7 @@ export type DiagnosticoEndereco = {
   painelNesteHost: boolean | null;
   toleranciaAtiva: boolean;
   tolerancia: EstadoTolerancia;
+  kidmaisEmN: boolean;
   /** Nula sem modo válido em uso: não há origem esperada para comparar. */
   coerencia: CoerenciaEnderecos | null;
   /** Origem efetiva dos links novos de mídia do WhatsApp (F4/M1). Nula sem modo válido em uso. */
@@ -64,6 +66,8 @@ function origemIgual(valor: string | undefined, esperada: string, exigeSemCaminh
 
 export function diagnosticarEndereco(host: string | null, env: AmbienteDiagnostico, agora = Date.now()): DiagnosticoEndereco {
   const cfg = avaliarConfiguracao(env);
+  const codigoKidmais = codigoKidmaisEmN(env);
+  const kidmaisEmN = codigoKidmais !== null;
   const tolerancia = avaliarTolerancia(env.ENDERECOS_TOLERANCIA_ATE, agora);
   const hostPedido = normalizarHost(host);
   const painelNesteHost = hostPedido && cfg.painel ? new URL(cfg.painel).hostname === hostPedido : null;
@@ -74,6 +78,8 @@ export function diagnosticarEndereco(host: string | null, env: AmbienteDiagnosti
   let mcpEm: DiagnosticoEndereco['mcpEm'] = null;
   if (cfg.antiga && cfg.painel) {
     const a = cfg.antiga;
+    const codigoDaVirada = cfg.modoEfetivo === 'ATIVA' ? codigoKidmais : null;
+    const site = env.SITE_URL || admin;
     const midiaEfetiva = env.WHATSAPP_ATENDIMENTO_MIDIA_ORIGEM || admin;
     midiaEm = origemIgual(midiaEfetiva, a) ? 'A' : cfg.nova && origemIgual(midiaEfetiva, cfg.nova) ? 'N' : 'INDETERMINADA';
     const mcp = env.MCP_PUBLIC_URL;
@@ -83,8 +89,9 @@ export function diagnosticarEndereco(host: string | null, env: AmbienteDiagnosti
     mcpEm = !mcp ? 'AUSENTE' : !recursoMcp ? 'INDETERMINADA' : origemIgual(recursoMcp, a) ? 'A' : cfg.nova && origemIgual(recursoMcp, cfg.nova) ? 'N' : 'INDETERMINADA';
     coerencia = {
       convites: origemIgual(env.CONVITES_PUBLIC_ORIGIN || admin, cfg.painel),
-      site: origemIgual(env.SITE_URL || admin, cfg.painel),
-      agenda: origemIgual(env.AGENDA_PUBLICA_ORIGEM?.trim() || admin, a, true),
+      site: origemIgual(site, cfg.painel) &&
+        (codigoDaVirada === null || enderecoPublicoAbsoluto(site, codigoDaVirada, '/disponibilidade') !== null),
+      agenda: origemIgual(env.AGENDA_PUBLICA_ORIGEM?.trim() || admin, a, true) || codigoDaVirada !== null,
       // A, ou N só quando escrita na própria variável (F4/M1): /api nunca é redirecionado, então N serve o arquivo em
       // todos os modos. N herdado de ADMIN_AUTH_ORIGIN, com a variável ausente, segue incoerente (H25: troca sem decisão).
       midia: midiaEm === 'A' || (midiaEm === 'N' && Boolean(env.WHATSAPP_ATENDIMENTO_MIDIA_ORIGEM)),
@@ -101,6 +108,7 @@ export function diagnosticarEndereco(host: string | null, env: AmbienteDiagnosti
     painelNesteHost,
     toleranciaAtiva: tolerancia === 'VALIDA',
     tolerancia,
+    kidmaisEmN,
     coerencia,
     midiaEm,
     mcpEm,
@@ -110,6 +118,6 @@ export function diagnosticarEndereco(host: string | null, env: AmbienteDiagnosti
 
 /** Linha de log, sem valores: os mesmos campos do diagnóstico, menos o que depende do pedido. */
 export function linhaDeLogDoEndereco(env: AmbienteDiagnostico, agora = Date.now()) {
-  const { modoSolicitado, modoEfetivo, codigo, origemAtiva, toleranciaAtiva, tolerancia, coerencia, midiaEm, mcpEm, mcpRecursoSha256 } = diagnosticarEndereco(null, env, agora);
-  return `[Enderecos] ${JSON.stringify({ modoSolicitado, modoEfetivo, codigo, origemAtiva, toleranciaAtiva, tolerancia, coerencia, midiaEm, mcpEm, mcpRecursoSha256 })}`;
+  const { modoSolicitado, modoEfetivo, codigo, origemAtiva, toleranciaAtiva, tolerancia, kidmaisEmN, coerencia, midiaEm, mcpEm, mcpRecursoSha256 } = diagnosticarEndereco(null, env, agora);
+  return `[Enderecos] ${JSON.stringify({ modoSolicitado, modoEfetivo, codigo, origemAtiva, toleranciaAtiva, tolerancia, kidmaisEmN, coerencia, midiaEm, mcpEm, mcpRecursoSha256 })}`;
 }

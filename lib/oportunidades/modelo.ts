@@ -23,4 +23,6 @@ export const comandoSchema = z.discriminatedUnion('acao', [
 export type Alvo = z.infer<typeof alvoSchema>;
 export type Comando = z.infer<typeof comandoSchema>;
 export type Acao = { id: string; tipo: string; data: string; observacao: string | null; responsavelId: string };
-export type Oportunidade = { id: string; tipo: Alvo['tipo']; nome: string; clienteId: string | null; status: string; etapa: string; valor: string | null; dataEvento: string | null; responsavelId: string | null; proxima: Acao | null; sugerirPerda: boolean; href: string };
+export type Oportunidade = { id: string; tipo: Alvo['tipo']; nome: string; clienteId: string | null; status: string; etapa: string; valor: string | null; dataEvento: string | null; responsavelId: string | null; proxima: Acao | null; sugerirPerda: boolean; href: string;
+  /** Wall-e 1a: canal do contato (WHATSAPP, FORMULARIO_SITE…), se o cartão nasceu de uma conversa do Wall-e e qual. */
+  canal?: string | null; origemWalle?: boolean; conversaId?: string | null };

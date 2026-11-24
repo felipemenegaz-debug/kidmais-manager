@@ -1,4 +1,4 @@
-import { vincularContatoNegociacao } from './conversao.ts';
+import { exigirContatoEditavel, vincularContatoNegociacao } from './conversao.ts';
 import { z } from "zod";
 import type { DbExecutor } from "../db/contracts.ts";
 import { buscarClientesPorContatoExato, buscarClientesPorEmailExato, criarCliente } from "../clientes/repositories/cliente.repository.ts";
@@ -17,6 +17,7 @@ import { perdaSchema } from '../oportunidades/modelo.ts';
 import { gravarPerda } from '../oportunidades/perda.ts';
 import { herdarAcoesDoContato } from '../oportunidades/conversao.ts';
 import { travarConfiguracaoAgenda } from '../agenda/trava-configuracao.ts';
+import { ambienteDoDeploy } from '../oportunidades/ambiente.ts';
 
 export const ORIGEM_SITE = "SITE_PUBLICO";
 export const STATUS_CONTATO = ["NOVO", "EM_ATENDIMENTO", "CONVERTIDO", "DESCARTADO"] as const;
@@ -61,6 +62,7 @@ export async function capturarContatoPublico(
   entrada: { nome: string; telefone: string | null; email: string | null; dataDesejada: string | null; convidados: number | null; mensagem: string | null; chave: string; autorizaWhatsapp?: boolean },
   captura: CapturaCampanha,
 ): Promise<{ contatoId: string; repetido: boolean }> {
+  await travarTelefoneNoFunil(tx, site.empresaId, entrada.telefone);
   const inserido = await tx.query<{ id: string }>(
     `INSERT INTO marketing_contatos (empresa_id, estabelecimento_id, site_id, canal_atendimento, nome, telefone, email, data_desejada, convidados,
        mensagem, chave_idempotencia, vinculo_cliente)
@@ -109,6 +111,23 @@ export async function capturarContatoPublico(
 }
 
 /** Telefone com e sem o DDI 55 (o CRM guarda dígitos como foram digitados): o mesmo número acha o mesmo cliente. */
+/**
+ * Trava consultiva do telefone no funil, por empresa (com e sem 55 caem na mesma), tomada antes de gravar um contato com
+ * telefone. A MESMA chave da captura do Wall-e (lib/whatsapp/atendimento/walle/oportunidade.ts; paridade em teste): a
+ * captura nunca decide "não há cartão aberto" enquanto o site ou o registro manual gravam um cartão do mesmo telefone.
+ */
+export function chaveTravaTelefone(empresaId: string, digitos: string) {
+  return `funil-telefone|${empresaId}|${/^55\d{10,11}$/.test(digitos) ? digitos.slice(2) : digitos}`;
+}
+async function travarTelefoneNoFunil(tx: DbExecutor, empresaId: string, telefone: string | null | undefined) {
+  if (!telefone) return;
+  // Wall-e 1a r6 (P1-2): a empresa ANTES do telefone, como na captura do Wall-e e na exclusão a pedido (empresa → conversa →
+  // telefone → cartões). Sem isto, o INSERT do cartão pediria a empresa (FK, KEY SHARE) segurando o telefone, enquanto a
+  // exclusão segura a empresa (FOR UPDATE do Tenant Context) e espera o telefone: impasse. No registro manual a entrada
+  // administrativa já tem a empresa travada; repetir a trava na mesma transação não espera.
+  await tx.query('SELECT id FROM empresas WHERE id = $1::uuid FOR KEY SHARE', [empresaId]);
+  await tx.query('SELECT pg_advisory_xact_lock(hashtextextended($1, 0))', [chaveTravaTelefone(empresaId, telefone)]);
+}
 export function variantesTelefone(digitos: string) {
   const v = new Set([digitos]);
   if (/^55\d{10,11}$/.test(digitos)) v.add(digitos.slice(2));
@@ -146,21 +165,16 @@ export type ContatoLista = {
   recebidoEm: string; dataDesejada: string | null; convidados: number | null; clienteId: string | null; clienteNome: string | null;
   vinculoCliente: string; fechamentoId: string | null; origemCodigo: string | null; metodo: string | null; campanhaId: string | null;
   campanhaNome: string | null; unidadeId: string | null;
+  /** r5 (P2): cartão do Wall-e anonimizado a pedido do titular (132): só leitura na tela e no servidor. */
+  anonimizado: boolean;
 };
 
-export async function listarContatos(
-  tx: DbExecutor, empresaId: string,
-  filtros: { id?: string | null; de?: string | null; ate?: string | null; status?: StatusContato | null; unidadeId?: string | null; campanhaId?: string | null; limite?: number },
-): Promise<ContatoLista[]> {
-  const r = await tx.query<{
-    id: string; nome: string; telefone: string | null; email: string | null; canal_atendimento: CanalAtendimento; status: StatusContato; recebido_em: string;
-    data_desejada: string | null; convidados: number | null; cliente_id: string | null; cliente_nome: string | null; vinculo_cliente: string;
-    fechamento_id: string | null; origem_codigo: string | null; metodo: string | null; campanha_id: string | null; campanha_nome: string | null;
-    estabelecimento_id: string | null;
-  }>(
-    `SELECT k.id::text, k.nome, k.telefone, k.email, k.canal_atendimento, k.status, k.recebido_em::text, k.data_desejada::text, k.convidados,
+/** r3 (P1): cartão do Wall-e de OUTRO ambiente (staging x production na mesma base) não aparece na lista nem no detalhe. */
+const CORTE_AMBIENTE_WALLE = ' AND NOT EXISTS (SELECT 1 FROM whatsapp_atendimento_oportunidades wo WHERE wo.contato_id = k.id AND wo.ambiente IS DISTINCT FROM $9::text)';
+const ANONIMIZADO_WALLE = 'EXISTS (SELECT 1 FROM whatsapp_atendimento_oportunidades wa WHERE wa.contato_id = k.id AND wa.anonimizado_em IS NOT NULL)';
+const sqlListaContatos = (corte: string, anonimizado = 'false') => `SELECT k.id::text, k.nome, k.telefone, k.email, k.canal_atendimento, k.status, k.recebido_em::text, k.data_desejada::text, k.convidados,
             k.cliente_id::text, c.nome_completo AS cliente_nome, k.vinculo_cliente, k.fechamento_id::text, a.origem_codigo, a.metodo,
-            a.campanha_id::text, cp.nome AS campanha_nome, k.estabelecimento_id::text
+            a.campanha_id::text, cp.nome AS campanha_nome, k.estabelecimento_id::text, ${anonimizado} AS anonimizado
        FROM marketing_contatos k
        LEFT JOIN clientes c ON c.id = k.cliente_id AND c.empresa_id = k.empresa_id
        LEFT JOIN marketing_atribuicoes a ON a.empresa_id = k.empresa_id AND a.alvo_tipo = 'CONTATO' AND a.alvo_id = k.id AND a.vigente
@@ -170,33 +184,95 @@ export async function listarContatos(
         AND ($3::date IS NULL OR k.recebido_em < (($3::date + 1)::timestamp AT TIME ZONE 'America/Sao_Paulo'))
         AND ($4::text IS NULL OR k.status = $4)
         AND ($5::uuid IS NULL OR k.estabelecimento_id = $5::uuid)
-        AND ($6::uuid IS NULL OR a.campanha_id = $6::uuid)
-        AND ($8::uuid IS NULL OR k.id = $8::uuid)
+        AND ($6::uuid IS NULL OR (a.campanha_id = $6::uuid AND NOT ${anonimizado}))
+        AND ($8::uuid IS NULL OR k.id = $8::uuid)${corte}
       ORDER BY k.recebido_em DESC, k.id
-      LIMIT $7`,
+      LIMIT $7`;
+export async function listarContatos(
+  tx: DbExecutor, empresaId: string,
+  filtros: { id?: string | null; de?: string | null; ate?: string | null; status?: StatusContato | null; unidadeId?: string | null; campanhaId?: string | null; limite?: number;
+    /** Só o detalhe da Gestão em revisão (sessão no servidor); a rota da lista nunca passa. */ revisarPrivacidade?: boolean },
+  ambiente: string | null = ambienteDoDeploy(),
+): Promise<ContatoLista[]> {
+  // r8 (P1): no cartão anonimizado, o nome da campanha é texto livre da equipe e pode citar o titular ("Indicação de
+  // Marta — festa do Rui"): sai da lista e do detalhe com o id (que levaria ao nome), e o filtro por campanha não devolve
+  // o anonimizado. Só a Gestão em revisão (detalhe) recebe os dois.
+  const com132 = !!(await tx.query<{ ok: boolean }>("SELECT to_regclass('public.whatsapp_atendimento_oportunidades') IS NOT NULL AS ok")).rows[0]?.ok;
+  const r = await tx.query<{
+    id: string; nome: string; telefone: string | null; email: string | null; canal_atendimento: CanalAtendimento; status: StatusContato; recebido_em: string;
+    data_desejada: string | null; convidados: number | null; cliente_id: string | null; cliente_nome: string | null; vinculo_cliente: string;
+    fechamento_id: string | null; origem_codigo: string | null; metodo: string | null; campanha_id: string | null; campanha_nome: string | null;
+    estabelecimento_id: string | null; anonimizado: boolean;
+  }>(
+    com132 ? sqlListaContatos(CORTE_AMBIENTE_WALLE, ANONIMIZADO_WALLE) : sqlListaContatos(''),
     [empresaId, filtros.de ?? null, filtros.ate ?? null, filtros.status ?? null, filtros.unidadeId ?? null, filtros.campanhaId ?? null,
-      Math.min(Math.max(filtros.limite ?? 200, 1), 500), filtros.id ?? null],
+      Math.min(Math.max(filtros.limite ?? 200, 1), 500), filtros.id ?? null, ...(com132 ? [ambiente] : [])],
   );
-  return r.rows.map((l) => ({
-    id: l.id, nome: l.nome, telefone: l.telefone, email: l.email, canal: l.canal_atendimento, status: l.status, recebidoEm: l.recebido_em,
-    dataDesejada: l.data_desejada, convidados: l.convidados, clienteId: l.cliente_id, clienteNome: l.cliente_nome, vinculoCliente: l.vinculo_cliente,
-    fechamentoId: l.fechamento_id, origemCodigo: l.origem_codigo, metodo: l.metodo, campanhaId: l.campanha_id, campanhaNome: l.campanha_nome,
-    unidadeId: l.estabelecimento_id,
-  }));
+  return r.rows.map((l) => {
+    const cortarCampanha = l.anonimizado === true && filtros.revisarPrivacidade !== true;
+    return {
+      id: l.id, nome: l.nome, telefone: l.telefone, email: l.email, canal: l.canal_atendimento, status: l.status, recebidoEm: l.recebido_em,
+      dataDesejada: l.data_desejada, convidados: l.convidados, clienteId: l.cliente_id, clienteNome: l.cliente_nome, vinculoCliente: l.vinculo_cliente,
+      fechamentoId: l.fechamento_id, origemCodigo: l.origem_codigo, metodo: l.metodo,
+      campanhaId: cortarCampanha ? null : l.campanha_id, campanhaNome: cortarCampanha ? null : l.campanha_nome,
+      unidadeId: l.estabelecimento_id, anonimizado: l.anonimizado === true,
+    };
+  });
 }
+
+/** Registro da equipe que a anonimização não apaga (atribuição append-only, histórico do cliente) e que pode citar o titular. */
+export type RegistroParaRevisar = { tipo: 'ATRIBUICAO' | 'HISTORICO'; id: string; quando: string; rotulo: string; texto: string | null; por: string | null };
 
 export type DetalheContato = ContatoLista & {
   mensagem: string | null;
   atribuicoes: Atribuicao[];
   origemCliente: Atribuicao | null;
   fechamentosDoCliente: Array<{ id: string; dataEvento: string; status: string; origemDefinida: boolean; vinculadoAOutroContato: boolean }>;
+  /** r5 (P2): só no cartão anonimizado — os mesmos registros que levam a exclusão a pôr o cartão em `revisar`. */
+  registrosParaRevisar: RegistroParaRevisar[];
 };
 
-export async function detalheContato(tx: DbExecutor, empresaId: string, contatoId: string): Promise<DetalheContato> {
-  const base = (await listarContatosPorId(tx, empresaId, contatoId));
+/**
+ * r5 (P2): o que motivou o "revisar" da exclusão a pedido (os mesmos critérios de anonimizarOportunidadesDaConversa):
+ * atribuição do cartão com texto da equipe (detalhe, motivo, UTM ou campanha, com o nome da campanha no texto: r8/r9) ou
+ * que o liga a outro alvo, e evento do histórico do cliente
+ * que cita o cartão. Só da empresa (atribuição pela empresa; histórico pelo cliente da empresa); o ambiente já foi conferido
+ * pelo detalhe. Rótulos fixos; o texto livre vem como está, para a equipe conferir se cita o titular.
+ */
+async function registrosParaRevisar(tx: DbExecutor, empresaId: string, contatoId: string): Promise<RegistroParaRevisar[]> {
+  const r = await tx.query<RegistroParaRevisar>(
+    `SELECT 'ATRIBUICAO' AS tipo, a.id::text AS id, a.registrado_em::text AS quando,
+            'Origem ' || a.origem_codigo || CASE a.alvo_tipo WHEN 'CONTATO' THEN ' deste contato' WHEN 'CLIENTE' THEN ' do cliente' WHEN 'FECHAMENTO' THEN ' da negociação' ELSE ' de outro registro' END AS rotulo,
+            NULLIF(concat_ws(' · ', a.detalhe, a.motivo, 'Campanha ' || cp.nome, 'UTM ' || NULLIF(COALESCE(a.utm, '{}'::jsonb), '{}'::jsonb)::text), '') AS texto, u.nome AS por
+       FROM marketing_atribuicoes a LEFT JOIN usuarios_administrativos u ON u.id = a.registrado_por
+       LEFT JOIN marketing_campanhas cp ON cp.id = a.campanha_id AND cp.empresa_id = a.empresa_id
+      WHERE a.empresa_id = $1::uuid AND (a.contato_id = $2::uuid OR (a.alvo_tipo = 'CONTATO' AND a.alvo_id = $2::uuid))
+        AND (a.detalhe IS NOT NULL OR a.motivo IS NOT NULL OR COALESCE(a.utm, '{}'::jsonb) <> '{}'::jsonb OR a.campanha_id IS NOT NULL OR a.alvo_tipo <> 'CONTATO')
+     UNION ALL
+     SELECT 'HISTORICO', h.id::text, h.criado_em::text, 'Histórico do cliente: ' || h.tipo_evento, h.detalhe, u.nome
+       FROM eventos_historico_cliente h JOIN clientes cl ON cl.id = h.cliente_id AND cl.empresa_id = $1::uuid
+       LEFT JOIN usuarios_administrativos u ON u.id = h.usuario_id
+      WHERE h.entidade_tipo = 'MARKETING_CONTATO' AND h.entidade_id = $2::uuid
+     ORDER BY 3, 2`,
+    [empresaId, contatoId],
+  );
+  return r.rows;
+}
+
+/**
+ * r6 (P1-3): `revisarPrivacidade` vem da sessão no servidor (papel da Gestão, o mesmo que revisa a Privacidade do
+ * atendimento); quem só vê Marketing recebe a lista vazia. Padrão fechado: sem a opção, nada.
+ * r7 (P1-A): o mesmo corte vale para o histórico de atribuições do cartão anonimizado: sem a opção, cada atribuição sai
+ * sem os textos livres da equipe (motivo, detalhe e UTM); ficam origem, canal, método e datas, que não identificam.
+ * r8 (P1): também sem a campanha (id e nome), no cartão e em cada atribuição; a Gestão em revisão recebe tudo.
+ */
+export async function detalheContato(tx: DbExecutor, empresaId: string, contatoId: string, opcoes: { revisarPrivacidade?: boolean } = {}): Promise<DetalheContato> {
+  const base = (await listarContatosPorId(tx, empresaId, contatoId, opcoes.revisarPrivacidade === true));
   if (!base) naoEncontrado("Contato não encontrado nesta empresa.");
   const mensagem = await tx.query<{ mensagem: string | null }>(`SELECT mensagem FROM marketing_contatos WHERE id = $1::uuid AND empresa_id = $2::uuid`, [contatoId, empresaId]);
-  const atribuicoes = await historicoAtribuicao(tx, empresaId, "CONTATO", contatoId);
+  const revisar = base.anonimizado && opcoes.revisarPrivacidade === true;
+  const historico = await historicoAtribuicao(tx, empresaId, "CONTATO", contatoId);
+  const atribuicoes = base.anonimizado && !revisar ? historico.map((a) => ({ ...a, motivo: null, detalhe: null, utm: {}, campanhaId: null, campanhaNome: null })) : historico;
   const origemCliente = base.clienteId ? await atribuicaoVigente(tx, empresaId, "CLIENTE", base.clienteId) : null;
   const fechamentos = base.clienteId ? (await tx.query<{ id: string; data_evento: string; status: string; origem_definida: boolean; outro: boolean }>(
     `SELECT f.id::text, f.data_evento::text, f.status,
@@ -209,11 +285,12 @@ export async function detalheContato(tx: DbExecutor, empresaId: string, contatoI
   return {
     ...base, mensagem: mensagem.rows[0]?.mensagem ?? null, atribuicoes, origemCliente,
     fechamentosDoCliente: fechamentos.map((f) => ({ id: f.id, dataEvento: f.data_evento, status: f.status, origemDefinida: f.origem_definida, vinculadoAOutroContato: f.outro })),
+    registrosParaRevisar: revisar ? await registrosParaRevisar(tx, empresaId, contatoId) : [],
   };
 }
 
-async function listarContatosPorId(tx: DbExecutor, empresaId: string, contatoId: string) {
-  return (await listarContatos(tx, empresaId, { id: contatoId, limite: 1 }))[0] ?? null;
+async function listarContatosPorId(tx: DbExecutor, empresaId: string, contatoId: string, revisarPrivacidade = false) {
+  return (await listarContatos(tx, empresaId, { id: contatoId, limite: 1, revisarPrivacidade }))[0] ?? null;
 }
 
 export const esquemaAcaoContato = z.discriminatedUnion("acao", [
@@ -253,6 +330,7 @@ export async function executarAcaoContato(
     const campanha = acao.campanhaId ? await tx.query<{ id: string }>(
       `SELECT id::text FROM marketing_campanhas WHERE id = $1::uuid AND empresa_id = $2::uuid`, [acao.campanhaId, empresaId]) : null;
     if (campanha && campanha.rows.length !== 1) throw new MarketingError("MARKETING_CAMPANHA_INVALIDA", "Campanha não encontrada nesta empresa.", 404);
+    await travarTelefoneNoFunil(tx, empresaId, acao.telefone);
     const r = await tx.query<{ id: string }>(
       `INSERT INTO marketing_contatos (empresa_id, estabelecimento_id, cliente_id, canal_atendimento, nome, telefone, email, data_desejada, convidados,
          mensagem, chave_idempotencia, vinculo_cliente, status, atualizado_por)
@@ -288,6 +366,11 @@ export async function executarAcaoContato(
   );
   const contato = atual.rows[0];
   if (!contato) naoEncontrado("Contato não encontrado nesta empresa.");
+  // r7 (P1-B): cartão do Wall-e de outro ambiente = 404, como no detalhe.
+  // r5 (P2): cartão do Wall-e anonimizado a pedido do titular é só leitura. Vincular cliente ou negociação, abrir negociação
+  // (que criaria cliente com os dados neutros) ou mudar a situação voltaria a ligá-lo a alguém, e a próxima exclusão (que só
+  // alcança vínculos ainda não anonimizados) não o limparia de novo. Sem a 132, não há cartão anonimizado.
+  await exigirContatoEditavel(tx, acao.id);
   if (acao.acao === "status") {
     if (contato.status === "CONVERTIDO") throw new MarketingError("MARKETING_CONTATO_CONVERTIDO", "Contato já vinculado a uma negociação.", 409);
     if (contato.status === 'DESCARTADO') throw new MarketingError('CONTATO_ENCERRADO','Este contato já foi encerrado.',409);

@@ -15,11 +15,13 @@ import * as transporte from "./transporte.ts";
 import * as arquivos from "./arquivos.ts";
 import * as reautenticacao from "../../perfil/reautenticacao.ts";
 import * as entendimento from "./walle/entendimento.ts";
+// Wall-e 1a (132): captura do funil e anonimização REAIS no worker e na privacidade (sem a 132, nada fazem).
+import * as oportunidade from "./walle/oportunidade.ts";
+import * as motivoFalha from "./motivo-falha.ts";
 // Pesquisa de satisfação (110): módulos REAIS; sem a tabela da 110 no modelo, PARAR não suprime nada.
 import * as supressao from "../../satisfacao/supressao.ts";
 import * as preferencias from "../../marketing/automacoes/preferencias.ts";
 import * as multiempresa from "./multiempresa.ts";
-import * as motivoFalha from "./motivo-falha.ts";
 import * as tetoMensal from "./teto-mensal.ts";
 import * as mappers from "../../clientes/repositories/mappers.ts";
 import * as normalizers from "../../clientes/repositories/normalizers.ts";
@@ -38,10 +40,18 @@ export const cod = (p: string) => `${p}${randomBytes(4).toString("hex")}`;
 /** Transporte real só para montar o conteúdo da linha (081); o envio de rede fica bloqueado (a porta `enviar` é simulada). */
 export const transporteSemRede = { ...transporte, enviarMensagem: async () => { throw new Error("rede proibida no harness"); } };
 
+/**
+ * Wall-e 1a r8 (P3): a suíte pode observar o PID de cada transação aberta pelo harness enquanto o observador estiver
+ * ligado (lido DENTRO da transação, logo após o BEGIN). Desligado (padrão), nada muda.
+ */
+let observadorDeTransacao: ((pid: number) => void) | null = null;
+export function observarTransacoes(observador: ((pid: number) => void) | null) { observadorDeTransacao = observador; }
+
 export async function withTransaction<T>(fn: (tx: DbExecutor) => Promise<T>): Promise<T> {
   const c = await conectarDescartavel({ travar: false });
   try {
     await c.query("BEGIN");
+    if (observadorDeTransacao) observadorDeTransacao(Number((await c.query<{ pid: number }>("SELECT pg_backend_pid() AS pid")).rows[0].pid));
     const r = await fn(c as unknown as DbExecutor);
     await c.query("COMMIT");
     return r;
@@ -71,12 +81,12 @@ export function carregarAtendimento(empresaPiloto: string, ambiente = "staging",
   // 12/10: a privacidade comprova a empresa ATIVA da sessão (não a piloto) pelo mesmo Tenant Context, na conexão do harness.
   const privacidade = carregarComponente("lib/whatsapp/atendimento/privacidade.ts", {
     "node:crypto": nodeCrypto, "../../db/postgres.ts": postgres, "../../saas/provar-tenant.ts": tenant, "../../perfil/reautenticacao.ts": reautenticacao,
-    "./configuracao.ts": configuracao, "./core.ts": core, "./arquivos.ts": arquivos,
+    "./configuracao.ts": configuracao, "./core.ts": core, "./arquivos.ts": arquivos, "./walle/oportunidade.ts": oportunidade,
   }).modulo as typeof import("./privacidade.ts");
   const worker = carregarComponente("lib/whatsapp/atendimento/worker.ts", {
-    "../../db/postgres.ts": postgres, "./configuracao.ts": configuracao, "./core.ts": core, "./service.ts": servico, "./transporte.ts": transporteSemRede, "./arquivos.ts": arquivos, "./multiempresa.ts": multiempresa,
-    // 45aa9bb7 passou a importar ./motivo-falha.ts sem entrar aqui (as suítes do worker falhavam); 3b: ./teto-mensal.ts.
-    "./motivo-falha.ts": motivoFalha, "./teto-mensal.ts": teto, ...trocasWorker,
+    "../../db/postgres.ts": postgres, "./configuracao.ts": configuracao, "./core.ts": core, "./service.ts": servico, "./transporte.ts": transporteSemRede, "./arquivos.ts": arquivos, "./multiempresa.ts": multiempresa, "./walle/oportunidade.ts": oportunidade, "./motivo-falha.ts": motivoFalha,
+    // 3b: ./teto-mensal.ts (e trocas do worker para injetar falhas nos testes).
+    "./teto-mensal.ts": teto, ...trocasWorker,
   }).modulo as typeof import("./worker.ts");
   // Repositório REAL de clientes (mesma consulta da aplicação), com a conexão da transação.
   const clientes = carregarComponente("lib/clientes/repositories/cliente.repository.ts", {

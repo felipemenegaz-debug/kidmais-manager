@@ -61,6 +61,42 @@ test('coerência em ATIVA: tudo certo', () => {
   assert.deepEqual(diag(hA, ATIVA).coerencia, { convites: true, site: true, agenda: true, midia: true, mcp: true });
 });
 
+test('agenda em N só é coerente com a virada efetiva em ATIVA', () => {
+  const codigo = 'kidmais-teste';
+  const virada = { ENDERECOS_KIDMAIS_EM_N: 'true', AGENDA_PUBLICA_EMPRESA_CODIGO: codigo };
+  for (const env of [ATIVA, REVERSAO, { ...REVERSAO, ENDERECOS_MODO: 'PREPARACAO' }]) {
+    const emN = { ...env, AGENDA_PUBLICA_ORIGEM: N };
+    assert.equal(diag(hA, { ...env, AGENDA_PUBLICA_ORIGEM: A }).coerencia!.agenda, true);
+    assert.equal(diag(hA, { ...env, ...virada, AGENDA_PUBLICA_ORIGEM: A }).coerencia!.agenda, true);
+    assert.equal(diag(hA, emN).coerencia!.agenda, false);
+    const comChave = { ...emN, ...virada };
+    const diagnostico = diag(hA, comChave);
+    assert.equal(diagnostico.coerencia!.agenda, env.ENDERECOS_MODO === 'ATIVA');
+    assert.equal(diagnostico.kidmaisEmN, true);
+    const linha = linhaDeLogDoEndereco(comChave, AGORA);
+    assert.match(linha, /"kidmaisEmN":true/);
+    for (const texto of [JSON.stringify(diagnostico), linha]) {
+      assert.equal(texto.includes(codigo), false);
+    }
+  }
+  assert.equal(diag(hA, ATIVA).kidmaisEmN, false);
+  const invalido = diag(hA, { ...ATIVA, ...virada, AGENDA_PUBLICA_ORIGEM: N, AGENDA_PUBLICA_EMPRESA_CODIGO: '..' });
+  assert.equal(invalido.kidmaisEmN, false);
+  assert.equal(invalido.coerencia!.agenda, false);
+});
+
+test('em ATIVA com a virada, site exige uma origem aceita pelo link do Wall-e', () => {
+  const env = {
+    ...ATIVA, AGENDA_PUBLICA_ORIGEM: N, ENDERECOS_KIDMAIS_EM_N: 'true', AGENDA_PUBLICA_EMPRESA_CODIGO: 'kidmais-teste',
+  };
+  const coerenciaEsperada = { convites: true, site: true, agenda: true, midia: true, mcp: true };
+  assert.deepEqual(diag(hA, env).coerencia, coerenciaEsperada);
+  assert.deepEqual(diag(hA, { ...env, SITE_URL: undefined }).coerencia, coerenciaEsperada);
+  assert.deepEqual(diag(hA, { ...env, SITE_URL: `${N}/app` }).coerencia, { ...coerenciaEsperada, site: false });
+  assert.equal(diag(hA, { ...env, SITE_URL: `${N}/app`, ENDERECOS_KIDMAIS_EM_N: 'false' }).coerencia!.site, true);
+  assert.equal(diag(hA, { ...REVERSAO, ENDERECOS_KIDMAIS_EM_N: 'true', AGENDA_PUBLICA_EMPRESA_CODIGO: 'kidmais-teste', SITE_URL: `${A}/app` }).coerencia!.site, true);
+});
+
 test('coerência: cada origem errada derruba só o seu item, sem mudar o modo', () => {
   const casos: Array<[Partial<AmbienteDiagnostico>, string]> = [
     [{ CONVITES_PUBLIC_ORIGIN: A }, 'convites'],

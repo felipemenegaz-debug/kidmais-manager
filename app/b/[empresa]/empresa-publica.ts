@@ -1,8 +1,10 @@
-import { notFound } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
 import type { Metadata } from "next";
+import { cache } from "react";
 import { marcaDoBuffet } from "@/lib/convites/logo-buffet";
 import { db } from "@/lib/db/postgres";
 import { escopoCotacaoPublica } from "@/lib/comercial/cotacao-publica";
+import { modoEmpresaPublicaLegada } from "@/lib/comercial/empresa-publica-legada";
 import { lerRegrasPagamento, REGRAS_LEGADAS, type RegrasPagamento } from "@/lib/comercial/regras-pagamento";
 import { nomePublicoDaEmpresa } from "@/lib/perfil/nome-publico";
 import { contatoPublicoDaEmpresa } from "@/lib/perfil/contato-publico";
@@ -17,6 +19,29 @@ export const metadataEmpresaPublica: Metadata = {
   robots: { index: false, follow: false },
   icons: { icon: [{ url: "/icone-orcamento.svg", type: "image/svg+xml" }] },
 };
+
+const modoLegado = cache((codigo: string) => modoEmpresaPublicaLegada(codigo));
+
+export async function codigoDaEmpresaLegada(params: Promise<{ empresa: string }>) {
+  const { empresa: codigo } = await params;
+  const modo = await modoLegado(codigo);
+  if (modo === "RECUSADA") notFound();
+  return modo === "LEGADA" ? codigo : null;
+}
+
+export async function gerarMetadataEmpresaPublica({ params }: { params: Promise<{ empresa: string }> }): Promise<Metadata> {
+  return await codigoDaEmpresaLegada(params) ? {} : metadataEmpresaPublica;
+}
+
+export type BuscaFechamento = Promise<Record<string, string | string[] | undefined>>;
+
+export async function redirecionarAtalhoDoPainel(searchParams: BuscaFechamento) {
+  const { contexto, origem } = await searchParams;
+  const primeiro = (valor: string | string[] | undefined) => Array.isArray(valor) ? valor[0] : valor;
+  if (primeiro(contexto) === "ADMIN" || primeiro(origem) === "ATENDIMENTO_KIDMAIS") {
+    redirect("/clientes?acao=fechamento");
+  }
+}
 
 /**
  * Antes da 077 o servidor aplica o legado (PIX 10%/3%) a toda condição: a tela mostra o mesmo, mas sem o selo

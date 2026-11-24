@@ -7,6 +7,7 @@ import { motivoSeguro } from './motivo-falha.ts';
 import { contaNoTeto, reservarConsumo, tetoDoMes, tetoMensal } from './teto-mensal.ts';
 import { ARQUIVO_DISPONIVEL_SQL, urlPublicaArquivo } from './arquivos.ts';
 import type { Passagem, ResultadoWallE } from './walle/tipos.ts';
+import { capturarOportunidadesPendentes, qualificaPedidoFesta, SQL_MARCA_PENDENTE, temMarcaPendente } from './walle/oportunidade.ts';
 import type { DbExecutor } from '../../db/contracts.ts';
 import { CHAVE_RODIZIO, eTransitorio, ehPilotoDe, empresaOperaAtendimento, empresasNaOrdemDoRodizio, lerPortao, modoEfetivo, pilotoOpcional, registrarVezDoRodizio, travarProvedor } from './multiempresa.ts';
 
@@ -134,14 +135,29 @@ export async function processarLote(deps: DependenciasWorker, opcoes: { maxTaref
   await limparStatusExpirados();
   const inicio = relogio();
   let tarefas = 0;
+  let estado: 'DESLIGADO' | 'SEM_TAREFA' | 'LIMITE' = 'LIMITE';
   while (tarefas < max && relogio() - inicio < prazo) {
     const resultado = await processarAtendimento(deps);
-    if (resultado === 'DESLIGADO' || resultado === 'SEM_TAREFA') return { estado: resultado, tarefas };
+    if (resultado === 'DESLIGADO' || resultado === 'SEM_TAREFA') { estado = resultado; break; }
     tarefas++;
     // E-ME1: leitura transitória (plano, conexão) devolveu a tarefa à fila: o lote para aqui e o próximo ciclo tenta de novo.
-    if (resultado === 'ADIADA') return { estado: 'LIMITE' as const, tarefas };
+    if (resultado === 'ADIADA') break;
   }
-  return { estado: 'LIMITE' as const, tarefas };
+  // Wall-e 1a: depois das respostas e envios do lote, os cartões do funil das conversas marcadas (recuperação própria).
+  if (estado !== 'DESLIGADO') await capturarOportunidadesDoLote();
+  return { estado, tarefas };
+}
+/**
+ * Wall-e 1a: captura dos cartões do funil marcados pela resposta. Nunca lança: falha fica no log (só o código) e a marca
+ * fica para o próximo lote.
+ */
+async function capturarOportunidadesDoLote() {
+  try {
+    const r = await capturarOportunidadesPendentes(withTransaction, ambienteAtendimento());
+    for (const codigo of r.falhas) console.warn('[Atendimento WhatsApp] cartão do funil não gravado (%s); tenta no próximo lote.', codigo);
+  } catch (erro) {
+    console.warn('[Atendimento WhatsApp] cartão do funil não gravado (%s); tenta no próximo lote.', motivoSeguro(erro));
+  }
 }
 export async function processarAtendimento(deps: DependenciasWorker) {
   if (!atendimentoAtivo()) return 'DESLIGADO';
@@ -591,6 +607,10 @@ async function materialAindaAutorizado(tx: DbExecutor, mensagem: Mensagem, empre
  * (origem_grupo_id + ordem): retry não duplica e uma entrada nova cancela as saídas ainda na fila (versão da conversa).
  * Falha ao entender/consultar: o caminho fixo de encaminhamento, sem inventar resposta.
  */
+/** Memória do Wall-e na conversa; `marca` = SQL_MARCA_PENDENTE (com a 132, 6º parâmetro) ou vazio. */
+function memoriaDaConversa(marca: string) {
+  return `UPDATE whatsapp_atendimento_conversas SET interesse=$2::jsonb,contexto=CASE WHEN contexto ? 'semAutomatico' THEN $3::jsonb || jsonb_build_object('semAutomatico', contexto->'semAutomatico') ELSE $3::jsonb END,passagem=COALESCE($4::jsonb,passagem),estado=$5,atualizada_em=clock_timestamp()${marca} WHERE id=$1`;
+}
 async function responderWallE(porta: PortaWallE, mensagem: Mensagem, conversa: Conversa, texto: string, historico: string[], opera: (tx: DbExecutor) => Promise<boolean>, config: ConfiguracaoAtendimento) {
   const empresa = mensagem.empresa_id, ambiente = mensagem.ambiente;
   const hoje = hojeOperacao();
@@ -623,8 +643,11 @@ async function responderWallE(porta: PortaWallE, mensagem: Mensagem, conversa: C
     delete contexto.ultimoEntendimento;
     const interesse = { data: dataDeInteresse(contexto.data ?? null, hoje), convidados: contexto.convidados ?? null };
     // A marca de "sem automático" (rodada 22) nunca é apagada pela memória nova do Wall-e.
-    await tx.query("UPDATE whatsapp_atendimento_conversas SET interesse=$2::jsonb,contexto=CASE WHEN contexto ? 'semAutomatico' THEN $3::jsonb || jsonb_build_object('semAutomatico', contexto->'semAutomatico') ELSE $3::jsonb END,passagem=COALESCE($4::jsonb,passagem),estado=$5,atualizada_em=clock_timestamp() WHERE id=$1",
-      [atual.id, JSON.stringify(interesse), JSON.stringify(contexto), resultado.passagem ? JSON.stringify(resultado.passagem) : null, resultado.passagem ? 'AGUARDANDO_HUMANO' : 'IA']);
+    // Wall-e 1a (r2): pedido de festa nova MARCA a conversa nesta mesma instrução (com a 132): a marca só se perde se a
+    // resposta inteira for desfeita. O cartão é gravado ao fim do lote, fora desta transação.
+    const memoria = [atual.id, JSON.stringify(interesse), JSON.stringify(contexto), resultado.passagem ? JSON.stringify(resultado.passagem) : null, resultado.passagem ? 'AGUARDANDO_HUMANO' : 'IA'];
+    const marca = await temMarcaPendente(tx);
+    await tx.query(marca ? memoriaDaConversa(SQL_MARCA_PENDENTE) : memoriaDaConversa(''), marca ? [...memoria, qualificaPedidoFesta(resultado)] : memoria);
     await tx.query("UPDATE whatsapp_atendimento_mensagens SET estado='PROCESSADA' WHERE id=$1", [mensagem.id]);
     const base = (await tx.query<{ t: string }>('SELECT clock_timestamp()::text AS t')).rows[0].t;
     let gravadas = 0;
