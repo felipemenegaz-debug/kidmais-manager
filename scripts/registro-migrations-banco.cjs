@@ -13,6 +13,7 @@
 //     --conferir-tentativa <id> --tentativa <uuid>                 reconciliação de um uuid impresso (sessão de leitura)
 //     --conferir-<id>                                              linha ativa, trava, estado, classificação e antecessora
 //     --aplicar-<id>-autorizado --backup "<registro>"              130+: reserva, corpo e conclusão numa conexão só (C)
+//     --aplicar-135-autorizado --backup "<registro>" --portao-135 "<registro da conferência do deploy>"   a 135 exige o portão
 //     --aplicar-129-bootstrap-autorizado --backup "<registro>"     bootstrap da 129 (antecessoras pelo conferir-antecessoras)
 //     --arquivar-tentativa <id> --tentativa <uuid> --motivo "<texto>"   com decisão de Felipe no vault citando o uuid
 //     --concluir-verificacao <id> --tentativa <uuid>                     idem
@@ -28,9 +29,30 @@ const prd = require('./conexao-production.cjs');
 const stg = require('./conexao-staging.cjs');
 const s116 = require('./migration-116-staging.cjs');
 
-const ORDEM = Object.freeze(['130', '131', '132', '133', '134', '136']);
-// 132 (Wall-e 1a) e 133 (agenda) são independentes entre si: as duas têm a 131 como antecessora no registro; a 134 segue a 133; a 136 (destino externo da campanha) segue a 134.
-const ANTECESSORA = Object.freeze({'130': '129', '131': '130', '132': '131', '133': '131', '134': '133', '136': '134'});
+const ORDEM = Object.freeze(['130', '131', '132', '133', '134', '135', '136']);
+// 132 (Wall-e 1a) e 133 (agenda) são independentes entre si: as duas têm a 131 como antecessora no registro; a 134 segue a 133.
+// A 135 (Wall-e 3b) depende da 060 (legada, fora do registro, conferida pelo precheck); no registro segue a 134, a ordem da promoção.
+// A 136 (destino externo da campanha) também segue a 134: é independente da 135 (outra tabela, sem portão), como a 132 e a 133 em relação à 131.
+const ANTECESSORA = Object.freeze({'130': '129', '131': '130', '132': '131', '133': '131', '134': '133', '135': '134', '136': '134'});
+/**
+ * PORTÃO DE DEPLOY (Astra r4/r5 da 3b): a migration recusa sem a declaração na MESMA sessão. O operador só passa --portao-<id> depois de
+ * conferir o procedimento do vault (código novo LIVE no web E no worker, nenhum gravador antigo vivo) e escreve ali o registro dessa
+ * conferência; o aplicador grava o texto na reserva (detalhe.reserva.portao), imprime e faz o SET LOCAL na transação do corpo, antes do
+ * precheck e da migration: some no COMMIT ou no ROLLBACK, nada fica na sessão. Sem o argumento = recusa antes de conectar (código 1).
+ */
+const PORTOES = Object.freeze({'135': Object.freeze({flag: '--portao-135', set: "SET LOCAL kidmais.portao_135 = 'deploy-novo-live-sem-gravador-antigo'"})});
+/** Texto livre do registro da conferência (letras com acento, números e pontuação simples; sem controle nem aspas): vai como parâmetro. */
+const PORTAO_TEXTO = /^[\p{L}\p{N}:._/ +;,()#-]{20,200}$/u;
+/**
+ * Validador ÚNICO da declaração (Astra r1 P1), usado no modo() e no aplicar(): exige string, tira só os ESPAÇOS das pontas (quebra de
+ * linha, tabulação e outros controles continuam recusados, não são aparados), confere 20–200 caracteres do conjunto e exige ao menos uma
+ * letra ou número. Devolve o texto validado (é ele que se imprime e grava) ou null.
+ */
+function validarPortao(v) {
+  if (typeof v !== 'string') return null;
+  const t = v.replace(/^ +| +$/g, '');
+  return PORTAO_TEXTO.test(t) && /[\p{L}\p{N}]/u.test(t) ? t : null;
+}
 const ESCOPO_129 = Object.freeze(['--conferir-tentativa', '--concluir-verificacao', '--arquivar-tentativa']);
 const ARQUIVOS_129 = Object.freeze([
   Object.freeze(['precheck', 'database/checks/20261121_129_precheck.sql', '7625809dbd28aec433af30582387f353908627697e5be818391a44d74904e78d']),
@@ -42,7 +64,7 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 const AMBIENTES_VALIDOS = Object.freeze(['production', 'staging']);
 /** Chave da trava advisory (sessão ou transação) de uma migration: a mesma para o registro e para o adaptador genérico de staging. */
 const chaveTrava = (amb, id) => { assert.ok(AMBIENTES_VALIDOS.includes(amb), 'AMBIENTE_INVALIDO'); return amb + ':' + id; };
-/** Chaves que o registro trava (129 no bootstrap, 130, 131, 132, 133, 134 e 136 pela ORDEM), nos dois ambientes: insumo do teste de colisão de hashtext. */
+/** Chaves que o registro trava (129 no bootstrap, 130 a 136 pela ORDEM), nos dois ambientes: insumo do teste de colisão de hashtext. */
 const CHAVES_TRAVA = Object.freeze(AMBIENTES_VALIDOS.flatMap(a => ['129', ...ORDEM].map(id => chaveTrava(a, id))));
 const raizPadrao = path.resolve(__dirname, '..');
 const curta = e => String(e?.message ?? e).replace(/postgres(?:ql)?:\/\/\S+/gi, '<url>').replace(/\s+/g, ' ').slice(0, 300);
@@ -483,13 +505,18 @@ function classificar(id, estado, linha, postcheck) {
 }
 
 // ---------------------------------------------------------------- APLICAR 130+ (§3.2), conexão única C
-async function aplicar(ctx, {id, backup}) {
+async function aplicar(ctx, {id, backup, portao}) {
   const o = saida(ctx);
   const amb = ctx.ambiente.nome;
   const g = ctx.ganchos ?? {};
   const corpos = gen.carregar(ctx.raiz, id);
   const ant = ANTECESSORA[id];
   const corposAnt = carregarId(ctx.raiz, ant);
+  const pt = PORTOES[id] ?? null;
+  // Defesa além do modo(): id com portão sem a declaração (ou declaração para id sem portão) não conecta.
+  const declarado = pt ? validarPortao(portao) : null;
+  if (Boolean(pt) !== (portao !== undefined) || (pt && declarado === null)) { o.linha(pt ? `PORTAO_OBRIGATORIO ${id} (${pt.flag} "<registro da conferência>")` : 'PORTAO_FORA_DO_ID ' + id, 1); return fim(o); }
+  if (pt) o.linha(`PORTAO_${id}_DECLARADO ${declarado}`, 0);
   const db = clienteC(ctx, id);
   try {
     await db.connect();
@@ -518,7 +545,7 @@ async function aplicar(ctx, {id, backup}) {
     try {
       await db.query('BEGIN');
       for (const set of SET_LOCAL('60s')) await db.query(set);
-      await db.query(SQL.inserir, [amb, id, u, backup, JSON.stringify({reserva: {anterior: anterior?.tentativa ?? null}})]);
+      await db.query(SQL.inserir, [amb, id, u, backup, JSON.stringify({reserva: {anterior: anterior?.tentativa ?? null, ...(pt ? {portao: declarado} : {})}})]);
       if (anterior) {
         await g.antesDoVinculo?.({id, anterior, u});
         const v = await db.query(SQL.vinculo, [amb, id, anterior.tentativa, anterior.versao, anterior.situacao, u]);
@@ -551,6 +578,7 @@ async function aplicar(ctx, {id, backup}) {
       for (const set of SET_LOCAL('60s')) await db.query(set);
       fase = 'identidade';
       try { ctx.ambiente.identidade((await db.query(ctx.ambiente.sqlIdentidade)).rows?.[0]); } catch (e) { if (sqlstateDe(e)) throw e; throw new Error('IDENTIDADE_RECUSADA ' + curta(e)); }
+      if (pt) { fase = 'portao'; await db.query(pt.set); }
       fase = 'precheck'; gen.exigirAprovado(await db.query(corpos.precheck), `precheck ${id}`);
       fase = 'migration'; await db.query(corpos.migration);
       fase = 'postcheck'; gen.exigirAprovado(await db.query(corpos.postcheck), `postcheck ${id}`);
@@ -885,9 +913,14 @@ function modo(argv) {
   let m = /^--aplicar-([0-9]{3}[a-z]?)(?:-autorizado)?$/.exec(r[0] ?? '');
   if (m) {
     if (!ORDEM.includes(m[1])) throw recusa('ID_FORA_DO_REGISTRO ' + m[1], 1);
-    assert.ok(r[0] === `--aplicar-${m[1]}-autorizado` && r.length === 3 && r[1] === '--backup', 'BACKUP_OBRIGATORIO');
+    const pt = PORTOES[m[1]];
+    assert.ok(r[0] === `--aplicar-${m[1]}-autorizado` && r.length >= 3 && r[1] === '--backup', 'BACKUP_OBRIGATORIO');
     assert.match(r[2], BACKUP, 'BACKUP_INVALIDO');
-    return {ambiente, modo: 'aplicar', id: m[1], backup: r[2]};
+    if (!pt) { assert.ok(r.length === 3, 'ARGUMENTOS_RECUSADOS'); return {ambiente, modo: 'aplicar', id: m[1], backup: r[2]}; }
+    if (r.length !== 5 || r[3] !== pt.flag) throw recusa(`PORTAO_OBRIGATORIO ${m[1]} (${pt.flag} "<registro da conferência>")`, 1);
+    const declarado = validarPortao(r[4]);
+    assert.ok(declarado !== null, 'PORTAO_INVALIDO');
+    return {ambiente, modo: 'aplicar', id: m[1], backup: r[2], portao: declarado};
   }
   m = /^--conferir-([0-9]{3}[a-z]?)$/.exec(r[0] ?? '');
   if (m && r.length === 1) {
@@ -926,7 +959,7 @@ function cli() {
     .catch(e => { console.error('RECUSADO ' + curta(e)); process.exitCode = 1; });
 }
 if (require.main === module) cli();
-module.exports = {ORDEM, chaveTrava, CHAVES_TRAVA, ANTECESSORA, ARQUIVOS_129, SQL, BACKUP, carregar129, lerDivergencias, avaliarPostcheck, sqlstateDe, fatal, abrirSessaoLeitura,
+module.exports = {ORDEM, chaveTrava, CHAVES_TRAVA, ANTECESSORA, PORTOES, PORTAO_TEXTO, validarPortao, ARQUIVOS_129, SQL, BACKUP, carregar129, lerDivergencias, avaliarPostcheck, sqlstateDe, fatal, abrirSessaoLeitura,
   conferirRegistro, conferirTentativa, conferirId, aplicar, bootstrap129, arquivar, concluirVerificacao, classificar, modo, principal, ambienteDe, cli,
   /** Só para testes unitários (cliente falso). */
   _teste: {lerEmC, postcheckEmC}};

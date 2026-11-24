@@ -173,6 +173,8 @@ const ESTADO_POSTGRES = {
   "lib/whatsapp/atendimento/pausa-limite.postgres.test.ts": { descartavel: "atual" },
   // M1: limite diário esgotado ⇒ equipe em silêncio (sem modelo nem texto fixo, sem inventar pausa); origem das marcas.
   "lib/whatsapp/atendimento/limite-silencio.postgres.test.ts": { descartavel: "atual" },
+  // 3b (D-LAN-3): teto mensal de mensagens do número atingido ⇒ Wall-e para e a conversa vai em silêncio para a equipe.
+  "lib/whatsapp/atendimento/teto-mensal.postgres.test.ts": { descartavel: "atual" },
   // 11/10: ordem da premissa do staging (061…079 presentes; 060/065/080–082 depois) × ordem do inventário (modelo "082", no
   // banco de rollback): mesmo schema; rollback nas duas ordens; downs da 078/079 com o atendimento presente.
   "lib/whatsapp/atendimento/ordem-staging-real.postgres.test.ts": { descartavel: "079-sem-atendimento", rollback: "082" },

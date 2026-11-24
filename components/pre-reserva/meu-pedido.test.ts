@@ -252,7 +252,7 @@ for (const empresa of [null, "buffet-teste"]) {
       SITE_URL: antiga, MARKETING_DOMINIOS_PERSONALIZADOS: "true",
     };
     const wizard = readFileSync(new URL("../fechamento/FechamentoWizard.tsx", import.meta.url), "utf8");
-    assert.match(wizard, /\{!origemInterna && <a [^>]*href=\{empresa \? `\/b\/\$\{encodeURIComponent\(empresa\)\}\/meu-pedido` : "\/meu-pedido"\}>Meu pedido<\/a>\}/);
+    assert.match(wizard, /\{!origemInterna && <a [^>]*href=\{base == null && empresa \? `\/b\/\$\{encodeURIComponent\(empresa\)\}\/meu-pedido` : "\/meu-pedido"\}>Meu pedido<\/a>\}/);
     const fechamento = new URL(rotas.paginaPublica("/fechamento", empresa), empresa ? nova : antiga);
     const decidir = (url: URL, metodo = "GET") => decidirEndereco({ metodo, host: url.host, pathname: url.pathname, search: url.search }, env);
     assert.deepEqual(decidir(fechamento), { tipo: "PASSAR" });

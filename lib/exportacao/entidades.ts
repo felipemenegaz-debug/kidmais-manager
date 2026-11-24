@@ -415,6 +415,7 @@ export const FORA_DO_ESCOPO: Readonly<Record<string, string>> = {
     whatsapp_atendimento_eventos_excluidos: 'Lista técnica de eventos já excluídos (impede reprocessamento).',
     whatsapp_atendimento_retencao_execucoes: 'Execuções da rotina de retenção (todas as empresas).',
     whatsapp_atendimento_rodizio: 'Controle técnico da vez de cada empresa na fila do atendimento (117; só um contador).',
+    whatsapp_atendimento_consumo_mensal: 'Contador técnico do teto mensal do Wall-e (135; só a contagem do mês, derivada das mensagens, que já saem em whatsapp/mensagens).',
     whatsapp_atendimento_status_colisoes: 'Identificadores técnicos do provedor vistos em mais de uma saída (117; sem conteúdo nem empresa).',
     whatsapp_onboarding_tentativas: 'Tentativas técnicas de conexão com a Meta.',
     agenda_062_bloqueios_resolucao: 'Tabela técnica da migração da agenda (062).',

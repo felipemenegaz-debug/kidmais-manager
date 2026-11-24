@@ -54,7 +54,8 @@ const escopoComClientes = c => [c, `EXISTS (SELECT 1 FROM pg_constraint WHERE co
 const coluna = (t, c) => [`${t}.${c}`, `EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'public' AND table_name = '${t}' AND column_name = '${c}')`];
 const congelar = o => Object.freeze({...o, arquivos: Object.freeze(o.arquivos.map(a => Object.freeze(a))), criados: Object.freeze(o.criados), removidos: Object.freeze(o.removidos ?? []),
   privilegios: Object.freeze({criaNoSchema: o.privilegios.criaNoSchema, alteradas: Object.freeze(o.privilegios.alteradas), funcoes: Object.freeze(o.privilegios.funcoes),
-    referenciadas: Object.freeze(o.privilegios.referenciadas), executadas: Object.freeze(o.privilegios.executadas ?? [])})});
+    referenciadas: Object.freeze(o.privilegios.referenciadas), executadas: Object.freeze(o.privilegios.executadas ?? []),
+    bloqueadas: Object.freeze(o.privilegios.bloqueadas ?? []), lidas: Object.freeze(o.privilegios.lidas ?? [])})});
 /** LISTA FECHADA: [etapa, arquivo, sha256 do conteúdo com CRLF normalizado para LF]. */
 const MIGRATIONS = Object.freeze({
   '120': congelar({escopo: 'financeiro P2: liquidações de entradas e reversões de saídas (aditiva; exige a 052)',
@@ -184,6 +185,17 @@ const MIGRATIONS = Object.freeze({
     criados: [tabela('plataforma_empresas_uso')],
     // Só CREATE TABLE (chaves para empresas e usuarios_administrativos): não altera tabela existente.
     privilegios: {criaNoSchema: true, alteradas: [], funcoes: [], referenciadas: ['empresas', 'usuarios_administrativos']}}),
+  '135': congelar({escopo: 'Wall-e 3b: consumo mensal de mensagens pela Cloud API (tabela nova + carga do mês sob LOCK SHARE); exige a 060; PORTÃO de deploy (SET kidmais.portao_135) que só o registro declara',
+    arquivos: [['precheck', 'database/checks/20261123_135_precheck.sql', 'ab2ef02de2770a72f122f1ca436baef888f5bdd8339696cb393f454ed3af36be'],
+      ['migration', 'database/migrations/20261123_135_whatsapp_consumo_mensal.sql', '7e8da1a20311af18bfef95b21e5cc88005490b5035f803ae9f658a9740995554'],
+      ['postcheck', 'database/checks/20261123_135_postcheck.sql', '4ae12152920b21cb888ba4c6d806491003489f5f5ce88668633339e5dc426e47']],
+    criados: [tabela('whatsapp_atendimento_consumo_mensal')],
+    // CREATE TABLE (chave para empresas) e carga a partir de whatsapp_atendimento_mensagens (Astra r1 P2 do registro 135): o LOCK ... IN
+    // SHARE MODE pede UPDATE, DELETE ou TRUNCATE nela (bloqueadas) e a carga lê cinco colunas dela (lidas, SELECT por coluna). Conferidos
+    // antes da reserva; o que escapar falha DENTRO da transação do corpo (NAO_COMMITADA).
+    privilegios: {criaNoSchema: true, alteradas: [], funcoes: [], referenciadas: ['empresas'], bloqueadas: ['whatsapp_atendimento_mensagens'],
+      lidas: ['whatsapp_atendimento_mensagens.ambiente', 'whatsapp_atendimento_mensagens.criada_em', 'whatsapp_atendimento_mensagens.direcao',
+        'whatsapp_atendimento_mensagens.empresa_id', 'whatsapp_atendimento_mensagens.estado']}}),
   '136': congelar({escopo: 'campanha com destino no site externo (coluna nova com padrão falso; o código funciona sem ela); exige a 085 e, no registro, a 134',
     arquivos: [['precheck', 'database/checks/20261124_136_precheck.sql', 'aeb6540a6f578fb7e00778bc01ed9e96488f0daef7285236659ec6a61e8529bc'],
       ['migration', 'database/migrations/20261124_136_campanha_destino_externo.sql', '904e146be8da5c45d77457bd8b1d5c2b04a5d4a1c7f3982021545258ee615b5f'],
@@ -193,7 +205,7 @@ const MIGRATIONS = Object.freeze({
     privilegios: {criaNoSchema: true, alteradas: ['marketing_campanhas'], funcoes: [], referenciadas: []}}),
 });
 /** Ordem do inventário (scripts/production/check-migrations.mjs, approvedFiles): 120, 121, 110, 111, 115, 123, 124, 125, 126, 127, 128.
- * A 130, a 131, a 132, a 133, a 134 e a 136 continuam em MIGRATIONS (SQL revisados e sentinelas que o registro no banco carrega e o --conferir lê), mas não
+ * A 130, a 131, a 132, a 133, a 134, a 135 e a 136 continuam em MIGRATIONS (SQL revisados e sentinelas que o registro no banco carrega e o --conferir lê), mas não
  * são aplicadas por aqui: ver SO_PELO_REGISTRO. */
 const IDS = Object.freeze(['120', '121', '110', '111', '115', '123', '124', '125', '126', '127', '128']);
 const definicao = id => { assert.ok(typeof id === 'string' && Object.hasOwn(MIGRATIONS, id), 'MIGRATION_FORA_DA_LISTA'); return MIGRATIONS[id]; };
@@ -227,7 +239,9 @@ function planoEtapas(id, s) {
  * Privilégios (só catálogo, READ ONLY): schema_create; sem_posse = tabelas alteradas ausentes ou de que o papel não é dono (nem membro do
  * dono); sem_references = tabelas referenciadas que existem e em que o papel não tem REFERENCES (ausentes ficam para o precheck da
  * migration, que confere as dependências); sem_posse_funcoes = funções substituídas ausentes ou de outro dono; sem_execute = funções que
- * já existem e que gatilhos novos chamam (CREATE TRIGGER exige EXECUTE nelas), ausentes ou sem EXECUTE para o papel.
+ * já existem e que gatilhos novos chamam (CREATE TRIGGER exige EXECUTE nelas), ausentes ou sem EXECUTE para o papel; sem_lock = tabelas
+ * que a migration trava com LOCK ... IN SHARE MODE (pede UPDATE, DELETE ou TRUNCATE), ausentes ou sem nenhum dos três; sem_select =
+ * colunas 'tabela.coluna' que a migration lê, ausentes ou sem SELECT (CASE antes de has_column_privilege: coluna ausente não dá erro).
  */
 const listaSql = l => (l.length ? `ARRAY[${l.map(x => `'${x}'`).join(', ')}]::text[]` : 'ARRAY[]::text[]');
 function sqlPrivilegios(id) {
@@ -240,15 +254,22 @@ function sqlPrivilegios(id) {
   coalesce((SELECT array_agg(f ORDER BY f) FROM unnest(${listaSql(p.funcoes)}) f WHERE to_regprocedure('public.' || f) IS NULL
     OR NOT EXISTS (SELECT 1 FROM pg_proc q WHERE q.oid = to_regprocedure('public.' || f) AND pg_has_role(current_user, q.proowner, 'USAGE'))), ARRAY[]::text[]) AS sem_posse_funcoes,
   coalesce((SELECT array_agg(f ORDER BY f) FROM unnest(${listaSql(p.executadas)}) f WHERE to_regprocedure('public.' || f) IS NULL
-    OR NOT has_function_privilege(current_user, to_regprocedure('public.' || f), 'EXECUTE')), ARRAY[]::text[]) AS sem_execute`;
+    OR NOT has_function_privilege(current_user, to_regprocedure('public.' || f), 'EXECUTE')), ARRAY[]::text[]) AS sem_execute,
+  coalesce((SELECT array_agg(t ORDER BY t) FROM unnest(${listaSql(p.bloqueadas)}) t WHERE CASE WHEN to_regclass('public.' || t) IS NULL THEN true
+    ELSE NOT (has_table_privilege(current_user, to_regclass('public.' || t), 'UPDATE') OR has_table_privilege(current_user, to_regclass('public.' || t), 'DELETE')
+      OR has_table_privilege(current_user, to_regclass('public.' || t), 'TRUNCATE')) END), ARRAY[]::text[]) AS sem_lock,
+  coalesce((SELECT array_agg(tc ORDER BY tc) FROM unnest(${listaSql(p.lidas)}) tc WHERE CASE WHEN NOT EXISTS (SELECT 1 FROM pg_attribute a
+      WHERE a.attrelid = to_regclass('public.' || split_part(tc, '.', 1)) AND a.attname = split_part(tc, '.', 2) AND a.attnum > 0 AND NOT a.attisdropped) THEN true
+    ELSE NOT has_column_privilege(current_user, to_regclass('public.' || split_part(tc, '.', 1)), split_part(tc, '.', 2), 'SELECT') END), ARRAY[]::text[]) AS sem_select`;
 }
 /** Linha da consulta → {ok, faltas}; formato inesperado = ILEGIVEL (nunca "tudo certo"). */
 function lerPrivilegios(id, linha) {
   assert.equal(typeof linha?.schema_create, 'boolean', 'PRIVILEGIOS_ILEGIVEL ' + id);
-  for (const c of ['sem_posse', 'sem_references', 'sem_posse_funcoes', 'sem_execute']) assert.ok(Array.isArray(linha[c]) && linha[c].every(x => typeof x === 'string'), `PRIVILEGIOS_ILEGIVEL ${id} ${c}`);
+  for (const c of ['sem_posse', 'sem_references', 'sem_posse_funcoes', 'sem_execute', 'sem_lock', 'sem_select']) assert.ok(Array.isArray(linha[c]) && linha[c].every(x => typeof x === 'string'), `PRIVILEGIOS_ILEGIVEL ${id} ${c}`);
   const faltas = [...(linha.schema_create ? [] : ['CREATE no schema public']), ...linha.sem_posse.map(t => 'posse da tabela ' + t),
     ...linha.sem_references.map(t => 'REFERENCES em ' + t), ...linha.sem_posse_funcoes.map(f => 'posse da função ' + f),
-    ...linha.sem_execute.map(f => 'EXECUTE na função ' + f)];
+    ...linha.sem_execute.map(f => 'EXECUTE na função ' + f), ...linha.sem_lock.map(t => 'LOCK SHARE em ' + t + ' (UPDATE, DELETE ou TRUNCATE)'),
+    ...linha.sem_select.map(c => 'SELECT na coluna ' + c)];
   return {ok: faltas.length === 0, faltas};
 }
 const privilegiosAtuais = async (db, id) => lerPrivilegios(id, (await somenteLeitura(db, sqlPrivilegios(id))).rows[0]);
@@ -396,7 +417,7 @@ const commitadas = r => Object.entries(situacoes(r)).filter(([, c]) => c === 'CO
 
 const BACKUP = /^[A-Za-z0-9:._/ -]{6,120}$/;
 /** 130+ só pelo registro no banco (scripts/registro-migrations-banco.cjs): aqui a definição só serve para carregar os SQL revisados. */
-const SO_PELO_REGISTRO = Object.freeze(['130', '131', '132', '133', '134', '136']);
+const SO_PELO_REGISTRO = Object.freeze(['130', '131', '132', '133', '134', '135', '136']);
 const exigirForaDoRegistro = id => { if (SO_PELO_REGISTRO.includes(id)) assert.fail(`ID_PELO_REGISTRO ${id}: aplicar só por scripts/registro-migrations-banco.cjs`); };
 function modo(argv) {
   if (argv.length === 0) return {modo: 'plano'};

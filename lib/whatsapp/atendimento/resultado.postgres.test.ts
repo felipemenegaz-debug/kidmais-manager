@@ -12,6 +12,8 @@ import * as core from './core.ts';
 import { cod, db, withTransaction } from './harness-postgres.ts';
 import * as multiempresa from './multiempresa.ts';
 import * as entendimento from './walle/entendimento.ts';
+import * as mesSaoPaulo from './mes-sao-paulo.ts';
+import * as tetoMensal from './teto-mensal.ts';
 
 const SENHA = `scrypt$v=1$N=131072$r=8$p=1$${'A'.repeat(22)}==$${'B'.repeat(86)}==`;
 const AGORA = new Date('2027-01-20T15:00:00Z');
@@ -47,15 +49,16 @@ test('resultado: sessões de 24 h, virada, custos e isolamento de empresa e ambi
     const vazia = await empresa('REPRESENTANTE_AUTORIZADO');
     // Só o serviço REAL (guarda de empresa ativa, direito e papel), com uma conexão por transação e a prova real de
     // tenant. O worker e a biblioteca do harness não participam desta suíte.
-    const configuracao = { ambienteAtendimento: () => 'staging', empresaPiloto: () => a.empresa_ativa_id, atendimentoAtivo: () => true, recepcaoAtiva: () => true, receptorDoNumero: () => true, contatoPermitido: () => true, entendimentoSoRegras: () => true, origemMidia: () => 'https://midia.kidmais.example' };
+    const configuracao = { ambienteAtendimento: () => 'staging', canalEnvio: () => 'GUPSHUP' as const, empresaPiloto: () => a.empresa_ativa_id, atendimentoAtivo: () => true, recepcaoAtiva: () => true, receptorDoNumero: () => true, contatoPermitido: () => true, entendimentoSoRegras: () => true, origemMidia: () => 'https://midia.kidmais.example' };
     const tenant = { withTenantTransaction: (s: SessaoParaTenant, e: string, w: Parameters<typeof executarNoTenant>[3]) => withTransaction((tx: DbExecutor) => executarNoTenant(tx, s, e, w)) };
     const servico = carregarComponente('lib/whatsapp/atendimento/service.ts', {
       '../../db/postgres.ts': { withTransaction, db }, '../../saas/provar-tenant.ts': tenant, './configuracao.ts': configuracao, './core.ts': core, './arquivos.ts': arquivos,
-      './walle/entendimento.ts': entendimento, './multiempresa.ts': multiempresa, '../../satisfacao/supressao.ts': supressao, '../../marketing/automacoes/preferencias.ts': preferencias,
+      './walle/entendimento.ts': entendimento, './multiempresa.ts': multiempresa, './teto-mensal.ts': tetoMensal, '../../satisfacao/supressao.ts': supressao, '../../marketing/automacoes/preferencias.ts': preferencias,
     }).modulo as typeof import('./service.ts');
     const { resultadoAtendimento } = carregarComponente('lib/whatsapp/atendimento/resultado.ts', {
       './service.ts': servico,
-      './configuracao.ts': { ambienteAtendimento: () => 'staging' },
+      './configuracao.ts': { ambienteAtendimento: () => 'staging', canalEnvio: () => 'GUPSHUP', empresaPiloto: () => a.empresa_ativa_id },
+      './mes-sao-paulo.ts': mesSaoPaulo, './teto-mensal.ts': tetoMensal,
     }).modulo as typeof import('./resultado.ts');
 
     async function conversa(sessao: typeof a, contato: string, ambiente = 'staging') {

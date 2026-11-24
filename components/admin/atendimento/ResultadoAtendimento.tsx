@@ -11,6 +11,26 @@ const meses = new Intl.DateTimeFormat('pt-BR', { timeZone: 'UTC', month: 'long',
 const dias = new Intl.DateTimeFormat('pt-BR', { timeZone: 'America/Sao_Paulo', dateStyle: 'short' });
 const falha = 'Não foi possível carregar o resultado do atendimento.';
 
+/**
+ * 3b (D-LAN-3, r2): mensagens do número pela Cloud API neste mês (estimativa do iA.Fest, 135). Duas coisas separadas
+ * (Astra r1, P1): a franquia da Meta (fixa, 1.000 respostas sem tarifa) e o limite do Wall-e (configurável).
+ */
+export function textoTeto({ usadas, franquiaMeta, limite, aviso, estado, acimaDaFranquia }: NonNullable<DadosResultado['teto']>) {
+  const n = (v: number) => numeros.format(v);
+  // Astra r2/r3 (P2): é contagem de RESERVAS (inclui saídas que depois falharam ou foram canceladas, e a virada do mês
+  // pode deslocar uma saída); nunca afirma que houve ou haverá cobrança (Astra r4, P2): os dois ramos dizem para onde ela vai
+  // "se houver" e mandam conferir a contagem oficial na Meta.
+  const uso = `Cerca de ${n(usadas)} mensagens do número neste mês (equipe e Wall-e), em reservas estimadas pelo iA.Fest; inclui envios que falharam ou foram cancelados.`;
+  const walle = estado === 'ATINGIDO' ? `O Wall-e parou ao chegar a ${n(limite)} e volta no mês que vem; as conversas novas vão para a equipe.`
+    : estado === 'AVISO' ? `Atingiu ${n(aviso)}: ao chegar a ${n(limite)}, o Wall-e para de responder até o mês que vem.`
+    : `O Wall-e para de responder ao chegar a ${n(limite)} no mês.`;
+  const conferir = 'Se houver cobrança, ela vai para o cartão da conta do WhatsApp do buffet. Confira na Meta a contagem oficial e se houve cobrança.';
+  const meta = acimaDaFranquia
+    ? `A estimativa passou das ${n(franquiaMeta)} respostas do mês que a Meta não cobra. ${conferir}`
+    : `A Meta não cobra as primeiras ${n(franquiaMeta)} respostas do mês por número. ${conferir}`;
+  return `${uso} ${walle} ${meta}`;
+}
+
 /** Custo em micros com 2 a 4 casas (arredondado). Acima de zero e abaixo de 0,0001 mostra "< 0,0001" para não parecer zero. */
 function formatarCusto(moeda: string, micros: string) {
   const valor = BigInt(micros);
@@ -58,6 +78,8 @@ export default function ResultadoAtendimento() {
           ? <>Mensagem mais antiga ainda guardada em <time dateTime={dados.primeiraMensagemEm}>{dias.format(new Date(dados.primeiraMensagemEm))}</time>. Números de mensagens anteriores a essa data não aparecem. A retenção e a exclusão apagam mensagens.</>
           : 'Nenhuma mensagem guardada neste ambiente para a empresa ativa. A retenção e a exclusão apagam mensagens.'}
       </p>
+      {dados.teto && (() => { const calmo = dados.teto.estado === 'NORMAL' && !dados.teto.acimaDaFranquia;
+        return <p className={calmo ? styles.aviso : styles.erro} role={calmo ? undefined : 'alert'} data-teto={dados.teto.estado}>{textoTeto(dados.teto)}</p>; })()}
       <div className={styles.mesesResultado}>
         {dados.meses.map(({ mes, sessoes, entradas, saidas, ia }) => <section className={styles.painel} key={mes} aria-labelledby={`resultado-${mes}`}>
           <h2 id={`resultado-${mes}`}><time dateTime={mes}>{meses.format(new Date(`${mes}-01T00:00:00Z`))}</time></h2>

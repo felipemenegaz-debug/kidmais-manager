@@ -198,6 +198,62 @@ test('argumentos: escopo de ids, 129 só nos três modos, --aplicar-129 recusado
   assert.match(recusa(['--ambiente', 'staging', '--conferir-tentativa', '130', '--tentativa', 'nao-uuid']), /TENTATIVA_INVALIDA/);
 });
 
+test('135: portão de deploy obrigatório no argumento (sem ele recusa antes de conectar); outros ids não aceitam portão', async () => {
+  const recusa = a => { try { r.modo(a); return null; } catch (e) { return e.saida ?? e.message; } };
+  const B = ['--backup', 'snapshot 24/11 staging'], P = 'web dep-a LIVE + worker dep-b LIVE; antigos encerrados 06:10Z';
+  assert.deepEqual(Object.keys(r.PORTOES), ['135']);
+  assert.equal(r.PORTOES['135'].set, "SET LOCAL kidmais.portao_135 = 'deploy-novo-live-sem-gravador-antigo'");
+  assert.match(recusa(['--ambiente', 'staging', '--aplicar-135-autorizado', ...B]), /^PORTAO_OBRIGATORIO 135/);
+  assert.match(recusa(['--ambiente', 'staging', '--aplicar-135-autorizado', ...B, '--portao-134', P]), /^PORTAO_OBRIGATORIO 135/);
+  assert.match(recusa(['--ambiente', 'staging', '--aplicar-135-autorizado', ...B, '--portao-135']), /^PORTAO_OBRIGATORIO 135/);
+  assert.match(recusa(['--ambiente', 'staging', '--aplicar-135-autorizado', ...B, '--portao-135', 'curto']), /PORTAO_INVALIDO/);
+  assert.match(recusa(['--ambiente', 'staging', '--aplicar-135-autorizado', ...B, '--portao-135', P + '\n']), /PORTAO_INVALIDO/);
+  assert.match(recusa(['--ambiente', 'staging', '--aplicar-135-autorizado', '--portao-135', P, ...B]), /BACKUP_OBRIGATORIO/);
+  assert.match(recusa(['--ambiente', 'staging', '--aplicar-134-autorizado', ...B, '--portao-135', P]), /ARGUMENTOS_RECUSADOS/);
+  assert.deepEqual(r.modo(['--ambiente', 'production', '--aplicar-135-autorizado', ...B, '--portao-135', P]), {ambiente: 'production', modo: 'aplicar', id: '135', backup: B[1], portao: P});
+  assert.equal(r.modo(['--ambiente', 'staging', '--aplicar-134-autorizado', ...B]).portao, undefined);
+  assert.equal(r.ANTECESSORA['135'], '134');
+  // A 136 também segue a 134 (independente da 135, como 132 e 133 em relação à 131) e não tem portão.
+  assert.equal(r.ANTECESSORA['136'], '134'); assert.equal(r.PORTOES['136'], undefined); assert.deepEqual(Object.keys(r.PORTOES), ['135']);
+  // Astra r1 P1: validador único. Só espaços, só pontuação, controle no meio ou nas pontas e não-string são recusados; espaços das pontas saem.
+  for (const ruim of [' '.repeat(20), ' '.repeat(200), '-'.repeat(25), '.;,:() /#+_'.repeat(3), P + '\n', '\t' + P, P.slice(0, 10) + '\n' + P.slice(10), 'x'.repeat(201), '  ' + 'x'.repeat(19) + '  ']) {
+    assert.equal(r.validarPortao(ruim), null, JSON.stringify(ruim));
+    assert.match(recusa(['--ambiente', 'staging', '--aplicar-135-autorizado', ...B, '--portao-135', ruim]), /PORTAO_INVALIDO/, JSON.stringify(ruim));
+  }
+  for (const ruim of [undefined, null, 12345678901234567890123, ['x'.repeat(30)], {toString: () => P}, new String(P)]) assert.equal(r.validarPortao(ruim), null, String(ruim));
+  assert.equal(r.validarPortao('   ' + P + '  '), P);
+  assert.equal(r.validarPortao('ação conferida às 06:10Z ok'), 'ação conferida às 06:10Z ok');
+  assert.equal(r.modo(['--ambiente', 'staging', '--aplicar-135-autorizado', ...B, '--portao-135', '  ' + P + ' ']).portao, P, 'modo devolve o texto validado');
+  // Pela linha de comando: recusa com código 1 e nenhuma conexão.
+  const {Client, clientes} = fabrica(padrao);
+  const res = await r.principal(['--ambiente', 'staging', '--aplicar-135-autorizado', ...B], {}, {Client, out: () => {}});
+  assert.equal(res.codigo, 1); assert.match(res.linhas[0], /^PORTAO_OBRIGATORIO 135/); assert.equal(clientes.length, 0);
+  // Direto no aplicar (defesa além do modo): sem portão, ou portão num id sem portão, também não conecta.
+  for (const [m, esperado] of [[{id: '135', backup: B[1]}, /^PORTAO_OBRIGATORIO 135/], [{id: '134', backup: B[1], portao: P}, /^PORTAO_FORA_DO_ID 134/],
+    [{id: '135', backup: B[1], portao: ' '.repeat(20)}, /^PORTAO_OBRIGATORIO 135/], [{id: '135', backup: B[1], portao: {toString: () => P}}, /^PORTAO_OBRIGATORIO 135/],
+    [{id: '135', backup: B[1], portao: null}, /^PORTAO_OBRIGATORIO 135/], [{id: '135', backup: B[1], portao: P + '\n'}, /^PORTAO_OBRIGATORIO 135/],
+    // Astra r2 P3: só pontuação e new String também pela matriz do aplicar (código 1, nenhuma conexão).
+    [{id: '135', backup: B[1], portao: '.;,:() /#+_'.repeat(3)}, /^PORTAO_OBRIGATORIO 135/], [{id: '135', backup: B[1], portao: new String(P)}, /^PORTAO_OBRIGATORIO 135/]]) {
+    const f = fabrica(padrao);
+    const a = await r.aplicar(ctxDe(f.Client), m);
+    assert.equal(a.codigo, 1); assert.match(a.linhas[0], esperado); assert.equal(f.clientes.length, 0);
+  }
+});
+
+test('135: o SET LOCAL do portão vai na transação do corpo, depois da identidade e antes do precheck; nunca na reserva nem em leitura', () => {
+  const ap = r.aplicar.toString();
+  assert.equal((ap.match(/db\.query\(pt\.set\)/g) ?? []).length, 1, 'um único SET do portão');
+  const iSet = ap.indexOf('db.query(pt.set)');
+  const iId = ap.indexOf("fase = 'identidade'"), iPre = ap.indexOf("fase = 'precheck'"), iCorpo = ap.indexOf('6. Corpo'), iCommitReserva = ap.indexOf("'commit_reserva_timeout'");
+  for (const [n, i] of Object.entries({iSet, iId, iPre, iCorpo, iCommitReserva})) assert.ok(i >= 0, n + ' presente (Astra r1 P3: -1 passaria)');
+  assert.ok(iCommitReserva < iCorpo && iCorpo < iId && iId < iSet && iSet < iPre, 'COMMIT da reserva < corpo < identidade < portão < precheck');
+  // A ordem real das queries no PG está no teste '135 (Astra r1 P3)' de registro-migrations-banco.postgres.test.cjs.
+  assert.ok(!/portao_135/.test(fonte.replace(/const PORTOES = [^\n]*\n/, '')), 'o literal do portão só existe em PORTOES');
+  for (const f of [r.abrirSessaoLeitura, r.conferirRegistro, r.conferirTentativa, r.conferirId, r.bootstrap129, r.arquivar, r.concluirVerificacao]) assert.ok(!/pt\.set|PORTOES/.test(f.toString()));
+  assert.match(ap, /reserva: \{anterior: anterior\?\.tentativa \?\? null, \.\.\.\(pt \? \{portao: declarado\} : \{\}\)\}/, 'declaração VALIDADA gravada na reserva');
+  assert.ok(!/String\(portao\)|\$\{portao\}/.test(ap), 'nunca o texto cru');
+});
+
 test('códigos: precedência 1 > 2 > 3 > 0', async () => {
   const out = [];
   const res = await r.principal(['--ambiente', 'staging', '--conferir-129'], {}, {out: t => out.push(t)});

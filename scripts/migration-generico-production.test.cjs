@@ -37,7 +37,9 @@ const linhaEstado = (id, criados, removidos = false) => Object.fromEntries([...g
  * Opções: situacao inicial ('ausente' | 'presente' | linha explícita), falharEm (trecho → `erro`), falharCommit ({erro} ou
  * {rollback: true}), aprovado (valor da coluna `aprovado` que o check devolve), naoCompleta (o COMMIT não deixa os objetos).
  */
-const PRIV_OK = Object.freeze({schema_create: true, sem_posse: [], sem_references: [], sem_posse_funcoes: [], sem_execute: []});
+const PRIV_OK = Object.freeze({schema_create: true, sem_posse: [], sem_references: [], sem_posse_funcoes: [], sem_execute: [], sem_lock: [], sem_select: []});
+/** A consulta de privilégios cita os nomes dos privilégios entre aspas ('UPDATE', 'DELETE', 'TRUNCATE'); fora disso, nenhum comando de escrita. */
+const semPrivilegioCitado = q => q.replace(/'(UPDATE|DELETE|TRUNCATE|SELECT|REFERENCES|EXECUTE|CREATE|USAGE)'/g, "''");
 function clienteFalso(id, {situacao = 'ausente', identidade = ID_PROD, falharEm, erro, falharCommit, aprovado, naoCompleta, privilegios = PRIV_OK} = {}) {
   const corpos = g.carregar(raiz, id);
   const log = []; let ro = false, emTransacao = false, pendente = false, commits = 0;
@@ -79,9 +81,9 @@ const conferir = id => ['--conferir', id];
 const aplicar = id => ['--aplicar-autorizado', id, '--backup', BACKUP];
 const marcador = (dir, id) => JSON.parse(fs.readFileSync(path.join(dir, g.marcadorDe(id)), 'utf8'));
 
-test('lista fechada: só 120, 121, 110, 111, 115, 123, 124, 125, 126, 127, 128 (130, 131, 132, 133, 134 e 136 só definidas, pelo registro), na ordem do inventário; hash LF fixado dos 3 SQL de cada uma; nenhum down', async () => {
+test('lista fechada: só 120, 121, 110, 111, 115, 123, 124, 125, 126, 127, 128 (130 a 136 só definidas, pelo registro), na ordem do inventário; hash LF fixado dos 3 SQL de cada uma; nenhum down', async () => {
   assert.deepEqual([...g.IDS], ['120', '121', '110', '111', '115', '123', '124', '125', '126', '127', '128']);
-  assert.deepEqual([...g.SO_PELO_REGISTRO], ['130', '131', '132', '133', '134', '136']);
+  assert.deepEqual([...g.SO_PELO_REGISTRO], ['130', '131', '132', '133', '134', '135', '136']);
   assert.deepEqual(Object.keys(g.MIGRATIONS).sort(), [...g.IDS, ...g.SO_PELO_REGISTRO].sort());
   for (const id of [...g.IDS, ...g.SO_PELO_REGISTRO]) {
     const d = g.MIGRATIONS[id];
@@ -133,7 +135,7 @@ test('sentinelas do estado: cada nome vem do precheck da própria migration; est
   // 115: índice novo ausente = ausente (com ou sem o da 054); novo presente e o da 054 ainda presente = intermediário
   // aplicável (a subida é idempotente e o precheck decide); novo presente sem o da 054 = presente.
   assert.equal(g.MIGRATIONS['115'].idempotente, true);
-  for (const id of ['120', '121', '110', '111', '123', '124', '125', '126', '127', '128', '130', '131', '132', '133', '134', '136']) assert.notEqual(g.MIGRATIONS[id].idempotente, true);
+  for (const id of ['120', '121', '110', '111', '123', '124', '125', '126', '127', '128', '130', '131', '132', '133', '134', '135', '136']) assert.notEqual(g.MIGRATIONS[id].idempotente, true);
   assert.equal(g.lerEstado('115', {c0: false, r0: true}).situacao, 'ausente'); assert.equal(g.lerEstado('115', {c0: false, r0: false}).situacao, 'ausente');
   const meio = g.lerEstado('115', {c0: true, r0: true});
   assert.equal(meio.situacao, 'parcial'); assert.deepEqual(meio.divergencias, ['sobra fechamentos_054_empresa_idx']);
@@ -201,9 +203,9 @@ test('alvo e identidade de produção iguais aos do molde, com a rigidez dos ada
   assert.ok(!saida.ordem.some(x => /staging/.test(x)) && saida.ordem.some(x => /backup restaurável de production .*PITR/.test(x)));
 });
 
-test('130, 131, 132, 133, 134 e 136: APLICAR recusado com ID_PELO_REGISTRO antes de qualquer conexão (modo, executar e aplicarNoCliente); MIGRATIONS preservadas', async () => {
+test('130 a 136: APLICAR recusado com ID_PELO_REGISTRO antes de qualquer conexão (modo, executar e aplicarNoCliente); MIGRATIONS preservadas', async () => {
   const Proibido = class { constructor() { assert.fail('não pode conectar'); } };
-  for (const id of ['130', '131', '132', '133', '134', '136']) {
+  for (const id of ['130', '131', '132', '133', '134', '135', '136']) {
     assert.throws(() => g.modo(['--aplicar-autorizado', id, '--backup', 'dump 2026-11-21T03:00Z PITR']), new RegExp('ID_PELO_REGISTRO ' + id + ': aplicar só por scripts/registro-migrations-banco.cjs'));
     await assert.rejects(g.principal(['--aplicar-autorizado', id, '--backup', 'dump 2026-11-21T03:00Z PITR'], ENV_PROD, {Client: Proibido}), new RegExp('ID_PELO_REGISTRO ' + id));
     await assert.rejects(g.executar({env: ENV_PROD, id, backup: 'dump 2026-11-21T03:00Z PITR', Client: Proibido, disco: () => assert.fail('não pode olhar o disco')}), /ID_PELO_REGISTRO/);
@@ -396,6 +398,9 @@ test('antes de conectar: backup obrigatório, disco exigido, SQL divergente e id
 
 // ---- Privilégios (P3): lista declarada por id, conferida contra o SQL; CONFERIR recusa (3); APLICAR recusa antes do marcador ----
 const nomes = (sql, re) => [...sql.matchAll(re)].map(m => m[1].toLowerCase());
+/** Tabelas de todo LOCK [TABLE] [ONLY] a, b, c IN ... MODE (lista separada por vírgula). */
+const travadas = sql => [...new Set([...sql.matchAll(/^\s*LOCK (?:TABLE )?(?:ONLY )?([^;]*?) IN [A-Z ]+ MODE/gim)]
+  .flatMap(m => m[1].split(',').map(t => t.trim().toLowerCase().replace(/^public\./, ''))))];
 // Funções que já existem e que gatilhos novos chamam (exigem EXECUTE), menos as que a própria migration cria.
 // Regra falha-fechada, sem parser de SQL (P3 do Astra em 3e619d69 e de689910): toda palavra EXECUTE do SQL bruto, inclusive
 // dentro de literais, blocos DO e format(), tem de estar numa destas formas, as únicas usadas pelas migrations:
@@ -480,19 +485,46 @@ test('privilégios declarados por id batem com o SQL da migration (tabelas alter
     assert.deepEqual([...p.executadas].sort(), [...executadas].sort(), id + ': funções existentes chamadas por gatilhos novos (EXECUTE)');
     assert.equal(/has_function_privilege\(current_user, to_regprocedure\('public\.' \|\| f\), 'EXECUTE'\)/.test(g.sqlPrivilegios(id)), true, id);
     assert.equal(p.criaNoSchema, novas.size > 0 || /^\s*CREATE FUNCTION /im.test(sql), id + ': CREATE no schema');
-    assert.ok(Object.isFrozen(p) && Object.isFrozen(p.alteradas) && Object.isFrozen(p.referenciadas) && Object.isFrozen(p.funcoes) && Object.isFrozen(p.executadas), id);
+    // LOCK em tabela que a migration já altera fica coberto pela posse (sem_posse); as outras travadas exigem o privilégio do modo (bloqueadas).
+    assert.deepEqual([...p.bloqueadas].sort(), travadas(sql).filter(t => !p.alteradas.includes(t) && !novas.has(t)).sort(), id + ': tabelas travadas (LOCK) fora das alteradas');
+    assert.deepEqual([...p.lidas], [], id + ': lidas só onde declarado e testado (135)');
+    assert.ok(Object.isFrozen(p) && Object.isFrozen(p.alteradas) && Object.isFrozen(p.referenciadas) && Object.isFrozen(p.funcoes) && Object.isFrozen(p.executadas)
+      && Object.isFrozen(p.bloqueadas) && Object.isFrozen(p.lidas), id);
     const q = g.sqlPrivilegios(id);
-    assert.doesNotMatch(q, /\b(INSERT|UPDATE|DELETE|ALTER|DROP|TRUNCATE|GRANT)\b/); assert.match(q, new RegExp('^/\\* privilegios-' + id + ' \\*/ SELECT '));
+    assert.doesNotMatch(semPrivilegioCitado(q), /\b(INSERT|UPDATE|DELETE|ALTER|DROP|TRUNCATE|GRANT)\b/); assert.match(q, new RegExp('^/\\* privilegios-' + id + ' \\*/ SELECT '));
     assert.match(q, /has_table_privilege/); assert.match(q, /pg_has_role\(current_user, c\.relowner, 'USAGE'\)/);
     assert.equal(/has_schema_privilege\(current_user, 'public', 'CREATE'\)/.test(q), p.criaNoSchema, id);
   }
 });
 
+test('135 (Astra r1 P2 do registro): LOCK SHARE e colunas lidas declarados batem com o SQL e entram na consulta de privilégios', () => {
+  const p = g.MIGRATIONS['135'].privilegios, sql = lf(arquivo('135', 'migration')).split('\n').filter(l => !l.trim().startsWith('--')).join('\n');
+  assert.deepEqual(travadas(sql), ['whatsapp_atendimento_mensagens']); assert.deepEqual([...p.alteradas], []);
+  assert.deepEqual([...p.bloqueadas], travadas(sql));
+  assert.deepEqual(travadas('LOCK TABLE public.a, public.b IN ACCESS EXCLUSIVE MODE;\n  lock only c in share mode;'), ['a', 'b', 'c']);
+  assert.match(sql, /LOCK TABLE public\.whatsapp_atendimento_mensagens IN SHARE MODE;/);
+  // Colunas lidas: todo "m.<coluna>" da carga (alias m = whatsapp_atendimento_mensagens), e nenhuma outra tabela lida além dela.
+  assert.match(sql, /FROM public\.whatsapp_atendimento_mensagens m CROSS JOIN inicio i/);
+  assert.deepEqual([...nomes(sql, /\bFROM public\.([a-z0-9_]+)/gi)], ['whatsapp_atendimento_mensagens']);
+  const colunas = [...new Set([...sql.matchAll(/\bm\.([a-z_]+)/g)].map(x => 'whatsapp_atendimento_mensagens.' + x[1]))].sort();
+  assert.deepEqual([...p.lidas].sort(), colunas);
+  assert.equal(colunas.length, 5);
+  const q = g.sqlPrivilegios('135');
+  assert.doesNotMatch(semPrivilegioCitado(q), /\b(INSERT|UPDATE|DELETE|ALTER|DROP|TRUNCATE|GRANT)\b|\bLOCK TABLE\b/);
+  assert.match(q, /ARRAY\['whatsapp_atendimento_mensagens'\]::text\[\]\) t WHERE CASE WHEN to_regclass/);
+  for (const c of colunas) assert.ok(q.includes("'" + c + "'"), c);
+  assert.match(q, /AS sem_lock,/); assert.match(q, /AS sem_select$/);
+  for (const id of g.IDS) assert.match(g.sqlPrivilegios(id), /ARRAY\[\]::text\[\]\) t WHERE CASE WHEN to_regclass[^]*ARRAY\[\]::text\[\]\) tc WHERE/, id + ': listas vazias');
+});
+
 test('privilégios: lerPrivilegios aceita só o formato esperado e nomeia o que falta', () => {
   assert.deepEqual(g.lerPrivilegios('120', PRIV_OK), {ok: true, faltas: []});
-  assert.deepEqual(g.lerPrivilegios('120', {...PRIV_OK, schema_create: false, sem_posse: ['financeiro_saidas'], sem_references: ['empresas'], sem_posse_funcoes: ['f()'], sem_execute: ['g()']}).faltas,
-    ['CREATE no schema public', 'posse da tabela financeiro_saidas', 'REFERENCES em empresas', 'posse da função f()', 'EXECUTE na função g()']);
-  for (const ruim of [undefined, {}, {...PRIV_OK, schema_create: 'sim'}, {...PRIV_OK, sem_posse: null}, {...PRIV_OK, sem_references: [1]}, {...PRIV_OK, sem_execute: undefined}, {...PRIV_OK, sem_execute: [2]}])
+  assert.deepEqual(g.lerPrivilegios('120', {...PRIV_OK, schema_create: false, sem_posse: ['financeiro_saidas'], sem_references: ['empresas'], sem_posse_funcoes: ['f()'], sem_execute: ['g()'],
+    sem_lock: ['t'], sem_select: ['t.c']}).faltas,
+    ['CREATE no schema public', 'posse da tabela financeiro_saidas', 'REFERENCES em empresas', 'posse da função f()', 'EXECUTE na função g()',
+      'LOCK SHARE em t (UPDATE, DELETE ou TRUNCATE)', 'SELECT na coluna t.c']);
+  for (const ruim of [undefined, {}, {...PRIV_OK, schema_create: 'sim'}, {...PRIV_OK, sem_posse: null}, {...PRIV_OK, sem_references: [1]}, {...PRIV_OK, sem_execute: undefined}, {...PRIV_OK, sem_execute: [2]},
+    {...PRIV_OK, sem_lock: undefined}, {...PRIV_OK, sem_lock: [3]}, {...PRIV_OK, sem_select: undefined}, {...PRIV_OK, sem_select: [4]}])
     assert.throws(() => g.lerPrivilegios('120', ruim), /PRIVILEGIOS_ILEGIVEL/);
 });
 

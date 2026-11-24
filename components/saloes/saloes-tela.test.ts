@@ -56,7 +56,7 @@ test('S-D: situação do preferido pela leitura pública (fetch simulado) e paco
 test('S-D: assistente — preferência na URL, pacote fora do salão não conclui, envio com salaoPreferido, textos do contrato', () => {
     const fonte = readFileSync('components/fechamento/FechamentoWizard.tsx', 'utf8');
     assert.match(fonte, /const salaoParam = params\.get\("salao"\);/);
-    assert.match(fonte, /params\.set\("aviso", "salao"\);\s*router\.replace\(`\$\{paginaPublica\("\/saloes", empresa\)\}/, 'salão que não serve: volta à escolha');
+    assert.match(fonte, /params\.set\("aviso", "salao"\);\s*router\.replace\(`\$\{paginaPublica\("\/saloes", empresa, base\)\}/, 'salão que não serve: volta à escolha');
     const bloco = fonte.slice(fonte.indexOf('if (etapa === 0 && salaoPreferido && form.pacote) {'), fonte.indexOf('if (etapa === 0 && pacote?.sobConsulta) {'));
     assert.match(bloco, /if \(fora\) \{ setErro\(`\$\{fora\} Escolha um pacote deste salão ou troque o salão\.`\); return false; \}/, 'pacote fora do salão não conclui');
     assert.match(fonte, /\.\.\.\(salaoPreferido \? \{ salaoPreferido: salaoPreferido\.id \} : \{\}\),/);
@@ -199,7 +199,7 @@ test('E2b (P2-C1): entrada — horário fixo exige o fim exato; horário livre c
 test('E2b (P2-C1): o assistente monta a volta com o destino do POST (mesmo objeto do corpo), nunca a URL sozinha', () => {
     const fonte = readFileSync(new URL('../fechamento/FechamentoWizard.tsx', import.meta.url), 'utf8');
     const sem = fonte.replace(/\s+/g, ' ');
-    assert.ok(sem.includes('destinoDaRecusaDoSalao(empresa, new URLSearchParams(window.location.search), enviado, falha)'));
+    assert.ok(sem.includes('destinoDaRecusaDoSalao(base ?? empresa, new URLSearchParams(window.location.search), enviado, falha)'));
     assert.ok(sem.includes('horarioInicio: enviado.inicio, horarioFim: enviado.fim,'), 'o corpo do POST usa o mesmo destino');
     assert.ok(sem.includes('candidatoDaEntrada(periodo, { ajuste: Number(ajustePreselecionado), inicio: inicioParam, fim: fimParam })'));
 });
