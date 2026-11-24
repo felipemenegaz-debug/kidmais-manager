@@ -79,9 +79,9 @@ const conferir = id => ['--conferir', id];
 const aplicar = id => ['--aplicar-autorizado', id, '--backup', BACKUP];
 const marcador = (dir, id) => JSON.parse(fs.readFileSync(path.join(dir, g.marcadorDe(id)), 'utf8'));
 
-test('lista fechada: só 120, 121, 110, 111, 115, 123, 124, 125, 126, 127, 128 (130, 131 e 133 só definidas, pelo registro), na ordem do inventário; hash LF fixado dos 3 SQL de cada uma; nenhum down', async () => {
+test('lista fechada: só 120, 121, 110, 111, 115, 123, 124, 125, 126, 127, 128 (130, 131, 133 e 134 só definidas, pelo registro), na ordem do inventário; hash LF fixado dos 3 SQL de cada uma; nenhum down', async () => {
   assert.deepEqual([...g.IDS], ['120', '121', '110', '111', '115', '123', '124', '125', '126', '127', '128']);
-  assert.deepEqual([...g.SO_PELO_REGISTRO], ['130', '131', '133']);
+  assert.deepEqual([...g.SO_PELO_REGISTRO], ['130', '131', '133', '134']);
   assert.deepEqual(Object.keys(g.MIGRATIONS).sort(), [...g.IDS, ...g.SO_PELO_REGISTRO].sort());
   for (const id of [...g.IDS, ...g.SO_PELO_REGISTRO]) {
     const d = g.MIGRATIONS[id];
@@ -133,7 +133,7 @@ test('sentinelas do estado: cada nome vem do precheck da própria migration; est
   // 115: índice novo ausente = ausente (com ou sem o da 054); novo presente e o da 054 ainda presente = intermediário
   // aplicável (a subida é idempotente e o precheck decide); novo presente sem o da 054 = presente.
   assert.equal(g.MIGRATIONS['115'].idempotente, true);
-  for (const id of ['120', '121', '110', '111', '123', '124', '125', '126', '127', '128', '130', '131', '133']) assert.notEqual(g.MIGRATIONS[id].idempotente, true);
+  for (const id of ['120', '121', '110', '111', '123', '124', '125', '126', '127', '128', '130', '131', '133', '134']) assert.notEqual(g.MIGRATIONS[id].idempotente, true);
   assert.equal(g.lerEstado('115', {c0: false, r0: true}).situacao, 'ausente'); assert.equal(g.lerEstado('115', {c0: false, r0: false}).situacao, 'ausente');
   const meio = g.lerEstado('115', {c0: true, r0: true});
   assert.equal(meio.situacao, 'parcial'); assert.deepEqual(meio.divergencias, ['sobra fechamentos_054_empresa_idx']);
@@ -201,9 +201,9 @@ test('alvo e identidade de produção iguais aos do molde, com a rigidez dos ada
   assert.ok(!saida.ordem.some(x => /staging/.test(x)) && saida.ordem.some(x => /backup restaurável de production .*PITR/.test(x)));
 });
 
-test('130, 131 e 133: APLICAR recusado com ID_PELO_REGISTRO antes de qualquer conexão (modo, executar e aplicarNoCliente); MIGRATIONS preservadas', async () => {
+test('130, 131, 133 e 134: APLICAR recusado com ID_PELO_REGISTRO antes de qualquer conexão (modo, executar e aplicarNoCliente); MIGRATIONS preservadas', async () => {
   const Proibido = class { constructor() { assert.fail('não pode conectar'); } };
-  for (const id of ['130', '131', '133']) {
+  for (const id of ['130', '131', '133', '134']) {
     assert.throws(() => g.modo(['--aplicar-autorizado', id, '--backup', 'dump 2026-11-21T03:00Z PITR']), new RegExp('ID_PELO_REGISTRO ' + id + ': aplicar só por scripts/registro-migrations-banco.cjs'));
     await assert.rejects(g.principal(['--aplicar-autorizado', id, '--backup', 'dump 2026-11-21T03:00Z PITR'], ENV_PROD, {Client: Proibido}), new RegExp('ID_PELO_REGISTRO ' + id));
     await assert.rejects(g.executar({env: ENV_PROD, id, backup: 'dump 2026-11-21T03:00Z PITR', Client: Proibido, disco: () => assert.fail('não pode olhar o disco')}), /ID_PELO_REGISTRO/);

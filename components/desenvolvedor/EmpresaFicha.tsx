@@ -14,13 +14,13 @@ import { tomSituacao } from './Empresas';
 import { rotuloResultado } from './PainelResumo';
 
 type Cadastro = { nomeEmpresarial: string | null; documentoFiscal: string | null; responsavelNome: string | null; email: string | null; telefone: string | null; observacoes: string | null; interessadaId: string | null; implantacao: string | null; implantacaoConcluidaEm: string | null; revisao: number | null; origem?: 'INTERESSADA' | 'CADASTRO_PUBLICO' | 'DIRETO' | null };
-type Empresa = { id: string; codigo: string; nome: string; status: string; situacao: string; situacaoRotulo: string; criadoEm: string; atualizadoEm: string; implantacaoRotulo: string | null; cadastro: Cadastro | null };
+type Empresa = { id: string; codigo: string; nome: string; status: string; situacao: string; situacaoRotulo: string; criadoEm: string; atualizadoEm: string; implantacaoRotulo: string | null; cadastro: Cadastro | null; uso?: 'CLIENTE' | 'INTERNA' };
 type Membro = { usuarioId: string; nome: string; email: string; papel: string; nivel: string; statusVinculo: 'PENDENTE' | 'ATIVA' | 'SUSPENSA' | 'REVOGADA'; contaAtiva: boolean; membershipId: string; vinculoDesde: string; atualizadoEm: string; outrasEmpresasAtivas: number };
 type Convite = { id: string; email: string; nomeSugerido: string | null; nivel: string; situacao: 'PENDENTE' | 'EXPIRADO' | 'ACEITO' | 'CANCELADO'; expiraEm: string; envios: number; ultimoEnvioEm: string | null; criadoEm: string; aceitoEm: string | null; canceladoEm: string | null };
 type Atividade = { id: string; acao: string; origem: string; criado_em: string; ator: string | null; resultado: string | null };
 type Pendencia = { codigo: string; titulo: string; atendida: boolean; obrigatoria: boolean; detalhe: string; acao: 'CONVITES' | 'VINCULOS' | 'CADASTRO' | 'PERFIL' | 'PLATAFORMA' | null };
 type Implantacao = { itens: Pendencia[]; podeConcluir: boolean; pendentesObrigatorias: string[] };
-type Ficha = { empresa: Empresa; membros: Membro[]; convites: Convite[]; atividade: Atividade[]; implantacao: Implantacao | null; envioEmail: { configurado: boolean; motivo: string | null }; comercial: Comercial; representacao: Representacao ; whatsapp?: { conectado: boolean; numeroExibicao: string | null; nomeVerificado: string | null; conectadoEm: string | null } | null };
+type Ficha = { empresa: Empresa; membros: Membro[]; convites: Convite[]; atividade: Atividade[]; implantacao: Implantacao | null; envioEmail: { configurado: boolean; motivo: string | null }; comercial: Comercial; representacao: Representacao ; whatsapp?: { conectado: boolean; numeroExibicao: string | null; nomeVerificado: string | null; conectadoEm: string | null } | null; usoDisponivel?: boolean };
 type Envio = { enviado: boolean; destino: string; motivo?: string };
 
 const VINCULO: Record<Membro['statusVinculo'], { rotulo: string; tom?: string }> = {
@@ -52,6 +52,9 @@ export default function EmpresaFicha({ id }: { id: string }) {
     const [situacao, setSituacao] = useState<{ motivo: string; codigo: string } | null>(null);
     // Resultado de suspender/reativar mostrado no próprio cartão: o aviso geral fica no topo, fora da vista.
     const [retornoSituacao, setRetornoSituacao] = useState<{ tipo: 'ok' | 'alerta' | 'erro'; texto: string } | null>(null);
+    // 134 (D-INT-1): marcar a contratante como Cliente ou Interna (teste, demonstração, suporte), com motivo.
+    const [marcaUso, setMarcaUso] = useState<{ motivo: string } | null>(null);
+    const [retornoUso, setRetornoUso] = useState<{ tipo: 'ok' | 'alerta' | 'erro'; texto: string } | null>(null);
     const carregar = useCallback(async () => {
         const r = await chamar<Ficha>(`/api/desenvolvedor/empresas/${encodeURIComponent(id)}`);
         if (r.ok) { setFicha(r.data); setErroCarga(''); }
@@ -92,7 +95,7 @@ export default function EmpresaFicha({ id }: { id: string }) {
         <div className={estilos.cabecalho}>
             <div>
                 <p className={estilos.sobretitulo}>Empresa administrada</p>
-                <h1 className={estilos.empresaAtual}>{e.nome} <span className={estilos.selo} data-tom={tomSituacao(e.situacao)}>{e.situacaoRotulo}</span></h1>
+                <h1 className={estilos.empresaAtual}>{e.nome} <span className={estilos.selo} data-tom={tomSituacao(e.situacao)}>{e.situacaoRotulo}</span>{e.uso === 'INTERNA' && <> <span className={estilos.selo} data-tom="info" data-uso-interna>Interna</span></>}</h1>
                 <p className={workspace.muted} style={{ margin: '6px 0 0' }}>Código {e.codigo} · criada em {formatarData(e.criadoEm, false)}{e.implantacaoRotulo ? ` · ${e.implantacaoRotulo}` : ''}</p>
             </div>
         </div>
@@ -241,6 +244,30 @@ export default function EmpresaFicha({ id }: { id: string }) {
             </form>}
             {retornoSituacao && <p className={retornoSituacao.tipo === 'ok' ? estilos.sucesso : estilos.alerta} role={retornoSituacao.tipo === 'erro' ? 'alert' : 'status'}>{retornoSituacao.texto}</p>}
         </section>}
+
+        <section className={workspace.card} aria-labelledby="t-uso" data-secao-uso>
+            <h2 id="t-uso">Uso da empresa: {e.uso === 'INTERNA' ? 'Interna' : 'Cliente'}</h2>
+            {ficha.usoDisponivel === false
+                ? <p className={workspace.muted} data-uso-indisponivel>A marcação Cliente/Interna ainda não está disponível neste ambiente (migration 134 pendente). Todas as empresas contam como Cliente.</p>
+                : <>
+                    <p className={workspace.muted}>{e.uso === 'INTERNA'
+                        ? 'Empresa interna (teste, demonstração, suporte): fica fora de "Em uso" na lista de Contratantes. Acesso, cobrança e dados não mudam.'
+                        : 'Marque como interna as empresas de teste, demonstração ou suporte: elas saem de "Em uso" e passam a aparecer em "Internas". Acesso, cobrança e dados não mudam.'}</p>
+                    {!marcaUso ? <button type="button" onClick={() => { setRetornoUso(null); setMarcaUso({ motivo: '' }); }}>{e.uso === 'INTERNA' ? 'Marcar como cliente…' : 'Marcar como interna…'}</button> : <form onSubmit={(ev) => {
+                        ev.preventDefault();
+                        const uso = e.uso === 'INTERNA' ? 'CLIENTE' : 'INTERNA';
+                        operar(() => chamar<{ uso: 'CLIENTE' | 'INTERNA'; alterado: boolean }>(base, 'POST', { acao: 'uso', dados: { uso, motivo: marcaUso.motivo.trim() } }),
+                            (d) => ({ tipo: 'ok', texto: !d.alterado ? 'Nada mudou.' : d.uso === 'INTERNA' ? 'Empresa marcada como interna.' : 'Empresa marcada como cliente.' }), () => setMarcaUso(null), setRetornoUso);
+                    }}>
+                        <label>Motivo *<input value={marcaUso.motivo} onChange={(ev) => setMarcaUso({ motivo: ev.target.value })} maxLength={500} required /></label>
+                        <div className={estilos.acoesLinha}>
+                            <button type="submit" disabled={ocupado || marcaUso.motivo.trim().length < 3}>{ocupado ? 'Processando…' : e.uso === 'INTERNA' ? 'Confirmar: cliente' : 'Confirmar: interna'}</button>
+                            <button type="button" onClick={() => setMarcaUso(null)} disabled={ocupado}>Cancelar</button>
+                        </div>
+                    </form>}
+                </>}
+            {retornoUso && <p className={retornoUso.tipo === 'ok' ? estilos.sucesso : estilos.alerta} role={retornoUso.tipo === 'erro' ? 'alert' : 'status'}>{retornoUso.texto}</p>}
+        </section>
 
         <SincronizarCobranca empresaId={e.id} />
         <PendenciasCobranca empresaId={e.id} />
