@@ -1,12 +1,15 @@
 import type { ReactNode } from 'react';
-import { CADASTRO_FECHADO, type ConfiguracaoSite } from '@/lib/site/configuracao';
+import { AGENDAR_DEMONSTRACAO, CADASTRO_FECHADO, type ConfiguracaoSite } from '@/lib/site/configuracao';
 import { cx } from './estilos';
 
-export function Cadastro({ aberto, children, destaque = true }: { aberto: boolean; children?: ReactNode; destaque?: boolean }) {
-    return aberto ? <a className={cx('btn', destaque ? 'btn-primary' : '')} href="/cadastro">{children ?? <>Começar teste grátis <span aria-hidden="true">↗</span></>}</a>
-        : <p className={cx('closed')} data-cadastro-fechado>{CADASTRO_FECHADO}</p>;
+export type ContatoSite = Pick<ConfiguracaoSite, 'contato' | 'fundador'> & Partial<Pick<ConfiguracaoSite, 'emailHref' | 'fundadorEmail' | 'demonstracao' | 'demonstracaoEmail'>>;
+/** Cadastro aberto: teste grátis. Fechado: "Agendar demonstração" pelo WhatsApp comercial (ou e-mail); sem canal, só o aviso. */
+export function Cadastro({ aberto, children, destaque = true, contato }: { aberto: boolean; children?: ReactNode; destaque?: boolean; contato?: ContatoSite }) {
+    if (aberto) return <a className={cx('btn', destaque ? 'btn-primary' : '')} href="/cadastro">{children ?? <>Começar teste grátis <span aria-hidden="true">↗</span></>}</a>;
+    if (contato?.demonstracao) return <a className={cx('btn', destaque ? 'btn-primary' : '')} href={contato.demonstracao} target="_blank" rel="noopener noreferrer" data-agendar-demonstracao>{AGENDAR_DEMONSTRACAO}</a>;
+    if (contato?.demonstracaoEmail) return <a className={cx('btn', destaque ? 'btn-primary' : '')} href={contato.demonstracaoEmail} data-agendar-demonstracao data-contato-email>{AGENDAR_DEMONSTRACAO}</a>;
+    return <p className={cx('closed')} data-cadastro-fechado>{CADASTRO_FECHADO}</p>;
 }
-export type ContatoSite = Pick<ConfiguracaoSite, 'contato' | 'fundador'> & Partial<Pick<ConfiguracaoSite, 'emailHref' | 'fundadorEmail'>>;
 /** WhatsApp quando configurado; sem ele, e-mail de atendimento (o botão flutuante é só do WhatsApp). */
 export function Contato({ config, fundador = false, flutuante = false }: { config: ContatoSite; fundador?: boolean; flutuante?: boolean }) {
     const whatsapp = fundador ? config.fundador : config.contato;

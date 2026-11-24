@@ -1,5 +1,7 @@
 export const ROTA_SITE = '/conheca';
-export const CADASTRO_FECHADO = 'O cadastro on-line abre em breve. Fale com a equipe iA.Fest para começar.';
+/** Cadastro fechado e nenhum canal configurado: aviso sem link (com canal, o lugar do cadastro vira "Agendar demonstração"). */
+export const CADASTRO_FECHADO = 'Fale com a equipe iA.Fest para agendar uma demonstração.';
+export const AGENDAR_DEMONSTRACAO = 'Agendar demonstração';
 export type AmbienteSite = Record<string, string | undefined>;
 export function linkWhatsApp(numero: string | undefined, mensagem: string): string | null {
     const informado = numero?.trim() ?? '';
@@ -30,9 +32,11 @@ export function configuracaoSite(env: AmbienteSite = process.env) {
         email: dado('SITE_ATENDIMENTO_EMAIL'), whatsapp: dado('SITE_ATENDIMENTO_WHATSAPP'), horario: dado('SITE_ATENDIMENTO_HORARIO'), encarregado: dado('SITE_ENCARREGADO_DADOS'),
         contato: linkWhatsApp(whatsapp, 'Olá! Quero conhecer o iA.Fest e conversar com a equipe.'),
         fundador: linkWhatsApp(whatsapp, 'Olá! Quero ser fundador do iA.Fest. Podem me explicar as condições?'),
+        demonstracao: linkWhatsApp(whatsapp, 'Olá! Quero agendar uma demonstração do iA.Fest.'),
         // Sem WhatsApp, o e-mail de atendimento é a saída: o visitante nunca fica sem uma ação clicável.
         emailHref: linkEmail(env.SITE_ATENDIMENTO_EMAIL, 'Quero conhecer o iA.Fest'),
         fundadorEmail: linkEmail(env.SITE_ATENDIMENTO_EMAIL, 'Quero ser fundador do iA.Fest'),
+        demonstracaoEmail: linkEmail(env.SITE_ATENDIMENTO_EMAIL, 'Quero agendar uma demonstração do iA.Fest'),
     };
 }
 export type ConfiguracaoSite = ReturnType<typeof configuracaoSite>;
