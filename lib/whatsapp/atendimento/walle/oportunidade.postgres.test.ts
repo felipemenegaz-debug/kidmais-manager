@@ -282,9 +282,26 @@ test("Wall-e 1a: pedido de festa vira cartão no funil, sem duplicar, isolado, r
       await trava36.query("BEGIN");
       await trava36.query("SELECT id FROM empresas WHERE id=$1 FOR UPDATE", [B.empresa]);
       const pid36 = Number((await trava36.query<{ pid: number }>("SELECT pg_backend_pid() AS pid")).rows[0].pid);
-      const emCurso36 = capturarOportunidadesPendentes(withTransaction, "staging", { limite: 1 });
-      emCurso36.catch(() => {});
-      assert.equal(await esperarAte(q, `SELECT 1 FROM pg_stat_activity WHERE ${pid36} = ANY(pg_blocking_pids(pid))`), true, "F36: o lote escolheu a candidata e espera a trava da empresa");
+      // r9 (P3 do Astra r9): espera o par EXATO — a transação do lote (PID lido dentro dela, logo após o BEGIN) bloqueada
+      // por pid36 —, não qualquer sessão bloqueada por pid36.
+      const pidsLote36: number[] = [];
+      observarTransacoes((pid) => pidsLote36.push(pid));
+      let emCurso36: ReturnType<typeof capturarOportunidadesPendentes>;
+      try {
+        emCurso36 = capturarOportunidadesPendentes(withTransaction, "staging", { limite: 1 });
+        emCurso36.catch(() => {});
+        let pidLote36: number | null = null;
+        for (let i = 0; i < 300 && pidLote36 === null; i++) {
+          for (const pid of pidsLote36) {
+            const b = (await q<{ b: number[] }>("SELECT pg_blocking_pids($1::int) AS b", [pid])).rows[0].b.map(Number);
+            if (b.length === 1 && b[0] === pid36) { pidLote36 = pid; break; }
+          }
+          if (pidLote36 === null) await new Promise((r) => setTimeout(r, 50));
+        }
+        assert.notEqual(pidLote36, null, "F36: a transação do lote escolheu a candidata e espera a trava da empresa (par exato)");
+      } finally {
+        observarTransacoes(null);
+      }
       await trava36.query("UPDATE whatsapp_atendimento_conversas SET oportunidade_pendente_em=clock_timestamp() WHERE id=$1", [r36]);
       await trava36.query("COMMIT");
       lote36 = await emCurso36;
