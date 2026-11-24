@@ -183,7 +183,7 @@ test('argumentos: escopo de ids, 129 só nos três modos, --aplicar-129 recusado
   const recusa = a => { try { r.modo(a); return null; } catch (e) { return e.saida ?? e.message; } };
   assert.equal(recusa(['--ambiente', 'staging', '--aplicar-129']), 'ID_FORA_DO_REGISTRO 129');
   assert.equal(recusa(['--ambiente', 'staging', '--aplicar-129-autorizado', '--backup', 'abcdef']), 'ID_FORA_DO_REGISTRO 129');
-  for (const id of ['060', '124', '128', '132']) {
+  for (const id of ['060', '124', '128', '199']) {
     assert.equal(recusa(['--ambiente', 'staging', `--conferir-${id}`]), 'ID_FORA_DO_REGISTRO ' + id);
     assert.equal(recusa(['--ambiente', 'staging', '--conferir-tentativa', id, '--tentativa', u]), 'ID_FORA_DO_REGISTRO ' + id);
   }

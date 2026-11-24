@@ -14,7 +14,9 @@ export async function GET(request: NextRequest) {
     const empresaId = tenant.empresaComprovada;
     const q = request.nextUrl.searchParams;
     const id = parametroUuid(q.get("id"));
-    if (id) return { contato: await detalheContato(tx, empresaId, id), origens: await lerOrigens(tx, empresaId), capacidades };
+    // Wall-e 1a r6 (P1-3): os registros da equipe a conferir no cartão anonimizado (texto livre e autor) são da Gestão, o
+    // mesmo papel que revisa a Privacidade do atendimento; decidido aqui pela sessão, nunca pelo cliente.
+    if (id) return { contato: await detalheContato(tx, empresaId, id, { revisarPrivacidade: tenant.papelAtual === "REPRESENTANTE_AUTORIZADO" }), origens: await lerOrigens(tx, empresaId), capacidades };
     const status = q.get("status");
     return {
       contatos: await listarContatos(tx, empresaId, {

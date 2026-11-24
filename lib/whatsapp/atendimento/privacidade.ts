@@ -6,6 +6,7 @@ import { reautenticacaoPerfilRecente } from '../../perfil/reautenticacao.ts';
 import { ambienteAtendimento } from './configuracao.ts';
 import { JANELA_REENTREGA_DIAS, semAutomatico } from './core.ts';
 import { ARQUIVO_DISPONIVEL_SQL, caminhoPublicoArquivo } from './arquivos.ts';
+import { anonimizarOportunidadesDaConversa } from './walle/oportunidade.ts';
 
 /**
  * Privacidade do atendimento (D2 e D3), revisada em 12/10/2026. Tudo grava em whatsapp_atendimento_privacidade (082), sem
@@ -39,7 +40,10 @@ import { ARQUIVO_DISPONIVEL_SQL, caminhoPublicoArquivo } from './arquivos.ts';
 export type OrigemPrivacidade = 'PEDIDO' | 'RETENCAO';
 export type MotivoExclusao = 'PEDIDO_DO_TITULAR' | 'DECISAO_DA_EMPRESA';
 export type ResultadoExclusao =
-  | { estado: 'EXCLUIDA'; mensagens: number; pendentesRemovidas: number; controles: { naoContatar: boolean; pausa: boolean; equipe: boolean } }
+  | { estado: 'EXCLUIDA'; mensagens: number; pendentesRemovidas: number; controles: { naoContatar: boolean; pausa: boolean; equipe: boolean };
+      /** Wall-e 1a (D-WA-3), só a pedido do titular: cartões do funil anonimizados, os preservados pela Guarda dos clientes e (r3) os anonimizados cuja
+       *  origem tem texto da equipe, que a 085 não deixa apagar: revisar; r4: revisarIds = ids internos dos cartões a conferir nas Origens. */
+      funil?: { anonimizados: number; preservados: number; revisar: number; revisarIds: string[] } }
   | { estado: 'EM_PROCESSAMENTO' | 'NAO_ENCONTRADA' | 'RECENTE' | 'CONFIG_ALTERADA' };
 /**
  * Prazo técnico (não é prazo de retenção de dado pessoal): só o hash do id do evento; cobre reentregas do provedor. Igual à
@@ -119,11 +123,15 @@ export async function excluirDadosConversa(tx: DbExecutor, alvo: { empresa: stri
   // Uma instrução só: as referências entre mensagens da mesma conversa (origem, grupo) saem juntas.
   const mensagens = (await tx.query('DELETE FROM whatsapp_atendimento_mensagens WHERE conversa_id=$1 AND empresa_id=$2 AND ambiente=$3 RETURNING id', [conversa.id, alvo.empresa, alvo.ambiente])).rows.length;
   await tx.query('UPDATE whatsapp_atendimento_auditoria SET conversa_id=NULL WHERE conversa_id=$1 AND empresa_id=$2 AND ambiente=$3', [conversa.id, alvo.empresa, alvo.ambiente]);
+  // Wall-e 1a (D-WA-3): a pedido do titular, os cartões do funil do titular sem negociação são anonimizados na mesma
+  // transação (com negociação fica: Guarda dos clientes, e a resposta diz quantos). Retenção e decisão da empresa só soltam
+  // o vínculo (ON DELETE SET NULL da 132).
+  const funil = alvo.origem === 'PEDIDO' && alvo.motivo === 'PEDIDO_DO_TITULAR' ? await anonimizarOportunidadesDaConversa(tx, alvo.empresa, alvo.ambiente, conversa.id, conversa.contato) : null;
   await tx.query('DELETE FROM whatsapp_atendimento_conversas WHERE id=$1', [conversa.id]);
   await tx.query(`INSERT INTO whatsapp_atendimento_privacidade(empresa_id,ambiente,acao,origem,usuario_id,conversa_id,mensagens_removidas,saidas_canceladas,manteve_nao_contatar,manteve_pausa,manteve_equipe,motivo,prazo_dias)
     VALUES($1,$2,'CONVERSA_EXCLUIDA',$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)`, [alvo.empresa, alvo.ambiente, alvo.origem, alvo.usuarioId, conversa.id, mensagens, pendentes,
     controles.naoContatar, controles.pausa, controles.equipe, alvo.origem === 'PEDIDO' ? alvo.motivo ?? null : null, alvo.origem === 'RETENCAO' ? prazoVigente : null]);
-  return { estado: 'EXCLUIDA', mensagens, pendentesRemovidas: pendentes, controles };
+  return { estado: 'EXCLUIDA', mensagens, pendentesRemovidas: pendentes, controles, ...(funil ? { funil } : {}) };
 }
 
 /** Sessão administrativa com o momento da última autenticação (para a reautenticação de 5 minutos). */
