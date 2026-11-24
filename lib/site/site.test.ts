@@ -3,7 +3,7 @@ import test from 'node:test';
 import { createElement, type ComponentType } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { readFileSync, readdirSync } from 'node:fs';
-import { adicionais, comercial, custoPorFesta, descricaoPlano, filtrar, modulos, paineis, passos, perguntas, planos, precoExibido, recursos, tituloFluxo, valorPlano, visivel, type RecursoId } from './catalogo.ts';
+import { adicionais, CICLOS_VENDIDOS, comercial, custoPorFesta, descricaoPlano, filtrar, modulos, paineis, passos, perguntas, roteiroWallE, planos, precoExibido, recursos, tituloFluxo, valorPlano, visivel, type RecursoId } from './catalogo.ts';
 import { configuracaoSite, linkEmail, linkWhatsApp, AGENDAR_DEMONSTRACAO, CADASTRO_FECHADO } from './configuracao.ts';
 import { robotsDaPlataforma, sitemapDaPlataforma } from './indexacao.ts';
 import { carregarModulo } from '../acessos/teste-carregador.ts';
@@ -281,8 +281,10 @@ test('sem flag: planos, adicionais e calculadora não exibem preço', () => {
     assert.match(html, /Preço a definir/); assert.doesNotMatch(html, /R\$/);
     const publicado = render(Planos, { publicado: true, aberto: true, contato: configuracaoSite({}) });
     assert.match(publicado, /118,20/); assert.equal((publicado.match(/href="\/cadastro"/g) || []).length, 3);
-    // Anual: total por ano e o equivalente mensal.
-    assert.match(publicado, /R\$\s?1\.970<\/span><small>\/ano/); assert.match(publicado, /Total por ano\. Equivale a <b>R\$\s?164,17\/mês/);
+    // D-LAN-5 em aberto: só mensal, sem seleção de ciclo e sem preço anual na página.
+    assert.deepEqual(CICLOS_VENDIDOS, ['mensal']);
+    assert.doesNotMatch(publicado, /Ciclo de cobrança|2 meses grátis|\/ano|Total por ano|data-valor-ciclo="anual"/);
+    assert.equal((publicado.match(/data-valor-ciclo="mensal"/g) || []).length, 3);
 });
 
 test('implantação guiada incluída: nenhum adicional pago de implantação', () => {
@@ -293,9 +295,9 @@ test('implantação guiada incluída: nenhum adicional pago de implantação', (
     assert.match(render(secao('Hero'), { aberto: false, config: configuracaoSite({}) }), /Implantação guiada incluída/);
 });
 
-test('horário nobre em todos os planos; contrato separado da assinatura', () => {
+test('adicionais na cotação em todos os planos; contrato separado da assinatura', () => {
     const essencial = planos.find(p => p.id === 'essencial')!;
-    assert.ok(essencial.itens.some(i => i.recursos.includes('horarios') && !i.excluido), 'horário nobre sem barreira por plano');
+    assert.ok(essencial.itens.some(i => i.recursos.includes('horarios') && !i.excluido), 'adicionais sem barreira por plano');
     assert.ok(!essencial.itens.some(i => i.excluido && i.recursos.includes('horarios')));
     // O contrato não depende da assinatura por código; o item da assinatura, sim, depende do contrato (assinar exige contrato).
     for (const plano of planos) for (const item of plano.itens) if (item.recursos.includes('contratos') && !/assinatura/i.test(item.texto)) assert.ok(!item.recursos.includes('assinatura_codigo'), item.texto);
@@ -425,9 +427,10 @@ test('staging bloqueia o rastreio de tudo e não publica sitemap; demais ambient
     assert.equal((Array.isArray(producao.rules) ? producao.rules[0] : producao.rules).allow, '/');
 });
 
-test('suporte só por e-mail (19/10): nenhum plano promete canal de suporte que não existe', () => {
+test('suporte pela D-LAN-2: WhatsApp em horário comercial, e-mail fora dele, sem promessa de 24 h', () => {
     const suporte = planos.flatMap(p => p.itens.filter(i => i.recursos.includes('suporte')).map(i => `${p.id}: ${i.texto}`));
-    assert.deepEqual(suporte, ['essencial: Suporte por e-mail', 'premium: Suporte prioritário por e-mail']);
+    assert.deepEqual(suporte, ['essencial: Suporte por WhatsApp em horário comercial e por e-mail fora dele', 'premium: Suporte prioritário por WhatsApp em horário comercial e por e-mail fora dele']);
+    for (const item of suporte) assert.doesNotMatch(item, /24 ?h/);
     for (const plano of planos) assert.doesNotMatch(descricaoPlano(plano), /vender pela internet|IA trabalhando/);
 });
 
@@ -548,8 +551,12 @@ test('topo pelo catálogo: sem agenda, festas ou contratos o topo vira instituci
     }
     const html = render(secao('Hero'), { aberto: true, config: configuracaoSite({}) });
     assert.match(html, /Monte uma festa agora/);
-    assert.match(html, /Horário nobre/);
+    assert.match(html, /Horário e adicionais/);
     assert.match(html, /Pix copia e cola/);
+    // 24/11/2026: horário nobre saiu da oferta; nem a simulação nem o resto do site o anunciam.
+    assert.doesNotMatch(html, /nobre|promocional/i);
+    for (const pagina of [render(Planos, { publicado: true, aberto: true, contato: configuracaoSite({}) }), render(secao('Hero'), { aberto: false, config: configuracaoSite({}) })]) assert.doesNotMatch(pagina, /horário nobre|horário promocional/i);
+    assert.doesNotMatch(JSON.stringify([planos, roteiroWallE, passos, perguntas()]), /nobre|promocional/i);
 });
 
 test('descrição dos planos pelo catálogo: sem permissões, nenhum plano promete equipe ou "sem limite" (achado do Astra r3)', () => {

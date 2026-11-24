@@ -17,14 +17,15 @@ export const recursos = {
     festas: { nome: 'Festas e pacotes', status: 'disponivel', termos: ['pacote'], evidencia: 'Núcleo do sistema em production; pacotes P_ LIVE em production (nota "Disponibilidade pacotes 20261022").' },
     contratos: { nome: 'Contrato com o modelo do buffet', status: 'disponivel', termos: ['contrato'], evidencia: 'Contratos LIVE em production; tela simplificada fases 1+2 LIVE em production (23/10/2026).' },
     assinatura_codigo: { nome: 'Assinatura do contrato por código', status: 'disponivel', termos: ['por código', 'assinatura do contrato', 'assinado', 'aguardando assinatura', 'aceitar e assinar'], evidencia: 'Código por WhatsApp com reserva por e-mail: PR #414 LIVE em production 8e18941e, reserva ligada e provada em production em 15/11/2026 (PEDIDO_CLIENTE 14:38Z).' },
-    horarios: { nome: 'Horário nobre e adicionais na cotação', status: 'disponivel', termos: ['horário nobre', 'horário promocional', 'adicionais'], evidencia: 'Fechamento com horários e adicionais: PR #358 LIVE em production a56fa0f2 (08/11/2026), conferido logado.' },
+    // 24/11/2026 (decisão de Felipe): horário nobre saiu da oferta; empresa nova nasce com todos os horários como PADRAO e nenhuma tela marca nobre (D2 do plano de descontos).
+    horarios: { nome: 'Horário e adicionais na cotação', status: 'disponivel', termos: ['adicionais'], evidencia: 'Fechamento com horários e adicionais: PR #358 LIVE em production a56fa0f2 (08/11/2026), conferido logado.' },
     pix: { nome: 'Parcelas com Pix copia e cola', status: 'disponivel', termos: ['pix'], evidencia: 'Pix copia e cola com a chave do buffet em production desde a V1; production 8e18941e.' },
     financeiro: { nome: 'Contas a receber', status: 'disponivel', termos: ['recebimento', 'dar baixa', 'dá baixa', 'a receber', 'recebida'], evidencia: 'Financeiro P1 (recebimento parcial e data real da baixa) LIVE em staging e production (nota "Evolucao financeiro basico e avancado 20261106").' },
     exportacao: { nome: 'Exportação dos dados', status: 'disponivel', termos: ['exporta'], evidencia: 'Rota app/api/admin/exportacao e lib/exportacao presentes em production 8e18941e, sem trava de ambiente (conferido em 15/11/2026).' },
     permissoes: { nome: 'Papéis e usuários', status: 'disponivel', termos: ['usuários', 'papéis', 'próprio acesso', 'próprio login', 'sua equipe', 'equipe maior', 'equipe grande', 'limite de equipe', 'sem limite'], evidencia: 'Gestão e equipe com acessos próprios em production; limites por plano em lib/assinatura/planos-comerciais.ts.' },
     convite: { nome: 'Convite da festa com IA', status: 'disponivel', termos: ['convite'], evidencia: 'Convites V1 LIVE em production (b736fb2, 17/10/2026); CONVITES_ENABLED e CONVITES_IA_ENABLED=true em production (nota "Variaveis production 20261112"); convite pronto E-CP1 LIVE em production.' },
     ajuda: { nome: 'Central de ajuda e vídeos', status: 'disponivel', termos: ['central de ajuda', 'vídeos'], evidencia: 'Central de ajuda LIVE em production por recorte auditado (03/11/2026); 3 vídeos piloto LIVE em production.' },
-    suporte: { nome: 'Suporte por e-mail', status: 'disponivel', termos: ['suporte'], evidencia: 'Decisão de Felipe (19/10/2026): suporte só por e-mail; canal em SITE_ATENDIMENTO_EMAIL.' },
+    suporte: { nome: 'Suporte por WhatsApp e e-mail', status: 'disponivel', termos: ['suporte'], evidencia: 'Decisão de Felipe D-LAN-2 (23/11/2026): WhatsApp em horário comercial e e-mail fora dele, sem promessa de 24 h; canais em SITE_ATENDIMENTO_WHATSAPP e SITE_ATENDIMENTO_EMAIL.' },
     implantacao: { nome: 'Implantação guiada', status: 'disponivel', termos: ['implantação'], evidencia: 'Serviço humano, incluído em todos os planos e sem cobrança (decisão de Felipe, 15/11/2026).' },
 
     orcamento: { nome: 'Orçamento online', status: 'oculto', termos: ['orçamento online', 'página do buffet', 'monta o orçamento sozinho'], evidencia: 'COTACAO_PUBLICA_POR_EMPRESA desligada em production. Ligar antes da venda (lista de Felipe).' },
@@ -50,7 +51,7 @@ export type RecursoId = keyof typeof recursos;
 export function visivel(ids: readonly RecursoId[]): boolean {
     return ids.every(id => recursos[id].status === 'disponivel');
 }
-/** Seção do Wall-e: a conversa de exemplo fala de data livre, pacote e horário nobre. */
+/** Seção do Wall-e: a conversa de exemplo fala de data livre, pacote e preço. */
 export const RECURSOS_SECAO_WALLE: readonly RecursoId[] = ['walle_whatsapp', 'agenda', 'festas', 'horarios'];
 export function filtrar<T extends { recursos: readonly RecursoId[] }>(itens: readonly T[]): T[] {
     return itens.filter(item => visivel(item.recursos));
@@ -74,14 +75,15 @@ export const planos: Plano[] = [
         { texto: 'Contrato com o seu modelo', recursos: ['contratos'] },
         { texto: 'Assinatura do contrato por código, sem aplicativo', recursos: ['contratos', 'assinatura_codigo'] },
         { texto: 'Pix copia e cola e contas a receber', recursos: ['pix', 'financeiro'] },
-        // Horário nobre e adicionais não têm barreira por plano (lib/assinatura/recursos-plano.ts): valem em todos.
-        { texto: 'Horário nobre e adicionais na cotação', recursos: ['horarios'] },
+        // Horários e adicionais não têm barreira por plano (lib/assinatura/recursos-plano.ts): valem em todos.
+        { texto: 'Horários e adicionais na cotação', recursos: ['horarios'] },
         { texto: 'Convite da festa com IA', recursos: ['convite'] },
         { texto: 'Importação por IA na implantação: até 5 documentos (tabela de preços e contratos antigos)', recursos: ['importacao'] },
         // 01/11/2026 (D-PL-3): IA que ajuda o dono entra em todos os planos; os tamanhos das franquias só vão ao site depois do piloto.
         { texto: 'Copiloto de IA, franquia básica', recursos: ['copiloto'] },
         { texto: 'Central de ajuda com vídeos', recursos: ['ajuda'] },
-        { texto: 'Suporte por e-mail', recursos: ['suporte'] },
+        // D-LAN-2 (23/11/2026): WhatsApp em horário comercial; e-mail fora dele. Sem promessa de 24 h.
+        { texto: 'Suporte por WhatsApp em horário comercial e por e-mail fora dele', recursos: ['suporte'] },
         { texto: 'Implantação guiada incluída', recursos: ['implantacao'] },
         { texto: 'Financeiro completo', recursos: ['financeiro_completo'], excluido: true },
         { texto: 'Orçamento online', recursos: ['orcamento'], excluido: true },
@@ -108,8 +110,8 @@ export const planos: Plano[] = [
         { texto: 'Wall-e no WhatsApp incluído, com uso justo', recursos: ['walle_whatsapp'] },
         // D-LAN-4 (23/11/2026): o teste grátis libera tudo do Premium para qualquer buffet (portão do atendimento: TESTE = sim).
         { texto: `Teste grátis de ${dias(condicoesComerciais.testeDias)} com tudo do Premium, aberto a todos os buffets`, recursos: [] },
-        // 19/10: suporte só por e-mail por enquanto (decisão de Felipe); a prioridade é na fila de resposta.
-        { texto: 'Suporte prioritário por e-mail', recursos: ['suporte'] },
+        // D-LAN-2 (23/11/2026): mesmos canais do Essencial; a prioridade é na fila de resposta.
+        { texto: 'Suporte prioritário por WhatsApp em horário comercial e por e-mail fora dele', recursos: ['suporte'] },
         { texto: 'Implantação dedicada, com a conexão do seu WhatsApp', recursos: ['implantacao', 'walle_whatsapp'] },
     ] },
 ];
@@ -201,7 +203,7 @@ export const confianca: { titulo: string; texto: string; recursos: RecursoId[] }
 /** Roteiro fixo da conversa de exemplo do Wall-e (sem IA na página). */
 export const roteiroWallE: { pergunta: string; respostas: string[]; passagem?: string }[] = [
     { pergunta: 'Tem data dia 13 à tarde?', respostas: ['Sábado, dia 13, está livre às 15h. Para quantos convidados é a festa?'] },
-    { pergunta: 'Quanto fica para 40 convidados?', respostas: ['O Pacote Diversão atende até 40 convidados: R$ 5.200,00 no horário nobre.', 'Quer que eu envie o orçamento para conferir?'] },
+    { pergunta: 'Quanto fica para 40 convidados?', respostas: ['O Pacote Diversão atende até 40 convidados: R$ 5.200,00.', 'Quer que eu envie o orçamento para conferir?'] },
     { pergunta: 'Dá para visitar o espaço?', respostas: ['Claro! Vou chamar a Carla, do atendimento, para combinar o horário com você.'], passagem: 'Wall-e passou a conversa para a Carla' },
 ];
 
@@ -220,6 +222,9 @@ export function perguntas(teste = dias(condicoesComerciais.testeDias)): Pergunta
 }
 
 export type Ciclo = 'mensal' | 'anual';
+/** Ciclos vendidos no site. D-LAN-5 (anual acumula com Fundador ou não) está em aberto: até decidir, só mensal.
+ *  Com mais de um ciclo, a seleção Mensal/Anual volta sozinha. */
+export const CICLOS_VENDIDOS: readonly Ciclo[] = ['mensal'];
 export function valorPlano(plano: Plano, ciclo: Ciclo, fundador = false): number {
     return valorComercial(plano.id, ciclo, fundador);
 }

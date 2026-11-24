@@ -1,4 +1,4 @@
-import { adicionais, comercial, descricaoPlano, filtrar, planos, precoExibido, valorPlano, visivel, type Ciclo } from '@/lib/site/catalogo';
+import { adicionais, CICLOS_VENDIDOS, comercial, descricaoPlano, filtrar, planos, precoExibido, valorPlano, visivel } from '@/lib/site/catalogo';
 import { Cadastro, Contato, type ContatoSite } from './elementos';
 import { cx } from './estilos';
 import CicloPlanos from './CicloPlanos';
@@ -16,11 +16,11 @@ export default function Planos({ publicado, aberto, contato, fundador = textoFun
     return <section className={cx('block')} id="planos" aria-labelledby="t-planos"><div className={cx('wrap')}>
         <div className={cx('head')}><div className={cx('eyebrow')}>Planos</div><h2 id="t-planos">{publicado ? 'Quanto custa por festa no seu buffet?' : 'Escolha pelo tamanho do seu buffet.'}</h2><p className={cx('lead')}>Preço por empresa (uma unidade). Sem taxa sobre as festas.{visivel(['implantacao']) ? ' Implantação guiada incluída em todos os planos.' : ''}</p></div>
         {publicado && <div data-fundo-proteger><Calculadora planos={planos} publicado={publicado} adicionaisVisiveis={extras.length > 0} /></div>}
-        <CicloPlanos>
+        {(cards => CICLOS_VENDIDOS.length > 1 ? <CicloPlanos>{cards}</CicloPlanos> : cards)(
         <div className={cx('plans')}>{planos.map(plano => <article key={plano.id} className={cx('plan', plano.destaque ? 'featured' : '')} aria-labelledby={`plano-${plano.id}`}>
             {plano.destaque && <span className={cx('flag')}>Profissional em destaque</span>}
             <h3 id={`plano-${plano.id}`}>{plano.nome}</h3><p className={cx('for')}>{descricaoPlano(plano)}</p>
-            {(['mensal', 'anual'] as Ciclo[]).map(ciclo => <div key={ciclo} data-valor-ciclo={ciclo} className={cx('cycleValue')}>
+            {CICLOS_VENDIDOS.map(ciclo => <div key={ciclo} data-valor-ciclo={ciclo} className={cx('cycleValue')}>
                 <div className={cx('price', !publicado ? 'priceUndefined' : '')}><span>{moeda(valorPlano(plano, ciclo))}</span>{publicado && <small>/{ciclo === 'anual' ? 'ano' : 'mês'}</small>}</div>
                 <p className={cx('price-sub')}>{publicado && ciclo === 'anual' ? <>Total por ano. Equivale a <b>{moeda(Math.round(valorPlano(plano, ciclo) / 12))}/mês</b></>
                     : !fundador.oferta ? (publicado ? 'Valor mensal regular.' : null)
@@ -28,7 +28,7 @@ export default function Planos({ publicado, aberto, contato, fundador = textoFun
             </div>)}
             <ul className={cx('feat')}>{itensVisiveis(plano).map(item => <li key={item.texto} className={cx(item.excluido ? 'no' : item.introducao ? 'lead-in' : '')}>{item.excluido && <span className={cx('srOnly')}>Não incluído: </span>}{item.texto}</li>)}</ul>
             <Cadastro aberto={aberto} destaque={plano.destaque} contato={contato}>Testar o {plano.nome}{plano.destaque && <span aria-hidden="true">↗</span>}</Cadastro>
-        </article>)}</div></CicloPlanos>
+        </article>)}</div>)}
         {extras.length > 0 && <div className={cx('extras')}><div className={cx('panel')} role="group" aria-labelledby="t-add"><h3 id="t-add">Adicionais</h3><div className={cx('addons')}>{extras.map(adicional => <div key={adicional.nome} className={cx('addon')}>
             <b>{adicional.nome}</b><span className={cx('v')}>{moeda(adicional.centavos)}{publicado && adicional.centavos !== null && <small> {adicional.periodo}</small>}</span><p>{adicional.descricao}</p>
         </div>)}</div></div></div>}
