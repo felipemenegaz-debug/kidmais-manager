@@ -15,7 +15,7 @@ import styles from './marketing.module.css';
 type Dados = {
   resultados: LinhaPainel[]; campanhas: Campanha[]; origens: OpcaoOrigem[]; sites: Array<{ id: string; slug: string; unidadeId: string | null; estado: string }>;
   unidades: Array<{ id: string; nome: string }>; padraoPorCanal: Record<CanalCampanha, { utmSource: string; utmMedium: string; origem: string }>;
-  origemPlataforma: string; capacidades: string[];
+  siteKidmais?: string | null; origemPlataforma: string; capacidades: string[];
 };
 
 type Formulario = {
@@ -32,7 +32,7 @@ function slugDe(nome: string) {
 function novoFormulario(dados: Dados, dataLivre?: string): Formulario {
   const p = dados.padraoPorCanal.INSTAGRAM;
   return { id: null, versao: 1, codigo: '', nome: dataLivre ? `Data livre ${dataBr(dataLivre)}` : '', canal: 'INSTAGRAM', origemCodigo: p.origem, objetivo: '', inicio: hojeSaoPaulo(), fim: dataLivre ?? '',
-    orcamento: '', utmSource: p.utmSource, utmMedium: p.utmMedium, unidadeId: '', siteId: dados.sites[0]?.id ?? '' };
+    orcamento: '', utmSource: p.utmSource, utmMedium: p.utmMedium, unidadeId: '', siteId: dados.siteKidmais ? '' : dados.sites[0]?.id ?? '' };
 }
 
 export default function MarketingCampanhas({ dataInicial }: { dataInicial?: string } = {}) {
@@ -125,12 +125,13 @@ export default function MarketingCampanhas({ dataInicial }: { dataInicial?: stri
     <EstadoCarga carregando={carregando && !dados} falha={falha} aoTentar={recarregar} />
     {dados && <section className={styles.cartao} aria-label="Da campanha ao contrato"><AtribuicaoExplicada /></section>}
     {dados && <>
-      {dados.sites.length === 0 && <p className={styles.info}>Ainda não há site publicado para receber os links. Monte o site em <a href="/admin/marketing/site">Site do buffet</a>; a campanha pode ser criada antes.</p>}
+      {!dados.siteKidmais && dados.sites.length === 0 && <p className={styles.info}>Ainda não há site publicado para receber os links. Monte o site em <a href="/admin/marketing/site">Site do buffet</a>; a campanha pode ser criada antes.</p>}
       {dados.campanhas.length === 0 ? <section className={styles.cartao}><p className={styles.vazio}>Nenhuma campanha {arquivadas ? '' : 'ativa ou pausada '}ainda.</p></section>
         : dados.campanhas.map((c) => {
           const resultado = dados.resultados.find(l=>l.campanhaId===c.id);
           const site = siteDe(c);
-          const link = site ? linkDaCampanha(dados.origemPlataforma, site.slug, c.codigo) : null;
+          const parametros = new URLSearchParams({ utm_source: c.utmSource, utm_medium: c.utmMedium, utm_campaign: c.codigo, campaign_id: c.id });
+          const link = dados.siteKidmais && !c.siteId ? `${dados.siteKidmais}/?${parametros}` : site ? linkDaCampanha(dados.origemPlataforma, site.slug, c.codigo) : null;
           return <section key={c.id} className={styles.cartao} aria-labelledby={`camp-${c.id}`}>
             <div className={`${styles.topo} ${styles.cabecalhoCampanha}`}>
               <div><h2 id={`camp-${c.id}`}>{c.nome} <span className={c.status === 'ATIVA' ? styles.seloAtivo : c.status === 'PAUSADA' ? styles.seloAlerta : styles.selo}>{ROTULO_STATUS_CAMPANHA[c.status]}</span></h2>
@@ -161,8 +162,9 @@ export default function MarketingCampanhas({ dataInicial }: { dataInicial?: stri
           {dados.origens.filter(o=>o.personalizada && o.ativa).map(o=><option key={o.codigo} value={'OUTRO|'+o.codigo}>{o.rotulo}</option>)}
           {!CANAIS_CAMPANHA_UI.some(c=>c===form.canal && dados.padraoPorCanal[c].origem===form.origemCodigo) && !dados.origens.some(o=>o.personalizada&&o.ativa&&form.canal==='OUTRO'&&o.codigo===form.origemCodigo) && <option value={form.canal+'|'+form.origemCodigo}>{ROTULO_CANAL_UI[form.canal]} · {dados.origens.find(o=>o.codigo===form.origemCodigo)?.rotulo ?? form.origemCodigo}</option>}
         </select></label>
-          {dados.sites.length > 0 && <label>Site de destino<select value={form.siteId} onChange={(e) => setForm({ ...form, siteId: e.target.value })}><option value="">Automático</option>{dados.sites.map((s) => <option key={s.id} value={s.id}>/s/{s.slug}</option>)}</select></label>}
-        {dados.sites.length===0 && <label>Site<select disabled><option>Crie primeiro o site do buffet</option></select></label>}
+          {dados.siteKidmais && dados.sites.length === 0 && <p>Site de destino · {dados.siteKidmais}</p>}
+          {dados.sites.length > 0 && <label>Site de destino<select value={form.siteId} onChange={(e) => setForm({ ...form, siteId: e.target.value })}><option value="">{dados.siteKidmais ?? "Automático"}</option>{dados.sites.map((s) => <option key={s.id} value={s.id}>/s/{s.slug}</option>)}</select></label>}
+        {!dados.siteKidmais && dados.sites.length===0 && <label>Site<select disabled><option>Crie primeiro o site do buffet</option></select></label>}
         <details className={styles.definicoes}><summary>Mais opções</summary><div className={styles.grade2}>
         {!form.id && <label>Identificador do link (não muda depois)<input value={form.codigo} placeholder={slugDe(form.nome || 'campanha')} pattern="[a-z0-9][a-z0-9-]{2,46}[a-z0-9]" onChange={(e) => setForm({ ...form, codigo: e.target.value.toLowerCase() })} /></label>}
           <label>Início<input type="date" required value={form.inicio} onChange={(e) => setForm({ ...form, inicio: e.target.value })} /></label>

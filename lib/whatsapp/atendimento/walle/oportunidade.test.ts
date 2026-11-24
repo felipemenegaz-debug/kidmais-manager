@@ -78,10 +78,10 @@ test('r2: trava por telefone igual à do site e do registro manual (com e sem 55
   for (const i of inserts) assert.ok(fonte.lastIndexOf('await travarTelefoneNoFunil(', i) > fonte.lastIndexOf('\n}', i), 'trava antes do INSERT na mesma função');
 });
 
-test('o módulo só depende de tipos e node:crypto (as provas em PG o montam dentro do worker e da privacidade)', () => {
+test('captura só usa a integração de atribuição do site e mantém a exclusão sem escrita no histórico de origens', () => {
   const fonte = readFileSync('lib/whatsapp/atendimento/walle/oportunidade.ts', 'utf8');
   const imports = [...fonte.matchAll(/^import (type )?.* from '([^']+)';$/gm)].map(m => `${m[1] ? 'type ' : ''}${m[2]}`);
-  assert.deepEqual(imports, ['node:crypto', 'type ../../../db/contracts.ts', 'type ./tipos.ts']);
+  assert.deepEqual(imports, ['../../../marketing/site-kidmais.ts', 'node:crypto', 'type ../../../db/contracts.ts', 'type ./tipos.ts']);
   // Nenhuma automação, atribuição, histórico ou cadastro de cliente na captura.
   const exclusao = fonte.indexOf('export async function anonimizarOportunidadesDaConversa(');
   assert.ok(exclusao > 0);

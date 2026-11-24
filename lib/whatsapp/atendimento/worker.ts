@@ -6,7 +6,7 @@ import { conteudoDaMensagem, type ConteudoSaida } from './transporte.ts';
 import { motivoSeguro } from './motivo-falha.ts';
 import { ARQUIVO_DISPONIVEL_SQL, urlPublicaArquivo } from './arquivos.ts';
 import type { Passagem, ResultadoWallE } from './walle/tipos.ts';
-import { capturarOportunidadesPendentes, qualificaPedidoFesta, SQL_MARCA_PENDENTE, temMarcaPendente } from './walle/oportunidade.ts';
+import { campanhaDaMensagemSite, capturarOportunidadesPendentes, qualificaPedidoFesta, SQL_MARCA_PENDENTE, temMarcaPendente } from './walle/oportunidade.ts';
 import type { DbExecutor } from '../../db/contracts.ts';
 import { CHAVE_RODIZIO, eTransitorio, ehPilotoDe, empresaOperaAtendimento, empresasNaOrdemDoRodizio, lerPortao, modoEfetivo, pilotoOpcional, registrarVezDoRodizio, travarProvedor } from './multiempresa.ts';
 
@@ -593,14 +593,22 @@ async function responderWallE(porta: PortaWallE, mensagem: Mensagem, conversa: C
       await tx.query("UPDATE whatsapp_atendimento_mensagens SET estado='CANCELADA' WHERE id=$1", [mensagem.id]); return;
     }
     // Memória sem o último entendimento (trechos do texto do cliente): só os dados da festa, enviados e correções.
-    const contexto = { ...resultado.contexto };
+    const contexto: typeof resultado.contexto & { campanhaSitePendente?: string } = { ...resultado.contexto };
+    delete contexto.campanhaSitePendente;
+    const marca = await temMarcaPendente(tx);
+    if (marca) {
+      // A referência pertence ao pedido pendente e vem da mensagem recebida, fora da interpretação do modelo.
+      const anterior = atual.contexto?.campanhaSitePendente;
+      const referencia = typeof anterior === 'string' && atual.oportunidade_pendente_em
+        ? anterior : qualificaPedidoFesta(resultado) ? campanhaDaMensagemSite(empresa, mensagem.texto) : null;
+      if (referencia) contexto.campanhaSitePendente = referencia;
+    }
     delete contexto.ultimoEntendimento;
     const interesse = { data: dataDeInteresse(contexto.data ?? null, hoje), convidados: contexto.convidados ?? null };
     // A marca de "sem automático" (rodada 22) nunca é apagada pela memória nova do Wall-e.
     // Wall-e 1a (r2): pedido de festa nova MARCA a conversa nesta mesma instrução (com a 132): a marca só se perde se a
     // resposta inteira for desfeita. O cartão é gravado ao fim do lote, fora desta transação.
     const memoria = [atual.id, JSON.stringify(interesse), JSON.stringify(contexto), resultado.passagem ? JSON.stringify(resultado.passagem) : null, resultado.passagem ? 'AGUARDANDO_HUMANO' : 'IA'];
-    const marca = await temMarcaPendente(tx);
     await tx.query(marca ? memoriaDaConversa(SQL_MARCA_PENDENTE) : memoriaDaConversa(''), marca ? [...memoria, qualificaPedidoFesta(resultado)] : memoria);
     await tx.query("UPDATE whatsapp_atendimento_mensagens SET estado='PROCESSADA' WHERE id=$1", [mensagem.id]);
     const base = (await tx.query<{ t: string }>('SELECT clock_timestamp()::text AS t')).rows[0].t;

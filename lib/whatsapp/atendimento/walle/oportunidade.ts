@@ -1,3 +1,4 @@
+import { atribuirContatoDoSite, empresaDoSiteKidmais, ID_CAMPANHA } from '../../../marketing/site-kidmais.ts';
 import { createHash } from 'node:crypto';
 import type { DbExecutor } from '../../../db/contracts.ts';
 import type { MotivoPassagem, ResultadoWallE, TipoIntencao } from './tipos.ts';
@@ -13,8 +14,8 @@ import type { MotivoPassagem, ResultadoWallE, TipoIntencao } from './tipos.ts';
  *   por conversa; falha na captura nunca impede nem atrasa a resposta, e a conversa que falhou é adiada (não trava a fila).
  * - Um cartão ABERTO por telefone (empresa e ambiente), sob a trava consultiva por telefone que o registro manual e o site
  *   também tomam (lib/marketing/contatos.ts); cartão novo só depois de o anterior fechar.
- * - Nenhuma atribuição, evento de histórico, autorização de contato ou automação de Marketing é criada (1b).
- * Dependências mínimas (só tipos e node:crypto): as provas em PG montam este módulo dentro do worker e da privacidade.
+ * - O site externo da Kidmais pode identificar a campanha de um pedido por referência na mensagem recebida.
+ * A captura e a exclusão usam a transação do chamador. As provas em PG exercitam o worker e a privacidade.
  */
 
 /** Intenções que, sozinhas, já são pedido de festa nova. */
@@ -89,7 +90,16 @@ export async function temMarcaPendente(tx: DbExecutor) {
 
 export type ResultadoCaptura = 'CRIADO' | 'ATUALIZADO' | 'SEM_MUDANCA' | 'JA_ABERTO' | 'IGNORADO' | 'SEM_PENDENCIA';
 type ConversaCaptura = { id: string; empresa_id: string; ambiente: string; contato: string; interesse: { data?: unknown; convidados?: unknown } | null;
-  nome_perfil?: string | null; oportunidade_pendente_em: string | null };
+  contexto?: { campanhaSitePendente?: unknown }; nome_perfil?: string | null; oportunidade_pendente_em: string | null };
+
+// Formato gerado pelo site do buffet. Só o identificador da campanha é usado na consulta.
+export function campanhaDaMensagemSite(empresa: string, texto: string | null): string | null {
+  if (!texto || empresa !== empresaDoSiteKidmais()) return null;
+  const rodape = texto.trimEnd().split(/\r?\n/).at(-1) ?? '';
+  const prefixo = 'Ref. iA.Fest: ';
+  const id = rodape.startsWith(prefixo) ? rodape.slice(prefixo.length) : '';
+  return ID_CAMPANHA.test(id) ? id.toLowerCase() : null;
+}
 
 function dataValida(v: unknown) { return typeof v === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(v) && !Number.isNaN(Date.parse(`${v}T12:00:00Z`)) ? v : null; }
 function convidadosValidos(v: unknown) { const n = typeof v === 'number' ? v : typeof v === 'string' && /^\d{1,4}$/.test(v) ? Number(v) : NaN; return Number.isInteger(n) && n >= 1 && n <= 5000 ? n : null; }
@@ -120,7 +130,12 @@ export async function capturarOportunidade(tx: DbExecutor, conversaId: string, e
      AND c.oportunidade_pendente_em IS NOT NULL FOR UPDATE SKIP LOCKED`, [conversaId, escopo.empresaId, escopo.ambiente])).rows[0];
   if (!linha) return 'SEM_PENDENCIA';
   const c = linha.c;
-  const limpar = () => tx.query('UPDATE whatsapp_atendimento_conversas SET oportunidade_pendente_em=NULL WHERE id=$1', [c.id]);
+  const limpar = () => tx.query("UPDATE whatsapp_atendimento_conversas SET oportunidade_pendente_em=NULL, contexto=contexto-'campanhaSitePendente' WHERE id=$1", [c.id]);
+  async function atribuir(contatoId: string) {
+    const campanha = c.contexto?.campanhaSitePendente;
+    if (typeof campanha !== 'string') return;
+    await atribuirContatoDoSite(tx, c.empresa_id, contatoId, campanha);
+  }
   // Número fora do formato do funil nunca vira cartão.
   if (!/^[0-9]{10,15}$/.test(c.contato)) { await limpar(); return 'IGNORADO'; }
   const variantes = variantesDoTelefone(c.contato);
@@ -136,8 +151,8 @@ export async function capturarOportunidade(tx: DbExecutor, conversaId: string, e
   // Cartões abertos de qualquer origem: contato em aberto sem negociação, ou contato com negociação aberta (cartões do Wall-e
   // de outro ambiente e anonimizados não contam). Todos travados (FOR UPDATE, sem LIMIT): a equipe que fecha um cartão agora
   // é esperada e a condição é conferida de novo sobre a versão confirmada.
-  const abertos = (await tx.query<{ id: string; walle: boolean; novo_contato: boolean; data: string | null; convidados: number | null }>(
-    `SELECT k.id, o.contato_id IS NOT NULL AS walle, (k.fechamento_id IS NULL AND k.status IN ('NOVO','EM_ATENDIMENTO')) AS novo_contato,
+  const abertos = (await tx.query<{ id: string; walle: boolean; conversa_id: string | null; novo_contato: boolean; data: string | null; convidados: number | null }>(
+    `SELECT k.id, o.conversa_id, o.contato_id IS NOT NULL AS walle, (k.fechamento_id IS NULL AND k.status IN ('NOVO','EM_ATENDIMENTO')) AS novo_contato,
        k.data_desejada::text AS data, k.convidados
      FROM marketing_contatos k LEFT JOIN whatsapp_atendimento_oportunidades o ON o.contato_id=k.id
      WHERE k.empresa_id=$1 AND k.telefone = ANY($2::text[]) AND (o.contato_id IS NULL OR (o.ambiente=$3 AND o.anonimizado_em IS NULL))
@@ -146,6 +161,7 @@ export async function capturarOportunidade(tx: DbExecutor, conversaId: string, e
      ORDER BY (o.conversa_id = $5::uuid) DESC NULLS LAST, k.recebido_em DESC, k.id FOR UPDATE OF k`, [c.empresa_id, variantes, c.ambiente, FECHAMENTO_ABERTO, c.id])).rows;
   const aberto = abertos[0];
   if (aberto) {
+    if (aberto.conversa_id === c.id && aberto.novo_contato) await atribuir(aberto.id);
     // Só o cartão do Wall-e ainda em "Novo contato" é atualizado; cartão do site, manual ou em negociação é da equipe.
     if (aberto.walle && aberto.novo_contato && ((data && data !== aberto.data) || (convidados && convidados !== aberto.convidados))) {
       const r = await tx.query(`UPDATE marketing_contatos SET data_desejada=COALESCE($2::date,data_desejada),convidados=COALESCE($3::int,convidados),atualizado_em=clock_timestamp()
@@ -176,6 +192,7 @@ export async function capturarOportunidade(tx: DbExecutor, conversaId: string, e
     throw new Error('OPORTUNIDADE_CHAVE_EM_USO');
   }
   await tx.query('INSERT INTO whatsapp_atendimento_oportunidades(contato_id,empresa_id,ambiente,conversa_id) VALUES($1,$2,$3,$4)', [criado.id, c.empresa_id, c.ambiente, c.id]);
+  await atribuir(criado.id);
   await limpar();
   return 'CRIADO';
 }
@@ -303,10 +320,10 @@ export async function anonimizarOportunidadesDaConversa(tx: DbExecutor, empresa:
   // Uma marca ainda não confirmada numa irmã faz esta leitura esperar; o UPDATE seguinte, nova instrução, já a enxerga e limpa.
   await tx.query(`SELECT id FROM whatsapp_atendimento_conversas WHERE empresa_id=$1 AND ambiente=$2 AND (id=$3 OR contato = ANY($4::text[]))
     ORDER BY id FOR UPDATE`, [empresa, ambiente, conversaId, variantes]);
-  await tx.query(`UPDATE whatsapp_atendimento_conversas SET oportunidade_pendente_em=NULL WHERE empresa_id=$1 AND ambiente=$2 AND (id=$3 OR contato = ANY($4::text[]))
+  await tx.query(`UPDATE whatsapp_atendimento_conversas SET oportunidade_pendente_em=NULL, contexto=contexto-'campanhaSitePendente' WHERE empresa_id=$1 AND ambiente=$2 AND (id=$3 OR contato = ANY($4::text[]))
     AND oportunidade_pendente_em IS NOT NULL`, [empresa, ambiente, conversaId, variantes]);
   if (/^[0-9]{10,15}$/.test(contato)) await travarTelefone(tx, empresa, contato);
-  // r4 (P1-2): a captura não grava atribuição nem histórico; o que houver foi a equipe e pode citar o titular:
+  // A atribuição pode vir do site ou da equipe. O histórico e os dados associados podem citar o titular:
   // texto livre na atribuição, atribuição que liga o cartão a outro alvo (ex.: CLIENTE) ou evento no histórico do cliente.
   // r8/r9 (P2): UTM não vazia e campanha (nome livre da equipe, o vínculo persiste) também são resíduo.
   const vinculos = (await tx.query<{ contato_id: string; convertido: boolean; residuo: boolean }>(`SELECT o.contato_id::text, k.fechamento_id IS NOT NULL AS convertido,

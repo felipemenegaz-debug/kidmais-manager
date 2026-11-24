@@ -592,7 +592,8 @@ test("Wall-e 1a: pedido de festa vira cartão no funil, sem duplicar, isolado, r
     // Negociação sintética na ordem das entradas reais: a trava da configuração da agenda antes das datas (114).
     await q("BEGIN");
     await travarConfiguracaoAgenda(executor(c as never), A.empresa, { modo: "COMPARTILHADA", linha: "KEY_SHARE" });
-    const negociacao = await fechamento(c as never, A.empresa, await comercial(c as never, A.empresa), clienteC, { data: DATA });
+    const baseComercial = await comercial(c as never, A.empresa);
+    const negociacao = await fechamento(c as never, A.empresa, baseComercial, clienteC, { data: DATA });
     await q("UPDATE marketing_contatos SET fechamento_id=$2 WHERE id=$1", [kc.id, negociacao]);
     await q("COMMIT");
     const ex11c = await aStg.privacidade.excluirConversaAPedido(A.sessao, { conversaId: (await conversa(A.empresa, "staging", f11c)).id, motivo: "PEDIDO_DO_TITULAR" });
@@ -915,6 +916,41 @@ test("Wall-e 1a: pedido de festa vira cartão no funil, sem duplicar, isolado, r
         await exclusao30.end();
       }
       assert.equal((await cartoes(B.empresa, [fone30])).length, 1, "F30: o pedido do site foi gravado");
+
+      // Site externo: cada clique é agregado; apenas a mensagem recebida cria atribuição.
+      process.env.MARKETING_SITE_KIDMAIS_EMPRESA_ID = A.empresa;
+      try {
+        const rotaSite = carregarComBanco("app/api/publico/marketing/site-kidmais/evento/route.ts", c as never, () => null, semSavepoint, cacheMarketing) as { POST(req: ReturnType<typeof pedido>): Promise<Response> };
+        const evento = (tipo: string, origem = "https://kidmaisfestas.com") => rotaSite.POST(pedido(
+          `http://localhost/api/publico/marketing/site-kidmais/evento?evento=${tipo}&campanha=${campanha35}`, undefined, "POST", { origin: origem }));
+        assert.equal((await evento("visita", "https://example.invalid")).status, 403);
+        assert.equal((await evento("visita")).status, 204);
+        assert.equal((await evento("whatsapp")).status, 204);
+        const contagem = await q("SELECT tipo, count(*)::int AS n FROM marketing_eventos WHERE empresa_id=$1 AND campanha_id=$2 GROUP BY tipo ORDER BY tipo", [A.empresa, campanha35]);
+        assert.deepEqual(contagem.rows, [{ tipo: "CLIQUE_LINK_CAMPANHA", n: 1 }, { tipo: "CLIQUE_WHATSAPP", n: 1 }]);
+        const textoSite = `${FESTA}\n\nOrigem: instagram | Campanha: ${campanha35} | Anúncio: criativo-A\nRef. iA.Fest: ${campanha35}`;
+        roteiro.set(textoSite, { tipos: ["PRECOS"], convidados: 60 });
+        const telefoneSite = "5561900008991";
+        const clienteSite = await id("INSERT INTO clientes (nome_completo,empresa_id,telefone,whatsapp,cpf) VALUES ('Contato site',$1,$2,$2,$3) RETURNING id", [A.empresa, telefoneSite, cpfValido()]);
+        await receber(aStg, telefoneSite, textoSite);
+        await processar(aStg);
+        const [cartaoSite] = await cartoes(A.empresa, [telefoneSite]);
+        const origem = (alvo: string) => q("SELECT campanha_id, origem_codigo, metodo FROM marketing_atribuicoes WHERE empresa_id=$1 AND alvo_id=$2 AND vigente", [A.empresa, alvo]);
+        assert.deepEqual((await origem(cartaoSite.id)).rows, [{ campanha_id: campanha35, origem_codigo: "INSTAGRAM", metodo: "INFORMADO" }]);
+        await receber(aStg, telefoneSite, textoSite);
+        await processar(aStg);
+        assert.equal((await origem(cartaoSite.id)).rows.length, 1);
+        await q("BEGIN");
+        try {
+          await travarConfiguracaoAgenda(txc, A.empresa, { modo: "COMPARTILHADA", linha: "KEY_SHARE" });
+          const negocioSite = await fechamento(c as never, A.empresa, baseComercial, clienteSite, { data: somarDias(DATA, 7) });
+          await conversao.vincularContatoNegociacao(txc, A.empresa, A.usuario, { id: cartaoSite.id, fechamentoId: negocioSite });
+          assert.deepEqual((await origem(negocioSite)).rows, [{ campanha_id: campanha35, origem_codigo: "INSTAGRAM", metodo: "HERDADO" }]);
+        } finally { await q("ROLLBACK"); }
+        await receber(bStg, telefoneSite, textoSite);
+        await processar(bStg);
+        assert.equal((await q("SELECT 1 FROM marketing_atribuicoes WHERE empresa_id=$1 AND campanha_id=$2", [B.empresa, campanha35])).rows.length, 0);
+      } finally { delete process.env.MARKETING_SITE_KIDMAIS_EMPRESA_ID; }
 
       // F23 (r4, P1-2) — atribuição que liga o cartão a OUTRO alvo (CLIENTE), sem texto da equipe: também revisar, com o id.
       const f23 = "5561900008601";
