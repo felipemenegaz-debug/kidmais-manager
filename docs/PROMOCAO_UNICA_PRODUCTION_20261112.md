@@ -52,7 +52,9 @@ Situação do COMMIT numa FALHA: `NAO_COMMITADA` (o COMMIT nunca foi enviado: na
 | 129 | PELO_REGISTRO | registro de tentativas no banco: bootstrap único por scripts/registro-migrations-banco.cjs --ambiente production --aplicar-129-bootstrap-autorizado --backup "<registro-do-backup>" |
 | 130 | PELO_REGISTRO | pré-reserva manual; aplicar só por scripts/registro-migrations-banco.cjs --ambiente production --aplicar-130-autorizado --backup "<registro-do-backup>" (o genérico recusa) |
 | 131 | PELO_REGISTRO | agenda da pré-reserva; exige a 130; aplicar só por scripts/registro-migrations-banco.cjs --ambiente production --aplicar-131-autorizado --backup "<registro-do-backup>" (o genérico recusa) |
+| 132 | PELO_REGISTRO | Wall-e fatia 1a: vínculo do contato do funil com a conversa e pendência da captura (o código só captura com ela); exige 082, 085 e, no registro, a 131; aplicar só por scripts/registro-migrations-banco.cjs --ambiente production --aplicar-132-autorizado --backup "<registro-do-backup>" (o genérico recusa) |
 | 133 | PELO_REGISTRO | ocupações da agenda por empresa (função nova; o código funciona sem ela); exige a 131; aplicar só por scripts/registro-migrations-banco.cjs --ambiente production --aplicar-133-autorizado --backup "<registro-do-backup>" (o genérico recusa) |
+| 134 | PELO_REGISTRO | marca Cliente/Interna da contratante (tabela nova; o código funciona sem ela); exige a 133; aplicar só por scripts/registro-migrations-banco.cjs --ambiente production --aplicar-134-autorizado --backup "<registro-do-backup>" (o genérico recusa) |
 
 ## Ordem e comandos
 
