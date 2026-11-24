@@ -4,6 +4,7 @@ import { MENSAGEM_ENCAMINHAMENTO, dadoSensivel, entradaFaseB, comandoDireto, pas
 import { configuracao, correlacionarStatus, limparStatusExpirados, recuperarTrabalhosInterrompidos, registroDaPausa, suprimirPesquisasDoContato, tem082, temControlesPrivacidade, tratarSaidaQueFalhou, type Conversa, type Mensagem, type SaidaQueFalhou } from './service.ts';
 import { conteudoDaMensagem, type ConteudoSaida } from './transporte.ts';
 import { motivoSeguro } from './motivo-falha.ts';
+import { contaNoTeto, reservarConsumo, tetoDoMes, tetoMensal } from './teto-mensal.ts';
 import { ARQUIVO_DISPONIVEL_SQL, urlPublicaArquivo } from './arquivos.ts';
 import type { Passagem, ResultadoWallE } from './walle/tipos.ts';
 import { capturarOportunidadesPendentes, qualificaPedidoFesta, SQL_MARCA_PENDENTE, temMarcaPendente } from './walle/oportunidade.ts';
@@ -55,7 +56,7 @@ export function entradaVencida(mensagem: Pick<Mensagem, 'direcao' | 'criada_em'>
  * Por que a entrada não terá resposta automática: vencida na fila, automação global desligada ou (M1) limite diário de
  * respostas esgotado. As duas primeiras também viram a origem da marca de pausa quando o texto pede pausa.
  */
-export type OrigemSemResposta = 'ENTRADA_VENCIDA' | 'AUTOMACAO_DESLIGADA' | 'LIMITE_DIARIO';
+export type OrigemSemResposta = 'ENTRADA_VENCIDA' | 'AUTOMACAO_DESLIGADA' | 'LIMITE_DIARIO' | 'LIMITE_MENSAL';
 /**
  * Entrada que não terá resposta automática (vencida, automação desligada ou limite diário esgotado): fica PROCESSADA, a
  * conversa vai para a equipe (AGUARDANDO_HUMANO, versão nova: saídas automáticas antigas não saem) com o motivo
@@ -69,9 +70,10 @@ async function encaminharSemResposta(tx: DbExecutor, conversa: Conversa, entrada
   if (entrada) await tx.query("UPDATE whatsapp_atendimento_mensagens SET estado='PROCESSADA' WHERE id=$1 AND estado IN ('PENDENTE','PROCESSANDO')", [entrada.id]);
   if (await tem082(tx)) {
     const em = new Date().toISOString();
-    const limite = origem === 'LIMITE_DIARIO';
+    // Limites (diário por conversa ou teto mensal da Meta, 3b): nada é classificado, o silêncio é só o limite.
+    const limite = origem === 'LIMITE_DIARIO' || origem === 'LIMITE_MENSAL';
     const pausa = !limite && !!entrada && !semAutomatico(conversa) && pausaPedidaNaRecepcao(entrada.texto);
-    const passagem = passagemSemRespostaAutomatica(conversa.contexto, em, pausa, limite ? 'LIMITE_DIARIO' : 'SEM_RESPOSTA_AUTOMATICA');
+    const passagem = passagemSemRespostaAutomatica(conversa.contexto, em, pausa, limite ? origem : 'SEM_RESPOSTA_AUTOMATICA');
     const marca = pausa && !limite ? { semAutomatico: { motivo: 'PARAR_A_CONFIRMAR', em, origem: origem as OrigemMarcaPausa } } : {};
     await tx.query("UPDATE whatsapp_atendimento_conversas SET estado='AGUARDANDO_HUMANO',passagem=$2::jsonb,contexto=COALESCE(contexto,'{}'::jsonb)||$3::jsonb,versao=versao+1,atualizada_em=clock_timestamp() WHERE id=$1 AND estado='IA'",
       [conversa.id, JSON.stringify(passagem), JSON.stringify(marca)]);
@@ -232,6 +234,8 @@ async function executarTarefa(deps: DependenciasWorker, { mensagem, conversa, co
   const empresa = mensagem.empresa_id, ambiente = mensagem.ambiente;
   const piloto = pilotoOpcional(empresaPiloto);
   const ehPiloto = ehPilotoDe(empresa, piloto);
+  // 3b: teto mensal para toda empresa menos a piloto, que fica fora em qualquer canal (recorte de 23/11, Astra r2 P1).
+  const pelaMeta = contaNoTeto(empresa, piloto);
   // C2 + C4 de novo antes do modelo, na gravação e antes de ENVIANDO (a piloto não tem esses portões: true sem consulta).
   // F7: leitura que falha antes de ENVIANDO é transitória (a tarefa volta para a fila).
   const opera = (tx: DbExecutor) => lerPortao('LEITURA_HABILITACAO', () => empresaOperaAtendimento(tx, empresa, { piloto, ambiente }));
@@ -262,6 +266,11 @@ async function executarTarefa(deps: DependenciasWorker, { mensagem, conversa, co
       // qualquer mensagem — inclusive uma paráfrase de pausa que só o modelo reconheceria: nada é classificado aqui, então o
       // resumo diz LIMITE_DIARIO (nunca uma pausa) e as marcas já gravadas na conversa ficam como estão.
       if (respondidas >= config.limites.respostasPor24h) return await encaminharPorLimite(mensagem);
+      // 3b (D-LAN-3): teto mensal de mensagens do número pela Cloud API (equipe + Wall-e) já atingido ⇒ o Wall-e nem é
+      // chamado e a conversa vai para a equipe em SILÊNCIO, como no limite diário. Este é só o atalho antes do modelo; a
+      // garantia é a reserva atômica na gravação (gravarNoTeto). Leitura pelo portão (Astra r1, P2): falha transitória
+      // devolve a entrada à fila, nada sai.
+      if (pelaMeta && (await lerPortao('LEITURA_TETO_MENSAL', () => tetoDoMes(db(), empresa, ambiente)))?.estado === 'ATINGIDO') return await encaminharPorLimite(mensagem, 'LIMITE_MENSAL', opera);
       // E-ME1 + F5 (revisão): antes de qualquer fonte ou modelo, o portão COMPLETO de novo — C1 (empresa ATIVA), K-PROC,
       // C3 (configuração vigente ligada) e C2 + C4. Revogada no intervalo desde a reserva: a entrada é cancelada, nada é
       // consultado nem enviado. Leitura que falhou: transitória.
@@ -293,11 +302,16 @@ async function executarTarefa(deps: DependenciasWorker, { mensagem, conversa, co
           await tx.query("UPDATE whatsapp_atendimento_mensagens SET estado='CANCELADA' WHERE id=$1", [mensagem.id]); return;
         }
         const resposta = responder(vigente, plano, interesse, hoje);
+        // 3b: a resposta só fica gravada se couber no teto mensal (reserva do que o INSERT gravou, gravarNoTeto); senão o
+        // savepoint desfaz tudo desta transação e a equipe recebe em silêncio (LIMITE_MENSAL).
+        const coube = await gravarNoTeto(tx, mensagem, async () => {
         await tx.query('UPDATE whatsapp_atendimento_conversas SET interesse=$2::jsonb,estado=$3,nao_contatar=nao_contatar OR $4,atualizada_em=clock_timestamp() WHERE id=$1', [conversa.id, JSON.stringify(interesse), resposta.encerrada ? 'ENCERRADA' : resposta.humano ? 'AGUARDANDO_HUMANO' : 'IA',resposta.encerrada]);
         // PARAR entendido pelo modelo: mesmo alcance da recepção nas pesquisas (só o WhatsApp), na mesma transação.
         if (resposta.encerrada) await suprimirPesquisasDoContato(tx, empresa, atual.contato);
         await tx.query("UPDATE whatsapp_atendimento_mensagens SET estado='PROCESSADA' WHERE id=$1", [mensagem.id]);
-        if (resposta.texto) await tx.query(`INSERT INTO whatsapp_atendimento_mensagens(conversa_id,empresa_id,ambiente,origem_id,direcao,texto,estado,versao_conversa) VALUES($1,$2,$3,$4,'SAIDA',$5,'PENDENTE',$6) ON CONFLICT(origem_id) DO NOTHING`, [conversa.id, empresa, ambiente, mensagem.id, resposta.texto, atual.versao]);
+        return resposta.texto ? (await tx.query<{ id: string }>(`INSERT INTO whatsapp_atendimento_mensagens(conversa_id,empresa_id,ambiente,origem_id,direcao,texto,estado,versao_conversa) VALUES($1,$2,$3,$4,'SAIDA',$5,'PENDENTE',$6) ON CONFLICT(origem_id) DO NOTHING RETURNING id`, [conversa.id, empresa, ambiente, mensagem.id, resposta.texto, atual.versao])).rows.length : 0;
+        });
+        if (!coube) await encaminharSemResposta(tx, atual, mensagem, 'LIMITE_MENSAL');
       });
       return 'PROCESSADA';
     }
@@ -455,18 +469,37 @@ async function pausarSemMarca(mensagem: Mensagem) {
 /**
  * M1: limite diário de respostas esgotado. Revalida sob a trava da conversa (empresa, automação, configuração, versão) e
  * encaminha em silêncio (encaminharSemResposta, LIMITE_DIARIO). Obsoleta: CANCELADA, como nos demais caminhos.
+ * Com `opera` (atalho do teto mensal, Astra r3 P2): revalida também a habilitação (C2 + C4) sob a trava; revogada ⇒ CANCELADA.
  */
-async function encaminharPorLimite(mensagem: Mensagem) {
+async function encaminharPorLimite(mensagem: Mensagem, origem: Extract<OrigemSemResposta, 'LIMITE_DIARIO' | 'LIMITE_MENSAL'> = 'LIMITE_DIARIO', opera?: (tx: DbExecutor) => Promise<boolean>) {
   const empresa = mensagem.empresa_id;
   await withTransaction(async tx => {
     const empresaAtiva = await empresaAtivaPortao(tx, empresa);
     const atual = (await tx.query<Conversa>('SELECT * FROM whatsapp_atendimento_conversas WHERE id=$1 AND empresa_id=$2 AND ambiente=$3 FOR UPDATE', [mensagem.conversa_id, empresa, mensagem.ambiente])).rows[0];
-    if (!empresaAtiva || !atual || !mensagemAindaValida(mensagem, atual) || !atendimentoAtivo() || !(await configuracaoPortao(tx, empresa))?.ativo) {
+    if (!empresaAtiva || !atual || !mensagemAindaValida(mensagem, atual) || !atendimentoAtivo() || !(await configuracaoPortao(tx, empresa))?.ativo || (opera && !(await opera(tx)))) {
       await tx.query("UPDATE whatsapp_atendimento_mensagens SET estado='CANCELADA' WHERE id=$1 AND estado='PROCESSANDO'", [mensagem.id]); return;
     }
-    await encaminharSemResposta(tx, atual, mensagem, 'LIMITE_DIARIO');
+    await encaminharSemResposta(tx, atual, mensagem, origem);
   });
   return 'ENCAMINHADA' as const;
+}
+/**
+ * 3b: grava as saídas (`gravar`, que devolve quantas o INSERT gravou: RETURNING) e reserva EXATAMENTE essas no teto
+ * mensal do Wall-e (135), na mesma transação. Retry em que a saída já existe (ON CONFLICT DO NOTHING, por qualquer chave)
+ * grava 0 e reserva 0 (Astra r3, P2). Não coube: ROLLBACK TO SAVEPOINT desfaz o que `gravar` fez; devolve false.
+ * Empresas fora do teto (a piloto) gravam sem reserva. Falha da reserva é transitória (lerPortao): a transação inteira
+ * volta e a entrada, à fila.
+ */
+async function gravarNoTeto(tx: DbExecutor, mensagem: Mensagem, gravar: () => Promise<number>) {
+  if (!contaNoTeto(mensagem.empresa_id, pilotoOpcional(empresaPiloto))) { await gravar(); return true; }
+  await tx.query('SAVEPOINT teto_mensal');
+  const gravadas = await gravar();
+  // Nada gravado (sem texto ou retry): não reserva nem bloqueia, mesmo com o teto já baixado abaixo do usado.
+  if (gravadas === 0) { await tx.query('RELEASE SAVEPOINT teto_mensal'); return true; }
+  if (await lerPortao('RESERVA_TETO_MENSAL', () => reservarConsumo(tx, mensagem.empresa_id, mensagem.ambiente, gravadas, tetoMensal()))) {
+    await tx.query('RELEASE SAVEPOINT teto_mensal'); return true;
+  }
+  await tx.query('ROLLBACK TO SAVEPOINT teto_mensal'); return false;
 }
 /** Pedido de parar AMBÍGUO: nada é enviado (nem o texto fixo de encaminhamento); a equipe recebe a conversa com o resumo,
  *  sem o bloqueio definitivo, e decide. */
@@ -495,11 +528,20 @@ async function encaminharSemModelo(mensagem: Mensagem, estadoEntrada: 'FALHOU' |
     const empresaAtiva = await empresaAtivaPortao(tx, empresa);
     const atual = (await tx.query<Conversa>('SELECT * FROM whatsapp_atendimento_conversas WHERE id=$1 AND empresa_id=$2 AND ambiente=$3 FOR UPDATE', [mensagem.conversa_id, empresa, ambiente])).rows[0];
     const valido = Boolean(empresaAtiva && atual && mensagemAindaValida(mensagem, atual) && atendimentoAtivo() && (await configuracaoPortao(tx, empresa))?.ativo && await opera(tx));
-    await tx.query("UPDATE whatsapp_atendimento_mensagens SET estado=$2 WHERE id=$1 AND estado='PROCESSANDO'", [mensagem.id, valido ? estadoEntrada : 'CANCELADA']);
-    if (!valido) { console.warn('[Atendimento WhatsApp] entrada cancelada pelo portão: %s', 'PORTAO_ENCAMINHAMENTO'); return; }
+    if (!valido) {
+      await tx.query("UPDATE whatsapp_atendimento_mensagens SET estado='CANCELADA' WHERE id=$1 AND estado='PROCESSANDO'", [mensagem.id]);
+      console.warn('[Atendimento WhatsApp] entrada cancelada pelo portão: %s', 'PORTAO_ENCAMINHAMENTO'); return;
+    }
+    // 3b: o texto fixo de encaminhamento também conta para a Meta; sem vaga no teto, a equipe recebe em silêncio. O estado
+    // final da entrada fica DENTRO do savepoint (Astra r2, P3): sem vaga, ele é desfeito e encaminharSemResposta acha a
+    // entrada em PROCESSANDO e a deixa PROCESSADA (LIMITE_MENSAL), em vez de FALHOU.
+    const coube = await gravarNoTeto(tx, mensagem, async () => {
+    await tx.query("UPDATE whatsapp_atendimento_mensagens SET estado=$2 WHERE id=$1 AND estado='PROCESSANDO'", [mensagem.id, estadoEntrada]);
     const versao = Number(atual.versao) + 1;
     await tx.query("UPDATE whatsapp_atendimento_conversas SET estado='AGUARDANDO_HUMANO',versao=$2,atualizada_em=clock_timestamp() WHERE id=$1", [atual.id, versao]);
-    await tx.query(`INSERT INTO whatsapp_atendimento_mensagens(conversa_id,empresa_id,ambiente,origem_id,direcao,texto,estado,versao_conversa) VALUES($1,$2,$3,$4,'SAIDA',$5,'PENDENTE',$6) ON CONFLICT(origem_id) DO NOTHING`, [atual.id, empresa, ambiente, mensagem.id, MENSAGEM_ENCAMINHAMENTO, versao]);
+    return (await tx.query<{ id: string }>(`INSERT INTO whatsapp_atendimento_mensagens(conversa_id,empresa_id,ambiente,origem_id,direcao,texto,estado,versao_conversa) VALUES($1,$2,$3,$4,'SAIDA',$5,'PENDENTE',$6) ON CONFLICT(origem_id) DO NOTHING RETURNING id`, [atual.id, empresa, ambiente, mensagem.id, MENSAGEM_ENCAMINHAMENTO, versao])).rows.length;
+    });
+    if (!coube) await encaminharSemResposta(tx, atual, mensagem, 'LIMITE_MENSAL');
   });
   return 'ENCAMINHADA' as const;
 }
@@ -592,6 +634,10 @@ async function responderWallE(porta: PortaWallE, mensagem: Mensagem, conversa: C
     if (!empresaAtiva || !atual || !mensagemAindaValida(mensagem, atual) || !atendimentoAtivo() || !vigente?.ativo || !vigente.wallE?.ativo || !(await opera(tx))) {
       await tx.query("UPDATE whatsapp_atendimento_mensagens SET estado='CANCELADA' WHERE id=$1", [mensagem.id]); return;
     }
+    // 3b (Astra r1, P1 + r3, P2): o grupo INTEIRO gravado nesta tentativa (texto + anexos) é reservado de uma vez, pelo que o
+    // INSERT gravou (retry com saída já existente reserva 0); não coube ⇒ o savepoint desfaz tudo, nenhuma saída, e a equipe
+    // recebe em silêncio (LIMITE_MENSAL). Duas conversas ao mesmo tempo serializam na linha do consumo: nenhuma passa do teto.
+    const coube = await gravarNoTeto(tx, mensagem, async () => {
     // Memória sem o último entendimento (trechos do texto do cliente): só os dados da festa, enviados e correções.
     const contexto = { ...resultado.contexto };
     delete contexto.ultimoEntendimento;
@@ -604,13 +650,17 @@ async function responderWallE(porta: PortaWallE, mensagem: Mensagem, conversa: C
     await tx.query(marca ? memoriaDaConversa(SQL_MARCA_PENDENTE) : memoriaDaConversa(''), marca ? [...memoria, qualificaPedidoFesta(resultado)] : memoria);
     await tx.query("UPDATE whatsapp_atendimento_mensagens SET estado='PROCESSADA' WHERE id=$1", [mensagem.id]);
     const base = (await tx.query<{ t: string }>('SELECT clock_timestamp()::text AS t')).rows[0].t;
+    let gravadas = 0;
     for (const [ordem, s] of resultado.saidas.slice(0, 10).entries()) {
       const a = s.anexo;
-      await tx.query(`INSERT INTO whatsapp_atendimento_mensagens(conversa_id,empresa_id,ambiente,origem_id,origem_grupo_id,ordem,direcao,texto,estado,versao_conversa,midia_tipo,midia_url,midia_arquivo_id,midia_nome,midia_pronta_id,midia_pronta_versao,fonte,criada_em)
-        VALUES($1,$2,$3,$4,$5,$6,'SAIDA',$7,'PENDENTE',$8,$9,$10,$11,$12,$13,$14,$15::jsonb,$16::timestamptz + $17::interval) ON CONFLICT DO NOTHING`,
+      gravadas += (await tx.query<{ id: string }>(`INSERT INTO whatsapp_atendimento_mensagens(conversa_id,empresa_id,ambiente,origem_id,origem_grupo_id,ordem,direcao,texto,estado,versao_conversa,midia_tipo,midia_url,midia_arquivo_id,midia_nome,midia_pronta_id,midia_pronta_versao,fonte,criada_em)
+        VALUES($1,$2,$3,$4,$5,$6,'SAIDA',$7,'PENDENTE',$8,$9,$10,$11,$12,$13,$14,$15::jsonb,$16::timestamptz + $17::interval) ON CONFLICT DO NOTHING RETURNING id`,
       [atual.id, empresa, ambiente, ordem === 0 ? mensagem.id : null, mensagem.id, ordem, a ? a.legenda : s.texto, atual.versao, a?.tipo ?? null, a && !a.arquivoId ? a.midiaUrl : null, a?.arquivoId ?? null, a?.arquivoId ? a.nome : null, a?.prontaId ?? null, a?.versao ?? null,
-        JSON.stringify({ tipo: 'WALLE', fontes: s.fontes }), base, `${ordem} milliseconds`]);
+        JSON.stringify({ tipo: 'WALLE', fontes: s.fontes }), base, `${ordem} milliseconds`])).rows.length;
     }
+    return gravadas;
+    });
+    if (!coube) await encaminharSemResposta(tx, atual, mensagem, 'LIMITE_MENSAL');
   });
   return 'PROCESSADA' as const;
 }

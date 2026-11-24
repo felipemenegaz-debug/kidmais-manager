@@ -241,7 +241,7 @@ export function semAutomatico(conversa: { contexto?: Record<string, unknown> } |
  * recepção ou no processador): motivo SEM_RESPOSTA_AUTOMATICA (antes dele PARAR_A_CONFIRMAR, se o texto pediu pausa).
  * Só os campos simples da memória do Wall-e (sem catálogos); o resumo da tela completa o resto. Sem o texto do cliente.
  */
-export function passagemSemRespostaAutomatica(contexto: unknown, em: string, pausa: boolean, motivo: 'SEM_RESPOSTA_AUTOMATICA' | 'LIMITE_DIARIO' = 'SEM_RESPOSTA_AUTOMATICA'): Passagem {
+export function passagemSemRespostaAutomatica(contexto: unknown, em: string, pausa: boolean, motivo: 'SEM_RESPOSTA_AUTOMATICA' | 'LIMITE_DIARIO' | 'LIMITE_MENSAL' = 'SEM_RESPOSTA_AUTOMATICA'): Passagem {
   const c = (contexto && typeof contexto === 'object' ? contexto : {}) as Record<string, unknown>;
   const texto = (v: unknown, max: number) => (typeof v === 'string' && v.length <= max ? v : null);
   const motivos: Passagem['motivos'] = pausa ? ['PARAR_A_CONFIRMAR', motivo] : [motivo];

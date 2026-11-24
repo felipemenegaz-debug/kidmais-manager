@@ -1,10 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { carregarComponente } from '../../../components/admin/teste-componente.ts';
-
-const { limitesMesesSaoPaulo } = carregarComponente('lib/whatsapp/atendimento/resultado.ts', {
-  './configuracao.ts': {}, './service.ts': {},
-}).modulo as typeof import('./resultado.ts');
+import { limitesMesesSaoPaulo } from './mes-sao-paulo.ts';
 
 test('limites dos meses no horário de São Paulo na virada de dezembro para janeiro', () => {
   const dezembro = { mes: '2026-12', inicio: '2026-12-01T03:00:00.000Z', fim: '2027-01-01T03:00:00.000Z' };
