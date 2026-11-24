@@ -27,14 +27,15 @@ const datas = [
     { dia: 14, semana: 'dom', livre: false }, { dia: 20, semana: 'sáb', livre: false }, { dia: 21, semana: 'dom', livre: true }, { dia: 27, semana: 'sáb', livre: true },
 ];
 const pacotes = [{ nome: 'Diversão', convidados: 40, centavos: 520000 }, { nome: 'Alegria', convidados: 60, centavos: 680000 }, { nome: 'Festa completa', convidados: 80, centavos: 840000 }];
-const horarios = [{ id: 'nobre', nome: 'Horário nobre', hora: '15h', centavos: 0 }, { id: 'promocional', nome: 'Horário promocional', hora: '19h', centavos: -50000 }] as const;
+// 24/11/2026: sem horário nobre nem promocional (saiu da oferta); o horário não muda o preço na simulação.
+const horarios = [{ id: 'tarde', nome: 'Tarde', hora: '15h', centavos: 0 }, { id: 'noite', nome: 'Noite', hora: '19h', centavos: 0 }] as const;
 const extras = [{ id: 'personagem', nome: 'Personagem', centavos: 45000 }, { id: 'doces', nome: 'Mesa de doces', centavos: 38000 }] as const;
 const PARCELAS = 4;
 /** `horarios` e `pix` vêm do catálogo (Hero, no servidor): sem o recurso, o passo ou a linha somem. */
 export function DemoFesta({ horarios: comHorarios = true, pix = true }: { horarios?: boolean; pix?: boolean }) {
     const [dia, setDia] = useState(13);
     const [pacote, setPacote] = useState(1);
-    const [horario, setHorario] = useState<(typeof horarios)[number]['id']>('nobre');
+    const [horario, setHorario] = useState<(typeof horarios)[number]['id']>('tarde');
     const [escolhidos, setEscolhidos] = useState<string[]>(['personagem']);
     const data = datas.find(d => d.dia === dia)!;
     const p = pacotes[pacote]; const h = horarios.find(x => x.id === horario)!;
