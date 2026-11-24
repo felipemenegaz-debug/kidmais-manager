@@ -1,14 +1,15 @@
 import Link from "next/link";
+import { redirect } from "next/navigation";
 import ContatoEmpresa from "@/components/fechamento/ContatoEmpresa";
 import FestaDecoracao from "@/components/fechamento/FestaDecoracao";
 import { MarcaPublicaCabecalho, MarcaPublicaProvider } from "@/components/fechamento/MarcaPublica";
 import { paginaPublica } from "@/lib/fechamentos/rota-publica";
 import base from "@/components/disponibilidade/DisponibilidadePublica.module.css";
 import styles from "./pagina-buffet.module.css";
-import { exigirEmpresaPublica, metadataEmpresaPublica } from "./empresa-publica";
+import { codigoDaEmpresaLegada, exigirEmpresaPublica } from "./empresa-publica";
 
 export const dynamic = "force-dynamic";
-export const metadata = metadataEmpresaPublica;
+export { gerarMetadataEmpresaPublica as generateMetadata } from "./empresa-publica";
 
 /**
  * Página inicial do buffet: /b/<código>. Abre só quando o servidor atenderia a cotação da empresa (mesma regra das
@@ -17,6 +18,9 @@ export const metadata = metadataEmpresaPublica;
  * O login da equipe é o compartilhado do produto; o endereço público nunca dá acesso ao painel.
  */
 export default async function PaginaDoBuffet({ params }: { params: Promise<{ empresa: string }> }) {
+  const codigo = await codigoDaEmpresaLegada(params);
+  if (codigo) redirect(paginaPublica("/disponibilidade", null, codigo));
+
   const empresa = await exigirEmpresaPublica(params);
   return (
     <MarcaPublicaProvider nome={empresa.nome} pagamento={empresa.pagamento} contato={empresa.contato}>

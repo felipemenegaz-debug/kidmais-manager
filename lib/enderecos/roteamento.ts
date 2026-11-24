@@ -1,3 +1,5 @@
+import { paginaPublica } from '../fechamentos/rota-publica.ts';
+import { CODIGO_EMPRESA_PUBLICA } from '../http/empresas-publicas.ts';
 import { hostReservado, normalizarHost, type AmbienteDominios } from '../marketing/dominios/hosts.ts';
 
 /**
@@ -15,11 +17,21 @@ export type ModoEfetivo = ModoEnderecos | 'CONFIGURACAO_INVALIDA';
 export type ModoSolicitado = ModoEnderecos | 'AUSENTE' | 'DESCONHECIDO';
 export type CodigoEnderecos = 'OK' | 'MODO_DESCONHECIDO' | 'ORIGEM_ANTIGA_INVALIDA' | 'ORIGEM_NOVA_INVALIDA' | 'ORIGENS_IGUAIS' | 'ADMIN_DIVERGENTE';
 
-export type AmbienteEnderecos = AmbienteDominios & {
+export type AmbienteKidmaisEmN = {
+  ENDERECOS_KIDMAIS_EM_N?: string;
+  AGENDA_PUBLICA_EMPRESA_CODIGO?: string;
+};
+
+export type AmbienteEnderecos = AmbienteDominios & AmbienteKidmaisEmN & {
   ENDERECOS_MODO?: string;
   ENDERECOS_ORIGEM_ANTIGA?: string;
   ENDERECOS_ORIGEM_NOVA?: string;
 };
+
+export function codigoKidmaisEmN(env: AmbienteKidmaisEmN): string | null {
+  const codigo = env.AGENDA_PUBLICA_EMPRESA_CODIGO;
+  return env.ENDERECOS_KIDMAIS_EM_N?.trim() === 'true' && codigo && CODIGO_EMPRESA_PUBLICA.test(codigo) ? codigo : null;
+}
 
 export type ConfiguracaoEnderecos = {
   modoSolicitado: ModoSolicitado;
@@ -160,6 +172,11 @@ export function decidirEndereco(
 
   if (cfg.modoEfetivo === 'ATIVA' && host === hostDe(antiga)) {
     if (atalhoDoPainel(caminho, pedido.search)) return atalho(nova);
+    const codigo = codigoKidmaisEmN(env);
+    if (codigo && global) {
+      const pagina = caminho === '/fechamento' ? '/fechamento' : '/disponibilidade';
+      return emOrigem(nova, paginaPublica(pagina, codigo), pedido.search);
+    }
     if (grupoPublico(caminho)) return PASSAR;
     return emOrigem(nova, pedido.pathname, pedido.search);
   }
@@ -174,9 +191,11 @@ export function decidirEndereco(
 
 /**
  * "Ver tela do cliente" da empresa da configuração legada. Em ATIVA o painel está em N, onde /disponibilidade cairia
- * na vitrine: o destino é A, da configuração validada. Nos demais modos o painel está no host que serve a página.
+ * na vitrine. A chave usa o caminho do buffet em N, e o padrão usa A. Nos demais modos vale a página global.
  */
 export function telaDoClienteGlobal(env: AmbienteEnderecos) {
   const cfg = avaliarConfiguracao(env);
-  return cfg.modoEfetivo === 'ATIVA' ? `${cfg.antiga}/disponibilidade` : '/disponibilidade';
+  if (cfg.modoEfetivo !== 'ATIVA') return '/disponibilidade';
+  const codigo = codigoKidmaisEmN(env);
+  return codigo ? paginaPublica('/disponibilidade', codigo) : `${cfg.antiga}/disponibilidade`;
 }
