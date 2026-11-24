@@ -86,6 +86,7 @@ const ORDEM = Object.freeze([
   pelRegistro('131', `agenda da pré-reserva; exige a 130; aplicar só por ${REGISTRO} --ambiente production --aplicar-131-autorizado --backup "<registro-do-backup>" (o genérico recusa)`),
   pelRegistro('133', `ocupações da agenda por empresa (função nova; o código funciona sem ela); exige a 131; aplicar só por ${REGISTRO} --ambiente production --aplicar-133-autorizado --backup "<registro-do-backup>" (o genérico recusa)`),
   pelRegistro('134', `marca Cliente/Interna da contratante (tabela nova; o código funciona sem ela); exige a 133; aplicar só por ${REGISTRO} --ambiente production --aplicar-134-autorizado --backup "<registro-do-backup>" (o genérico recusa)`),
+  pelRegistro('135', `consumo mensal do Wall-e pela Meta (tabela nova + carga do mês sob LOCK); exige a 060; PORTÃO DE DEPLOY: código novo LIVE no web e no worker, nenhum gravador antigo vivo e SET kidmais.portao_135 na MESMA sessão (sem ele a 135 recusa); o registro AINDA NÃO tem esta flag (caminho a autorizar, preservando a sessão do SET): aplicar só por ${REGISTRO} --ambiente production --aplicar-135-autorizado --backup "<registro-do-backup>" (o genérico recusa)`),
 ].map(congelar));
 
 /** Só os passos que rodam (sem a 098 excluída nem a 099/105 já aplicadas). */

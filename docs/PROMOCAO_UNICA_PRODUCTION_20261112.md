@@ -54,6 +54,7 @@ Situação do COMMIT numa FALHA: `NAO_COMMITADA` (o COMMIT nunca foi enviado: na
 | 131 | PELO_REGISTRO | agenda da pré-reserva; exige a 130; aplicar só por scripts/registro-migrations-banco.cjs --ambiente production --aplicar-131-autorizado --backup "<registro-do-backup>" (o genérico recusa) |
 | 133 | PELO_REGISTRO | ocupações da agenda por empresa (função nova; o código funciona sem ela); exige a 131; aplicar só por scripts/registro-migrations-banco.cjs --ambiente production --aplicar-133-autorizado --backup "<registro-do-backup>" (o genérico recusa) |
 | 134 | PELO_REGISTRO | marca Cliente/Interna da contratante (tabela nova; o código funciona sem ela); exige a 133; aplicar só por scripts/registro-migrations-banco.cjs --ambiente production --aplicar-134-autorizado --backup "<registro-do-backup>" (o genérico recusa) |
+| 135 | PELO_REGISTRO | consumo mensal do Wall-e pela Meta (tabela nova + carga do mês sob LOCK); exige a 060; PORTÃO DE DEPLOY: código novo LIVE no web e no worker, nenhum gravador antigo vivo e SET kidmais.portao_135 na MESMA sessão (sem ele a 135 recusa); o registro AINDA NÃO tem esta flag (caminho a autorizar, preservando a sessão do SET): aplicar só por scripts/registro-migrations-banco.cjs --ambiente production --aplicar-135-autorizado --backup "<registro-do-backup>" (o genérico recusa) |
 
 ## Ordem e comandos
 
