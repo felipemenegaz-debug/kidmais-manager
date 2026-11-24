@@ -24,7 +24,7 @@ export const recursos = {
     permissoes: { nome: 'Papéis e usuários', status: 'disponivel', termos: ['usuários', 'papéis', 'próprio acesso', 'próprio login', 'sua equipe', 'equipe maior', 'equipe grande', 'limite de equipe', 'sem limite'], evidencia: 'Gestão e equipe com acessos próprios em production; limites por plano em lib/assinatura/planos-comerciais.ts.' },
     convite: { nome: 'Convite da festa com IA', status: 'disponivel', termos: ['convite'], evidencia: 'Convites V1 LIVE em production (b736fb2, 17/10/2026); CONVITES_ENABLED e CONVITES_IA_ENABLED=true em production (nota "Variaveis production 20261112"); convite pronto E-CP1 LIVE em production.' },
     ajuda: { nome: 'Central de ajuda e vídeos', status: 'disponivel', termos: ['central de ajuda', 'vídeos'], evidencia: 'Central de ajuda LIVE em production por recorte auditado (03/11/2026); 3 vídeos piloto LIVE em production.' },
-    suporte: { nome: 'Suporte por e-mail', status: 'disponivel', termos: ['suporte'], evidencia: 'Decisão de Felipe (19/10/2026): suporte só por e-mail; canal em SITE_ATENDIMENTO_EMAIL.' },
+    suporte: { nome: 'Suporte por WhatsApp e e-mail', status: 'disponivel', termos: ['suporte'], evidencia: 'Decisão de Felipe D-LAN-2 (23/11/2026): WhatsApp em horário comercial e e-mail fora dele, sem promessa de 24 h; canais em SITE_ATENDIMENTO_WHATSAPP e SITE_ATENDIMENTO_EMAIL.' },
     implantacao: { nome: 'Implantação guiada', status: 'disponivel', termos: ['implantação'], evidencia: 'Serviço humano, incluído em todos os planos e sem cobrança (decisão de Felipe, 15/11/2026).' },
 
     orcamento: { nome: 'Orçamento online', status: 'oculto', termos: ['orçamento online', 'página do buffet', 'monta o orçamento sozinho'], evidencia: 'COTACAO_PUBLICA_POR_EMPRESA desligada em production. Ligar antes da venda (lista de Felipe).' },
@@ -81,7 +81,8 @@ export const planos: Plano[] = [
         // 01/11/2026 (D-PL-3): IA que ajuda o dono entra em todos os planos; os tamanhos das franquias só vão ao site depois do piloto.
         { texto: 'Copiloto de IA, franquia básica', recursos: ['copiloto'] },
         { texto: 'Central de ajuda com vídeos', recursos: ['ajuda'] },
-        { texto: 'Suporte por e-mail', recursos: ['suporte'] },
+        // D-LAN-2 (23/11/2026): WhatsApp em horário comercial; e-mail fora dele. Sem promessa de 24 h.
+        { texto: 'Suporte por WhatsApp em horário comercial e por e-mail fora dele', recursos: ['suporte'] },
         { texto: 'Implantação guiada incluída', recursos: ['implantacao'] },
         { texto: 'Financeiro completo', recursos: ['financeiro_completo'], excluido: true },
         { texto: 'Orçamento online', recursos: ['orcamento'], excluido: true },
@@ -108,8 +109,8 @@ export const planos: Plano[] = [
         { texto: 'Wall-e no WhatsApp incluído, com uso justo', recursos: ['walle_whatsapp'] },
         // D-LAN-4 (23/11/2026): o teste grátis libera tudo do Premium para qualquer buffet (portão do atendimento: TESTE = sim).
         { texto: `Teste grátis de ${dias(condicoesComerciais.testeDias)} com tudo do Premium, aberto a todos os buffets`, recursos: [] },
-        // 19/10: suporte só por e-mail por enquanto (decisão de Felipe); a prioridade é na fila de resposta.
-        { texto: 'Suporte prioritário por e-mail', recursos: ['suporte'] },
+        // D-LAN-2 (23/11/2026): mesmos canais do Essencial; a prioridade é na fila de resposta.
+        { texto: 'Suporte prioritário por WhatsApp em horário comercial e por e-mail fora dele', recursos: ['suporte'] },
         { texto: 'Implantação dedicada, com a conexão do seu WhatsApp', recursos: ['implantacao', 'walle_whatsapp'] },
     ] },
 ];
@@ -220,6 +221,9 @@ export function perguntas(teste = dias(condicoesComerciais.testeDias)): Pergunta
 }
 
 export type Ciclo = 'mensal' | 'anual';
+/** Ciclos vendidos no site. D-LAN-5 (anual acumula com Fundador ou não) está em aberto: até decidir, só mensal.
+ *  Com mais de um ciclo, a seleção Mensal/Anual volta sozinha. */
+export const CICLOS_VENDIDOS: readonly Ciclo[] = ['mensal'];
 export function valorPlano(plano: Plano, ciclo: Ciclo, fundador = false): number {
     return valorComercial(plano.id, ciclo, fundador);
 }

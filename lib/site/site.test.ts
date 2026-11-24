@@ -3,7 +3,7 @@ import test from 'node:test';
 import { createElement, type ComponentType } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { readFileSync, readdirSync } from 'node:fs';
-import { adicionais, comercial, custoPorFesta, descricaoPlano, filtrar, modulos, paineis, passos, perguntas, planos, precoExibido, recursos, tituloFluxo, valorPlano, visivel, type RecursoId } from './catalogo.ts';
+import { adicionais, CICLOS_VENDIDOS, comercial, custoPorFesta, descricaoPlano, filtrar, modulos, paineis, passos, perguntas, planos, precoExibido, recursos, tituloFluxo, valorPlano, visivel, type RecursoId } from './catalogo.ts';
 import { configuracaoSite, linkEmail, linkWhatsApp, AGENDAR_DEMONSTRACAO, CADASTRO_FECHADO } from './configuracao.ts';
 import { robotsDaPlataforma, sitemapDaPlataforma } from './indexacao.ts';
 import { carregarModulo } from '../acessos/teste-carregador.ts';
@@ -281,8 +281,10 @@ test('sem flag: planos, adicionais e calculadora não exibem preço', () => {
     assert.match(html, /Preço a definir/); assert.doesNotMatch(html, /R\$/);
     const publicado = render(Planos, { publicado: true, aberto: true, contato: configuracaoSite({}) });
     assert.match(publicado, /118,20/); assert.equal((publicado.match(/href="\/cadastro"/g) || []).length, 3);
-    // Anual: total por ano e o equivalente mensal.
-    assert.match(publicado, /R\$\s?1\.970<\/span><small>\/ano/); assert.match(publicado, /Total por ano\. Equivale a <b>R\$\s?164,17\/mês/);
+    // D-LAN-5 em aberto: só mensal, sem seleção de ciclo e sem preço anual na página.
+    assert.deepEqual(CICLOS_VENDIDOS, ['mensal']);
+    assert.doesNotMatch(publicado, /Ciclo de cobrança|2 meses grátis|\/ano|Total por ano|data-valor-ciclo="anual"/);
+    assert.equal((publicado.match(/data-valor-ciclo="mensal"/g) || []).length, 3);
 });
 
 test('implantação guiada incluída: nenhum adicional pago de implantação', () => {
@@ -425,9 +427,10 @@ test('staging bloqueia o rastreio de tudo e não publica sitemap; demais ambient
     assert.equal((Array.isArray(producao.rules) ? producao.rules[0] : producao.rules).allow, '/');
 });
 
-test('suporte só por e-mail (19/10): nenhum plano promete canal de suporte que não existe', () => {
+test('suporte pela D-LAN-2: WhatsApp em horário comercial, e-mail fora dele, sem promessa de 24 h', () => {
     const suporte = planos.flatMap(p => p.itens.filter(i => i.recursos.includes('suporte')).map(i => `${p.id}: ${i.texto}`));
-    assert.deepEqual(suporte, ['essencial: Suporte por e-mail', 'premium: Suporte prioritário por e-mail']);
+    assert.deepEqual(suporte, ['essencial: Suporte por WhatsApp em horário comercial e por e-mail fora dele', 'premium: Suporte prioritário por WhatsApp em horário comercial e por e-mail fora dele']);
+    for (const item of suporte) assert.doesNotMatch(item, /24 ?h/);
     for (const plano of planos) assert.doesNotMatch(descricaoPlano(plano), /vender pela internet|IA trabalhando/);
 });
 
