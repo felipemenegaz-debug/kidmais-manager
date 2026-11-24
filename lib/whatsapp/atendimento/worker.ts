@@ -155,6 +155,8 @@ async function capturarOportunidadesDoLote() {
   try {
     const r = await capturarOportunidadesPendentes(withTransaction, ambienteAtendimento());
     for (const codigo of r.falhas) console.warn('[Atendimento WhatsApp] cartão do funil não gravado (%s); tenta no próximo lote.', codigo);
+    // r3 (P3): o cartão foi gravado; só a campanha do site não foi atribuída (sem nova tentativa, a equipe atribui à mão).
+    if (r.atribuicoesFalhas) console.warn('[Atendimento WhatsApp] campanha do site não atribuída em %d cartão(ões) do funil; atribuir à mão.', r.atribuicoesFalhas);
   } catch (erro) {
     console.warn('[Atendimento WhatsApp] cartão do funil não gravado (%s); tenta no próximo lote.', motivoSeguro(erro));
   }
@@ -639,12 +641,8 @@ async function responderWallE(porta: PortaWallE, mensagem: Mensagem, conversa: C
     // recebe em silêncio (LIMITE_MENSAL). Duas conversas ao mesmo tempo serializam na linha do consumo: nenhuma passa do teto.
     const coube = await gravarNoTeto(tx, mensagem, async () => {
     // Memória sem o último entendimento (trechos do texto do cliente): só os dados da festa, enviados e correções.
-    const contexto: typeof resultado.contexto & { campanhaSitePendente?: string; campanhaSiteAtribuir?: unknown } = { ...resultado.contexto };
+    const contexto: typeof resultado.contexto & { campanhaSitePendente?: string } = { ...resultado.contexto };
     delete contexto.campanhaSitePendente;
-    delete contexto.campanhaSiteAtribuir;
-    // r2 (P1): a nova tentativa da atribuição do site (gravada pela captura) sobrevive à memória nova, lida sob a trava.
-    const reatribuir = atual.contexto?.campanhaSiteAtribuir;
-    if (reatribuir && typeof reatribuir === 'object') contexto.campanhaSiteAtribuir = reatribuir;
     const marca = await temMarcaPendente(tx);
     if (marca) {
       // A referência pertence ao pedido pendente e vem da mensagem recebida, fora da interpretação do modelo.

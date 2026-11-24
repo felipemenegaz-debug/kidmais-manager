@@ -30,6 +30,7 @@ Homologação sintética de 24/11/2026 (`lib/marketing/site-kidmais-homologacao.
 | Conversa que já está com a equipe, ou Wall-e desligado | Contados | Não é criado | Não. A equipe registra à mão |
 | Primeira mensagem com a referência não é um pedido (só saudação) e o pedido vem depois sem a referência | Contados | Criado | Não. Fica "Origem não registrada" |
 | Sem referência, referência alterada, fora da última linha, repetida, de campanha arquivada, inexistente, de outra empresa ou de campanha sem destino externo | Clique só é contado para campanha externa válida da empresa | Criado se o pedido qualifica | Não |
+| Falha da atribuição ao criar o contato | Contados | Criado | Não. A equipe registra à mão |
 | Telefone, indicação, visita ao salão | Não há | Registrado pela equipe | A que a equipe informar |
 
 Medidas diferentes, nesta ordem: cliques no link (eventos de visita), cliques no WhatsApp (eventos), pedidos (contatos), negociações, contratos assinados. Os cliques contam eventos: a mesma pessoa que recarrega a página ou clica duas vezes conta de novo. Não há visitantes únicos.
@@ -39,7 +40,16 @@ Limites conhecidos:
 - Em Marketing → Resultados, os cliques aparecem em "Ver mais", por campanha.
 - O filtro de Unidade esconde os cliques do site externo e os contatos criados pelo Wall-e, porque nascem sem unidade. Consultar com "Todas".
 - O contrato conta para a campanha pela negociação. A negociação herda a origem do contato quando é vinculada.
-- Se a atribuição falhar ao criar o contato, o contato é criado mesmo assim e a referência fica guardada na conversa. O worker tenta de novo ao fim de um lote, depois de 5 minutos, até 5 tentativas no total (contando a primeira); no teto a referência é descartada e o contato fica sem campanha. A exclusão a pedido do titular apaga a referência guardada.
+- Se a atribuição falhar ao criar o contato, o contato é criado mesmo assim, sem campanha, e a referência é descartada. O sistema não tenta de novo. O worker registra no log "campanha do site não atribuída em N cartão(ões) do funil; atribuir à mão", sem dado pessoal. A equipe registra a origem à mão.
+- Na empresa configurada, a captura do Wall-e trava a linha da empresa em modo compartilhado antes da conversa. Uma mudança de plano ou de acesso em curso termina antes da decisão de atribuir. As demais empresas seguem com a trava mais fraca.
+
+## Riscos aceitos dos contadores
+
+- Os cliques são uma estimativa de eventos. Quem conhece o identificador da campanha pode fabricar cliques.
+- As cotas limitam o volume por minuto e valem por processo do servidor.
+- Um terceiro pode esgotar a cota de uma campanha. Até a renovação, cliques legítimos dessa campanha não são contados.
+- Pedidos, negociações e contratos não passam por essa rota e não são afetados.
+- Fechar isso de verdade exigiria uma prova emitida pelo servidor, fora do alcance de um site estático externo.
 
 ## Registro manual da origem
 

@@ -397,59 +397,47 @@ test("Homologação: site kidmaisfestas.com → eventos, Wall-e, cartão, negoci
       assert.ok(true, "H7: só evidência");
     });
 
-    await t.test("H8 (r2, P1): falha da atribuição não desfaz o cartão; nova tentativa ao fim do lote; teto descarta", async () => {
-      const reatr = await criarCampanha(A.empresa, A.usuario, cod("h8-ok-").slice(0, 20), "Sintético H8 recupera", "INSTAGRAM", "INSTAGRAM");
-      const teto = await criarCampanha(A.empresa, A.usuario, cod("h8-teto-").slice(0, 20), "Sintético H8 teto", "INSTAGRAM", "INSTAGRAM");
-      // Falha sintética só destas duas campanhas, no INSERT da atribuição (SQLSTATE P0001: falha de negócio, não de conexão).
+    await t.test("H8 (r3): falha da atribuição não desfaz o cartão; segue sem campanha, contada à parte, sem nova tentativa", async () => {
+      const falha = await criarCampanha(A.empresa, A.usuario, cod("h8-falha-").slice(0, 20), "Sintético H8 falha", "INSTAGRAM", "INSTAGRAM");
+      // Falha sintética só desta campanha, no INSERT da atribuição (SQLSTATE P0001: falha de negócio, não de conexão).
       await q(`CREATE FUNCTION h8_sintetico_falha() RETURNS trigger LANGUAGE plpgsql AS $f$ BEGIN
-        IF NEW.campanha_id IN ('${reatr.id}'::uuid, '${teto.id}'::uuid) THEN RAISE EXCEPTION 'falha sintética H8'; END IF; RETURN NEW; END $f$`);
+        IF NEW.campanha_id = '${falha.id}'::uuid THEN RAISE EXCEPTION 'falha sintética H8'; END IF; RETURN NEW; END $f$`);
       await q("CREATE TRIGGER h8_sintetico_falha BEFORE INSERT ON marketing_atribuicoes FOR EACH ROW EXECUTE FUNCTION h8_sintetico_falha()");
-      type Reatribuir = { contatoId: string; campanhaId: string; tentativas: number; apos: number } | undefined;
-      const chave = async (fone: string) => (await conversa(A.empresa, fone)).contexto?.campanhaSiteAtribuir as Reatribuir;
-      const vencer = (fone: string) => q(`UPDATE whatsapp_atendimento_conversas SET contexto=jsonb_set(contexto,'{campanhaSiteAtribuir,apos}','0'::jsonb)
-        WHERE empresa_id=$1 AND ambiente='staging' AND contato=$2`, [A.empresa, fone]);
-      const fone = "5561900000801", foneTeto = "5561900000802";
+      // Contador do lote pelo aviso operacional do worker (sem dado pessoal; não diz que o cartão deixou de ser gravado).
+      const avisos: unknown[][] = [];
+      const processarContando = async () => {
+        const original = console.warn;
+        console.warn = (...a: unknown[]) => { if (String(a[0]).includes("campanha do site não atribuída")) avisos.push(a); else original(...a); };
+        try { await processar(aStg); } finally { console.warn = original; }
+      };
+      const fone = "5561900000801";
+      let removido = false;
       try {
-        await receber(aStg, fone, comRef(PEDIDO, reatr.id), "Sintético H8");
-        await receber(aStg, foneTeto, comRef(PEDIDO, teto.id), "Sintético H8 teto");
-        await processar(aStg);
+        await receber(aStg, fone, comRef(PEDIDO, falha.id), "Sintético H8");
+        await processarContando();
         const [k] = await cartoes(A.empresa, fone);
         assert.ok(k, "H8: o cartão nasce mesmo com a atribuição falhando");
         assert.deepEqual(await atribuicoes(k.id), [], "H8: sem atribuição (SAVEPOINT desfeito)");
-        const r1 = await chave(fone);
-        assert.deepEqual([r1?.contatoId, r1?.campanhaId, r1?.tentativas], [k.id, reatr.id, 1], "H8: referência guardada para nova tentativa, a 1ª conta");
-        assert.equal((await conversa(A.empresa, fone)).oportunidade_pendente_em, null, "H8: a marca foi limpa (a conversa não fica adiada)");
-        // Nova mensagem antes do prazo: a memória nova do Wall-e preserva a chave; a tentativa ainda não vence.
+        const cv = await conversa(A.empresa, fone);
+        // Só a memória da festa (data, convidados) que o Wall-e grava: nenhuma chave sobre a campanha ou a falha.
+        assert.deepEqual(Object.keys(cv.contexto ?? {}).filter((x) => !["data", "convidados"].includes(x)), [], "H8: contexto sem campanhaSitePendente, sem campanhaSiteAtribuir e sem outra chave da falha");
+        assert.equal(cv.oportunidade_pendente_em, null, "H8: a marca foi limpa (a conversa não fica adiada)");
+        assert.deepEqual(avisos.map((a) => [a[0], a[1]]), [["[Atendimento WhatsApp] campanha do site não atribuída em %d cartão(ões) do funil; atribuir à mão.", 1]], "H8: contador de falhas da atribuição = 1");
+        assert.ok(!avisos.some((a) => a.slice(1).some((x) => String(x).includes(fone) || String(x).includes(falha.id))), "H8: o aviso não leva telefone nem campanha");
+        // A falha passa e os ciclos seguintes rodam: nada é tentado de novo.
+        await q("DROP TRIGGER h8_sintetico_falha ON marketing_atribuicoes");
+        removido = true;
         await receber(aStg, fone, MAIS_CONVIDADOS);
-        await processar(aStg);
-        assert.deepEqual((await chave(fone))?.tentativas, 1, "H8: nova mensagem preserva a referência (worker) e não tenta antes do prazo");
+        await processarContando();
+        await processarContando();
+        assert.deepEqual(await atribuicoes(k.id), [], "H8: sem nova tentativa nos ciclos seguintes");
         assert.deepEqual((await cartoes(A.empresa, fone)).map((x) => x.id), [k.id], "H8: sem segundo cartão");
-        // A falha passa; o prazo vence: a tentativa ao fim do lote atribui e remove a chave.
-        await q(`CREATE OR REPLACE FUNCTION h8_sintetico_falha() RETURNS trigger LANGUAGE plpgsql AS $f$ BEGIN
-          IF NEW.campanha_id = '${teto.id}'::uuid THEN RAISE EXCEPTION 'falha sintética H8'; END IF; RETURN NEW; END $f$`);
-        await vencer(fone);
-        await processar(aStg);
-        assert.deepEqual((await atribuicoes(k.id)).map((a) => [a.campanha_id, a.origem_codigo, a.metodo, a.canal_atendimento, a.vigente]),
-          [[reatr.id, "INSTAGRAM", "INFORMADO", "WHATSAPP", true]], "H8: a nova tentativa atribui a campanha");
-        assert.equal(await chave(fone), undefined, "H8: sucesso remove a referência");
-
-        // Falha persistente: tentativas 2, 3, 4 e na 5ª (teto) a referência sai sem atribuir.
-        const [kt] = await cartoes(A.empresa, foneTeto);
-        assert.ok(kt, "H8 teto: cartão criado");
-        assert.equal((await chave(foneTeto))?.tentativas, 1);
-        for (const esperado of [2, 3, 4, undefined]) {
-          await vencer(foneTeto);
-          await processar(aStg);
-          assert.equal((await chave(foneTeto))?.tentativas, esperado, `H8 teto: depois da tentativa ${esperado ?? 5}`);
-        }
-        assert.deepEqual(await atribuicoes(kt.id), [], "H8 teto: nenhuma atribuição; a referência foi descartada no teto de 5 tentativas");
-        await vencer(foneTeto).catch(() => undefined);
-        await processar(aStg);
-        assert.deepEqual(await atribuicoes(kt.id), [], "H8 teto: nada mais é tentado");
+        assert.equal(avisos.length, 1, "H8: nenhuma falha nova contada");
+        assert.deepEqual(Object.keys((await conversa(A.empresa, fone)).contexto ?? {}).filter((x) => !["data", "convidados"].includes(x)), [], "H8: nada guardado depois");
         const p = await evidencia("H8", "DEPOIS", "A");
-        assert.deepEqual(numeros(linhaCampanha(p, reatr.id)), [0, 0, 1], "H8: o contato aparece na campanha depois da nova tentativa");
+        assert.deepEqual(numeros(linhaCampanha(p, falha.id)), [0, 0, 0], "H8: o contato não aparece na campanha (a equipe atribui à mão)");
       } finally {
-        await q("DROP TRIGGER IF EXISTS h8_sintetico_falha ON marketing_atribuicoes");
+        if (!removido) await q("DROP TRIGGER IF EXISTS h8_sintetico_falha ON marketing_atribuicoes");
         await q("DROP FUNCTION IF EXISTS h8_sintetico_falha()");
       }
     });
@@ -482,7 +470,6 @@ test("Homologação: site kidmaisfestas.com → eventos, Wall-e, cartão, negoci
         const [k] = await cartoes(A.empresa, fone);
         assert.ok(k, `H9 ${fone}: cartão criado`);
         assert.deepEqual((await atribuicoes(k.id)).map((a) => a.campanha_id), esperada ? [esperada] : [], `H9 ${fone}: atribuição só da externa`);
-        assert.equal((await conversa(A.empresa, fone)).contexto?.campanhaSiteAtribuir, undefined, `H9 ${fone}: nada para nova tentativa (não é falha)`);
       }
       // Recusas do domínio: externa com site; externa fora da empresa da integração.
       const recusa = async (empresa: string, usuario: string, extra: Record<string, unknown>, codigo: string) => {

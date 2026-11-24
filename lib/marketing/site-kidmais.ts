@@ -22,7 +22,7 @@ export async function marketingDoSiteDisponivel(tx: DbExecutor, empresa: string)
  * r2 (P2 do Astra r1): na transação de quem chama. As mudanças de acesso comercial travam a linha da empresa FOR UPDATE
  * (gatilhos 068/074a, painel comercial) ou FOR NO KEY UPDATE (ofertas). Aqui a empresa é travada FOR SHARE, que espera as
  * duas, ANTES da decisão: a mudança em curso termina primeiro e a decisão e o INSERT veem o estado confirmado.
- * A atribuição pelo Wall-e roda sob a trava FOR KEY SHARE da captura (fatia 1a), que só espera FOR UPDATE.
+ * A atribuição pelo Wall-e roda sob a 1ª trava da captura, que para a empresa do opt-in também é FOR SHARE (r3).
  */
 export async function registrarCliqueSiteKidmais(tx: DbExecutor, empresa: string, campanha: string, tipo: 'CLIQUE_LINK_CAMPANHA' | 'CLIQUE_WHATSAPP') {
   if (empresa !== empresaDoSiteKidmais()) return;

@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { readFileSync } from 'node:fs';
-import { atribuirSemDesfazer, campanhaDaMensagemSite, chaveDoCartao, chaveTravaTelefone, nomeDoCartao, qualificaPedidoFesta, variantesDoTelefone } from './oportunidade.ts';
+import { atribuirSemDesfazer, campanhaDaMensagemSite, capturarOportunidade, chaveDoCartao, chaveTravaTelefone, nomeDoCartao, qualificaPedidoFesta, variantesDoTelefone } from './oportunidade.ts';
 import type { Entendimento, Intencao, Passagem, ResultadoWallE, TipoIntencao } from './tipos.ts';
 
 // r2 (P3 do Astra r1): a variável só vale em formato UUID; o valor antigo 'empresa-sintetica' desligaria a integração.
@@ -181,7 +181,7 @@ test('r6: anonimizado recusado em Oportunidades e na conversão; empresa antes d
   assert.ok(rota.includes('detalheContato(tx, empresaId, id, { revisarPrivacidade: tenant.papelAtual === "REPRESENTANTE_AUTORIZADO" })'), 'rota: papel da sessão');
   const op = readFileSync('lib/whatsapp/atendimento/walle/oportunidade.ts', 'utf8');
   assert.ok(op.includes('WHERE c.id=$1 AND c.empresa_id=$2 AND c.ambiente=$3'), 'captura: escopo na releitura');
-  assert.ok(op.includes('return capturarOportunidade(tx, candidata.id, { empresaId: candidata.empresa_id, ambiente });'));
+  assert.ok(op.includes('return capturarOportunidade(tx, candidata.id, { empresaId: candidata.empresa_id, ambiente }, sinal);'));
   assert.ok(op.includes('while (tentadas < limite && vistas.length < varredura)'), 'lote: limite e varredura separados');
   assert.ok(op.includes("if (r !== 'SEM_PENDENCIA') { saida.capturas++; tentadas++; }"), 'SEM_PENDENCIA não gasta o limite');
   assert.ok(op.includes("eventos_historico_cliente h JOIN clientes cl ON cl.id=h.cliente_id AND cl.empresa_id=k.empresa_id"), 'exclusão: histórico pela empresa');
@@ -300,11 +300,27 @@ test('r2 (P1): falha da atribuição do site desfaz só o SAVEPOINT e devolve fa
   });
 });
 
-test('r2 (P1): a captura guarda a nova tentativa quando a atribuição falha; o lote retenta com teto; anonimização e worker preservam/limpam a chave', () => {
+test('r3: falha da atribuição só sinaliza; o lote conta à parte, sem nova tentativa e sem nada guardado na conversa', () => {
   const fonte = readFileSync('lib/whatsapp/atendimento/walle/oportunidade.ts', 'utf8');
-  assert.match(fonte, /if \(!await atribuirSemDesfazer\(tx, c\.empresa_id, contatoId, campanha\)\) await tx\.query\(SQL_GUARDAR_REATRIBUICAO, \[c\.id, contatoId, campanha, 1, ESPERA_PADRAO_SEGUNDOS\]\)/);
-  assert.match(fonte, /await reatribuirCampanhasDoSite\(transacao, ambiente, espera, saida\);\n {2}return saida;/, 'retentativa ao fim de toda captura');
-  assert.match(fonte, /contexto-'campanhaSitePendente'-'campanhaSiteAtribuir'/, 'anonimização remove a chave');
+  assert.match(fonte, /if \(!await atribuirSemDesfazer\(tx, c\.empresa_id, contatoId, campanha\) && sinal\) sinal\.atribuicaoFalhou = true;/);
+  assert.match(fonte, /return capturarOportunidade\(tx, candidata\.id, \{ empresaId: candidata\.empresa_id, ambiente \}, sinal\);/);
+  assert.match(fonte, /if \(sinal\.atribuicaoFalhou\) saida\.atribuicoesFalhas\+\+;/, 'contador à parte');
+  assert.match(fonte, /contexto=contexto-'campanhaSitePendente' WHERE empresa_id=\$1 AND ambiente=\$2 AND \(id=\$3 OR contato = ANY\(\$4::text\[\]\)\)\n {4}AND oportunidade_pendente_em IS NOT NULL/, 'anonimização como na 1a');
+  assert.doesNotMatch(fonte, /campanhaSiteAtribuir|eatribu/i, 'sem nova tentativa');
   const worker = readFileSync('lib/whatsapp/atendimento/worker.ts', 'utf8');
-  assert.match(worker, /campanhaSiteAtribuir/, 'reescrita da memória preserva a chave');
+  assert.doesNotMatch(worker, /campanhaSiteAtribuir/, 'a memória não guarda nada da falha');
+  assert.match(worker, /if \(r\.atribuicoesFalhas\) console\.warn\('\[Atendimento WhatsApp\] campanha do site não atribuída em %d cartão\(ões\) do funil; atribuir à mão\.', r\.atribuicoesFalhas\);/);
+});
+
+test('r3 (P2): primeira trava da empresa é FOR SHARE só para a empresa do opt-in, antes da conversa', async () => {
+  const sqls: string[] = [];
+  const tx = { async query(sql: string) { sqls.push(sql); return { rows: [] }; } };
+  for (const [empresa, modo] of [[EMPRESA_SINTETICA, 'FOR SHARE'], ['7b7b7b7b-0000-4000-8000-000000000002', 'FOR KEY SHARE']] as const) {
+    sqls.length = 0;
+    await comEmpresaDoSite(EMPRESA_SINTETICA, async () => {
+      assert.equal(await capturarOportunidade(tx as never, '7c7c7c7c-0000-4000-8000-000000000003', { empresaId: empresa, ambiente: 'staging' }), 'SEM_PENDENCIA');
+    });
+    assert.equal(sqls[0], 'SELECT id FROM empresas WHERE id=$1 ' + modo, empresa + ': a empresa é a 1ª trava');
+    assert.match(sqls[1], /FROM whatsapp_atendimento_conversas[\s\S]*FOR UPDATE SKIP LOCKED/, empresa + ': depois a conversa');
+  }
 });
