@@ -11,14 +11,23 @@ import { rotuloComercial, type Comercial } from './ComercialEmpresa';
 type Item = {
     id: string; codigo: string; nome: string; situacao: string; situacaoRotulo: string; criadoEm: string; implantacaoRotulo: string | null;
     responsavelNome: string | null; email: string | null; membrosAtivos: number; convitesPendentes: number; temCadastro: boolean;
+    uso?: 'CLIENTE' | 'INTERNA';
     comercial: Pick<Comercial, 'instalado' | 'cobrado' | 'situacao' | 'nivel' | 'ate'>;
 };
-type Lista = { itens: Item[]; total: number; pagina: number; porPagina: number; desativadasOcultas?: number };
-// 23/11/2026 (pedido de Felipe): a tela abre em "Em uso" (sem as desativadas) e avisa quantas ficaram de fora.
+type Lista = { itens: Item[]; total: number; pagina: number; porPagina: number; desativadasOcultas?: number; internasOcultas?: number; usoDisponivel?: boolean };
+// 23/11/2026 (pedido de Felipe): a tela abre em "Em uso" (sem as desativadas e, com a 134, sem as internas) e avisa
+// quantas ficaram de fora. "Internas" só aparece quando a 134 está aplicada.
 const FILTROS = [
-    { valor: 'EM_USO', rotulo: 'Em uso' }, { valor: 'TODAS', rotulo: 'Todas' }, { valor: 'EM_IMPLANTACAO', rotulo: 'Em implantação' }, { valor: 'AGUARDANDO_PRIMEIRO_ACESSO', rotulo: 'Aguardando primeiro acesso' },
+    { valor: 'EM_USO', rotulo: 'Em uso' }, { valor: 'INTERNAS', rotulo: 'Internas' }, { valor: 'TODAS', rotulo: 'Todas' }, { valor: 'EM_IMPLANTACAO', rotulo: 'Em implantação' }, { valor: 'AGUARDANDO_PRIMEIRO_ACESSO', rotulo: 'Aguardando primeiro acesso' },
     { valor: 'EM_CONFIGURACAO', rotulo: 'Em configuração' }, { valor: 'ATIVA', rotulo: 'Ativas' }, { valor: 'SUSPENSA', rotulo: 'Suspensas' }, { valor: 'DESATIVADA', rotulo: 'Desativadas' },
 ];
+/** "21 empresas desativadas não aparecem aqui." / "… e 3 internas …" / "3 empresas internas não aparecem aqui." */
+export function textoOcultas(desativadas: number, internas: number) {
+    const so = (n: number, um: string, varios: string) => n === 1 ? `1 empresa ${um} não aparece aqui.` : `${n} empresas ${varios} não aparecem aqui.`;
+    if (!internas) return so(desativadas, 'desativada', 'desativadas');
+    if (!desativadas) return so(internas, 'interna', 'internas');
+    return `${desativadas} ${desativadas === 1 ? 'desativada' : 'desativadas'} e ${internas} ${internas === 1 ? 'interna' : 'internas'} não aparecem aqui.`;
+}
 export function tomSituacao(s: string) {
     return s === 'ATIVA' ? 'ok' : s === 'SUSPENSA' ? 'alerta' : s === 'EM_IMPLANTACAO' || s === 'EM_PROVISIONAMENTO' ? 'info' : undefined;
 }
@@ -57,11 +66,12 @@ export default function Empresas() {
             {buscaAplicada && <button type="button" onClick={() => { setBusca(''); setBuscaAplicada(''); setPagina(1); }}>Limpar</button>}
         </form>
         <div className={estilos.filtros} role="group" aria-label="Filtrar por situação">
-            {FILTROS.map((f) => <button key={f.valor} type="button" aria-pressed={situacao === f.valor} onClick={() => { setSituacao(f.valor); setPagina(1); }}>{f.rotulo}</button>)}
+            {FILTROS.filter((f) => f.valor !== 'INTERNAS' || lista?.usoDisponivel === true || situacao === 'INTERNAS').map((f) => <button key={f.valor} type="button" aria-pressed={situacao === f.valor} onClick={() => { setSituacao(f.valor); setPagina(1); }}>{f.rotulo}</button>)}
         </div>
-        {situacao === 'EM_USO' && lista && (lista.desativadasOcultas ?? 0) > 0 && <p className={estilos.avisoOcultas} data-desativadas-ocultas>
-            <span className={workspace.muted}>{lista.desativadasOcultas === 1 ? '1 empresa desativada não aparece aqui.' : `${lista.desativadasOcultas} empresas desativadas não aparecem aqui.`}</span>
-            <button type="button" className={estilos.botaoLink} onClick={() => { setSituacao('DESATIVADA'); setPagina(1); }}>Ver desativadas</button>
+        {situacao === 'EM_USO' && lista && ((lista.desativadasOcultas ?? 0) > 0 || (lista.internasOcultas ?? 0) > 0) && <p className={estilos.avisoOcultas} data-desativadas-ocultas>
+            <span className={workspace.muted}>{textoOcultas(lista.desativadasOcultas ?? 0, lista.internasOcultas ?? 0)}</span>
+            {(lista.desativadasOcultas ?? 0) > 0 && <button type="button" className={estilos.botaoLink} onClick={() => { setSituacao('DESATIVADA'); setPagina(1); }}>Ver desativadas</button>}
+            {(lista.internasOcultas ?? 0) > 0 && <button type="button" className={estilos.botaoLink} onClick={() => { setSituacao('INTERNAS'); setPagina(1); }}>Ver internas</button>}
         </p>}
         {erro && <p role="alert">{erro}</p>}
         {carregando && !lista && <p className={workspace.muted} aria-live="polite">Carregando…</p>}
@@ -69,7 +79,7 @@ export default function Empresas() {
         {lista && lista.itens.length > 0 && <div className={`${admin.tableWrap} ${estilos.tabela}`} aria-busy={carregando}><table>
             <thead><tr><th>Empresa</th><th>Situação</th><th>Comercial</th><th>Responsável</th><th>Acessos</th><th>Desde</th></tr></thead>
             <tbody>{lista.itens.map((e) => <tr key={e.id}>
-                <td><Link href={`/desenvolvedor/empresas/${e.id}`}>{e.nome}</Link><small className={workspace.muted}>{e.codigo}{!e.temCadastro ? ' · sem cadastro administrativo' : ''}</small></td>
+                <td><Link href={`/desenvolvedor/empresas/${e.id}`}>{e.nome}</Link><small className={workspace.muted}>{e.codigo}{!e.temCadastro ? ' · sem cadastro administrativo' : ''}</small>{e.uso === 'INTERNA' && <span className={estilos.selo} data-tom="info" data-uso-interna>Interna</span>}</td>
                 <td><span className={estilos.selo} data-tom={tomSituacao(e.situacao)}>{e.situacaoRotulo}</span>{e.implantacaoRotulo && e.situacao === 'EM_IMPLANTACAO' && <small className={workspace.muted}>{e.implantacaoRotulo}</small>}</td>
                 <td>{rotuloComercial(e.comercial)}{e.comercial.ate && <small className={workspace.muted}>até {formatarData(e.comercial.ate, false)}</small>}</td>
                 <td>{e.responsavelNome ?? '—'}{e.email && <small className={workspace.muted}>{e.email}</small>}</td>

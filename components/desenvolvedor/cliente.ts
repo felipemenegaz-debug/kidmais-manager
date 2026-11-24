@@ -77,6 +77,7 @@ const ACOES: Record<string, string> = {
     INTERESSADA_STATUS_ALTERADO: 'Situação da interessada alterada',
     EMPRESA_PROVISIONADA: 'Contratante provisionada',
     EMPRESA_CADASTRO_ATUALIZADO: 'Cadastro da empresa atualizado',
+    EMPRESA_USO_ALTERADO: 'Uso da empresa alterado (Cliente/Interna)',
     EMPRESA_CADASTRO_CRIADO: 'Cadastro da empresa criado',
     EMPRESA_IMPLANTACAO_ALTERADA: 'Implantação atualizada',
     EMPRESA_IMPLANTACAO_RECUSADA: 'Conclusão da implantação recusada',
