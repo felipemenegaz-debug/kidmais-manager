@@ -1,26 +1,10 @@
 import type { SessaoParaTenant } from '../../saas/provar-tenant.ts';
-import { ambienteAtendimento } from './configuracao.ts';
+import { ambienteAtendimento, empresaPiloto } from './configuracao.ts';
 import { acessoAtendimento } from './service.ts';
+import { limitesMesesSaoPaulo } from './mes-sao-paulo.ts';
+import { contaNoTeto, tetoDoMes, type SituacaoTeto } from './teto-mensal.ts';
 
-const FUSO = 'America/Sao_Paulo';
-const mesEmSaoPaulo = new Intl.DateTimeFormat('en-CA', { timeZone: FUSO, year: 'numeric', month: '2-digit' });
-const offsetEmSaoPaulo = new Intl.DateTimeFormat('en', { timeZone: FUSO, timeZoneName: 'longOffset' });
-
-export function limitesMesesSaoPaulo(agora: Date) {
-  const partes = mesEmSaoPaulo.formatToParts(agora);
-  const ano = Number(partes.find(p => p.type === 'year')?.value);
-  const mes = Number(partes.find(p => p.type === 'month')?.value);
-  const inicio = (deslocamento: number) => {
-    const primeiroDia = new Date(Date.UTC(ano, mes - 1 + deslocamento, 1));
-    const offset = offsetEmSaoPaulo.formatToParts(primeiroDia).find(p => p.type === 'timeZoneName')!.value.slice(3);
-    return new Date(`${primeiroDia.toISOString().slice(0, 19)}${offset}`).toISOString();
-  };
-  const anterior = inicio(-1), atual = inicio(0), proximo = inicio(1);
-  return [
-    { mes: atual.slice(0, 7), inicio: atual, fim: proximo },
-    { mes: anterior.slice(0, 7), inicio: anterior, fim: atual },
-  ];
-}
+export { limitesMesesSaoPaulo };
 
 const ESTADOS_SAIDA = ['ENTREGUE', 'SUBMETIDA', 'FALHOU', 'INCERTO', 'CANCELADA', 'PENDENTE', 'ENVIANDO'];
 type SaidaPorEstado = { estado: string; equipe: number; automatica: number };
@@ -39,7 +23,12 @@ export type MesResultadoAtendimento = {
   };
 };
 
-export type ResultadoAtendimento = { primeiraMensagemEm: string | null; meses: MesResultadoAtendimento[] };
+/**
+ * teto: 3b (D-LAN-3), consumo do mês pela Cloud API (135, estimativa), com a franquia da Meta e o limite do Wall-e.
+ * null quando não se aplica: a empresa não envia pela Meta (piloto pelo Gupshup) ou a 135 não está no banco.
+ */
+export type ResultadoAtendimento = { primeiraMensagemEm: string | null; meses: MesResultadoAtendimento[]; teto: SituacaoTeto | null };
+function pilotoAtual() { try { return empresaPiloto(); } catch { return null; } }
 
 // O índice (conversa_id, criada_em) atende às faixas do relatório e às buscas por uma única entrada na recursão.
 // Uma pausa de pelo menos 24 h garante um novo início, independentemente do que veio antes. Recuar só pelas entradas
@@ -111,6 +100,7 @@ export async function resultadoAtendimento(sessao: SessaoParaTenant, agora = new
     const [atual, anterior] = limitesMesesSaoPaulo(agora);
     const mensagens = await tx.query<MensagensNoMes>(MENSAGENS, [empresa, ambiente, anterior.mes, atual.mes, anterior.inicio, atual.inicio, atual.fim]);
     const uso = await tx.query<UsoPorMoeda>(USO_IA, [empresa, anterior.mes, atual.mes]);
+    const teto = contaNoTeto(empresa, pilotoAtual()) ? await tetoDoMes(tx, empresa, ambiente) : null;
 
     return {
       primeiraMensagemEm: mensagens.rows[0]?.primeiraMensagemEm?.toISOString() ?? null,
@@ -126,6 +116,7 @@ export async function resultadoAtendimento(sessao: SessaoParaTenant, agora = new
         }
         return { mes, sessoes, entradas, saidas: Array.from(estados, estado => porEstado.get(estado) ?? { estado, equipe: 0, automatica: 0 }), ia };
       }),
+      teto,
     };
   });
 }

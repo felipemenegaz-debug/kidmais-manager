@@ -24,6 +24,8 @@ function carregar(consulta: (sql: string, args?: unknown[]) => Promise<{rows: un
     './multiempresa.ts':multiempresa,
     './core.ts':core,
     './motivo-falha.ts':motivoFalha,
+    // 3b: teto mensal da Meta fora do alcance destas unidades (provado no PostgreSQL em teto-mensal.postgres.test.ts).
+    './teto-mensal.ts':{tetoDoMes:async()=>null,contaNoTeto:()=>false,reservarConsumo:async()=>true,tetoMensal:()=>1000},
     './service.ts':{registroDaPausa:(texto:string,em:string)=>({motivo:'PARAR_A_CONFIRMAR',motivos:['PARAR_A_CONFIRMAR'],em,coletado:{data:null,turno:null,convidados:null,pacote:null,unidade:null,tema:null},enviados:[],pendentes:[],ultimaMensagem:texto.slice(0,500)}),configuracao:async(_tx:unknown,_e:string,travar=false)=>cfg?cfg(travar):({ativo:true,nome:'Kidmais',perguntas:[],limites:{respostasPor24h:limite}}),recuperarTrabalhosInterrompidos:async()=>{},limparStatusExpirados:async()=>{limpezas++;},correlacionarStatus:async(_tx:unknown,_e:string,_a:string,id:string)=>{correlacoes.push(id);},tem082:async()=>false,suprimirPesquisasDoContato:async()=>{}},
     './modelo.ts':{interpretarMensagem:async()=>{throw Error('modelo real proibido no teste');}},
     // Funções puras reais (montagem do conteúdo); a rede continua proibida.
@@ -153,7 +155,9 @@ test('falha do modelo depois que um atendente assumiu não cria mensagem automá
     return {rows:[]};
   });
   assert.equal(await worker.processarAtendimento({interpretar:async()=>{throw Error('timeout');},enviar:async()=>'id'}),'ENCAMINHADA');
-  assert.deepEqual(comandos.find(c=>c.sql.includes("WHERE id=$1 AND estado='PROCESSANDO'"))?.args,['m','CANCELADA']);
+  // 3b r3 (Astra r2, P3): o cancelamento pelo portão é um UPDATE próprio, antes da reserva do teto.
+  assert.deepEqual(comandos.find(c=>c.sql.includes("SET estado='CANCELADA' WHERE id=$1 AND estado='PROCESSANDO'"))?.args,['m']);
+  assert.equal(comandos.some(c=>c.sql.includes("SET estado=$2 WHERE id=$1 AND estado='PROCESSANDO'")),false,'nenhum estado final além do cancelamento');
   assert.equal(comandos.some(c=>c.sql.includes('INSERT INTO whatsapp_atendimento_mensagens')),false);
 });
 // M1 (diferença intencional): com o limite esgotado o encaminhamento é em SILÊNCIO — antes saía o texto fixo de

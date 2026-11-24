@@ -5,6 +5,7 @@ import * as core from './core.ts';
 import * as arquivos from './arquivos.ts';
 import * as entendimento from './walle/entendimento.ts';
 import * as multiempresa from './multiempresa.ts';
+import * as tetoMensal from './teto-mensal.ts';
 import type { Conversa } from './service.ts';
 
 // Banco simulado: nenhum PostgreSQL real, modelo ou provedor é acessado.
@@ -45,6 +46,7 @@ function carregar(op: Opcoes = {}) {
     '../../satisfacao/supressao.ts': { pesquisaInstalada: async () => false, suprimirPesquisas: async () => ({ execucoes: 0, entregas: 0 }), clientesDoNumero: async () => [] },
     '../../marketing/automacoes/preferencias.ts': { elegivelParaMensagem: async () => ({ ok: true }) },
     './multiempresa.ts': multiempresa,
+    './teto-mensal.ts': tetoMensal,
   }).modulo as typeof import('./service.ts');
   const sqls = (trecho: string) => comandos.filter(c => c.sql.includes(trecho));
   return { modulo, comandos, sqls, tenants };

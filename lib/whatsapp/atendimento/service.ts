@@ -2,6 +2,7 @@ import { withTransaction, db } from '../../db/postgres.ts';
 import type { DbExecutor } from '../../db/contracts.ts';
 import { withTenantTransaction, type SessaoParaTenant, type TenantComprovado } from '../../saas/provar-tenant.ts';
 import { atendimentoAtivo, ambienteAtendimento, contatoPermitido, empresaPiloto, recepcaoAtiva, receptorDoNumero } from './configuracao.ts';
+import { contaNoTeto, reservarConsumo } from './teto-mensal.ts';
 import { APP_META, JANELA_REENTREGA_DIAS, configuracaoSchema, comandoDireto, passagemSemRespostaAutomatica, pausaPedidaNaRecepcao, semAutomatico, janelaAberta, nomePerfilSeguro, situacaoCadastro, type CadastroContato, type Entrada } from './core.ts';
 import { ARQUIVO_DISPONIVEL_SQL, caminhoPublicoArquivo } from './arquivos.ts';
 import { registroDaPausa, registroDoBloqueio } from './walle/entendimento.ts';
@@ -428,6 +429,8 @@ export async function controlarAtendimento(sessao: SessaoParaTenant, pedido: { a
           [conversa.id, empresa, ambiente, pedido.texto || null, Number(conversa.versao) + 1, sessao.usuario_id, midia.tipo, midia.arquivo_id, midia.nome, pedido.prontaMidiaId, midia.versao, JSON.stringify({ tipo: 'PRONTA', id: pedido.prontaMidiaId, versao: midia.versao, por: 'ATENDENTE' })]);
         else await tx.query(`INSERT INTO whatsapp_atendimento_mensagens(conversa_id,empresa_id,ambiente,direcao,texto,estado,versao_conversa,autor_usuario_id,midia_tipo,midia_url,midia_pronta_id,midia_pronta_versao) VALUES($1,$2,$3,'SAIDA',$4,'PENDENTE',$5,$6,$7,$8,$9,$10)`, [conversa.id, empresa, ambiente, pedido.texto || null, Number(conversa.versao) + 1, sessao.usuario_id, midia.tipo, midia.midia_url, pedido.prontaMidiaId, midia.versao]);
       } else await tx.query(`INSERT INTO whatsapp_atendimento_mensagens(conversa_id,empresa_id,ambiente,direcao,texto,estado,versao_conversa,autor_usuario_id) VALUES($1,$2,$3,'SAIDA',$4,'PENDENTE',$5,$6)`, [conversa.id, empresa, ambiente, pedido.texto, Number(conversa.versao) + 1,sessao.usuario_id]);
+      // 3b (135): a resposta da equipe sai pelo mesmo número e conta para a Meta; soma sem limite (a equipe sempre responde).
+      if (contaNoTeto(empresa, pilotoOpcional(empresaPiloto))) await reservarConsumo(tx, empresa, ambiente, 1, null);
     }
     const estado = pedido.acao === 'retomar' ? 'IA' : pedido.acao === 'encerrar' ? 'ENCERRADA' : 'HUMANO';
     if (pedido.acao === 'retomar' && (!atendimentoAtivo() || !(await configuracao(tx, empresa))?.ativo)) throw new Error('ATENDIMENTO_AUTOMACAO_DESLIGADA');
