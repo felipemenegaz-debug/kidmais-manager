@@ -55,6 +55,7 @@ Situação do COMMIT numa FALHA: `NAO_COMMITADA` (o COMMIT nunca foi enviado: na
 | 132 | PELO_REGISTRO | Wall-e fatia 1a: vínculo do contato do funil com a conversa e pendência da captura (o código só captura com ela); exige 082, 085 e, no registro, a 131; aplicar só por scripts/registro-migrations-banco.cjs --ambiente production --aplicar-132-autorizado --backup "<registro-do-backup>" (o genérico recusa) |
 | 133 | PELO_REGISTRO | ocupações da agenda por empresa (função nova; o código funciona sem ela); exige a 131; aplicar só por scripts/registro-migrations-banco.cjs --ambiente production --aplicar-133-autorizado --backup "<registro-do-backup>" (o genérico recusa) |
 | 134 | PELO_REGISTRO | marca Cliente/Interna da contratante (tabela nova; o código funciona sem ela); exige a 133; aplicar só por scripts/registro-migrations-banco.cjs --ambiente production --aplicar-134-autorizado --backup "<registro-do-backup>" (o genérico recusa) |
+| 136 | PELO_REGISTRO | campanha com destino no site externo (coluna nova com padrão falso; o código funciona sem ela); exige a 085 e, no registro, a 134; aplicar só por scripts/registro-migrations-banco.cjs --ambiente production --aplicar-136-autorizado --backup "<registro-do-backup>" (o genérico recusa) |
 
 ## Ordem e comandos
 

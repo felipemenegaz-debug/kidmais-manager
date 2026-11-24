@@ -53,6 +53,7 @@ import type { Entendimento, ResultadoWallE, TipoIntencao } from "./tipos.ts";
 const DOWN = "database/rollback/20261123_132_walle_oportunidades_down.sql";
 const ler = (f: string) => readFileSync(f, "utf8");
 const M132 = ["database/checks/20261123_132_precheck.sql", "database/migrations/20261123_132_walle_oportunidades.sql", "database/checks/20261123_132_postcheck.sql"].map(ler);
+const M136 = ["database/checks/20261124_136_precheck.sql", "database/migrations/20261124_136_campanha_destino_externo.sql", "database/checks/20261124_136_postcheck.sql"].map(ler);
 const SENHA = `scrypt$v=1$N=131072$r=8$p=1$${"A".repeat(22)}==$${"B".repeat(86)}==`;
 const hoje = new Intl.DateTimeFormat("sv-SE", { timeZone: "America/Sao_Paulo" }).format(new Date());
 const somarDias = (iso: string, d: number) => new Date(Date.parse(`${iso}T12:00:00Z`) + d * 86400000).toISOString().slice(0, 10);
@@ -917,7 +918,10 @@ test("Wall-e 1a: pedido de festa vira cartão no funil, sem duplicar, isolado, r
       }
       assert.equal((await cartoes(B.empresa, [fone30])).length, 1, "F30: o pedido do site foi gravado");
 
-      // Site externo: cada clique é agregado; apenas a mensagem recebida cria atribuição.
+      // Site externo: cada clique é agregado; apenas a mensagem recebida cria atribuição. r2 (136): só campanha com destino
+      // externo recebe clique e atribuição do site; a 136 é aplicada aqui e a campanha sem site é marcada.
+      for (const sql of M136) await q(sql);
+      await q("UPDATE marketing_campanhas SET destino_externo = true WHERE id = $1", [campanha35]);
       process.env.MARKETING_SITE_KIDMAIS_EMPRESA_ID = A.empresa;
       try {
         const rotaSite = carregarComBanco("app/api/publico/marketing/site-kidmais/evento/route.ts", c as never, () => null, semSavepoint, cacheMarketing) as { POST(req: ReturnType<typeof pedido>): Promise<Response> };

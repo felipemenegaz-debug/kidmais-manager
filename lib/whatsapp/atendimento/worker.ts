@@ -593,8 +593,12 @@ async function responderWallE(porta: PortaWallE, mensagem: Mensagem, conversa: C
       await tx.query("UPDATE whatsapp_atendimento_mensagens SET estado='CANCELADA' WHERE id=$1", [mensagem.id]); return;
     }
     // Memória sem o último entendimento (trechos do texto do cliente): só os dados da festa, enviados e correções.
-    const contexto: typeof resultado.contexto & { campanhaSitePendente?: string } = { ...resultado.contexto };
+    const contexto: typeof resultado.contexto & { campanhaSitePendente?: string; campanhaSiteAtribuir?: unknown } = { ...resultado.contexto };
     delete contexto.campanhaSitePendente;
+    delete contexto.campanhaSiteAtribuir;
+    // r2 (P1): a nova tentativa da atribuição do site (gravada pela captura) sobrevive à memória nova, lida sob a trava.
+    const reatribuir = atual.contexto?.campanhaSiteAtribuir;
+    if (reatribuir && typeof reatribuir === 'object') contexto.campanhaSiteAtribuir = reatribuir;
     const marca = await temMarcaPendente(tx);
     if (marca) {
       // A referência pertence ao pedido pendente e vem da mensagem recebida, fora da interpretação do modelo.

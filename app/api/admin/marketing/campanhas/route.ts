@@ -3,7 +3,7 @@ import { hojeSaoPaulo } from '@/lib/marketing/utm';
 import type { NextRequest } from "next/server";
 import { exigirApiAdminCrmDisponivel } from "@/lib/http/admin-crm-api";
 import { lerCorpo, rotaMarketing } from "@/lib/marketing/http";
-import { esquemaAcaoCampanha, executarAcaoCampanha, listarCampanhas, PADRAO_POR_CANAL } from "@/lib/marketing/campanhas";
+import { esquemaAcaoCampanha, executarAcaoCampanha, listarCampanhas, PADRAO_POR_CANAL, temDestinoExterno } from "@/lib/marketing/campanhas";
 import { exigirOrigemValida, lerOrigens } from "@/lib/marketing/origens";
 import { listarSites } from "@/lib/marketing/site/servico";
 import { empresaDoSiteKidmais, SITE_KIDMAIS } from '@/lib/marketing/site-kidmais';
@@ -25,7 +25,8 @@ export async function GET(request: NextRequest) {
         "SELECT id::text, nome FROM estabelecimentos WHERE empresa_id = $1::uuid AND status <> 'DESATIVADO' ORDER BY nome", [empresaId])).rows,
       padraoPorCanal: PADRAO_POR_CANAL,
       origemPlataforma: origemPlataforma(),
-      siteKidmais: empresaId === empresaDoSiteKidmais() ? SITE_KIDMAIS : null,
+      // 136: o painel só oferece o destino externo com a coluna aplicada (sem ela nada gravaria).
+      siteKidmais: empresaId === empresaDoSiteKidmais() && await temDestinoExterno(tx) ? SITE_KIDMAIS : null,
       capacidades,
     };
   });

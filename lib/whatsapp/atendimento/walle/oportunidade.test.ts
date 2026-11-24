@@ -1,9 +1,11 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { readFileSync } from 'node:fs';
-import { campanhaDaMensagemSite, chaveDoCartao, chaveTravaTelefone, nomeDoCartao, qualificaPedidoFesta, variantesDoTelefone } from './oportunidade.ts';
+import { atribuirSemDesfazer, campanhaDaMensagemSite, chaveDoCartao, chaveTravaTelefone, nomeDoCartao, qualificaPedidoFesta, variantesDoTelefone } from './oportunidade.ts';
 import type { Entendimento, Intencao, Passagem, ResultadoWallE, TipoIntencao } from './tipos.ts';
 
+// r2 (P3 do Astra r1): a variável só vale em formato UUID; o valor antigo 'empresa-sintetica' desligaria a integração.
+const EMPRESA_SINTETICA = '5e5e5e5e-0000-4000-8000-000000000001';
 const vazio = { data: null, turno: null, convidados: null, pacotes: [], unidade: null, tema: null };
 function entendimento(tipos: TipoIntencao[], extra: Partial<Entendimento> = {}, intencoes?: Intencao[]): Entendimento {
   return { intencoes: intencoes ?? tipos.map(tipo => ({ tipo, trecho: 'x' })), entidades: { ...vazio }, reenviar: false, alergia: false, origem: 'REGRAS', ...extra };
@@ -41,11 +43,11 @@ test('D-WA-2: saudação, dúvida, suporte a contrato, pagamento, reclamação, 
 
 test('Ref do site: mais de uma linha de referência é ambígua (sem atribuição); citação no meio da frase não conta', () => {
   const antes = process.env.MARKETING_SITE_KIDMAIS_EMPRESA_ID;
-  process.env.MARKETING_SITE_KIDMAIS_EMPRESA_ID = 'empresa-sintetica';
+  process.env.MARKETING_SITE_KIDMAIS_EMPRESA_ID = EMPRESA_SINTETICA;
   try {
     const a = '11111111-1111-4111-8111-111111111111', b = '22222222-2222-4222-8222-222222222222';
     const ref = (id: string) => `Ref. iA.Fest: ${id}`;
-    const ler = (texto: string) => campanhaDaMensagemSite('empresa-sintetica', texto);
+    const ler = (texto: string) => campanhaDaMensagemSite(EMPRESA_SINTETICA, texto);
     assert.equal(ler(`Pedido sintético\n${ref(a)}\n${ref(a)}`), null, 'duas referências iguais');
     assert.equal(ler(`Pedido sintético\n${ref(a)}\n${ref(b)}`), null, 'duas referências diferentes');
     assert.equal(ler(`Pedido sintético\n  ${ref(a)}\nOrigem: instagram\n${ref(b)}`), null, 'uma no meio (com espaços à esquerda) e uma no fim');
@@ -235,4 +237,74 @@ test('worker marca no MESMO UPDATE da memória (r2: atômico) e captura ao fim d
   const privacidade = readFileSync('lib/whatsapp/atendimento/privacidade.ts', 'utf8');
   const anon = privacidade.indexOf("alvo.motivo === 'PEDIDO_DO_TITULAR' ? await anonimizarOportunidadesDaConversa(tx, alvo.empresa, alvo.ambiente, conversa.id, conversa.contato)");
   assert.ok(anon > 0 && anon < privacidade.indexOf("await tx.query('DELETE FROM whatsapp_atendimento_conversas WHERE id=$1'"));
+});
+
+function comEmpresaDoSite(valor: string | undefined, corpo: () => void | Promise<void>) {
+  const antes = process.env.MARKETING_SITE_KIDMAIS_EMPRESA_ID;
+  if (valor === undefined) delete process.env.MARKETING_SITE_KIDMAIS_EMPRESA_ID; else process.env.MARKETING_SITE_KIDMAIS_EMPRESA_ID = valor;
+  const fim = () => { if (antes === undefined) delete process.env.MARKETING_SITE_KIDMAIS_EMPRESA_ID; else process.env.MARKETING_SITE_KIDMAIS_EMPRESA_ID = antes; };
+  try { const r = corpo(); if (r instanceof Promise) return r.finally(fim); fim(); return undefined; } catch (e) { fim(); throw e; }
+}
+const REF_B = '22222222-2222-4222-8222-222222222222';
+
+test('r2 (P3a): o rótulo "Ref. iA.Fest:" conta como referência com qualquer separador (tab, sem espaço); rodapé válido não salva a ambiguidade', () => {
+  comEmpresaDoSite(EMPRESA_SINTETICA, () => {
+    const ler = (texto: string) => campanhaDaMensagemSite(EMPRESA_SINTETICA, texto);
+    const a = '11111111-1111-4111-8111-111111111111';
+    assert.equal(ler(`Ref. iA.Fest:\t${a}\nPedido sintético\nRef. iA.Fest: ${REF_B}`), null, '1ª linha com rótulo+tab e rodapé válido: ambígua');
+    assert.equal(ler(`Ref. iA.Fest:${a}\nRef. iA.Fest: ${REF_B}`), null, 'rótulo sem espaço também conta');
+    assert.equal(ler(`Pedido sintético\nRef. iA.Fest:\t${REF_B}`), null, 'rodapé com tab não é o formato estrito');
+    assert.equal(ler(`Pedido sintético\nRef. iA.Fest: ${REF_B}`), REF_B, 'uma só, no formato estrito');
+  });
+});
+
+test('r2 (P3c): MARKETING_SITE_KIDMAIS_EMPRESA_ID fora do formato UUID desliga a integração; UUID em maiúsculas é normalizado', async () => {
+  const { empresaDoSiteKidmais } = await import('../../../marketing/site-kidmais.ts');
+  for (const valor of ['empresa-sintetica', '', '   ', "5e5e5e5e-0000-4000-8000-000000000001' OR '1'='1", '5e5e5e5e00004000800000000000000001', undefined])
+    comEmpresaDoSite(valor, () => {
+      assert.equal(empresaDoSiteKidmais(), null, `valor ${JSON.stringify(valor)}`);
+      assert.equal(campanhaDaMensagemSite(String(valor ?? ''), `Pedido sintético\nRef. iA.Fest: ${REF_B}`), null, `sem atribuição com ${JSON.stringify(valor)}`);
+    });
+  comEmpresaDoSite(` ${EMPRESA_SINTETICA.toUpperCase()} `, () => {
+    assert.equal(empresaDoSiteKidmais(), EMPRESA_SINTETICA);
+    assert.equal(campanhaDaMensagemSite(EMPRESA_SINTETICA, `Pedido sintético\nRef. iA.Fest: ${REF_B}`), REF_B);
+  });
+});
+
+test('r2 (P1): falha da atribuição do site desfaz só o SAVEPOINT e devolve false; erro de conexão, transação ou serialização sobe', async () => {
+  const CONTATO = '7a7a7a7a-0000-4000-8000-000000000001';
+  const txQueFalha = (erro: unknown) => {
+    const sqls: string[] = [];
+    return { sqls, tx: { async query(sql: string) {
+      sqls.push(sql);
+      if (/^(SAVEPOINT|ROLLBACK TO SAVEPOINT|RELEASE SAVEPOINT) walle_atribuicao_site$/.test(sql)) return { rows: [] };
+      throw erro;
+    } } };
+  };
+  await comEmpresaDoSite(EMPRESA_SINTETICA, async () => {
+    for (const erro of [Object.assign(new Error('gatilho sintético'), { code: 'P0001' }), Object.assign(new Error('violação'), { code: '23505' }), new Error('sem código')]) {
+      const { sqls, tx } = txQueFalha(erro);
+      assert.equal(await atribuirSemDesfazer(tx as never, EMPRESA_SINTETICA, CONTATO, REF_B), false, erro.message);
+      assert.equal(sqls[0], 'SAVEPOINT walle_atribuicao_site');
+      assert.deepEqual(sqls.slice(-2), ['ROLLBACK TO SAVEPOINT walle_atribuicao_site', 'RELEASE SAVEPOINT walle_atribuicao_site'], `${erro.message}: só o SAVEPOINT é desfeito`);
+    }
+    for (const code of ['08006', '25P02', '2D000', '3B001', '40001', '40P01']) {
+      const { sqls, tx } = txQueFalha(Object.assign(new Error('infra'), { code }));
+      await assert.rejects(atribuirSemDesfazer(tx as never, EMPRESA_SINTETICA, CONTATO, REF_B), (e: { code?: string }) => e.code === code, code);
+      assert.ok(sqls.includes('ROLLBACK TO SAVEPOINT walle_atribuicao_site'), `${code}: SAVEPOINT desfeito antes de subir`);
+    }
+    // Sucesso (empresa fora da integração: nada a atribuir, nenhuma consulta além do SAVEPOINT).
+    const { sqls, tx } = txQueFalha(new Error('não deveria consultar'));
+    assert.equal(await atribuirSemDesfazer(tx as never, '7b7b7b7b-0000-4000-8000-000000000002', CONTATO, REF_B), true);
+    assert.deepEqual(sqls, ['SAVEPOINT walle_atribuicao_site', 'RELEASE SAVEPOINT walle_atribuicao_site']);
+  });
+});
+
+test('r2 (P1): a captura guarda a nova tentativa quando a atribuição falha; o lote retenta com teto; anonimização e worker preservam/limpam a chave', () => {
+  const fonte = readFileSync('lib/whatsapp/atendimento/walle/oportunidade.ts', 'utf8');
+  assert.match(fonte, /if \(!await atribuirSemDesfazer\(tx, c\.empresa_id, contatoId, campanha\)\) await tx\.query\(SQL_GUARDAR_REATRIBUICAO, \[c\.id, contatoId, campanha, 1, ESPERA_PADRAO_SEGUNDOS\]\)/);
+  assert.match(fonte, /await reatribuirCampanhasDoSite\(transacao, ambiente, espera, saida\);\n {2}return saida;/, 'retentativa ao fim de toda captura');
+  assert.match(fonte, /contexto-'campanhaSitePendente'-'campanhaSiteAtribuir'/, 'anonimização remove a chave');
+  const worker = readFileSync('lib/whatsapp/atendimento/worker.ts', 'utf8');
+  assert.match(worker, /campanhaSiteAtribuir/, 'reescrita da memória preserva a chave');
 });

@@ -126,6 +126,28 @@ test('Astra r1 (134): postcheck recusa UNIQUE extra e NOT NULL não validado; do
   ok(await rodar(b, ['--conferir-134']), /JA_APLICADA_POSTCHECK_PASS 134/);
 });
 
+test('136 (destino externo da campanha): sem a 134 = antecessora pendente (3) sem DDL; depois aplica, repetida e conferida = já aplicada; diagnóstico 0; down recusa com tentativa ativa', {skip: pular}, async () => {
+  const b = await comRegistro();
+  for (const m of ['130', '131', '133']) ok(await rodar(b, [`--aplicar-${m}-autorizado`, '--backup', BACKUP]), new RegExp('APLICADA_POSTCHECK_PASS ' + m));
+  const coluna = async () => (await sql(b, "SELECT count(*)::int n FROM pg_attribute WHERE attrelid='public.marketing_campanhas'::regclass AND attname='destino_externo' AND NOT attisdropped")).rows[0].n;
+  ok(await rodar(b, ['--aplicar-136-autorizado', '--backup', BACKUP]), /ANTECESSORA_PENDENTE 134 sem linha/, 3);
+  assert.equal(await coluna(), 0, 'antecessora pendente: nenhuma DDL');
+  ok(await rodar(b, ['--aplicar-134-autorizado', '--backup', BACKUP]), /APLICADA_POSTCHECK_PASS 134/);
+  ok(await rodar(b, ['--aplicar-136-autorizado', '--backup', BACKUP]), /APLICADA_POSTCHECK_PASS 136/);
+  assert.equal(await coluna(), 1);
+  ok(await rodar(b, ['--conferir-136']), /JA_APLICADA_POSTCHECK_PASS 136/);
+  ok(await rodar(b, ['--aplicar-136-autorizado', '--backup', BACKUP]), /JA_APLICADA_POSTCHECK_PASS 136/);
+  ok(await rodar(b, ['--conferir-registro']), /POSTCHECK 136 PASS[\s\S]*DIAGNOSTICO_CODIGO 0/);
+  const linhas = (await sql(b, 'SELECT migration, situacao FROM operacao_migration_tentativas ORDER BY id')).rows;
+  assert.deepEqual(linhas.map(l => `${l.migration}:${l.situacao}`), ['129:CONCLUIDA', '130:CONCLUIDA', '131:CONCLUIDA', '133:CONCLUIDA', '134:CONCLUIDA', '136:CONCLUIDA']);
+  const pos = fs.readFileSync(path.join(raiz, 'database/checks/20261124_136_postcheck.sql'), 'utf8');
+  await sql(b, 'SET quote_all_identifiers = on;\n' + pos);
+  const down = fs.readFileSync(path.join(raiz, 'database/rollback/20261124_136_campanha_destino_externo_down.sql'), 'utf8');
+  await assert.rejects(sql(b, "SET kidmais.rollback_136 = 'descartar-destino-externo';\n" + down), /tentativa ativa no registro/);
+  assert.equal(await coluna(), 1, 'down recusado não mexe');
+  ok(await rodar(b, ['--conferir-136']), /JA_APLICADA_POSTCHECK_PASS 136/);
+});
+
 test('bootstrap: repetido = 0; identidade recusada = 1 sem DDL; antecessoras pendentes = 3 sem DDL', {skip: pular}, async () => {
   const b = await comRegistro();
   ok(await rodar(b, ['--aplicar-129-bootstrap-autorizado', '--backup', BACKUP]), /JA_APLICADA_POSTCHECK_PASS 129/);

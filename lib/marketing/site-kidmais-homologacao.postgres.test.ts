@@ -14,8 +14,8 @@ import { painelMarketing, type LinhaPainel, type PainelMarketing } from "./metri
  * Homologação LOCAL (23–24/11/2026) da origem dos pedidos de kidmaisfestas.com (docs/MARKETING_SITE_KIDMAIS.md): eventos
  * pela rota pública REAL, mensagem com "Ref. iA.Fest: <UUID>" processada pelo worker REAL do Wall-e (porta do modelo
  * dublada: devolve o entendimento validado), captura do cartão, atribuição INFORMADO, herança na negociação e o painel
- * Marketing → Resultados (painelMarketing) no período de hoje. PostgreSQL descartável (modelo 131 + a 132 aplicada pela
- * suíte), só pelo check:v1:postgres com opt-in. Dados 100% sintéticos; transporte simulado (sem rede).
+ * Marketing → Resultados (painelMarketing) no período de hoje. PostgreSQL descartável (modelo 131 + a 132 e a 136 aplicadas
+ * pela suíte), só pelo check:v1:postgres com opt-in. Dados 100% sintéticos; transporte simulado (sem rede).
  *
  * Cada cenário imprime o retrato do painel ANTES e DEPOIS numa linha "EVIDENCIA {json}". Os asserts fixam o comportamento
  * REAL observado; onde ele diverge do esperado pelo dono do buffet, o nome do assert diz "ACHADO".
@@ -27,9 +27,15 @@ import { painelMarketing, type LinhaPainel, type PainelMarketing } from "./metri
  *  H4 referência ausente ou ambígua, campanha inexistente/arquivada, rota 400/403/404, variável ausente;
  *  H5 atendimento humano (conversa já com a equipe; passagem na mesma mensagem; Ref só na saudação);
  *  H6 negociação e contrato ASSINADO herdam a campanha; registro manual Indicação/Telefone;
- *  H7 filtro de Unidade (só documenta).
+ *  H7 filtro de Unidade (só documenta);
+ *  H8 (r2, P1) falha da atribuição não desfaz o cartão: a referência fica no contexto, sobrevive a nova mensagem e a nova
+ *     tentativa ao fim do lote atribui; com a falha persistente, o teto (5 tentativas) descarta a referência sem atribuir;
+ *  H9 (r2, P2, 136) na empresa da integração convivem campanha externa, interna com site do iA.Fest e antiga sem site:
+ *     só a externa recebe cliques e atribuição pelo Wall-e; destino externo com site ou fora da empresa é recusado.
+ *  A 136 é aplicada pela suíte depois da 132; as campanhas de A nos cenários H1–H8 são externas (destinoExterno).
  */
 const ler = (f: string) => readFileSync(f, "utf8");
+const M136 = ["database/checks/20261124_136_precheck.sql", "database/migrations/20261124_136_campanha_destino_externo.sql", "database/checks/20261124_136_postcheck.sql"].map(ler);
 const M132 = ["database/checks/20261123_132_precheck.sql", "database/migrations/20261123_132_walle_oportunidades.sql", "database/checks/20261123_132_postcheck.sql"].map(ler);
 const SENHA = `scrypt$v=1$N=131072$r=8$p=1$${"A".repeat(22)}==$${"B".repeat(86)}==`;
 const hoje = new Intl.DateTimeFormat("sv-SE", { timeZone: "America/Sao_Paulo" }).format(new Date());
@@ -62,7 +68,7 @@ test("Homologação: site kidmaisfestas.com → eventos, Wall-e, cartão, negoci
   const variavelAntes = process.env.MARKETING_SITE_KIDMAIS_EMPRESA_ID;
   process.env.KIDMAIS_DEPLOY_ENV = "staging";
   try {
-    for (const sql of M132) await q(sql);
+    for (const sql of [...M132, ...M136]) await q(sql);
     const id = async (sql: string, v: unknown[]) => (await q<{ id: string }>(sql, v)).rows[0].id;
     async function empresaComRepresentante(nome: string) {
       const e = await id(`INSERT INTO empresas (codigo, nome, status) VALUES ($1, $2, 'PROVISIONAMENTO') RETURNING id::text`, [cod("hs"), nome]);
@@ -136,15 +142,18 @@ test("Homologação: site kidmaisfestas.com → eventos, Wall-e, cartão, negoci
     const linhaOrigem = (p: PainelMarketing, origem: string) => p.linhas.find((l) => !l.campanhaId && l.origemCodigo === origem);
     const numeros = (l: LinhaPainel | undefined) => l ? [l.cliquesLink, l.cliquesWhatsapp, l.contatos] : [0, 0, 0];
 
+    // 136: na empresa da integração (A) as campanhas dos cenários H1–H8 têm destino externo; B não pode marcar (fora da variável).
+    const destino = (empresa: string): Record<string, unknown> => empresa === A.empresa ? { destinoExterno: true } : {};
     async function criarCampanha(empresa: string, usuario: string, codigo: string, nome: string, canal: "INSTAGRAM" | "GOOGLE", origem: string) {
       await q("BEGIN");
       try {
         const r = await campanhas.executarAcaoCampanha(txc, empresa, usuario, { acao: "criar", codigo, nome, canal, origemCodigo: origem, inicio: "2026-11-01",
-          utmSource: canal === "GOOGLE" ? "google" : "instagram", utmMedium: canal === "GOOGLE" ? "organic" : "social" } as never) as { id: string; versao: number };
+          utmSource: canal === "GOOGLE" ? "google" : "instagram", utmMedium: canal === "GOOGLE" ? "organic" : "social", ...destino(empresa) } as never) as { id: string; versao: number };
         await q("COMMIT");
         return r;
       } catch (e) { await q("ROLLBACK"); throw e; }
     }
+    process.env.MARKETING_SITE_KIDMAIS_EMPRESA_ID = A.empresa;
     const igPago = await criarCampanha(A.empresa, A.usuario, cod("ig-pago-").slice(0, 20), "Sintético Instagram pago", "INSTAGRAM", "INSTAGRAM");
     const igBio = await criarCampanha(A.empresa, A.usuario, cod("ig-bio-").slice(0, 20), "Sintético Instagram bio", "INSTAGRAM", "INSTAGRAM");
     const google = await criarCampanha(A.empresa, A.usuario, cod("google-").slice(0, 20), "Sintético Google Perfil", "GOOGLE", "GOOGLE");
@@ -156,7 +165,6 @@ test("Homologação: site kidmaisfestas.com → eventos, Wall-e, cartão, negoci
     ];
     // Cliente ÚNICO com o telefone do Instagram pago: o cartão nasce ligado a ele (H6 precisa do cliente para a negociação).
     const clienteIgPago = await id("INSERT INTO clientes (nome_completo, empresa_id, telefone, whatsapp, cpf) VALUES ('Sintético Cliente Instagram pago', $1, $2, $2, $3) RETURNING id::text", [A.empresa, TRES[0].fone, cpfValido()]);
-    process.env.MARKETING_SITE_KIDMAIS_EMPRESA_ID = A.empresa;
 
     await t.test("H1: três campanhas, eventos pela rota pública e pedido com Ref pelo Wall-e", async () => {
       const antes = await evidencia("H1", "ANTES", "A");
@@ -387,6 +395,107 @@ test("Homologação: site kidmaisfestas.com → eventos, Wall-e, cartão, negoci
       const filtrado = await evidencia("H7", "DEPOIS", "A", unidade);
       console.log("EVIDENCIA " + JSON.stringify({ cenario: "H7", comparacao: TRES.map((x) => ({ campanha: x.nome, semFiltro: numeros(linhaCampanha(todas, x.c.id)), comUnidade: numeros(linhaCampanha(filtrado, x.c.id)) })) }));
       assert.ok(true, "H7: só evidência");
+    });
+
+    await t.test("H8 (r2, P1): falha da atribuição não desfaz o cartão; nova tentativa ao fim do lote; teto descarta", async () => {
+      const reatr = await criarCampanha(A.empresa, A.usuario, cod("h8-ok-").slice(0, 20), "Sintético H8 recupera", "INSTAGRAM", "INSTAGRAM");
+      const teto = await criarCampanha(A.empresa, A.usuario, cod("h8-teto-").slice(0, 20), "Sintético H8 teto", "INSTAGRAM", "INSTAGRAM");
+      // Falha sintética só destas duas campanhas, no INSERT da atribuição (SQLSTATE P0001: falha de negócio, não de conexão).
+      await q(`CREATE FUNCTION h8_sintetico_falha() RETURNS trigger LANGUAGE plpgsql AS $f$ BEGIN
+        IF NEW.campanha_id IN ('${reatr.id}'::uuid, '${teto.id}'::uuid) THEN RAISE EXCEPTION 'falha sintética H8'; END IF; RETURN NEW; END $f$`);
+      await q("CREATE TRIGGER h8_sintetico_falha BEFORE INSERT ON marketing_atribuicoes FOR EACH ROW EXECUTE FUNCTION h8_sintetico_falha()");
+      type Reatribuir = { contatoId: string; campanhaId: string; tentativas: number; apos: number } | undefined;
+      const chave = async (fone: string) => (await conversa(A.empresa, fone)).contexto?.campanhaSiteAtribuir as Reatribuir;
+      const vencer = (fone: string) => q(`UPDATE whatsapp_atendimento_conversas SET contexto=jsonb_set(contexto,'{campanhaSiteAtribuir,apos}','0'::jsonb)
+        WHERE empresa_id=$1 AND ambiente='staging' AND contato=$2`, [A.empresa, fone]);
+      const fone = "5561900000801", foneTeto = "5561900000802";
+      try {
+        await receber(aStg, fone, comRef(PEDIDO, reatr.id), "Sintético H8");
+        await receber(aStg, foneTeto, comRef(PEDIDO, teto.id), "Sintético H8 teto");
+        await processar(aStg);
+        const [k] = await cartoes(A.empresa, fone);
+        assert.ok(k, "H8: o cartão nasce mesmo com a atribuição falhando");
+        assert.deepEqual(await atribuicoes(k.id), [], "H8: sem atribuição (SAVEPOINT desfeito)");
+        const r1 = await chave(fone);
+        assert.deepEqual([r1?.contatoId, r1?.campanhaId, r1?.tentativas], [k.id, reatr.id, 1], "H8: referência guardada para nova tentativa, a 1ª conta");
+        assert.equal((await conversa(A.empresa, fone)).oportunidade_pendente_em, null, "H8: a marca foi limpa (a conversa não fica adiada)");
+        // Nova mensagem antes do prazo: a memória nova do Wall-e preserva a chave; a tentativa ainda não vence.
+        await receber(aStg, fone, MAIS_CONVIDADOS);
+        await processar(aStg);
+        assert.deepEqual((await chave(fone))?.tentativas, 1, "H8: nova mensagem preserva a referência (worker) e não tenta antes do prazo");
+        assert.deepEqual((await cartoes(A.empresa, fone)).map((x) => x.id), [k.id], "H8: sem segundo cartão");
+        // A falha passa; o prazo vence: a tentativa ao fim do lote atribui e remove a chave.
+        await q(`CREATE OR REPLACE FUNCTION h8_sintetico_falha() RETURNS trigger LANGUAGE plpgsql AS $f$ BEGIN
+          IF NEW.campanha_id = '${teto.id}'::uuid THEN RAISE EXCEPTION 'falha sintética H8'; END IF; RETURN NEW; END $f$`);
+        await vencer(fone);
+        await processar(aStg);
+        assert.deepEqual((await atribuicoes(k.id)).map((a) => [a.campanha_id, a.origem_codigo, a.metodo, a.canal_atendimento, a.vigente]),
+          [[reatr.id, "INSTAGRAM", "INFORMADO", "WHATSAPP", true]], "H8: a nova tentativa atribui a campanha");
+        assert.equal(await chave(fone), undefined, "H8: sucesso remove a referência");
+
+        // Falha persistente: tentativas 2, 3, 4 e na 5ª (teto) a referência sai sem atribuir.
+        const [kt] = await cartoes(A.empresa, foneTeto);
+        assert.ok(kt, "H8 teto: cartão criado");
+        assert.equal((await chave(foneTeto))?.tentativas, 1);
+        for (const esperado of [2, 3, 4, undefined]) {
+          await vencer(foneTeto);
+          await processar(aStg);
+          assert.equal((await chave(foneTeto))?.tentativas, esperado, `H8 teto: depois da tentativa ${esperado ?? 5}`);
+        }
+        assert.deepEqual(await atribuicoes(kt.id), [], "H8 teto: nenhuma atribuição; a referência foi descartada no teto de 5 tentativas");
+        await vencer(foneTeto).catch(() => undefined);
+        await processar(aStg);
+        assert.deepEqual(await atribuicoes(kt.id), [], "H8 teto: nada mais é tentado");
+        const p = await evidencia("H8", "DEPOIS", "A");
+        assert.deepEqual(numeros(linhaCampanha(p, reatr.id)), [0, 0, 1], "H8: o contato aparece na campanha depois da nova tentativa");
+      } finally {
+        await q("DROP TRIGGER IF EXISTS h8_sintetico_falha ON marketing_atribuicoes");
+        await q("DROP FUNCTION IF EXISTS h8_sintetico_falha()");
+      }
+    });
+
+    await t.test("H9 (r2, P2, 136): campanha externa, interna com site e antiga sem site convivem na empresa da integração", async () => {
+      const site = await id(`INSERT INTO marketing_sites (empresa_id, slug, rascunho, criado_por, atualizado_por) VALUES ($1, $2, '{}'::jsonb, $3, $3) RETURNING id::text`, [A.empresa, cod("h9-"), A.usuario]);
+      const criar = async (codigo: string, extra: Record<string, unknown>) => {
+        await q("BEGIN");
+        try {
+          const r = await campanhas.executarAcaoCampanha(txc, A.empresa, A.usuario, { acao: "criar", codigo, nome: `Sintético ${codigo}`, canal: "INSTAGRAM", origemCodigo: "INSTAGRAM",
+            inicio: "2026-11-01", utmSource: "instagram", utmMedium: "social", ...extra } as never) as { id: string; destinoExterno: boolean; siteId: string | null };
+          await q("COMMIT");
+          return r;
+        } catch (e) { await q("ROLLBACK"); throw e; }
+      };
+      const externa = await criar(cod("h9-ext-").slice(0, 20), { destinoExterno: true });
+      const interna = await criar(cod("h9-int-").slice(0, 20), { siteId: site });
+      const antiga = await criar(cod("h9-old-").slice(0, 20), {});
+      assert.deepEqual([externa.destinoExterno, interna.destinoExterno, interna.siteId, antiga.destinoExterno, antiga.siteId], [true, false, site, false, null]);
+      const totalAntes = await totalEventos();
+      for (const c of [interna, antiga]) for (const tipo of ["visita", "whatsapp"]) assert.equal((await evento(tipo, c.id)).status, 204, "H9: 204 sem efeito");
+      assert.equal(await totalEventos(), totalAntes, "H9: campanha interna ou antiga sem destino externo não grava clique do site externo");
+      assert.equal((await evento("visita", externa.id)).status, 204);
+      assert.deepEqual((await eventos(A.empresa)).filter((e) => e.campanha_id === externa.id).map((e) => [e.tipo, e.n]), [["CLIQUE_LINK_CAMPANHA", 1]], "H9: a externa grava");
+      // Wall-e: Ref com o UUID da interna ou da antiga não atribui; a da externa atribui.
+      const casos = [["5561900000901", interna.id, null], ["5561900000902", antiga.id, null], ["5561900000903", externa.id, externa.id]] as const;
+      for (const [fone, campanha] of casos) await receber(aStg, fone, comRef(PEDIDO, campanha), "Sintético H9");
+      await processar(aStg);
+      for (const [fone, , esperada] of casos) {
+        const [k] = await cartoes(A.empresa, fone);
+        assert.ok(k, `H9 ${fone}: cartão criado`);
+        assert.deepEqual((await atribuicoes(k.id)).map((a) => a.campanha_id), esperada ? [esperada] : [], `H9 ${fone}: atribuição só da externa`);
+        assert.equal((await conversa(A.empresa, fone)).contexto?.campanhaSiteAtribuir, undefined, `H9 ${fone}: nada para nova tentativa (não é falha)`);
+      }
+      // Recusas do domínio: externa com site; externa fora da empresa da integração.
+      const recusa = async (empresa: string, usuario: string, extra: Record<string, unknown>, codigo: string) => {
+        await q("BEGIN");
+        try {
+          await assert.rejects(campanhas.executarAcaoCampanha(txc, empresa, usuario, { acao: "criar", codigo: cod("h9-x-").slice(0, 20), nome: "Sintético recusa", canal: "INSTAGRAM",
+            origemCodigo: "INSTAGRAM", inicio: "2026-11-01", utmSource: "instagram", utmMedium: "social", ...extra } as never), (e: { code?: string }) => e.code === codigo, codigo);
+        } finally { await q("ROLLBACK"); }
+      };
+      await recusa(A.empresa, A.usuario, { destinoExterno: true, siteId: site }, "MARKETING_DESTINO_EXTERNO_COM_SITE");
+      await recusa(B.empresa, B.usuario, { destinoExterno: true }, "MARKETING_DESTINO_EXTERNO_INDISPONIVEL");
+      assert.equal((await q("SELECT 1 FROM marketing_campanhas WHERE empresa_id=$1 AND destino_externo", [B.empresa])).rows.length, 0, "H9: B sem campanha externa");
+      await evidencia("H9", "DEPOIS", "A");
     });
   } finally {
     if (variavelAntes === undefined) delete process.env.MARKETING_SITE_KIDMAIS_EMPRESA_ID; else process.env.MARKETING_SITE_KIDMAIS_EMPRESA_ID = variavelAntes;

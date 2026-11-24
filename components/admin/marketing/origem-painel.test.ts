@@ -8,13 +8,14 @@ import { carregarComponente, cssFalso, elementos, texto } from '../teste-compone
 const VIGENTE_ID = '77777777-7777-4777-8777-777777777777';
 const ALVO = '44444444-4444-4444-8444-444444444444';
 
-function painel(alvoTipo: string, metodo: string) {
+function painel(alvoTipo: string, metodo: string, registradoPorNome: string | null = null, comHistorico = false) {
   const enviados: Array<Record<string, unknown>> = [];
   const dados = {
     vigente: { id: VIGENTE_ID, origemCodigo: metodo === 'DESCONHECIDO' ? 'DESCONHECIDA' : 'GOOGLE', metodo, canalAtendimento: 'TELEFONE', campanhaId: null, campanhaNome: null, detalhe: null,
-      registradoEm: '2026-11-24T10:00:00Z', registradoPorNome: null, vigente: true },
-    historico: [], origens: [{ codigo: 'INDICACAO', rotulo: 'Indicação', ativa: true, ordem: 1, personalizada: false }], campanhas: [],
+      registradoEm: '2026-11-24T10:00:00Z', registradoPorNome, vigente: true },
+    historico: [] as unknown[], origens: [{ codigo: 'INDICACAO', rotulo: 'Indicação', ativa: true, ordem: 1, personalizada: false }], campanhas: [],
   };
+  if (comHistorico) dados.historico = [dados.vigente, { ...dados.vigente, id: 'h2', vigente: false, registradoPorNome: 'Bia' }];
   const h = carregarComponente('components/admin/marketing/OrigemPainel.tsx', {
     '@/lib/marketing/apresentacao': { dataHoraBr: (v: string) => v },
     './comum': { useMarketing: () => ({ dados, falha: null, carregando: false, recarregar: () => undefined }), enviarMarketing: async (_u: string, corpo: Record<string, unknown>) => { enviados.push(corpo); return {}; } },
@@ -52,3 +53,17 @@ for (const [alvoTipo, metodo] of [['CONTATO', 'INFORMADO'], ['CLIENTE', 'DESCONH
     assert.equal(elementos(motivo).find((e) => e.type === 'input')!.props.required, true);
   });
 }
+
+// r2 (P3 do Astra r1): INFORMADO não afirma "pela equipe" (o Wall-e também informa, pela referência do site); o
+// responsável aparece só quando o registro tem um, no vigente e no histórico.
+test('INFORMADO: rótulo "informada", sem "pela equipe"; responsável só quando o registro tem', async () => {
+  const { ROTULO_METODO } = await import('../../../lib/marketing/origens.ts');
+  assert.equal(ROTULO_METODO.INFORMADO, 'Informado');
+  const sem = texto(painel('CONTATO', 'INFORMADO').render());
+  assert.match(sem, /informada · 2026-11-24T10:00:00Z/);
+  assert.doesNotMatch(sem, /pela equipe/);
+  const com = texto(painel('CONTATO', 'INFORMADO', 'Ana Souza', true).render());
+  assert.match(com, /informada · 2026-11-24T10:00:00Z · Ana Souza/);
+  assert.match(com, /informada, 2026-11-24T10:00:00Z · Bia/);
+  assert.doesNotMatch(com, /pela equipe/);
+});

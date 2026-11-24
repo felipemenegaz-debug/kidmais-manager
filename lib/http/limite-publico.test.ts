@@ -217,3 +217,54 @@ test('P3-R5-2: carga no teto de 20.000 fica marcada e avisada uma vez, sem dado 
         assert.doesNotMatch(avisos[0], /empresa-0|id-/);
     } finally { console.warn = original; }
 });
+
+// r2 (P2 do Astra r1): cota de ingestão dos cliques do site externo.
+type Ingestao = { ingestao(origem: string | null, campanha: string): number | null; verificar(o: string | null, g: string, e?: string | null): number | null };
+const CA = '11111111-1111-4111-8111-111111111111', CB = '22222222-2222-4222-8222-222222222222', CC = '33333333-3333-4333-8333-333333333333', CD = '44444444-4444-4444-8444-444444444444';
+test('r2 ingestão: 20/min por origem e campanha, 60/min por origem, 300/min por campanha; a cota de uma campanha não consome a de outra', () => {
+    let t = 0;
+    const l = criarLimitador(() => t) as unknown as Ingestao;
+    for (let i = 0; i < 20; i++) assert.equal(l.ingestao('ip1', CA), null, `A ${i + 1}`);
+    assert.ok((l.ingestao('ip1', CA) ?? 0) >= 1, '21ª de A na mesma origem: espera');
+    for (let i = 0; i < 20; i++) assert.equal(l.ingestao('ip1', CB), null, `B ${i + 1}: cota própria, não consumida por A`);
+    for (let i = 0; i < 19; i++) assert.equal(l.ingestao('ip1', CC), null, `C ${i + 1}`);
+    assert.ok((l.ingestao('ip1', CD) ?? 0) >= 1, 'teto por origem (60, contando a recusada de A) alcançado: D espera');
+    assert.equal(l.ingestao('ip2', CD), null, 'outra origem segue');
+    assert.equal(l.verificar('ip1', 'LEITURA'), null, 'ingestão em mapa próprio: LEITURA da mesma origem segue');
+    t = 60_000;
+    assert.equal(l.ingestao('ip1', CA), null, 'janela seguinte libera');
+    const s = criarLimitador(() => 0) as unknown as Ingestao;
+    for (let i = 0; i < 300; i++) assert.equal(s.ingestao(null, CA), null);
+    assert.ok((s.ingestao(null, CA) ?? 0) >= 1, 'sem origem: teto de 300 por campanha');
+    assert.ok((s.ingestao('ip9', CA) ?? 0) >= 1, 'o teto por campanha vale também com origem');
+    assert.equal(s.ingestao(null, CB), null, 'outra campanha segue');
+});
+
+test('r2 rota de cliques do site externo: 429 (no-store, Retry-After) antes de qualquer escrita; outra campanha segue', async () => {
+    const json = (body: unknown, init?: { status?: number; headers?: Record<string, string> }) => new Response(JSON.stringify(body), { status: init?.status ?? 200, headers: init?.headers });
+    const cache = new Map<string, Record<string, unknown>>();
+    const gravacoes: string[] = [];
+    let transacoes = 0;
+    const rota = carregarModulo('app/api/publico/marketing/site-kidmais/evento/route.ts', {
+        'next/server': { NextResponse: { json } },
+        'lib/db/postgres': { withTransaction: async (w: (tx: unknown) => unknown) => { transacoes += 1; return w({}); } },
+        'lib/marketing/site-kidmais': {
+            SITE_KIDMAIS: 'https://kidmaisfestas.com', ID_CAMPANHA: /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i,
+            empresaDoSiteKidmais: () => '99999999-9999-4999-8999-999999999999',
+            registrarCliqueSiteKidmais: async (_tx: unknown, _e: string, campanha: string) => { gravacoes.push(campanha); },
+        },
+    }, cache) as { POST(r: unknown): Promise<Response> };
+    const pedido = (campanha: string) => ({ headers: { get: (n: string) => n === 'origin' ? 'https://kidmaisfestas.com' : null },
+        nextUrl: new URL(`https://k.example/api/publico/marketing/site-kidmais/evento?evento=visita&campanha=${campanha}`) });
+    await comAmbiente(SEM_ORIGEM, async () => {
+        for (let i = 0; i < 300; i++) assert.equal((await rota.POST(pedido(CA))).status, 204);
+        const recusa = await rota.POST(pedido(CA));
+        assert.equal(recusa.status, 429);
+        assert.equal(recusa.headers.get('Cache-Control'), 'no-store');
+        assert.ok(Number(recusa.headers.get('Retry-After')) >= 1);
+        assert.equal(gravacoes.length, 300, '429 sem escrita');
+        assert.equal(transacoes, 300, '429 sem abrir transação');
+        assert.equal((await rota.POST(pedido(CB))).status, 204, 'outra campanha segue');
+        assert.deepEqual(gravacoes.slice(300), [CB]);
+    });
+});

@@ -98,14 +98,47 @@ export function campanhaDaMensagemSite(empresa: string, texto: string | null): s
   const linhas = texto.trimEnd().split(/\r?\n/);
   const rodape = linhas.at(-1) ?? '';
   const prefixo = 'Ref. iA.Fest: ';
-  // Mais de uma linha de referência é ambígua: nenhuma atribuição automática.
-  if (linhas.filter(l => l.trimStart().startsWith(prefixo)).length > 1) return null;
+  // Mais de uma linha de referência é ambígua: nenhuma atribuição automática. r2 (P3): conta pelo rótulo, com qualquer
+  // separador depois dele (espaço, tab ou nenhum); só com exatamente uma o formato estrito do rodapé é conferido.
+  if (linhas.filter(l => l.trimStart().startsWith('Ref. iA.Fest:')).length !== 1) return null;
   const id = rodape.startsWith(prefixo) ? rodape.slice(prefixo.length) : '';
   return ID_CAMPANHA.test(id) ? id.toLowerCase() : null;
 }
 
 function dataValida(v: unknown) { return typeof v === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(v) && !Number.isNaN(Date.parse(`${v}T12:00:00Z`)) ? v : null; }
 function convidadosValidos(v: unknown) { const n = typeof v === 'number' ? v : typeof v === 'string' && /^\d{1,4}$/.test(v) ? Number(v) : NaN; return Number.isInteger(n) && n >= 1 && n <= 5000 ? n : null; }
+/**
+ * r2 (P1 do Astra r1): a atribuição de campanha do site roda num SAVEPOINT próprio (o padrão de
+ * lib/marketing/conversao.ts). Falha dela desfaz só o SAVEPOINT: o cartão, o vínculo e a limpeza da marca seguem. Falha de
+ * conexão, transação ou serialização (08/25/2D/3B/40) continua para o dono da transação, como lá.
+ */
+export async function atribuirSemDesfazer(tx: DbExecutor, empresa: string, contatoId: string, campanha: string): Promise<boolean> {
+  await tx.query('SAVEPOINT walle_atribuicao_site');
+  try {
+    await atribuirContatoDoSite(tx, empresa, contatoId, campanha);
+  } catch (erro) {
+    await tx.query('ROLLBACK TO SAVEPOINT walle_atribuicao_site');
+    await tx.query('RELEASE SAVEPOINT walle_atribuicao_site');
+    const code = (erro as { code?: unknown } | null)?.code;
+    if (typeof code === 'string' && /^(08|25|2D|3B|40)/.test(code)) throw erro;
+    return false;
+  }
+  await tx.query('RELEASE SAVEPOINT walle_atribuicao_site');
+  return true;
+}
+/** Tentativas da atribuição do site (a primeira, na captura, conta) antes do descarte silencioso. */
+export const TETO_REATRIBUICAO = 5;
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+/** Referência da nova tentativa no contexto da conversa (sem coluna nova): cartão, campanha, tentativas e quando tentar. */
+const SQL_GUARDAR_REATRIBUICAO = `UPDATE whatsapp_atendimento_conversas SET contexto=COALESCE(contexto,'{}'::jsonb)||jsonb_build_object('campanhaSiteAtribuir',
+  jsonb_build_object('contatoId',$2::text,'campanhaId',$3::text,'tentativas',$4::int,'apos',extract(epoch from clock_timestamp())::float8+$5::float8)) WHERE id=$1`;
+const SQL_SEM_REATRIBUICAO = "UPDATE whatsapp_atendimento_conversas SET contexto=contexto-'campanhaSiteAtribuir' WHERE id=$1";
+function lerReatribuicao(v: unknown): { contatoId: string; campanhaId: string; tentativas: number } | null {
+  const r = (v && typeof v === 'object' ? v : {}) as { contatoId?: unknown; campanhaId?: unknown; tentativas?: unknown };
+  return typeof r.contatoId === 'string' && UUID.test(r.contatoId) && typeof r.campanhaId === 'string' && ID_CAMPANHA.test(r.campanhaId)
+    && typeof r.tentativas === 'number' && Number.isInteger(r.tentativas) && r.tentativas >= 1
+    ? { contatoId: r.contatoId, campanhaId: r.campanhaId, tentativas: r.tentativas } : null;
+}
 function travarTelefone(tx: DbExecutor, empresaId: string, digitos: string) {
   return tx.query('SELECT pg_advisory_xact_lock(hashtextextended($1, 0))', [chaveTravaTelefone(empresaId, digitos)]);
 }
@@ -137,7 +170,8 @@ export async function capturarOportunidade(tx: DbExecutor, conversaId: string, e
   async function atribuir(contatoId: string) {
     const campanha = c.contexto?.campanhaSitePendente;
     if (typeof campanha !== 'string') return;
-    await atribuirContatoDoSite(tx, c.empresa_id, contatoId, campanha);
+    // r2 (P1): falha da atribuição não desfaz o cartão nem adia a conversa; a referência fica para nova tentativa.
+    if (!await atribuirSemDesfazer(tx, c.empresa_id, contatoId, campanha)) await tx.query(SQL_GUARDAR_REATRIBUICAO, [c.id, contatoId, campanha, 1, ESPERA_PADRAO_SEGUNDOS]);
   }
   // Número fora do formato do funil nunca vira cartão.
   if (!/^[0-9]{10,15}$/.test(c.contato)) { await limpar(); return 'IGNORADO'; }
@@ -293,7 +327,54 @@ export async function capturarOportunidadesPendentes(transacao: Transacao, ambie
       } catch (falhaAoAdiar) { saida.falhas.push(codigoFalha(falhaAoAdiar)); }
     }
   }
+  await reatribuirCampanhasDoSite(transacao, ambiente, espera, saida);
   return saida;
+}
+
+/**
+ * r2 (P1): nova tentativa das atribuições do site que falharam na captura, ao fim do lote. Cada uma na sua transação, na
+ * ordem da captura (empresa → conversa SKIP LOCKED → telefone → vínculo e cartão). Revalida que o cartão é o do Wall-e
+ * DESTA conversa, na mesma empresa e ambiente, não anonimizado e ainda em "Novo contato"; senão a referência sai.
+ * "Primeira vence" fica com registrarSeAusente. Sucesso, referência inválida ou o teto de tentativas removem a chave;
+ * falha antes do teto agenda a próxima depois da espera.
+ */
+async function reatribuirCampanhasDoSite(transacao: Transacao, ambiente: string, espera: number, saida: { falhas: string[] }) {
+  let candidatas: Array<{ id: string; empresa_id: string }>;
+  try {
+    candidatas = (await transacao(tx => tx.query<{ id: string; empresa_id: string }>(`SELECT id::text, empresa_id::text FROM whatsapp_atendimento_conversas
+       WHERE ambiente=$1 AND contexto ? 'campanhaSiteAtribuir'
+         AND COALESCE(CASE WHEN jsonb_typeof(contexto->'campanhaSiteAtribuir'->'apos')='number' THEN (contexto->'campanhaSiteAtribuir'->>'apos')::float8 END, 0) <= extract(epoch from clock_timestamp())::float8
+       ORDER BY id LIMIT 10`, [ambiente]))).rows;
+  } catch (erro) { saida.falhas.push(codigoFalha(erro)); return; }
+  for (const k of candidatas) {
+    try {
+      await transacao(async tx => {
+        await travarEmpresa(tx, k.empresa_id);
+        const c = (await tx.query<{ contato: string; r: unknown }>(`SELECT contato, contexto->'campanhaSiteAtribuir' AS r FROM whatsapp_atendimento_conversas
+           WHERE id=$1 AND empresa_id=$2 AND ambiente=$3 AND contexto ? 'campanhaSiteAtribuir' FOR UPDATE SKIP LOCKED`, [k.id, k.empresa_id, ambiente])).rows[0];
+        if (!c) return;
+        const r = lerReatribuicao(c.r);
+        if (!r) { await tx.query(SQL_SEM_REATRIBUICAO, [k.id]); return; }
+        if (/^[0-9]{10,15}$/.test(c.contato)) await travarTelefone(tx, k.empresa_id, c.contato);
+        const valido = (await tx.query(`SELECT 1 FROM whatsapp_atendimento_oportunidades o JOIN marketing_contatos m ON m.id=o.contato_id AND m.empresa_id=o.empresa_id
+           WHERE o.contato_id=$1::uuid AND o.empresa_id=$2 AND o.ambiente=$3 AND o.conversa_id=$4 AND o.anonimizado_em IS NULL
+             AND m.fechamento_id IS NULL AND m.status IN ('NOVO','EM_ATENDIMENTO') FOR UPDATE OF o, m`, [r.contatoId, k.empresa_id, ambiente, k.id])).rows.length > 0;
+        if (!valido || r.tentativas >= TETO_REATRIBUICAO || await atribuirSemDesfazer(tx, k.empresa_id, r.contatoId, r.campanhaId)
+          || r.tentativas + 1 >= TETO_REATRIBUICAO) { await tx.query(SQL_SEM_REATRIBUICAO, [k.id]); return; }
+        await tx.query(SQL_GUARDAR_REATRIBUICAO, [k.id, r.contatoId, r.campanhaId, r.tentativas + 1, espera]);
+      });
+    } catch (erro) {
+      saida.falhas.push(codigoFalha(erro));
+      // Falha fora do SAVEPOINT (conexão, serialização): conta a tentativa em transação separada, com o mesmo teto.
+      try {
+        await transacao(tx => tx.query(`UPDATE whatsapp_atendimento_conversas SET contexto=CASE
+            WHEN jsonb_typeof(contexto->'campanhaSiteAtribuir'->'tentativas')='number' AND (contexto->'campanhaSiteAtribuir'->>'tentativas')::numeric + 1 < $2
+            THEN jsonb_set(jsonb_set(contexto,'{campanhaSiteAtribuir,tentativas}',to_jsonb((contexto->'campanhaSiteAtribuir'->>'tentativas')::numeric + 1)),
+              '{campanhaSiteAtribuir,apos}',to_jsonb(extract(epoch from clock_timestamp())::float8+$3::float8))
+            ELSE contexto-'campanhaSiteAtribuir' END WHERE id=$1 AND ambiente=$4 AND contexto ? 'campanhaSiteAtribuir'`, [k.id, TETO_REATRIBUICAO, espera, ambiente]));
+      } catch (falha) { saida.falhas.push(codigoFalha(falha)); }
+    }
+  }
 }
 
 /** Texto que substitui o resumo diário guardado quando um contato dele é anonimizado (o e-mail já enviado não volta). */
@@ -323,8 +404,8 @@ export async function anonimizarOportunidadesDaConversa(tx: DbExecutor, empresa:
   // Uma marca ainda não confirmada numa irmã faz esta leitura esperar; o UPDATE seguinte, nova instrução, já a enxerga e limpa.
   await tx.query(`SELECT id FROM whatsapp_atendimento_conversas WHERE empresa_id=$1 AND ambiente=$2 AND (id=$3 OR contato = ANY($4::text[]))
     ORDER BY id FOR UPDATE`, [empresa, ambiente, conversaId, variantes]);
-  await tx.query(`UPDATE whatsapp_atendimento_conversas SET oportunidade_pendente_em=NULL, contexto=contexto-'campanhaSitePendente' WHERE empresa_id=$1 AND ambiente=$2 AND (id=$3 OR contato = ANY($4::text[]))
-    AND oportunidade_pendente_em IS NOT NULL`, [empresa, ambiente, conversaId, variantes]);
+  await tx.query(`UPDATE whatsapp_atendimento_conversas SET oportunidade_pendente_em=NULL, contexto=contexto-'campanhaSitePendente'-'campanhaSiteAtribuir' WHERE empresa_id=$1 AND ambiente=$2 AND (id=$3 OR contato = ANY($4::text[]))
+    AND (oportunidade_pendente_em IS NOT NULL OR contexto ? 'campanhaSiteAtribuir')`, [empresa, ambiente, conversaId, variantes]);
   if (/^[0-9]{10,15}$/.test(contato)) await travarTelefone(tx, empresa, contato);
   // A atribuição pode vir do site ou da equipe. O histórico e os dados associados podem citar o titular:
   // texto livre na atribuição, atribuição que liga o cartão a outro alvo (ex.: CLIENTE) ou evento no histórico do cliente.

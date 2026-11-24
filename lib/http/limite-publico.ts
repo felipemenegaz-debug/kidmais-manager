@@ -32,6 +32,12 @@ const REGRAS: Record<GrupoLimite, Regra> = {
   IDENTIDADE: { limite: 20, janelaMs: 3_600_000 },
 };
 const PEDIDO_POR_EMPRESA: Regra = { limite: 60, janelaMs: 3_600_000 };
+/** Cliques do site externo, por minuto: 60 por origem, 20 por origem e campanha, 300 por campanha (com ou sem origem). */
+export const INGESTAO = {
+  porOrigem: { limite: 60, janelaMs: 60_000 },
+  porOrigemECampanha: { limite: 20, janelaMs: 60_000 },
+  porCampanha: { limite: 300, janelaMs: 60_000 },
+} satisfies Record<string, Regra>;
 export const SEM_ORIGEM_FATOR = 10;
 const MAXIMO_CHAVES = 20_000;
 /**
@@ -60,6 +66,7 @@ export function criarLimitador(agora: () => number = Date.now, maximoEntidades =
   // Por IP (cresce com as origens; fail-closed no teto) e por entidade canônica (conjunto limitado, contadores juntos).
   const porIp = new Map<string, Balde>();
   const porEntidade = new Map<string, Map<string, Balde>>();
+  const ingestao = new Map<string, Balde>();
   /** Recusa uma chave NOVA quando o mapa está cheio mesmo depois de tirar os vencidos (fail-closed sob ataque). */
   function semEspaco<T>(mapa: Map<string, T>, maximo: number, venceu: (v: T) => boolean) {
     if (mapa.size < maximo) return false;
@@ -92,7 +99,22 @@ export function criarLimitador(agora: () => number = Date.now, maximoEntidades =
       if (grupo === "PEDIDO" && empresa) return daEntidade(empresa, "PEDIDO_EMPRESA", PEDIDO_POR_EMPRESA);
       return null;
     },
-    tamanho: () => porIp.size + porEntidade.size,
+    /**
+     * r2 (P2 do Astra r1): ingestão de cliques do site externo (POST sem sessão que grava um evento). Mais estrita que
+     * LEITURA e num mapa próprio (nunca esgota os baldes das outras rotas): por origem, no total e por campanha; e um teto
+     * por campanha que vale com ou sem origem. A campanha só entra na chave depois de validada (UUID) pela rota.
+     */
+    ingestao(origem: string | null, campanha: string): number | null {
+      const t = agora();
+      const contarIngestao = (chave: string, regra: Regra) => {
+        if (!ingestao.has(chave) && semEspaco(ingestao, MAXIMO_CHAVES, (b) => vencido(b, t))) return Math.ceil(regra.janelaMs / 1000);
+        return contar(ingestao, chave, regra, t);
+      };
+      const espera = (origem ? contarIngestao(`ip:${origem}`, INGESTAO.porOrigem) ?? contarIngestao(`ip:${origem}|${campanha}`, INGESTAO.porOrigemECampanha) : null)
+        ?? contarIngestao(`campanha:${campanha}`, INGESTAO.porCampanha);
+      return espera;
+    },
+    tamanho: () => porIp.size + porEntidade.size + ingestao.size,
   };
 }
 
@@ -123,7 +145,16 @@ export async function limitarPublico(
   const origem = ipDaRequisicao(request);
   const url = request.nextUrl ?? (request.url ? new URL(request.url) : null);
   const espera = limitador.verificar(origem, grupo, await chaveDaEmpresaPublica(url?.searchParams.get("empresa") || null, carregar));
-  if (espera === null) return null;
+  return espera === null ? null : respostaDoLimite(espera);
+}
+
+/** Ingestão de cliques do site externo (`campanha` já validada como UUID): null = segue; senão a mesma resposta 429. */
+export function limitarIngestao(request: { headers: { get(nome: string): string | null } }, campanha: string) {
+  const espera = limitador.ingestao(ipDaRequisicao(request), campanha.toLowerCase());
+  return espera === null ? null : respostaDoLimite(espera);
+}
+
+function respostaDoLimite(espera: number) {
   return NextResponse.json(
     { ok: false, erro: "Muitas tentativas em pouco tempo. Aguarde um pouco e tente novamente.", codigo: "LIMITE_REQUISICOES" },
     { status: 429, headers: { "Cache-Control": "no-store", "Retry-After": String(espera) } },

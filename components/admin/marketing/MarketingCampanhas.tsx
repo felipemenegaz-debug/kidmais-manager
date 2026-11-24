@@ -20,8 +20,11 @@ type Dados = {
 
 type Formulario = {
   id: string | null; versao: number; codigo: string; nome: string; canal: CanalCampanha; origemCodigo: string; objetivo: string; inicio: string; fim: string;
-  orcamento: string; utmSource: string; utmMedium: string; unidadeId: string; siteId: string;
+  orcamento: string; utmSource: string; utmMedium: string; unidadeId: string; siteId: string; destinoExterno: boolean;
 };
+
+/** 136: valor da opção do site externo no seletor de destino (os demais são '' = Automático e ids de site). */
+const EXTERNO = '__externo__';
 
 function slugDe(nome: string) {
   const base = nome.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 40);
@@ -31,8 +34,10 @@ function slugDe(nome: string) {
 
 function novoFormulario(dados: Dados, dataLivre?: string): Formulario {
   const p = dados.padraoPorCanal.INSTAGRAM;
+  // r2 (P2 do Astra r1): externo por padrão só na empresa da integração e enquanto ela não tem site PUBLICADO no iA.Fest.
+  const destinoExterno = !!dados.siteKidmais && !dados.sites.some((s) => s.estado === 'PUBLICADO');
   return { id: null, versao: 1, codigo: '', nome: dataLivre ? `Data livre ${dataBr(dataLivre)}` : '', canal: 'INSTAGRAM', origemCodigo: p.origem, objetivo: '', inicio: hojeSaoPaulo(), fim: dataLivre ?? '',
-    orcamento: '', utmSource: p.utmSource, utmMedium: p.utmMedium, unidadeId: '', siteId: dados.siteKidmais ? '' : dados.sites[0]?.id ?? '' };
+    orcamento: '', utmSource: p.utmSource, utmMedium: p.utmMedium, unidadeId: '', siteId: destinoExterno ? '' : dados.sites[0]?.id ?? '', destinoExterno };
 }
 
 export default function MarketingCampanhas({ dataInicial }: { dataInicial?: string } = {}) {
@@ -62,7 +67,7 @@ export default function MarketingCampanhas({ dataInicial }: { dataInicial?: stri
     setAviso('');
     setForm({ id: c.id, versao: c.versao, codigo: c.codigo, nome: c.nome, canal: c.canal, origemCodigo: c.origemCodigo, objetivo: c.objetivo ?? '', inicio: c.inicio, fim: c.fim ?? '',
       orcamento: c.orcamentoCentavos === null ? '' : String(c.orcamentoCentavos / 100).replace('.', ','), utmSource: c.utmSource, utmMedium: c.utmMedium,
-      unidadeId: c.unidadeId ?? '', siteId: c.siteId ?? '' });
+      unidadeId: c.unidadeId ?? '', siteId: c.siteId ?? '', destinoExterno: c.destinoExterno });
   }
   function trocarCanal(valor: string) {
     if (!dados || !form) return;
@@ -77,7 +82,10 @@ export default function MarketingCampanhas({ dataInicial }: { dataInicial?: stri
     const orcamentoCentavos = form.orcamento.trim() ? centavosDeTexto(form.orcamento) : null;
     if (form.orcamento.trim() && orcamentoCentavos === null) { setAviso('Orçamento inválido. Use um valor em reais, por exemplo 1500,00.'); return; }
     const comuns = { nome: form.nome, canal: form.canal, origemCodigo: form.origemCodigo, objetivo: form.objetivo || null, inicio: form.inicio, fim: form.fim || null,
-      orcamentoCentavos, utmSource: form.utmSource, utmMedium: form.utmMedium, unidadeId: form.unidadeId || null, siteId: form.siteId || null };
+      orcamentoCentavos, utmSource: form.utmSource, utmMedium: form.utmMedium, unidadeId: form.unidadeId || null,
+      siteId: form.destinoExterno ? null : form.siteId || null,
+      // Sem o destino externo disponível o campo não vai: a edição mantém o que está gravado.
+      ...(dados?.siteKidmais ? { destinoExterno: form.destinoExterno } : {}) };
     setEnviando(true); setAviso('');
     try {
       await enviarMarketing('/api/admin/marketing/campanhas', form.id
@@ -131,7 +139,8 @@ export default function MarketingCampanhas({ dataInicial }: { dataInicial?: stri
           const resultado = dados.resultados.find(l=>l.campanhaId===c.id);
           const site = siteDe(c);
           const parametros = new URLSearchParams({ utm_source: c.utmSource, utm_medium: c.utmMedium, utm_campaign: c.codigo, campaign_id: c.id });
-          const link = dados.siteKidmais && !c.siteId ? `${dados.siteKidmais}/?${parametros}` : site ? linkDaCampanha(dados.origemPlataforma, site.slug, c.codigo) : null;
+          // r2 (P2 do Astra r1): externo só a campanha marcada; as demais (sem site inclusive) seguem a resolução de antes.
+          const link = dados.siteKidmais && c.destinoExterno ? `${dados.siteKidmais}/?${parametros}` : site ? linkDaCampanha(dados.origemPlataforma, site.slug, c.codigo) : null;
           return <section key={c.id} className={styles.cartao} aria-labelledby={`camp-${c.id}`}>
             <div className={`${styles.topo} ${styles.cabecalhoCampanha}`}>
               <div><h2 id={`camp-${c.id}`}>{c.nome} <span className={c.status === 'ATIVA' ? styles.seloAtivo : c.status === 'PAUSADA' ? styles.seloAlerta : styles.selo}>{ROTULO_STATUS_CAMPANHA[c.status]}</span></h2>
@@ -162,8 +171,11 @@ export default function MarketingCampanhas({ dataInicial }: { dataInicial?: stri
           {dados.origens.filter(o=>o.personalizada && o.ativa).map(o=><option key={o.codigo} value={'OUTRO|'+o.codigo}>{o.rotulo}</option>)}
           {!CANAIS_CAMPANHA_UI.some(c=>c===form.canal && dados.padraoPorCanal[c].origem===form.origemCodigo) && !dados.origens.some(o=>o.personalizada&&o.ativa&&form.canal==='OUTRO'&&o.codigo===form.origemCodigo) && <option value={form.canal+'|'+form.origemCodigo}>{ROTULO_CANAL_UI[form.canal]} · {dados.origens.find(o=>o.codigo===form.origemCodigo)?.rotulo ?? form.origemCodigo}</option>}
         </select></label>
-          {dados.siteKidmais && dados.sites.length === 0 && <p>Site de destino · {dados.siteKidmais}</p>}
-          {dados.sites.length > 0 && <label>Site de destino<select value={form.siteId} onChange={(e) => setForm({ ...form, siteId: e.target.value })}><option value="">{dados.siteKidmais ?? "Automático"}</option>{dados.sites.map((s) => <option key={s.id} value={s.id}>/s/{s.slug}</option>)}</select></label>}
+          {(dados.siteKidmais || dados.sites.length > 0) && <label>Site de destino<select value={dados.siteKidmais && form.destinoExterno ? EXTERNO : form.siteId}
+            onChange={(e) => setForm({ ...form, destinoExterno: e.target.value === EXTERNO, siteId: e.target.value === EXTERNO ? '' : e.target.value })}>
+            <option value="">Automático</option>
+            {dados.siteKidmais && <option value={EXTERNO}>{new URL(dados.siteKidmais).host}</option>}
+            {dados.sites.map((s) => <option key={s.id} value={s.id}>/s/{s.slug}</option>)}</select></label>}
         {!dados.siteKidmais && dados.sites.length===0 && <label>Site<select disabled><option>Crie primeiro o site do buffet</option></select></label>}
         <details className={styles.definicoes}><summary>Mais opções</summary><div className={styles.grade2}>
         {!form.id && <label>Identificador do link (não muda depois)<input value={form.codigo} placeholder={slugDe(form.nome || 'campanha')} pattern="[a-z0-9][a-z0-9-]{2,46}[a-z0-9]" onChange={(e) => setForm({ ...form, codigo: e.target.value.toLowerCase() })} /></label>}

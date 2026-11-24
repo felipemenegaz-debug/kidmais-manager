@@ -9,7 +9,7 @@ import styles from './marketing.module.css';
 type Dados = { vigente: Atribuicao | null; herdadaDoCliente?: Atribuicao | null; historico: Atribuicao[]; origens: OpcaoOrigem[]; campanhas: Array<{ id: string; nome: string }> };
 
 const CANAIS: Array<[string, string]> = [['', 'Não informado'], ['WHATSAPP', 'WhatsApp'], ['TELEFONE', 'Telefone'], ['PRESENCIAL', 'Presencial'], ['EMAIL', 'E-mail'], ['FORMULARIO_SITE', 'Formulário do site'], ['OUTRO', 'Outro']];
-const METODO: Record<string, string> = { CAPTURADO: 'capturada pelo link', INFORMADO: 'informada pela equipe', HERDADO: 'herdada do contato', DESCONHECIDO: 'sem evidência' };
+const METODO: Record<string, string> = { CAPTURADO: 'capturada pelo link', INFORMADO: 'informada', HERDADO: 'herdada do contato', DESCONHECIDO: 'sem evidência' };
 
 function rotulo(codigo: string, origens: OpcaoOrigem[]) {
   if (codigo === 'DESCONHECIDA') return 'Desconhecida';
@@ -84,7 +84,7 @@ export default function OrigemPainel({ alvoTipo, alvoId, titulo }: { alvoTipo: A
     </form>}
     {dados.historico.length > 1 && <details className={styles.definicoes} style={{ marginTop: 12 }}><summary>Histórico ({dados.historico.length})</summary>
       <ul className={styles.historico}>{dados.historico.map((a) => <li key={a.id} data-vigente={a.vigente}>
-        {rotulo(a.origemCodigo, dados.origens)}{a.campanhaNome ? ` · ${a.campanhaNome}` : ''} — {METODO[a.metodo] ?? a.metodo}, {dataHoraBr(a.registradoEm)}
+        {rotulo(a.origemCodigo, dados.origens)}{a.campanhaNome ? ` · ${a.campanhaNome}` : ''} — {METODO[a.metodo] ?? a.metodo}, {dataHoraBr(a.registradoEm)}{a.registradoPorNome ? ` · ${a.registradoPorNome}` : ''}
         {a.motivo ? ` · motivo: ${a.motivo}` : ''}{a.vigente ? ' · vigente' : ''}</li>)}</ul></details>}
   </section>;
 }

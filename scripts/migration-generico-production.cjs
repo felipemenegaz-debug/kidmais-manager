@@ -184,9 +184,16 @@ const MIGRATIONS = Object.freeze({
     criados: [tabela('plataforma_empresas_uso')],
     // Só CREATE TABLE (chaves para empresas e usuarios_administrativos): não altera tabela existente.
     privilegios: {criaNoSchema: true, alteradas: [], funcoes: [], referenciadas: ['empresas', 'usuarios_administrativos']}}),
+  '136': congelar({escopo: 'campanha com destino no site externo (coluna nova com padrão falso; o código funciona sem ela); exige a 085 e, no registro, a 134',
+    arquivos: [['precheck', 'database/checks/20261124_136_precheck.sql', 'aeb6540a6f578fb7e00778bc01ed9e96488f0daef7285236659ec6a61e8529bc'],
+      ['migration', 'database/migrations/20261124_136_campanha_destino_externo.sql', '904e146be8da5c45d77457bd8b1d5c2b04a5d4a1c7f3982021545258ee615b5f'],
+      ['postcheck', 'database/checks/20261124_136_postcheck.sql', 'a414955277b98f03dbc83412ee53d51590bc76866c6ebc6e22514283dc7c9df7']],
+    criados: [coluna('marketing_campanhas', 'destino_externo')],
+    // ALTER TABLE ADD COLUMN + ADD CONSTRAINT em marketing_campanhas (dono da tabela); sem função nem chave estrangeira nova.
+    privilegios: {criaNoSchema: true, alteradas: ['marketing_campanhas'], funcoes: [], referenciadas: []}}),
 });
 /** Ordem do inventário (scripts/production/check-migrations.mjs, approvedFiles): 120, 121, 110, 111, 115, 123, 124, 125, 126, 127, 128.
- * A 130, a 131, a 132, a 133 e a 134 continuam em MIGRATIONS (SQL revisados e sentinelas que o registro no banco carrega e o --conferir lê), mas não
+ * A 130, a 131, a 132, a 133, a 134 e a 136 continuam em MIGRATIONS (SQL revisados e sentinelas que o registro no banco carrega e o --conferir lê), mas não
  * são aplicadas por aqui: ver SO_PELO_REGISTRO. */
 const IDS = Object.freeze(['120', '121', '110', '111', '115', '123', '124', '125', '126', '127', '128']);
 const definicao = id => { assert.ok(typeof id === 'string' && Object.hasOwn(MIGRATIONS, id), 'MIGRATION_FORA_DA_LISTA'); return MIGRATIONS[id]; };
@@ -389,7 +396,7 @@ const commitadas = r => Object.entries(situacoes(r)).filter(([, c]) => c === 'CO
 
 const BACKUP = /^[A-Za-z0-9:._/ -]{6,120}$/;
 /** 130+ só pelo registro no banco (scripts/registro-migrations-banco.cjs): aqui a definição só serve para carregar os SQL revisados. */
-const SO_PELO_REGISTRO = Object.freeze(['130', '131', '132', '133', '134']);
+const SO_PELO_REGISTRO = Object.freeze(['130', '131', '132', '133', '134', '136']);
 const exigirForaDoRegistro = id => { if (SO_PELO_REGISTRO.includes(id)) assert.fail(`ID_PELO_REGISTRO ${id}: aplicar só por scripts/registro-migrations-banco.cjs`); };
 function modo(argv) {
   if (argv.length === 0) return {modo: 'plano'};
