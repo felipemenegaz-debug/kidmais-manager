@@ -19,7 +19,7 @@ const ENV_PROD = Object.freeze({RENDER: 'true', RENDER_SERVICE_ID: 'srv-dak77m2d
   DATABASE_URL: 'postgresql://usuario:SENHA_FALSA@dpg-dak750gae00c73fudmg0-a:5432/kidmais_production'});
 const ID_STG = Object.freeze({db: 'kidmais_staging_1z91', tls: false, servidor_privado: true});
 const BACKUP = 'export staging 2026-11-14T20:00Z';
-const PRIV_OK = Object.freeze({schema_create: true, sem_posse: [], sem_references: [], sem_posse_funcoes: [], sem_execute: []});
+const PRIV_OK = Object.freeze({schema_create: true, sem_posse: [], sem_references: [], sem_posse_funcoes: [], sem_execute: [], sem_lock: [], sem_select: []});
 const linha = v => Object.fromEntries(g.MIGRATIONS['125'].criados.map((_, i) => ['c' + i, v]));
 
 function clienteFalso({situacao = 'ausente', identidade = ID_STG, falharEm} = {}) {

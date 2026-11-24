@@ -9,6 +9,8 @@ const fs = require('node:fs');
 const path = require('node:path');
 const apoio = require('./registro-migrations-banco.pg-apoio.cjs');
 const reg = require('./registro-migrations-banco.cjs');
+const gen = require('./migration-generico-production.cjs');
+const {Client: PgClient} = require('pg');
 
 const P = apoio.porta();
 const pular = P ? false : 'KIDMAIS_REGISTRO_PG_PORTA ausente: testes de PG não rodaram';
@@ -106,6 +108,102 @@ test('134 (Cliente/Interna): sem a 133 = antecessora pendente (3); depois da 133
   ok(await rodar(b, ['--conferir-registro']), /POSTCHECK 134 PASS[\s\S]*DIAGNOSTICO_CODIGO 0/);
   const linhas = (await sql(b, 'SELECT migration, situacao FROM operacao_migration_tentativas ORDER BY id')).rows;
   assert.deepEqual(linhas.map(l => `${l.migration}:${l.situacao}`), ['129:CONCLUIDA', '130:CONCLUIDA', '131:CONCLUIDA', '133:CONCLUIDA', '134:CONCLUIDA']);
+});
+
+test('135 (Wall-e 3b, teto): sem --portao-135 recusa antes de conectar (1, sem DDL nem linha); sem a 134 = antecessora pendente (3); com o portão aplica com postcheck e grava a declaração; repetida e conferida = já aplicada; diagnóstico 0', {skip: pular}, async () => {
+  const b = await comRegistro();
+  const PORTAO = 'teste local: web e worker novos LIVE, nenhum gravador antigo vivo';
+  const com = ['--aplicar-135-autorizado', '--backup', BACKUP, '--portao-135', PORTAO];
+  const ausente = async () => (await sql(b, "SELECT to_regclass('public.whatsapp_atendimento_consumo_mensal') IS NULL AS ausente")).rows[0].ausente;
+  for (const m of ['130', '131', '133']) ok(await rodar(b, [`--aplicar-${m}-autorizado`, '--backup', BACKUP]), new RegExp('APLICADA_POSTCHECK_PASS ' + m));
+  ok(await rodar(b, ['--aplicar-135-autorizado', '--backup', BACKUP]), /^PORTAO_OBRIGATORIO 135/, 1);
+  ok(await rodar(b, com), /PORTAO_135_DECLARADO teste local[\s\S]*ANTECESSORA_PENDENTE 134 sem linha/, 3);
+  assert.equal(await ausente(), true);
+  // O SQL da 135 sozinho (sem o SET da sessão) recusa: o portão é da migration, não só do aplicador.
+  await assert.rejects(sql(b, lerMig('135')), /portão de deploy não declarado/);
+  assert.equal(await ausente(), true);
+  ok(await rodar(b, ['--aplicar-134-autorizado', '--backup', BACKUP]), /APLICADA_POSTCHECK_PASS 134/);
+  ok(await rodar(b, ['--conferir-135']), /PRONTA_PARA_APLICAR 135|ESTADO 135/);
+  ok(await rodar(b, ['--aplicar-135-autorizado', '--backup', BACKUP]), /^PORTAO_OBRIGATORIO 135/, 1);
+  assert.equal((await sql(b, "SELECT count(*)::int n FROM operacao_migration_tentativas WHERE migration = '135'")).rows[0].n, 0);
+  ok(await rodar(b, com), /PORTAO_135_DECLARADO[\s\S]*APLICADA_POSTCHECK_PASS 135/);
+  assert.equal(await ausente(), false);
+  assert.equal((await sql(b, "SELECT detalhe -> 'reserva' ->> 'portao' AS p FROM operacao_migration_tentativas WHERE migration = '135'")).rows[0].p, PORTAO);
+  ok(await rodar(b, ['--conferir-135']), /JA_APLICADA_POSTCHECK_PASS 135/);
+  ok(await rodar(b, com), /JA_APLICADA_POSTCHECK_PASS 135/);
+  ok(await rodar(b, ['--conferir-registro']), /POSTCHECK 135 PASS[\s\S]*DIAGNOSTICO_CODIGO 0/);
+  const linhas = (await sql(b, 'SELECT migration, situacao FROM operacao_migration_tentativas ORDER BY id')).rows;
+  assert.deepEqual(linhas.map(l => `${l.migration}:${l.situacao}`), ['129:CONCLUIDA', '130:CONCLUIDA', '131:CONCLUIDA', '133:CONCLUIDA', '134:CONCLUIDA', '135:CONCLUIDA']);
+});
+
+test('135 (Astra r1 P2): papel sem LOCK SHARE ou sem SELECT nas colunas lidas de mensagens = PRIVILEGIO_INSUFICIENTE nomeado, antes da reserva (nenhuma linha, nada criado)', {skip: pular}, async () => {
+  const b = await comRegistro();
+  for (const m of ['130', '131', '133', '134']) ok(await rodar(b, [`--aplicar-${m}-autorizado`, '--backup', BACKUP]), new RegExp('APLICADA_POSTCHECK_PASS ' + m));
+  const papel = `registro_p_${process.pid}_${seq}`, T = 'public.whatsapp_atendimento_mensagens';
+  const PORTAO = 'teste local: web e worker novos LIVE, nenhum gravador antigo vivo';
+  const com = ['--aplicar-135-autorizado', '--backup', BACKUP, '--portao-135', PORTAO];
+  const comoPapel = {alvo: app => ({...apoio.ambienteLocal(P, b).alvo(app), user: papel})};
+  const nada = async () => {
+    assert.equal((await sql(b, "SELECT count(*)::int n FROM operacao_migration_tentativas WHERE migration = '135'")).rows[0].n, 0);
+    assert.equal((await sql(b, "SELECT to_regclass('public.whatsapp_atendimento_consumo_mensal') IS NULL AS a")).rows[0].a, true);
+  };
+  const COLS = ['ambiente', 'criada_em', 'direcao', 'empresa_id', 'estado'];
+  await admin.query('CREATE ROLE ' + papel + ' LOGIN');
+  try {
+    // Papel de deploy limitado: dono do registro (o postcheck da 129 exige dono = papel atual e nenhuma concessão nele), leitura do resto
+    // (catálogo, postcheck da 134), CREATE no schema e REFERENCES em empresas; nada em mensagens.
+    await sql(b, ['GRANT CONNECT ON DATABASE ' + b + ' TO ' + papel, 'GRANT USAGE, CREATE ON SCHEMA public TO ' + papel,
+      'GRANT SELECT ON ALL TABLES IN SCHEMA public TO ' + papel, 'REVOKE ALL ON public.operacao_migration_tentativas FROM ' + papel,
+      'ALTER TABLE public.operacao_migration_tentativas OWNER TO ' + papel, 'ALTER FUNCTION public.operacao_migration_tentativas_terminal() OWNER TO ' + papel,
+      'REVOKE SELECT ON ' + T + ' FROM ' + papel,
+      'GRANT REFERENCES ON public.empresas TO ' + papel].join('; '));
+    ok(await rodar(b, com, comoPapel), new RegExp('^PRIVILEGIO_INSUFICIENTE LOCK SHARE em whatsapp_atendimento_mensagens \\(UPDATE, DELETE ou TRUNCATE\\); '
+      + COLS.map(c => 'SELECT na coluna whatsapp_atendimento_mensagens\\.' + c).join('; ') + '$', 'm'), 1);
+    await nada();
+    // Só o SELECT das colunas: falta o LOCK.
+    await sql(b, 'GRANT SELECT (' + COLS.join(', ') + ') ON ' + T + ' TO ' + papel);
+    ok(await rodar(b, com, comoPapel), /^PRIVILEGIO_INSUFICIENTE LOCK SHARE em whatsapp_atendimento_mensagens \(UPDATE, DELETE ou TRUNCATE\)$/m, 1);
+    await nada();
+    // LOCK por TRUNCATE (um dos três basta) e uma coluna a menos: falta só ela.
+    await sql(b, 'GRANT TRUNCATE ON ' + T + ' TO ' + papel + '; REVOKE SELECT (estado) ON ' + T + ' FROM ' + papel);
+    ok(await rodar(b, com, comoPapel), /^PRIVILEGIO_INSUFICIENTE SELECT na coluna whatsapp_atendimento_mensagens\.estado$/m, 1);
+    await nada();
+    // Completo: a consulta do genérico, no papel, não acusa nada (SET ROLE numa conexão própria).
+    await sql(b, 'GRANT SELECT (estado) ON ' + T + ' TO ' + papel);
+    const c = await apoio.conectar(P, b);
+    try {
+      await c.query('SET ROLE ' + papel);
+      assert.deepEqual(gen.lerPrivilegios('135', (await c.query(gen.sqlPrivilegios('135'))).rows[0]), {ok: true, faltas: []});
+      await c.query('RESET ROLE');
+    } finally { await c.end(); }
+    await nada();
+  } finally {
+    await sql(b, 'REASSIGN OWNED BY ' + papel + ' TO CURRENT_USER; DROP OWNED BY ' + papel).catch(() => {});
+    await admin.query('DROP ROLE IF EXISTS ' + papel);
+  }
+});
+
+test('135 (Astra r1 P3): sequência real das queries — checagem de privilégios antes da reserva; reserva = BEGIN, SETs, INSERT, COMMIT sem portão; corpo = BEGIN, SETs, identidade, SET do portão, precheck, migration, postcheck', {skip: pular}, async () => {
+  const b = await comRegistro();
+  for (const m of ['130', '131', '133', '134']) ok(await rodar(b, [`--aplicar-${m}-autorizado`, '--backup', BACKUP]), new RegExp('APLICADA_POSTCHECK_PASS ' + m));
+  const PORTAO = 'teste local: web e worker novos LIVE, nenhum gravador antigo vivo';
+  const enviados = [];
+  class Gravador extends PgClient { query(q, ...resto) { enviados.push(typeof q === 'string' ? q : q?.text); return super.query(q, ...resto); } }
+  ok(await rodar(b, ['--aplicar-135-autorizado', '--backup', BACKUP, '--portao-135', PORTAO], {Client: Gravador}), /APLICADA_POSTCHECK_PASS 135/);
+  const SET_PORTAO = reg.PORTOES['135'].set, corpos = gen.carregar(raiz, '135');
+  const SETS = (t) => ["SET LOCAL lock_timeout = '5s'", `SET LOCAL statement_timeout = '${t}'`, 'SET LOCAL search_path = public, pg_catalog'];
+  const um = q => { const i = enviados.indexOf(q); assert.ok(i >= 0, 'enviada: ' + String(q).slice(0, 60)); assert.equal(enviados.lastIndexOf(q), i, 'uma vez: ' + String(q).slice(0, 60)); return i; };
+  const iPriv = um(gen.sqlPrivilegios('135')), iIns = um(reg.SQL.inserir), iSet = um(SET_PORTAO), iPre = um(corpos.precheck), iMig = um(corpos.migration);
+  assert.ok(iPriv < iIns, 'privilégios antes da reserva');
+  // Reserva: BEGIN, três SET LOCAL, INSERT, COMMIT — nada mais, e sem o portão.
+  assert.deepEqual(enviados.slice(iIns - 4, iIns + 2), ['BEGIN', ...SETS('60s'), reg.SQL.inserir, 'COMMIT']);
+  // Corpo: logo depois do COMMIT da reserva.
+  assert.deepEqual(enviados.slice(iIns + 2, iIns + 2 + 10), ['BEGIN', ...SETS('60s'), "SELECT current_setting('cluster_name') AS cluster, current_database() AS banco",
+    SET_PORTAO, corpos.precheck, corpos.migration, corpos.postcheck, reg.SQL.corpo]);
+  assert.ok(iIns < iSet && iSet < iPre && iPre < iMig);
+  // O texto do portão não sai em nenhuma outra query (fora a própria migration, que o lê com current_setting).
+  assert.deepEqual(enviados.filter(q => /portao_135/.test(q ?? '') && q !== corpos.migration), [SET_PORTAO]);
+  assert.equal((await sql(b, "SELECT detalhe -> 'reserva' ->> 'portao' AS p FROM operacao_migration_tentativas WHERE migration = '135'")).rows[0].p, PORTAO);
 });
 
 test('Astra r1 (134): postcheck recusa UNIQUE extra e NOT NULL não validado; down recusa com tentativa ativa no registro', {skip: pular}, async () => {
