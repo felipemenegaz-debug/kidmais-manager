@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { pedidoDeParar } from './opt-out.ts';
-import { avisoEquipeSchema, horarioEquipeSchema } from './horario.ts';
+import { avisoEquipeSchema, horarioEquipeSchema, retornoForaDoHorario, type HorarioEquipe } from './horario.ts';
 import type { Passagem } from './walle/tipos.ts';
 import { ALERGIA } from './walle/alergia.ts';
 
@@ -29,6 +29,20 @@ export type ConfiguracaoAtendimento = z.infer<typeof configuracaoSchema>;
  */
 export const JANELA_REENTREGA_DIAS = 30;
 export const MENSAGEM_ENCAMINHAMENTO = 'Não consigo responder automaticamente agora. Encaminhei sua mensagem para a equipe; a resposta dependerá do horário de atendimento.';
+const ENCAMINHAMENTO_COM_HORARIO = 'Não consigo responder automaticamente agora. Encaminhei sua mensagem para a equipe. ';
+/**
+ * Fatia 8 (Astra r1, P2): texto fixo do encaminhamento de contingência. Fora do horário cadastrado, diz quando a equipe
+ * responde (frase escrita por código); sem horário ou dentro dele, o texto é exatamente MENSAGEM_ENCAMINHAMENTO.
+ */
+export function mensagemEncaminhamento(horario: HorarioEquipe | undefined | null, agora: Date) {
+  const retorno = retornoForaDoHorario(horario, agora);
+  return retorno ? ENCAMINHAMENTO_COM_HORARIO + retorno : MENSAGEM_ENCAMINHAMENTO;
+}
+/** Saída é um dos textos fixos de encaminhamento (isenta da revogação por configuração no envio, como antes). */
+export function ehMensagemEncaminhamento(texto: string | null | undefined) {
+  if (texto === MENSAGEM_ENCAMINHAMENTO) return true;
+  return typeof texto === 'string' && texto.startsWith(ENCAMINHAMENTO_COM_HORARIO + 'Agora estamos fora do horário de atendimento: a equipe responde ') && texto.endsWith('.') && !texto.includes(String.fromCharCode(10)) && texto.length <= 240;
+}
 /**
  * O JSON Schema enviado ao modelo só garante `string | null` em `data`; o modelo pode devolver a data como o cliente
  * escreveu (14/11/2027). Normalização determinística, só de FORMA e sem suposição: DD/MM/AAAA (ou AAAA/MM/DD)

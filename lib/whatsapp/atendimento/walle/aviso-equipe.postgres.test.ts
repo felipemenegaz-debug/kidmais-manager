@@ -12,6 +12,7 @@ import { lerContexto } from "./contexto.ts";
 import { entenderPorRegras } from "./entendimento.ts";
 import { catalogosWallE, fontesPostgres } from "./fontes-postgres.ts";
 import { resolverWallE } from "./resolver.ts";
+import { NOME_MOTIVO } from "./tipos.ts";
 
 /**
  * Fatia 8 (25/11/2026): aviso por e-mail à equipe na passagem, no worker REAL e no PostgreSQL descartável (só pelo
@@ -25,6 +26,13 @@ import { resolverWallE } from "./resolver.ts";
  *  A4 assumir limpa a marca; devolvida ao Wall-e e passada de novo, a nova passagem gera novo aviso;
  *  A5 falha do provedor: nova tentativa só depois de 10 min, com a MESMA chave de idempotência; sem porta, nada;
  *  A6 empresa sem e-mails configurados: nenhum aviso; o selo conta só as conversas da própria empresa.
+ * Astra r1 (r2 de exceção, 25/11):
+ *  A7 com o 1º e-mail em curso, o 2º destinatário sai da lista ou perde o acesso: não recebe;
+ *  A8 com o 1º e-mail em curso, a equipe assume a conversa: o 2º não sai e a marca fica limpa;
+ *  A9 prazo do lote: o envio para no prazo (PARCIAL) e o lote seguinte manda só o que faltou, mesma passagem;
+ *  A10 motivo da passagem anterior à última saída da fila não vai no e-mail (motivo genérico);
+ *  A11 os retries repetem os motivos da 1ª reserva, mesmo que o registro da passagem mude;
+ *  A12 a janela de 24 h conta da passagem (atualizada_em), não da última entrada do cliente.
  */
 const ler = (f: string) => readFileSync(f, "utf8");
 const MIGRATIONS = [
@@ -88,8 +96,11 @@ test("aviso à equipe por e-mail na passagem: um por passagem, destinatários au
     } };
     const emails: MensagemEmail[] = [];
     let falharEmail = false;
+    // Pausa no 1º e-mail seguinte: roda a corrida (revogação, assumir, relógio) com o envio em curso.
+    let pausa: ((m: MensagemEmail) => Promise<void>) | null = null;
     const avisoEquipe = { origem: () => ORIGEM, enviar: async (m: MensagemEmail) => {
       if (falharEmail) throw Object.assign(new Error("provedor fora"), { codigo: "EMAIL_INDISPONIVEL" });
+      if (pausa) { const p = pausa; pausa = null; await p(m); }
       emails.push(m); return { provedor: "arquivo" as const, idExterno: null };
     } };
     const envios: ConteudoSaida[] = [];
@@ -137,6 +148,8 @@ test("aviso à equipe por e-mail na passagem: um por passagem, destinatários au
     assert.equal(cv.estado, "AGUARDANDO_HUMANO");
     assert.equal(emails.length, 4, "A4: nova passagem, novo aviso");
     assert.notEqual(emails[2].idempotencia, emails[0].idempotencia, "A4: chave nova para a nova passagem");
+    assert.ok(cv.contexto.avisoEquipeSaida, "A4: a memória do Wall-e preserva o fim da passagem anterior");
+    assert.ok(emails.slice(2).every((m) => m.texto.includes(NOME_MOTIVO.PEDIDO_CLIENTE)), "A4: motivo da passagem nova (posterior à saída)");
 
     // A5 — falha do provedor: espera 10 min e repete com a MESMA chave; sem porta de e-mail, nada.
     falharEmail = true;
@@ -172,6 +185,129 @@ test("aviso à equipe por e-mail na passagem: um por passagem, destinatários au
     assert.equal(emails.length, 6, "A6: nenhum aviso para a B");
     assert.equal(await contarAguardandoEquipe(db() as unknown as DbExecutor, B.empresa, "staging"), 1);
     assert.equal(await contarAguardandoEquipe(db() as unknown as DbExecutor, A.empresa, "staging"), 2);
+
+    const semAviso = { ...deps, avisoEquipe: undefined };
+    const lista = async (emailsLista: string[]) => c.query("UPDATE whatsapp_atendimento_config SET configuracao = jsonb_set(configuracao, '{avisoEquipe,emails}', $2::jsonb) WHERE empresa_id = $1", [A.empresa, JSON.stringify(emailsLista)]);
+    const outro = (m: MensagemEmail) => (m.para === A.rep.email ? { email: adm.email, usuario: adm.usuario } : { email: A.rep.email, usuario: A.rep.usuario });
+
+    // A7 — corrida: o 2º destinatário sai da lista / perde o acesso com o 1º e-mail em curso.
+    for (const [contato, modo] of [["5561900000804", "lista"], ["5561900000805", "acesso"]] as const) {
+      const antes: number = emails.length;
+      let revogado = "";
+      pausa = async (m) => {
+        const o = outro(m); revogado = o.email;
+        if (modo === "lista") await lista([m.para]);
+        else await c.query("UPDATE usuarios_administrativos SET ativo = false WHERE id = $1", [o.usuario]);
+      };
+      await receber(servico, contato, PEDIDO);
+      await worker.processarLote(deps, { maxTarefas: 10 });
+      const cv7 = await conversa(A.empresa, contato);
+      assert.equal(emails.length, antes + 1, `A7 (${modo}): só o 1º e-mail saiu`);
+      assert.ok(!emails.slice(antes).some((m) => m.para === revogado), `A7 (${modo}): o revogado não recebe`);
+      assert.equal(cv7.contexto.avisoEquipe.estado, "ENVIADO", `A7 (${modo}): marca fechada, sem retry para o revogado`);
+      assert.equal(cv7.contexto.avisoEquipe.feitos.length, 2);
+      await lista([A.rep.email, adm.email, saiDepois.email]);
+      await c.query("UPDATE usuarios_administrativos SET ativo = true WHERE id = ANY($1::uuid[])", [[A.rep.usuario, adm.usuario]]);
+      await worker.processarLote(deps, { maxTarefas: 10 });
+      assert.equal(emails.length, antes + 1, `A7 (${modo}): acesso devolvido não reabre a passagem já avisada`);
+    }
+
+    // A8 — corrida: a equipe assume a conversa com o 1º e-mail em curso.
+    {
+      const contato = "5561900000806", antes: number = emails.length;
+      pausa = async () => {
+        const atual = await conversa(A.empresa, contato);
+        await servico.controlarAtendimento(A.sessao, { acao: "assumir", conversaId: atual.id, versao: Number(atual.versao) });
+      };
+      await receber(servico, contato, PEDIDO);
+      await worker.processarLote(deps, { maxTarefas: 10 });
+      const cv8 = await conversa(A.empresa, contato);
+      assert.equal(cv8.estado, "HUMANO");
+      assert.equal(emails.length, antes + 1, "A8: depois de assumida, o 2º aviso não sai");
+      assert.equal(cv8.contexto.avisoEquipe, undefined, "A8: a marca limpa pelo assumir não é regravada");
+      assert.ok(cv8.contexto.avisoEquipeSaida, "A8: fim da passagem registrado");
+    }
+
+    // A9 — prazo do lote: corta no prazo (PARCIAL) e o próximo lote manda só o que faltou.
+    {
+      const contato = "5561900000807", antes: number = emails.length;
+      await receber(servico, contato, PEDIDO);
+      await worker.processarLote(semAviso, { maxTarefas: 10 });
+      let agoraMs = 1_000;
+      await worker.avisarEquipeDoLote(avisoEquipe, { prazo: 1_000, relogio: () => agoraMs });
+      assert.equal(emails.length, antes, "A9: prazo já vencido, nenhum envio começa");
+      assert.equal((await conversa(A.empresa, contato)).contexto.avisoEquipe, undefined, "A9: nem reserva");
+      agoraMs = 0;
+      pausa = async () => { agoraMs = 5_000; };
+      await worker.avisarEquipeDoLote(avisoEquipe, { prazo: 1_000, relogio: () => agoraMs });
+      let cv9 = await conversa(A.empresa, contato);
+      assert.equal(emails.length, antes + 1, "A9: só o e-mail iniciado antes do prazo");
+      assert.equal(cv9.contexto.avisoEquipe.estado, "PARCIAL");
+      assert.equal(cv9.contexto.avisoEquipe.feitos.length, 1);
+      const chave9 = cv9.contexto.avisoEquipe.chave;
+      await worker.avisarEquipeDoLote(avisoEquipe);
+      cv9 = await conversa(A.empresa, contato);
+      assert.equal(emails.length, antes + 2, "A9: o lote seguinte continua sem esperar 10 min");
+      assert.deepEqual(emails.slice(antes).map((m) => m.para).sort(), [A.rep.email, adm.email].sort(), "A9: ninguém recebe duas vezes");
+      assert.equal(cv9.contexto.avisoEquipe.estado, "ENVIADO");
+      assert.equal(cv9.contexto.avisoEquipe.chave, chave9, "A9: mesma passagem");
+      assert.equal(cv9.contexto.avisoEquipe.tentativas, 1, "A9: continuação não conta como nova tentativa");
+    }
+
+    // A10 — motivo de passagem anterior à última saída da fila: e-mail com motivo genérico.
+    {
+      const contato = "5561900000808", antes: number = emails.length;
+      await receber(servico, contato, PEDIDO);
+      await worker.processarLote(semAviso, { maxTarefas: 10 });
+      const cv10 = await conversa(A.empresa, contato);
+      await c.query(`UPDATE whatsapp_atendimento_conversas SET passagem = jsonb_build_object('motivos', '["RECLAMACAO"]'::jsonb, 'em', to_jsonb((clock_timestamp() - interval '3 minutes'))),
+        contexto = contexto || jsonb_build_object('avisoEquipeSaida', to_jsonb(clock_timestamp() - interval '2 minutes')) WHERE id = $1`, [cv10.id]);
+      await worker.avisarEquipeDoLote(avisoEquipe);
+      assert.equal(emails.length, antes + 2);
+      for (const m of emails.slice(antes)) {
+        assert.ok(!m.texto.includes(NOME_MOTIVO.RECLAMACAO), "A10: motivo velho não vai");
+        assert.match(m.texto, /A conversa aguarda a equipe\./, "A10: motivo genérico");
+      }
+    }
+
+    // A11 — retries repetem os motivos da 1ª reserva.
+    {
+      const contato = "5561900000809", antes: number = emails.length;
+      await receber(servico, contato, PEDIDO);
+      await worker.processarLote(semAviso, { maxTarefas: 10 });
+      const cv11 = await conversa(A.empresa, contato);
+      await c.query(`UPDATE whatsapp_atendimento_conversas SET passagem = jsonb_build_object('motivos', '["RECLAMACAO"]'::jsonb, 'em', to_jsonb(clock_timestamp())) WHERE id = $1`, [cv11.id]);
+      falharEmail = true;
+      await worker.avisarEquipeDoLote(avisoEquipe);
+      falharEmail = false;
+      assert.deepEqual((await conversa(A.empresa, contato)).contexto.avisoEquipe.motivos, ["RECLAMACAO"], "A11: motivo fixado na marca");
+      await c.query(`UPDATE whatsapp_atendimento_conversas SET passagem = jsonb_build_object('motivos', '["PAGAMENTO"]'::jsonb, 'em', to_jsonb(clock_timestamp())),
+        contexto = jsonb_set(contexto, '{avisoEquipe,em}', to_jsonb((clock_timestamp() - interval '11 minutes')::text)) WHERE id = $1`, [cv11.id]);
+      await worker.avisarEquipeDoLote(avisoEquipe);
+      assert.equal(emails.length, antes + 2, "A11: retry enviado");
+      for (const m of emails.slice(antes)) {
+        assert.ok(m.texto.includes(NOME_MOTIVO.RECLAMACAO), "A11: mesmo motivo da 1ª reserva");
+        assert.ok(!m.texto.includes(NOME_MOTIVO.PAGAMENTO), "A11: o registro novo não troca o motivo do aviso");
+      }
+      assert.equal((await conversa(A.empresa, contato)).contexto.avisoEquipe.tentativas, 2);
+    }
+
+    // A12 — janela pela passagem, não pela última entrada (entrada reentregue antiga gera passagem agora).
+    {
+      const contato = "5561900000810", antes: number = emails.length;
+      await receber(servico, contato, PEDIDO);
+      await worker.processarLote(semAviso, { maxTarefas: 10 });
+      const cv12 = await conversa(A.empresa, contato);
+      await c.query("UPDATE whatsapp_atendimento_conversas SET ultima_entrada_em = clock_timestamp() - interval '30 hours' WHERE id = $1", [cv12.id]);
+      await worker.avisarEquipeDoLote(avisoEquipe);
+      assert.equal(emails.length, antes + 2, "A12: passagem recente é avisada mesmo com a última entrada antiga");
+      const velho = "5561900000811";
+      await receber(servico, velho, PEDIDO);
+      await worker.processarLote(semAviso, { maxTarefas: 10 });
+      await c.query("UPDATE whatsapp_atendimento_conversas SET atualizada_em = clock_timestamp() - interval '25 hours' WHERE empresa_id = $1 AND contato = $2", [A.empresa, velho]);
+      await worker.avisarEquipeDoLote(avisoEquipe);
+      assert.equal(emails.length, antes + 2, "A12: passagem de mais de 24 h não gera aviso atrasado");
+    }
     assert.ok(envios.length > 0, "o Wall-e respondeu ao cliente pelo transporte simulado");
   } finally {
     await c.end();

@@ -23,6 +23,9 @@ const EXPIRA = new Date('2030-01-01T00:00:00.000Z');
 type Chamada = { acao: string; args: unknown[] };
 const chamadas: Chamada[] = [];
 let respostaLogin: () => Promise<unknown> = async () => ({ token: 'novo-token', csrf: 'novo-csrf', expires: EXPIRA });
+// Fatia 8 (Astra r1, P1): leitura da sessão com empresa selecionada, para o selo "aguardando" do Atendimento.
+let contextoAtual: Record<string, unknown> = { empresaAtual: null };
+let aguardando = 0;
 
 const cache = new Map<string, Record<string, unknown>>();
 const erros = carregarModulo('lib/clientes/services/errors.ts', {}, cache) as { ClienteServiceError: new (c: string, m: string, s: number, d?: unknown) => Error };
@@ -35,6 +38,7 @@ const sessao = { id: 'sessao-anterior', usuario_id: 'usuario-1', csrf_hash: senh
 const rota = carregarModulo('app/api/admin/autenticacao/route.ts', {
     // Banco: só o toque de atividade da sessão (exigirApiAdminCrmDisponivel); qualquer outro SQL falha o teste.
     'db/postgres': { db: () => ({ query: async (sql: string, params: unknown[]) => {
+        if (sql.includes("estado='AGUARDANDO_HUMANO'")) { chamadas.push({ acao: 'selo', args: params }); return { rows: [{ n: aguardando }], rowCount: 1 }; }
         if (!sql.startsWith('UPDATE sessoes_administrativas SET ultima_atividade_em=clock_timestamp() WHERE id=$1')) throw new Error(`SQL inesperado na rota: ${sql}`);
         chamadas.push({ acao: 'atividade', args: params });
         return { rows: [], rowCount: 1 };
@@ -54,13 +58,13 @@ const rota = carregarModulo('app/api/admin/autenticacao/route.ts', {
         },
     },
     'assinatura/paywall': { exigirAcessoComercial: async () => undefined, resumoComercialDaEmpresa: async () => null },
-    'autenticacao/contexto': { contextoDaSessao: async () => ({ empresaAtual: null }) },
+    'autenticacao/contexto': { contextoDaSessao: async () => contextoAtual },
     'autenticacao/empresa-ativa': { selecionarEmpresaAtiva: async () => { throw new Error('fora do escopo'); } },
     'assinatura/recursos-plano': { recursoIncluido: async () => false },
     'marketing/capacidades': { menuMarketingVisivel: async () => false },
     'cadastro/publico': { situacaoCadastro: () => ({ aberto: false }) },
     'comercial/pacotes-admin': { PacoteAdminError },
-}, cache) as { POST: (r: unknown) => Promise<Response> };
+}, cache) as { POST: (r: unknown) => Promise<Response>; GET: (r: unknown) => Promise<Response> };
 
 const { NextRequest } = createRequire(import.meta.url)('next/server') as { NextRequest: new (url: string, init?: RequestInit) => unknown };
 
@@ -85,7 +89,7 @@ function ambiente(extra: Partial<Record<(typeof AMBIENTE)[number], string>>) {
     for (const n of AMBIENTE) delete (process.env as Record<string, string | undefined>)[n];
     Object.assign(process.env, { ADMIN_AUTH_ORIGIN: ORIGEM, NODE_ENV: 'production' }, extra);
 }
-test.beforeEach(() => { chamadas.length = 0; respostaLogin = async () => ({ token: 'novo-token', csrf: 'novo-csrf', expires: EXPIRA }); ambiente({}); });
+test.beforeEach(() => { chamadas.length = 0; contextoAtual = { empresaAtual: null }; aguardando = 0; respostaLogin = async () => ({ token: 'novo-token', csrf: 'novo-csrf', expires: EXPIRA }); ambiente({}); });
 test.after(() => {
     for (const n of AMBIENTE) {
         if (anterior[n] === undefined) delete (process.env as Record<string, string | undefined>)[n];
@@ -208,4 +212,42 @@ test('IP entregue ao login: borda desligada → null; borda confirmada → penú
         console.warn = original;
     }
     assert.ok(avisos.every((m) => !m.includes('177.10.20.30') || m.startsWith('[origem]')), 'só a linha de diagnóstico da origem');
+});
+
+test('sessão Administrativo ou representante (gestão) sem KIDMAIS_DEPLOY_ENV: GET 200 com selo do Atendimento zero, sem derrubar a sessão (Astra r1, P1)', async () => {
+    const empresa = '11111111-1111-4111-8111-111111111111';
+    const leitura = () => new NextRequest(URL_ROTA, { method: 'GET', headers: { origin: ORIGEM, 'user-agent': 'teste-rota-autenticacao', cookie: `${COOKIE}=${TOKEN}; ${COOKIE_CSRF}=${CSRF}` } });
+    for (const papel of ['ADMINISTRATIVO', 'REPRESENTANTE_AUTORIZADO']) {
+        contextoAtual = { empresaAtual: { id: empresa, papel }, gestaoNaEmpresa: papel === 'REPRESENTANTE_AUTORIZADO' };
+        aguardando = 4;
+        chamadas.length = 0;
+        let res = await rota.GET(leitura());
+        assert.equal(res.status, 200, `${papel}: ambiente ausente não derruba a sessão`);
+        let corpo = await res.json();
+        assert.equal(corpo.ok, true);
+        assert.equal(corpo.data.recursos.atendimentoAguardando, 0, `${papel}: selo zero sem ambiente`);
+        assert.ok(!chamadas.some((c) => c.acao === 'selo'), 'sem ambiente, nem consulta');
+        for (const invalido of ['', 'homologacao']) {
+            ambiente({ KIDMAIS_DEPLOY_ENV: invalido });
+            res = await rota.GET(leitura());
+            assert.equal(res.status, 200, `${papel}: ambiente inválido (${invalido || 'vazio'})`);
+            assert.equal((await res.json()).data.recursos.atendimentoAguardando, 0);
+        }
+        // Com o ambiente válido, o mesmo caminho conta as conversas da empresa selecionada.
+        ambiente({ KIDMAIS_DEPLOY_ENV: 'staging' });
+        res = await rota.GET(leitura());
+        corpo = await res.json();
+        assert.equal(res.status, 200);
+        assert.equal(corpo.data.recursos.atendimentoAguardando, 4, `${papel}: selo com ambiente válido`);
+        assert.deepEqual(chamadas.find((c) => c.acao === 'selo')?.args, [empresa, 'staging']);
+        ambiente({});
+    }
+    // Papel sem acesso ao Atendimento: nem consulta, mesmo com ambiente válido.
+    ambiente({ KIDMAIS_DEPLOY_ENV: 'staging' });
+    contextoAtual = { empresaAtual: { id: empresa, papel: 'OPERACIONAL' } };
+    chamadas.length = 0;
+    const res = await rota.GET(leitura());
+    assert.equal(res.status, 200);
+    assert.equal((await res.json()).data.recursos.atendimentoAguardando, 0);
+    assert.ok(!chamadas.some((c) => c.acao === 'selo'));
 });

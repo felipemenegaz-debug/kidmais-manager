@@ -1,8 +1,8 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { configuracaoSchema } from './core.ts';
+import { configuracaoSchema, ehMensagemEncaminhamento, MENSAGEM_ENCAMINHAMENTO, mensagemEncaminhamento } from './core.ts';
 import { avisoEquipeSchema, horaFalada, horarioEquipeSchema, momentoLocal, retornoForaDoHorario, situacaoHorario, type HorarioEquipe } from './horario.ts';
-import { chaveDoAviso, mensagemAvisoEquipe, MOTIVO_RECENTE_MINUTOS, motivosRecentes } from './aviso-equipe.ts';
+import { chaveDoAviso, JANELA_AVISO_HORAS, mensagemAvisoEquipe, motivosDaPassagem, seloAguardandoEquipe } from './aviso-equipe.ts';
 
 // 25/11/2026 é quarta-feira. São Paulo = UTC-3 (sem horário de verão).
 const util = { inicio: '09:00', fim: '18:00' };
@@ -77,12 +77,38 @@ test('e-mail de aviso: motivo e link, nunca texto do cliente; HTML escapado; cha
   assert.deepEqual(Object.keys(m).sort(), ['assunto', 'html', 'idempotencia', 'para', 'texto']);
 });
 
-test('motivos do aviso: só da passagem recente e só valores conhecidos', () => {
+test('motivos do aviso: ligados à passagem atual (Astra r1, P2), não à idade de 30 min', () => {
   const agora = new Date('2026-11-25T15:00:00.000Z');
   const em = (min: number) => new Date(agora.getTime() - min * 60_000).toISOString();
-  assert.deepEqual(motivosRecentes({ motivos: ['PAGAMENTO', 'PAGAMENTO', 'INVENTADO', 3], em: em(5) }, agora), ['PAGAMENTO']);
-  assert.deepEqual(motivosRecentes({ motivos: ['PAGAMENTO'], em: em(MOTIVO_RECENTE_MINUTOS + 1) }, agora), [], 'passagem antiga');
-  assert.deepEqual(motivosRecentes({ motivos: ['PAGAMENTO'], em: em(-5) }, agora), [], 'no futuro');
-  assert.deepEqual(motivosRecentes(null, agora), []);
-  assert.deepEqual(motivosRecentes({ motivos: 'PAGAMENTO', em: em(1) }, agora), []);
+  assert.deepEqual(motivosDaPassagem({ motivos: ['PAGAMENTO', 'PAGAMENTO', 'INVENTADO', 3], em: em(5) }, undefined, agora), ['PAGAMENTO']);
+  // Worker atrasado 31 min (ou horas): a reclamação ainda aguardando mantém o motivo.
+  assert.deepEqual(motivosDaPassagem({ motivos: ['RECLAMACAO'], em: em(31) }, undefined, agora), ['RECLAMACAO'], 'atraso do worker');
+  assert.deepEqual(motivosDaPassagem({ motivos: ['RECLAMACAO'], em: em(JANELA_AVISO_HORAS * 60 + 1) }, undefined, agora), [], 'fora da janela do aviso');
+  // Retomada pela equipe registra a saída; passagem gravada ANTES dela é velha, mesmo com 2 min de idade.
+  assert.deepEqual(motivosDaPassagem({ motivos: ['RECLAMACAO'], em: em(3) }, em(2), agora), [], 'passagem anterior à última saída da fila');
+  assert.deepEqual(motivosDaPassagem({ motivos: ['RECLAMACAO'], em: em(1) }, em(2), agora), ['RECLAMACAO'], 'passagem nova depois da saída');
+  assert.deepEqual(motivosDaPassagem({ motivos: ['RECLAMACAO'], em: em(1) }, 'lixo', agora), [], 'saída ilegível: sem motivo');
+  assert.deepEqual(motivosDaPassagem({ motivos: ['PAGAMENTO'], em: em(-5) }, undefined, agora), [], 'no futuro');
+  assert.deepEqual(motivosDaPassagem(null, undefined, agora), []);
+  assert.deepEqual(motivosDaPassagem({ motivos: 'PAGAMENTO', em: em(1) }, undefined, agora), []);
+});
+
+test('encaminhamento de contingência: frase de horário fora do expediente, texto antigo sem horário (Astra r1, P2)', () => {
+  assert.equal(mensagemEncaminhamento(undefined, sp('2026-11-25T23:00:00')), MENSAGEM_ENCAMINHAMENTO, 'sem horário: igual a antes');
+  assert.equal(mensagemEncaminhamento(semana, sp('2026-11-25T10:00:00')), MENSAGEM_ENCAMINHAMENTO, 'dentro do horário: igual a antes');
+  const fora = mensagemEncaminhamento(semana, sp('2026-11-25T23:00:00'));
+  assert.equal(fora, 'Não consigo responder automaticamente agora. Encaminhei sua mensagem para a equipe. ' + retornoForaDoHorario(semana, sp('2026-11-25T23:00:00')));
+  assert.match(fora, /fora do horário de atendimento: a equipe responde amanhã/);
+  const sabado = mensagemEncaminhamento(semana, sp('2026-11-28T10:00:00'));
+  assert.notEqual(sabado, MENSAGEM_ENCAMINHAMENTO);
+  // Todos os textos fixos continuam isentos da revogação por configuração no envio; textos do modelo não.
+  for (const t of [MENSAGEM_ENCAMINHAMENTO, fora, sabado]) assert.ok(ehMensagemEncaminhamento(t), t);
+  for (const t of ['Oi! Encaminhei sua mensagem para a equipe.', fora + ' Algo mais', fora.replace(/.$/, ''), null, undefined]) assert.ok(!ehMensagemEncaminhamento(t), String(t));
+});
+
+test('selo do menu: ambiente inválido ou banco fora dão 0, sem derrubar a sessão (Astra r1, P1)', async () => {
+  const banco = (n: number) => ({ query: async () => ({ rows: [{ n }] }) }) as never;
+  assert.equal(await seloAguardandoEquipe(banco(3), 'e', () => 'staging'), 3);
+  assert.equal(await seloAguardandoEquipe(banco(3), 'e', () => { throw new Error('KIDMAIS_DEPLOY_ENV ausente'); }), 0, 'ambiente lança de forma síncrona');
+  assert.equal(await seloAguardandoEquipe({ query: async () => { throw new Error('42P01'); } } as never, 'e', () => 'staging'), 0, 'banco falha');
 });
