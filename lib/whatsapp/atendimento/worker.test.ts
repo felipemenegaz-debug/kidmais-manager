@@ -6,6 +6,7 @@ import * as core from './core.ts';
 import * as transporte from './transporte.ts';
 import * as arquivos from './arquivos.ts';
 import * as multiempresa from './multiempresa.ts';
+import * as avisoEquipe from './aviso-equipe.ts';
 import * as motivoFalha from './motivo-falha.ts';
 import * as oportunidade from './walle/oportunidade.ts';
 import type { Conversa, Mensagem } from './service.ts';
@@ -22,7 +23,7 @@ function carregar(consulta: (sql: string, args?: unknown[]) => Promise<{rows: un
     '../../db/postgres.ts':{db:()=>({query}),withTransaction:async(fn:(tx:unknown)=>unknown)=>fn({query})},
     './configuracao.ts':{entendimentoSoRegras:()=>modoRegras.ativo,ambienteAtendimento:()=> 'staging',empresaPiloto:()=> 'e',atendimentoAtivo:()=>ativo,contatoPermitido:()=>permitido,origemMidia:()=>null},
     './arquivos.ts':arquivos,
-    './multiempresa.ts':multiempresa,
+    './multiempresa.ts':multiempresa, './aviso-equipe.ts': avisoEquipe,
     './core.ts':core,
     './motivo-falha.ts':motivoFalha,
     // 3b: teto mensal da Meta fora do alcance destas unidades (provado no PostgreSQL em teto-mensal.postgres.test.ts).
@@ -548,7 +549,11 @@ test('modo regras é conferido a cada uso: o worker lê a variável do canal (n�
   const raiz=readFileSync('app/api/admin/inteligencia/whatsapp/modelo.ts','utf8');
   assert.match(raiz,/interpretar: comModelo \? interpretarMensagem : null, entender: comModelo \? entenderComModelo : null/);
   // E-ME1: o envio leva a empresa dona da saída (alvo) para enviarPelaEmpresa.
-  assert.match(raiz,/processarLote\(\{interpretar:portas\.interpretar,enviar:\(contato, conteudo, alvo\) => enviarPelaEmpresa\(contato, conteudo, \{ alvo \}\),wallE:criarPortaWallE\(portas\.entender, \{ sinais: sinaisJev, direitoModelo: direitoModeloAtendimento \}\),direitoModelo:direitoModeloAtendimento\}/);
+  assert.match(raiz,/processarLote\(\{interpretar:portas\.interpretar,enviar:\(contato, conteudo, alvo\) => enviarPelaEmpresa\(contato, conteudo, \{ alvo \}\),wallE:criarPortaWallE\(portas\.entender, \{ sinais: sinaisJev, direitoModelo: direitoModeloAtendimento \}\),direitoModelo:direitoModeloAtendimento,/);
+  // Fatia 8: a porta do aviso vem da rota do processador (fora da pasta da IA) e só existe com o e-mail configurado.
+  assert.match(raiz,/direitoModelo:direitoModeloAtendimento,avisoEquipe\}/);
+  const rotaProcessar=readFileSync('app/api/integracoes/gupshup/atendimento/processar/route.ts','utf8');
+  assert.match(rotaProcessar,/const avisoEquipe = situacaoEmail\(\)\.configurado \? \{ enviar: criarEnviarEmail\(\), origem: \(\) => origemPublica\(\) \} : undefined;\n\s*return Response\.json\(await processarFilaAtendimento\(avisoEquipe\)/);
 });
 
 // Correção da pausa: a pausa reconhecida pelas regras vem antes do limite diário; nada sai, nem o texto fixo.

@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto';
 import { trechoParaRegistro, type ConfiguracaoAtendimento } from '../core.ts';
+import { retornoForaDoHorario } from '../horario.ts';
 import type { Finalidade } from '../prontas.ts';
 import { comPendente, jaEnviado, mesclarContexto, registrarEnviado } from './contexto.ts';
 import { clausulasDoTema, modeloVigente } from './contrato-modelo.ts';
@@ -1238,6 +1239,13 @@ export function partirMensagem(paragrafos: { texto: string; fontes: Fonte[] }[],
  * Uma rodada do Wall-e para a mensagem do cliente. `contexto` é a memória anterior; o resultado traz as mensagens a
  * enviar (texto + anexos autorizados, cada uma com as fontes), a memória nova e, se for o caso, o resumo da passagem.
  */
+/**
+ * Fatia 8: fecho da frase de passagem ao cliente. Dentro do horário da equipe, ou sem horário cadastrado, o texto de
+ * sempre; fora do horário, a frase fixa de retorno (horario.ts), montada por código, nunca pelo modelo.
+ */
+function fechoDaPassagem(config: ConfiguracaoAtendimento, agora: string) {
+  return retornoForaDoHorario(config.horarioEquipe, new Date(agora)) || 'Em breve alguém responde por aqui.';
+}
 export async function resolverWallE(entrada: { texto: string; entendimento: Entendimento; contexto: ContextoWallE; config: ConfiguracaoAtendimento; catalogos: Catalogos; agora: string }, fontes: FontesWallE, opcoes: { sugestao?: boolean } = {}): Promise<ResultadoWallE> {
   const { catalogos } = entrada;
   const afastados = cuidadosAfastaveis(entrada.entendimento);
@@ -1292,7 +1300,7 @@ export async function resolverWallE(entrada: { texto: string; entendimento: Ente
     // Rodada 18: sem motivo técnico ao cliente. Pedido sobre contrato ou pagamento (de outra pessoa, por exemplo): o aviso
     // de segurança, sem nenhum dado.
     const seguranca = motivos.includes('CONTRATO_PROPRIO') || motivos.includes('PAGAMENTO') ? 'Por segurança, não consulto nem informo dados de contratos ou pagamentos por aqui.\n\n' : '';
-    const aviso = `${seguranca}${PASSAGEM_AO_CLIENTE.INSTRUCAO_SUSPEITA} Em breve alguém responde por aqui.`;
+    const aviso = `${seguranca}${PASSAGEM_AO_CLIENTE.INSTRUCAO_SUSPEITA} ${fechoDaPassagem(entrada.config, entrada.agora)}`;
     return { saidas: opcoes.sugestao ? [] : [{ texto: aviso, anexo: null, fontes: [] }], contexto: comPendente(semDadosDaMensagem(e.ctx, entrada.contexto), [], 'OUTRO'), passagem };
   }
   if (s?.reclamacao) passar(e, 'RECLAMACAO');
@@ -1548,7 +1556,7 @@ export async function resolverWallE(entrada: { texto: string; entendimento: Ente
     // Rodada 18: com a passagem não há o que pedir — a abertura da coleta ("preciso de poucos dados") sai junto.
     // Rodada 26: a confirmação da data da contratação também não sai: a equipe confirma (fica nas pendências da passagem).
     e.paragrafos = e.paragrafos.filter((p) => p.texto !== COLETA && p.texto !== VALORES_DEPENDEM && !p.texto.startsWith(CONFIRMA_CONTRATACAO));
-    if (!opcoes.sugestao) dizer(e, motivo === 'CONTRATACAO' ? PASSAGEM_AO_CLIENTE.CONTRATACAO : `${PASSAGEM_AO_CLIENTE[motivo]} Em breve alguém responde por aqui.`);
+    if (!opcoes.sugestao) dizer(e, motivo === 'CONTRATACAO' ? [PASSAGEM_AO_CLIENTE.CONTRATACAO, retornoForaDoHorario(e.config.horarioEquipe, new Date(e.agora))].filter(Boolean).join(' ') : `${PASSAGEM_AO_CLIENTE[motivo]} ${fechoDaPassagem(e.config, e.agora)}`);
     passagem = {
       motivo, motivos: [...e.encaminhar], em: e.agora,
       coletado: { data: e.ctx.data ?? null, turno: turnoTexto(catalogos, e.ctx.turno), convidados: e.ctx.convidados ?? null, pacote: nomePacote(catalogos, e.ctx.pacote), unidade: nomeUnidade(catalogos, e.ctx.unidade), tema: e.ctx.tema ?? null },

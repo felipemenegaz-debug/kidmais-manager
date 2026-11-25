@@ -10,6 +10,8 @@ import type { Passagem, ResultadoWallE } from './walle/tipos.ts';
 import { capturarOportunidadesPendentes, qualificaPedidoFesta, SQL_MARCA_PENDENTE, temMarcaPendente } from './walle/oportunidade.ts';
 import type { DbExecutor } from '../../db/contracts.ts';
 import { CHAVE_RODIZIO, eTransitorio, ehPilotoDe, empresaOperaAtendimento, empresasNaOrdemDoRodizio, lerPortao, modoEfetivo, pilotoOpcional, registrarVezDoRodizio, travarProvedor } from './multiempresa.ts';
+import { avisarPassagensPendentes } from './aviso-equipe.ts';
+import type { EnviarEmail } from '../../acessos/email.ts';
 
 /**
  * Porta do Wall-e (082), montada na composition root: entende a mensagem (modelo revalidado ou regras locais) e
@@ -26,7 +28,9 @@ export type PortaWallE = { responder(entrada: { empresa: string; ambiente: strin
  * ambiente diferente do processo.
  */
 export type AlvoEnvio = { empresaId: string; ambiente: string; conversaId: string; saidaId: string; piloto: boolean };
-export type DependenciasWorker = { interpretar: ((empresa: string, texto: string, config: ConfiguracaoAtendimento) => Promise<Interpretacao>) | null; enviar(contato: string, conteudo: ConteudoSaida, alvo: AlvoEnvio): Promise<string>; wallE?: PortaWallE; direitoModelo?: (empresa: string) => Promise<boolean> };
+/** `avisoEquipe` (fatia 8): porta de e-mail e origem pública do painel para o aviso de passagem; ausente = sem aviso. */
+export type DependenciasWorker = { interpretar: ((empresa: string, texto: string, config: ConfiguracaoAtendimento) => Promise<Interpretacao>) | null; enviar(contato: string, conteudo: ConteudoSaida, alvo: AlvoEnvio): Promise<string>; wallE?: PortaWallE; direitoModelo?: (empresa: string) => Promise<boolean>; avisoEquipe?: PortaAvisoEquipe };
+export type PortaAvisoEquipe = { enviar: EnviarEmail; origem: () => string };
 /**
  * Saída parada na fila além deste prazo (automação, chave da IA ou empresa desligadas e religadas depois) não sai mais:
  * uma resposta de horas atrás chegaria fora de contexto. O atendente vê "Não enviada" e pode responder de novo.
@@ -131,7 +135,12 @@ export async function processarLote(deps: DependenciasWorker, opcoes: { maxTaref
   const max = opcoes.maxTarefas ?? 20, prazo = opcoes.prazoMs ?? 30000, relogio = opcoes.relogio ?? Date.now;
   if (!atendimentoAtivo()) return { estado: 'DESLIGADO' as const, tarefas: 0 };
   // Revisão final (M3): automação global desligada ⇒ esvazia a fila para a equipe, sem modelo, Wall-e nem envio.
-  if (opcoes.semAutomacao) return encaminharFilaSemAutomacao();
+  if (opcoes.semAutomacao) {
+    const r = await encaminharFilaSemAutomacao();
+    // Fatia 8: sem automação, a fila vai inteira para a equipe; o aviso por e-mail vale igual.
+    await avisarEquipeDoLote(deps.avisoEquipe);
+    return r;
+  }
   await limparStatusExpirados();
   const inicio = relogio();
   let tarefas = 0;
@@ -145,7 +154,23 @@ export async function processarLote(deps: DependenciasWorker, opcoes: { maxTaref
   }
   // Wall-e 1a: depois das respostas e envios do lote, os cartões do funil das conversas marcadas (recuperação própria).
   if (estado !== 'DESLIGADO') await capturarOportunidadesDoLote();
+  // Fatia 8: aviso por e-mail das conversas que passaram para a equipe (um por passagem).
+  if (estado !== 'DESLIGADO') await avisarEquipeDoLote(deps.avisoEquipe);
   return { estado, tarefas };
+}
+/**
+ * Fatia 8: e-mail à equipe das passagens ainda sem aviso (aviso-equipe.ts). Nunca lança: falha fica no log (só o
+ * código) e a marca deixa repetir com a mesma chave. Sem a 082 (marca em `contexto`) ou sem a porta, nada acontece.
+ */
+export async function avisarEquipeDoLote(porta: PortaAvisoEquipe | undefined) {
+  if (!porta) return;
+  try {
+    if (!(await tem082(db()))) return;
+    const r = await avisarPassagensPendentes(withTransaction, ambienteAtendimento(), porta.enviar, porta.origem());
+    for (const codigo of r.falhas) console.warn('[Atendimento WhatsApp] aviso à equipe não enviado (%s); tenta de novo depois.', codigo);
+  } catch (erro) {
+    console.warn('[Atendimento WhatsApp] aviso à equipe não enviado (%s); tenta de novo depois.', motivoSeguro(erro));
+  }
 }
 /**
  * Wall-e 1a: captura dos cartões do funil marcados pela resposta. Nunca lança: falha fica no log (só o código) e a marca

@@ -117,6 +117,7 @@ const ESTADO_POSTGRES = {
   "lib/whatsapp/atendimento/migration-081.postgres.test.ts": { descartavel: "atual" },
   "lib/whatsapp/atendimento/migration-082.postgres.test.ts": { descartavel: "atual" },
   "lib/whatsapp/atendimento/walle/walle-worker.postgres.test.ts": { descartavel: "atual" },
+  "lib/whatsapp/atendimento/walle/aviso-equipe.postgres.test.ts": { descartavel: "atual" },
   "lib/whatsapp/atendimento/walle/agenda-escopo.postgres.test.ts": { descartavel: "063", tambem: ["094"] },
   "lib/pagamentos/estorno-completo.postgres.test.ts": { descartavel: "atual", tambem: ["061", "062", "094"] },
   "lib/pagamentos/gates-c2.postgres.test.ts": { descartavel: "atual" },

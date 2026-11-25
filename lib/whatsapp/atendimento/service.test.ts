@@ -5,6 +5,7 @@ import * as core from './core.ts';
 import * as arquivos from './arquivos.ts';
 import * as entendimento from './walle/entendimento.ts';
 import * as multiempresa from './multiempresa.ts';
+import * as avisoEquipe from './aviso-equipe.ts';
 import * as tetoMensal from './teto-mensal.ts';
 import type { Conversa } from './service.ts';
 
@@ -45,7 +46,7 @@ function carregar(op: Opcoes = {}) {
     // Pesquisa de satisfação (110): sem a tabela, PARAR não suprime nada (os casos de PARAR com a 110 estão na suíte PG).
     '../../satisfacao/supressao.ts': { pesquisaInstalada: async () => false, suprimirPesquisas: async () => ({ execucoes: 0, entregas: 0 }), clientesDoNumero: async () => [] },
     '../../marketing/automacoes/preferencias.ts': { elegivelParaMensagem: async () => ({ ok: true }) },
-    './multiempresa.ts': multiempresa,
+    './multiempresa.ts': multiempresa, './aviso-equipe.ts': avisoEquipe,
     './teto-mensal.ts': tetoMensal,
   }).modulo as typeof import('./service.ts');
   const sqls = (trecho: string) => comandos.filter(c => c.sql.includes(trecho));

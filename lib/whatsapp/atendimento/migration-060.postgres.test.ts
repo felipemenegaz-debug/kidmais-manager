@@ -17,6 +17,7 @@ import * as preferencias from "../../marketing/automacoes/preferencias.ts";
 import type { ConteudoSaida } from "./transporte.ts";
 import { transporteSemRede } from "./harness-postgres.ts";
 import * as multiempresa from "./multiempresa.ts";
+import * as avisoEquipe from "./aviso-equipe.ts";
 import * as motivoFalha from "./motivo-falha.ts";
 import * as tetoMensal from "./teto-mensal.ts";
 import * as oportunidade from "./walle/oportunidade.ts";
@@ -88,11 +89,11 @@ function carregar(empresaPiloto: string) {
     "./walle/entendimento.ts": entendimento,
     "../../satisfacao/supressao.ts": supressao,
     "../../marketing/automacoes/preferencias.ts": preferencias,
-    "./multiempresa.ts": multiempresa,
+    "./multiempresa.ts": multiempresa, "./aviso-equipe.ts": avisoEquipe,
     "./teto-mensal.ts": tetoMensal,
   }).modulo as Servico;
   const worker = carregarComponente("lib/whatsapp/atendimento/worker.ts", {
-    "../../db/postgres.ts": postgres, "./configuracao.ts": configuracao, "./core.ts": core, "./service.ts": servico, "./transporte.ts": transporteSemRede, "./arquivos.ts": arquivos, "./multiempresa.ts": multiempresa, "./motivo-falha.ts": motivoFalha, "./walle/oportunidade.ts": oportunidade, "./teto-mensal.ts": tetoMensal,
+    "../../db/postgres.ts": postgres, "./configuracao.ts": configuracao, "./core.ts": core, "./service.ts": servico, "./transporte.ts": transporteSemRede, "./arquivos.ts": arquivos, "./multiempresa.ts": multiempresa, "./aviso-equipe.ts": avisoEquipe, "./motivo-falha.ts": motivoFalha, "./walle/oportunidade.ts": oportunidade, "./teto-mensal.ts": tetoMensal,
   }).modulo as Worker;
   return { servico, worker };
 }

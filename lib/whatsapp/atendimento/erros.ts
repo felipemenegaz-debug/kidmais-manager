@@ -39,6 +39,7 @@ const MENSAGEM: Record<string, string> = {
   ATENDIMENTO_REAUTENTICACAO: 'Confirme sua senha antes desta ação.',
   ATENDIMENTO_GRUPO_PARCIAL: 'Parte desta resposta já foi enviada e este arquivo ainda está na fila. Esperar não resolve: assuma ou encerre a conversa (a fila automática sai) e revogue de novo. Nada foi alterado.',
   ATENDIMENTO_CONTATO_INVALIDO: 'Informe o número completo, só com dígitos (DDI, DDD e número).',
+  ATENDIMENTO_AVISO_DESTINATARIO: 'Os e-mails de aviso precisam ser de pessoas com acesso ao Atendimento desta empresa (Gestão ou Administrativo), com o acesso ativo.',
   ATENDIMENTO_PRONTA_MIDIA_ALTERADA: 'A foto ou o vídeo desta mensagem pronta mudou ou foi removido depois da prévia. Nada foi enviado: remova o anexo e abra a prévia de novo para revisar.',
 };
 // Regra de negócio não é indisponibilidade: só falha inesperada (banco, configuração) devolve 503.
@@ -46,7 +47,7 @@ const CONFLITO = ['ATENDIMENTO_CARDAPIO_INDISPONIVEL', 'ATENDIMENTO_DESATUALIZAD
   'ATENDIMENTO_PRONTA_ATALHO_EM_USO', 'ATENDIMENTO_PRONTA_TITULO_EM_USO', 'ATENDIMENTO_PRONTA_DESATUALIZADA', 'ATENDIMENTO_PRONTA_MIDIA_ALTERADA', 'ATENDIMENTO_RECURSO_082_INDISPONIVEL', 'ATENDIMENTO_ARQUIVO_INVALIDO',
   'ATENDIMENTO_ARQUIVO_INDISPONIVEL', 'ATENDIMENTO_ARQUIVO_VENCIDO', 'ATENDIMENTO_ARQUIVO_NAO_VENCIDO', 'ATENDIMENTO_EXCLUSAO_ADIADA', 'ATENDIMENTO_GRUPO_PARCIAL'];
 // Dado informado inválido (data, prazo): 400, nunca 503.
-const INVALIDO = ['ATENDIMENTO_DATA_INVALIDA', 'ATENDIMENTO_PRAZO_INVALIDO', 'ATENDIMENTO_CONTATO_INVALIDO'];
+const INVALIDO = ['ATENDIMENTO_DATA_INVALIDA', 'ATENDIMENTO_PRAZO_INVALIDO', 'ATENDIMENTO_CONTATO_INVALIDO', 'ATENDIMENTO_AVISO_DESTINATARIO'];
 const NAO_ENCONTRADO = ['ATENDIMENTO_NAO_ENCONTRADO', 'ATENDIMENTO_ARQUIVO_NAO_ENCONTRADO', 'ATENDIMENTO_PRONTA_NAO_ENCONTRADA', 'ATENDIMENTO_PACOTE_NAO_ENCONTRADO', 'ATENDIMENTO_UNIDADE_NAO_ENCONTRADA'];
 // Recusas de acesso (antes de ler ou gravar qualquer coisa): papel, vínculo e empresa ativa (063 do painel).
 const ACESSO = ['ATENDIMENTO_ACESSO_NEGADO', 'ATENDIMENTO_REAUTENTICACAO', 'ATENDIMENTO_SEM_ACESSO', 'ATENDIMENTO_EMPRESA_DIVERGENTE', 'ATENDIMENTO_EMPRESA_NAO_SELECIONADA'];

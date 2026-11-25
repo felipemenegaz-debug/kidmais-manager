@@ -16,6 +16,8 @@ import { recursoIncluido } from '@/lib/assinatura/recursos-plano';
 import { menuMarketingVisivel } from '@/lib/marketing/capacidades';
 import { menuSatisfacao } from '@/lib/satisfacao/escopo';
 import { situacaoCadastro } from '@/lib/cadastro/publico';
+import { contarAguardandoEquipe, PAPEIS_AVISO } from '@/lib/whatsapp/atendimento/aviso-equipe';
+import { ambienteAtendimento } from '@/lib/whatsapp/atendimento/configuracao';
 import { PacoteAdminError } from '@/lib/comercial/pacotes-admin';
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -57,10 +59,13 @@ export async function GET(request: NextRequest) {
             // Recursos do plano, só para o menu (a barreira está nas APIs). Falha de leitura esconde o item, não derruba a sessão.
             const marketingVisivel = contexto.empresaAtual ? await menuMarketingVisivel(db(),contexto.empresaAtual.id,session.usuario_id,contexto.gestaoNaEmpresa,recursoIncluido) : false;
             const pedidosNovos = marketingVisivel && contexto.empresaAtual ? await db().query<{n:number}>("SELECT count(*)::int AS n FROM marketing_contatos WHERE empresa_id=$1::uuid AND status='NOVO'",[contexto.empresaAtual.id]).then(r=>r.rows[0]?.n??0).catch(()=>0) : 0;
+            // Fatia 8: selo "aguardando" do Atendimento, só para quem tem acesso a ele (mesmos papéis de acessoAtendimento).
+            const atendimentoAguardando = contexto.empresaAtual && (PAPEIS_AVISO as readonly string[]).includes(contexto.empresaAtual.papel)
+                ? await contarAguardandoEquipe(db(), contexto.empresaAtual.id, ambienteAtendimento()).catch(() => 0) : 0;
             const recursos = contexto.empresaAtual
                 ? {
                     financeiroCompleto: await recursoIncluido(db(), contexto.empresaAtual.id, 'FINANCEIRO_COMPLETO').catch(() => false),
-                    marketing: marketingVisivel, pedidosNovos,
+                    marketing: marketingVisivel, pedidosNovos, atendimentoAguardando,
                     // PS-4: menu Satisfação relido numa instrução (membership, vigência, papel e concessões); erro → null (oculto).
                     satisfacao: await menuSatisfacao(db(), contexto.empresaAtual.id, session.usuario_id),
                 }

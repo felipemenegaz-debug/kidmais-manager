@@ -5,6 +5,7 @@ import { atendimentoAtivo, ambienteAtendimento, contatoPermitido, empresaPiloto,
 import { contaNoTeto, reservarConsumo } from './teto-mensal.ts';
 import { APP_META, JANELA_REENTREGA_DIAS, configuracaoSchema, comandoDireto, passagemSemRespostaAutomatica, pausaPedidaNaRecepcao, semAutomatico, janelaAberta, nomePerfilSeguro, situacaoCadastro, type CadastroContato, type Entrada } from './core.ts';
 import { ARQUIVO_DISPONIVEL_SQL, caminhoPublicoArquivo } from './arquivos.ts';
+import { destinatariosAutorizados, limparAvisoEquipe } from './aviso-equipe.ts';
 import { registroDaPausa, registroDoBloqueio } from './walle/entendimento.ts';
 import { clientesDoNumero, pesquisaInstalada, suprimirPesquisas } from '../../satisfacao/supressao.ts';
 import { elegivelParaMensagem } from '../../marketing/automacoes/preferencias.ts';
@@ -177,7 +178,11 @@ export async function receberEntrada(entrada: Entrada, opcoes: { automacaoGlobal
       // fica na fila da equipe (AGUARDANDO_HUMANO + passagem, só com a 082), sem reabrir o contato.
       const registro = (await tem082(tx)) ? registroDoBloqueio(entrada.texto, em) : null;
       if (registro) await tx.query("UPDATE whatsapp_atendimento_conversas SET estado='AGUARDANDO_HUMANO',nao_contatar=true,passagem=$2::jsonb,versao=versao+1 WHERE id=$1", [conversa.id, JSON.stringify(registro)]);
-      else await tx.query("UPDATE whatsapp_atendimento_conversas SET estado='ENCERRADA',nao_contatar=true,versao=versao+1 WHERE id=$1", [conversa.id]);
+      else {
+        await tx.query("UPDATE whatsapp_atendimento_conversas SET estado='ENCERRADA',nao_contatar=true,versao=versao+1 WHERE id=$1", [conversa.id]);
+        // Fatia 8: a conversa saiu da fila da equipe; uma passagem futura terá o próprio aviso.
+        if (await tem082(tx)) await limparAvisoEquipe(tx, conversa.id);
+      }
       // Saídas ainda na fila não saem mais. SKIP LOCKED (como no encerramento): a que o worker segura neste instante é
       // cancelada por ele mesmo ao revalidar sob a trava da conversa (nao_contatar).
       await tx.query(`UPDATE whatsapp_atendimento_mensagens SET estado='CANCELADA' WHERE id IN (SELECT id FROM whatsapp_atendimento_mensagens
@@ -457,6 +462,8 @@ export async function controlarAtendimento(sessao: SessaoParaTenant, pedido: { a
     // Rodada 22: o cliente pediu para parar (sem bloqueio definitivo): só a equipe responde, o Wall-e não volta.
     if (pedido.acao === 'retomar' && semAutomatico(conversa)) throw new Error('ATENDIMENTO_PAUSA_PEDIDA');
     await tx.query('UPDATE whatsapp_atendimento_conversas SET estado=$2,responsavel_id=$3,versao=versao+1,atualizada_em=clock_timestamp() WHERE id=$1', [conversa.id, estado, estado === 'HUMANO' ? sessao.usuario_id : null]);
+    // Fatia 8: assumida, devolvida ao Wall-e ou encerrada, a conversa saiu da fila: a próxima passagem gera novo aviso.
+    if (await tem082(tx)) await limparAvisoEquipe(tx, conversa.id);
     await tx.query('INSERT INTO whatsapp_atendimento_auditoria(empresa_id,ambiente,usuario_id,acao,conversa_id) VALUES($1,$2,$3,$4,$5)', [empresa, ambiente, sessao.usuario_id, pedido.acao, conversa.id]);
     return { canceladas };
   });
@@ -469,6 +476,12 @@ export async function salvarConfiguracao(sessao: SessaoParaTenant, valor: unknow
     // C2 + C4. Configurar desligado antes de conectar continua possível no MULTI.
     await exigirEscritaAtendimento(tx, tenant.empresaComprovada);
     const config = configuracaoSchema.parse(valor);
+    // Fatia 8: só pessoas autorizadas da empresa recebem o aviso (de novo conferido a cada envio, aviso-equipe.ts).
+    const emails = config.avisoEquipe?.emails ?? [];
+    if (emails.length) {
+      const autorizados = new Set(await destinatariosAutorizados(tx, tenant.empresaComprovada, emails));
+      if (emails.some((e) => !autorizados.has(e))) throw new Error('ATENDIMENTO_AVISO_DESTINATARIO');
+    }
     if (config.ativo && !atendimentoAtivo()) throw new Error('ATENDIMENTO_AUTOMACAO_DESLIGADA');
     if (config.ativo) await exigirOperacao(tx, tenant.empresaComprovada, ambienteAtendimento());
     await tx.query(`INSERT INTO whatsapp_atendimento_config(empresa_id,ambiente,configuracao) VALUES($1,$2,$3::jsonb) ON CONFLICT(empresa_id,ambiente) DO UPDATE SET configuracao=EXCLUDED.configuracao,atualizada_em=clock_timestamp()`, [tenant.empresaComprovada, ambienteAtendimento(), JSON.stringify(config)]);

@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { pedidoDeParar } from './opt-out.ts';
+import { avisoEquipeSchema, horarioEquipeSchema } from './horario.ts';
 import type { Passagem } from './walle/tipos.ts';
 import { ALERGIA } from './walle/alergia.ts';
 
@@ -13,6 +14,10 @@ export const configuracaoSchema = z.object({
   // Wall-e (082): atendimento com fontes oficiais (agenda, pacotes, preço, buffet, biblioteca autorizada, contrato modelo).
   // Ausente ou desligado: o atendimento da fase B (respostas publicadas e encaminhamento). Sem a 082, fica desligado.
   wallE: z.object({ ativo: z.boolean() }).strict().optional(),
+  // Fatia 8 (25/11/2026, sem migration): horário da equipe por dia (fuso de São Paulo) e e-mails de aviso da passagem.
+  // Opcionais: sem horário, a frase da passagem não muda; sem e-mails, nenhum aviso sai (horario.ts, aviso-equipe.ts).
+  horarioEquipe: horarioEquipeSchema.optional(),
+  avisoEquipe: avisoEquipeSchema.optional(),
 }).strict().refine(v => new Set(v.perguntas.map(p => p.id)).size === v.perguntas.length, 'Identificadores repetidos.');
 export type ConfiguracaoAtendimento = z.infer<typeof configuracaoSchema>;
 /** Texto fixo quando a IA não pode responder (modelo indisponível ou orçamento recusado): encaminha sem inventar conteúdo.
