@@ -32,7 +32,8 @@ const NOME_DESTINO = '.kidmais-conferencia-b5-producao';
 const DESTINO = DEPLOY + '/' + NOME_DESTINO;
 const SERVICO = 'srv-dak77m2d0e5s73b8rkkg';
 const LIMITE_PARTE = 40000;
-const CARGA_PARTE = 31000;
+// D-LAN-4: 35000 (era 31000; r2 34000) — o agregador cresceu com o recorte do teste autorizado e, na r3, com a visibilidade do B-15.
+const CARGA_PARTE = 35000;
 const SOBRA_POR_ARQUIVO = 320;
 const AGREGADOR = 'scripts/conferencia-b5-producao.cjs';
 /**

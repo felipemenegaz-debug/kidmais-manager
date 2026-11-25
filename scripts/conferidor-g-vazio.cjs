@@ -60,7 +60,7 @@ const CREDITOS_PAGOS = ['ia_credito_pedidos', 'ia_credito_cobrancas', 'ia_credit
 const CREDITOS_GERAIS = ['ia_credito_carteiras', 'ia_credito_lotes', 'ia_credito_lancamentos', 'ia_credito_reservas', 'ia_credito_reserva_lotes', 'ia_credito_cortesias', 'ia_credito_cortes', 'ia_credito_notificacoes'];
 /** Matriz fechada da §9.2.2, com a migration que cria cada objeto. */
 const MATRIZ = Object.freeze([
-  ...sv(['empresa_assinaturas'], 'VAZIA', 'nucleo', '067'), ...sv(['cobranca_eventos'], 'VAZIA', 'nucleo', '068'),
+  ...sv(['empresa_assinaturas'], 'VAZIA_SALVO_TESTE', 'nucleo', '067'), ...sv(['cobranca_eventos'], 'VAZIA', 'nucleo', '068'),
   ...sv(['assinatura_fundadores', 'assinatura_contratacoes'], 'VAZIA', 'nucleo', '074a'), ...sv(['assinatura_renovacoes'], 'VAZIA', 'nucleo', '075'), ...sv(['assinatura_avisos'], 'VAZIA', 'nucleo', '087'),
   ...sv(['assinatura_encerramentos'], 'VAZIA', 'encerramento', '089'), ...sv(['assinatura_comprovantes'], 'VAZIA', 'encerramento', '096'), ...sv(['assinatura_arrependimentos'], 'VAZIA', 'encerramento', '097'),
   ...sv(['assinatura_campanhas'], 'VAZIA', 'campanha', '090'), ...sv(CREDITOS_PAGOS, 'VAZIA', 'creditos_pagos', '095'), ...sv(CREDITOS_GERAIS, 'VAZIA', 'creditos_gerais', '095'),
@@ -332,11 +332,60 @@ const L1_DESLIGADAS = Object.freeze(['CADASTRO_PUBLICO_ATIVO', 'ASSINATURA_PLANO
 const L1_AUSENTES = Object.freeze(['ASAAS_API_KEY', 'ASAAS_WEBHOOK_TOKEN']);
 const SERVICOS_L1 = Object.freeze(['web', 'cron-avisos', 'cron-reconciliacao']);
 
+/**
+ * D-LAN-4 (D-VZ-5): "production vazia de cobrança, salvo teste autorizado". A prova é a auditoria do painel (insert-only, mesma transação
+ * do serviço): origem PAINEL_DESENVOLVEDOR, entidade EMPRESA, resultado SUCESSO. O B5 repete este texto e a unitária confere a igualdade.
+ * Teste autorizado: linha TESTE/UNICO com documento, sem nada de cobrança, com exatamente um INICIADO do painel cuja testeInicio bate
+ * (milissegundo: o serviço devolve ISO com MS e grava clock_timestamp() com microssegundos) e cujo teste_fim é a maior ocorrência válida:
+ * o testeFim do INICIADO (milissegundo) ou o de uma extensão vigente, ligada à exceção pelo excecaoId (exato: o serviço grava o mesmo texto).
+ * Extensão revogada deixa o teste fora do recorte (lado seguro). Extensão autorizada: EXTENSAO_TESTE não revogada, de um teste autorizado,
+ * com exatamente um ESTENDIDO do painel pelo excecaoId e valida_ate igual ao testeFim dele.
+ */
+const ORIGEM_PAINEL = 'PAINEL_DESENVOLVEDOR';
+const ACOES_TESTE = Object.freeze(['COMERCIAL_TESTE_INICIADO', 'COMERCIAL_TESTE_ESTENDIDO']);
+const COLUNAS_NULAS_NO_TESTE = Object.freeze(['ciclo', 'periodo_atual_fim', 'em_atraso_desde', 'cancelada_em', 'encerrada_em', 'provedor', 'provedor_cliente_id', 'provedor_assinatura_id', 'provedor_situacao', 'sincronizado_em', 'contratacao_atual_id']);
+const painelSucesso = au => `${au}.origem = '${ORIGEM_PAINEL}' AND ${au}.entidade_tipo = 'EMPRESA' AND ${au}.dados_depois->>'resultado' = 'SUCESSO'`;
+const dataAud = (au, campo) => `(CASE WHEN ${au}.dados_depois->>'${campo}' ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}[.][0-9]{3}Z$' THEN (${au}.dados_depois->>'${campo}')::timestamptz END)`;
+const iniciadoDo = (a, ai) => `public.auditoria ${ai} WHERE ${ai}.acao = 'COMERCIAL_TESTE_INICIADO' AND ${ai}.entidade_id = ${a}.empresa_id AND ${painelSucesso(ai)}`;
+const testeAutorizado = a => `(${a}.situacao = 'TESTE' AND ${a}.plano = 'UNICO' AND ${a}.documento_teste IS NOT NULL AND ${COLUNAS_NULAS_NO_TESTE.map(c => `${a}.${c} IS NULL`).join(' AND ')}
+  AND (SELECT count(*) FROM ${iniciadoDo(a, 'tai')}) = 1
+  AND EXISTS (SELECT 1 FROM ${iniciadoDo(a, 'tai')} AND date_trunc('milliseconds', ${a}.teste_inicio) = ${dataAud('tai', 'testeInicio')} AND ${dataAud('tai', 'testeFim')} IS NOT NULL)
+  AND NOT EXISTS (SELECT 1 FROM public.empresa_excecoes_comerciais tvr WHERE tvr.empresa_id = ${a}.empresa_id AND tvr.tipo = 'EXTENSAO_TESTE' AND tvr.revogada_em IS NOT NULL)
+  AND (SELECT CASE WHEN toc.exata THEN ${a}.teste_fim = toc.fim ELSE date_trunc('milliseconds', ${a}.teste_fim) = toc.fim END FROM (
+      SELECT ${dataAud('tai', 'testeFim')} AS fim, false AS exata FROM ${iniciadoDo(a, 'tai')} AND date_trunc('milliseconds', ${a}.teste_inicio) = ${dataAud('tai', 'testeInicio')}
+      UNION ALL SELECT ${dataAud('tae', 'testeFim')}, true FROM public.auditoria tae JOIN public.empresa_excecoes_comerciais tee ON tee.id::text = tae.dados_depois->>'excecaoId'
+        WHERE tae.acao = 'COMERCIAL_TESTE_ESTENDIDO' AND tae.entidade_id = ${a}.empresa_id AND ${painelSucesso('tae')}
+          AND tee.empresa_id = ${a}.empresa_id AND tee.tipo = 'EXTENSAO_TESTE' AND tee.revogada_em IS NULL AND tee.valida_ate = ${dataAud('tae', 'testeFim')}
+    ) toc WHERE toc.fim IS NOT NULL ORDER BY toc.fim DESC, toc.exata DESC LIMIT 1) IS TRUE)`;
+const estendidoDa = (x, xe) => `public.auditoria ${xe} WHERE ${xe}.acao = 'COMERCIAL_TESTE_ESTENDIDO' AND ${xe}.entidade_id = ${x}.empresa_id AND ${painelSucesso(xe)} AND ${xe}.dados_depois->>'excecaoId' = ${x}.id::text`;
+const extensaoAutorizada = x => `(${x}.tipo = 'EXTENSAO_TESTE' AND ${x}.revogada_em IS NULL
+  AND EXISTS (SELECT 1 FROM public.empresa_assinaturas txa WHERE txa.empresa_id = ${x}.empresa_id AND ${testeAutorizado('txa')})
+  AND (SELECT count(*) FROM ${estendidoDa(x, 'txe')}) = 1
+  AND EXISTS (SELECT 1 FROM ${estendidoDa(x, 'txe')} AND ${x}.valida_ate = ${dataAud('txe', 'testeFim')}))`;
+/** Tabelas com recorte: contagem, hash, situações e linhas classificadas só das linhas FORA do critério (alias `r`). */
+const RECORTE = Object.freeze({empresa_assinaturas: testeAutorizado, empresa_excecoes_comerciais: extensaoAutorizada});
+const foraDoRecorte = t => (RECORTE[t] ? ` WHERE (${RECORTE[t]('r')}) IS NOT TRUE` : '');
+/** Colunas de que o recorte depende, por migration (067, 068, 074a e 003). Sem alguma, ou sem leitura das três tabelas, o recorte é INDETERMINADO. */
+const DEPENDENCIAS_RECORTE = Object.freeze({
+  empresa_assinaturas: ['empresa_id', 'plano', 'situacao', 'teste_inicio', 'teste_fim', 'documento_teste', ...COLUNAS_NULAS_NO_TESTE],
+  empresa_excecoes_comerciais: ['id', 'empresa_id', 'tipo', 'valida_ate', 'revogada_em'],
+  auditoria: ['acao', 'origem', 'entidade_tipo', 'entidade_id', 'dados_depois', 'criado_em'],
+});
+/** Astra r1 de código, P2: colunas que a leitura da auditoria usa mesmo sem recorte. Faltando, a auditoria não é lida (nunca vira erro que esconda o motivo). */
+const COLUNAS_AUDITORIA_LIDAS = Object.freeze(['id', 'acao', 'origem', 'criado_em']);
+const SQL_DEPENDENCIAS_RECORTE = `SELECT ${Object.entries(DEPENDENCIAS_RECORTE).map(([t, c]) => `(${colunasPresentes(t, c)}) AS ${t}`).join(', ')}, (${colunasPresentes('auditoria', COLUNAS_AUDITORIA_LIDAS)}) AS auditoria_lida,
+  coalesce((SELECT format_type(atttypid, NULL) = 'jsonb' FROM pg_attribute WHERE attrelid=to_regclass('public.auditoria') AND attname='dados_depois' AND NOT attisdropped), false) AS auditoria_jsonb`;
+
 const AUD_RECUSADA = Object.freeze(['COBRANCA_WEBHOOK_RECUSADO', 'ASSINATURA_SINCRONIZACAO_RECUSADA']);
 const AUD_EXATAS = Object.freeze(['ARREPENDIMENTO_REGISTRADO', 'ENCERRADA', 'EMPRESA_CADASTRADA_PUBLICO', 'CADASTRO_CONFIRMADO']);
 const AUD_PREFIXOS = /^(ASSINATURA_|COBRANCA_|CREDITOS_|COMERCIAL_|RENOVACAO_|AVISO_ASSINATURA_)/;
-/** Três classes, com precedência das duas últimas sobre os padrões amplos (§9.2.2). `null` = fora das listas. */
-function classeAuditoria(acao) {
+/**
+ * Três classes, com precedência das duas últimas sobre os padrões amplos (§9.2.2). `null` = fora das listas.
+ * D-LAN-4 (D-VZ-5): início ou extensão de teste pelo painel, com resultado SUCESSO, é a quarta classe, TESTE_AUTORIZADO, e não reprova.
+ * A tentativa recusada pelo painel (RECUSADO) continua EFEITO_ACEITO pelo prefixo COMERCIAL_.
+ */
+function classeAuditoria(acao, painelSucesso = false) {
+  if (painelSucesso === true && ACOES_TESTE.includes(acao)) return 'TESTE_AUTORIZADO';
   if (AUD_RECUSADA.includes(acao)) return 'TENTATIVA_RECUSADA';
   if (/_SEM_CONFIRMACAO$/.test(acao)) return 'EFEITO_INCERTO';
   if (AUD_EXATAS.includes(acao) || AUD_PREFIXOS.test(acao)) return 'EFEITO_ACEITO';
@@ -425,7 +474,7 @@ const validarOrdem = ids => Array.isArray(ids) && ids.length <= SEQUENCIA.length
 const SQL_SELETOR_ESTRUTURA = () => `SELECT jsonb_build_object(${Object.entries(ASSINATURAS).map(([id, itens]) =>
   `'${id}', jsonb_build_object(${Object.entries(itens).filter(([, expr]) => typeof expr === 'string').map(([k, expr]) => `'${k}', (${expr})`).join(', ')})`).join(', ')},
   '_corpo_conflito', (SELECT encode(sha256(convert_to(replace(prosrc, E'\\r', ''), 'UTF8')), 'hex') FROM pg_proc WHERE oid=to_regprocedure('public.${FUNCAO_CONFLITO}'))) AS estrutura`;
-const SQL_IDENTIDADE = `SELECT current_database() AS banco, version() AS versao, inet_server_addr()::text AS servidor, inet_server_port() AS porta, session_user AS papel_sessao, current_user AS papel,
+const SQL_IDENTIDADE = `SELECT current_database() AS banco, version() AS versao, current_setting('server_version_num')::int AS versao_num, inet_server_addr()::text AS servidor, inet_server_port() AS porta, session_user AS papel_sessao, current_user AS papel,
   r.rolsuper, r.rolbypassrls, current_setting('transaction_read_only') AS somente_leitura, current_setting('transaction_isolation') AS isolamento, now() AS agora
   FROM pg_roles r WHERE r.rolname = current_user`;
 const SQL_OBJETOS = `SELECT c.relname AS objeto, c.relkind AS tipo, c.relrowsecurity, c.relforcerowsecurity, has_table_privilege(current_user, c.oid, 'SELECT') AS leitura,
@@ -434,15 +483,20 @@ const SQL_CATALOGO = `SELECT n.nspname AS esquema, c.relname AS objeto FROM pg_c
   WHERE c.relkind IN ('r','p','f','v','m') AND n.nspname NOT LIKE 'pg\\_%' AND n.nspname <> 'information_schema'`;
 const SQL_CONTADORES = `SELECT relname AS objeto, n_tup_ins::bigint AS ins, n_tup_del::bigint AS del FROM pg_stat_user_tables WHERE schemaname='public' AND relname = ANY($1::text[])`;
 const SQL_RESET = `SELECT stats_reset FROM pg_stat_database WHERE datname = current_database()`;
-const SQL_AUDITORIA = `SELECT acao, origem = 'COBRANCA' AS de_cobranca, count(*)::bigint AS n FROM public.auditoria WHERE criado_em >= $1::timestamptz GROUP BY 1, 2`;
-const SQL_AUDITORIA_LINHAS = `SELECT id::text AS id, acao, to_char(criado_em AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS hora FROM public.auditoria WHERE criado_em >= $1::timestamptz AND acao = ANY($2::text[])`;
-const sqlContagem = t => `SELECT count(*)::bigint AS n FROM public.${t}`;
-const sqlSituacao = (t, c) => `SELECT ${c}::text AS chave, count(*)::bigint AS n FROM public.${t} GROUP BY 1`;
+/** Sem o recorte pronto, a coluna painel_sucesso sai falsa: nada vira TESTE_AUTORIZADO. */
+const sqlAuditoria = (recorte = true) => `SELECT au.acao, au.origem = 'COBRANCA' AS de_cobranca, ${recorte ? `(${painelSucesso('au')}) IS TRUE` : 'false'} AS painel_sucesso, count(*)::bigint AS n FROM public.auditoria au WHERE au.criado_em >= $1::timestamptz GROUP BY 1, 2, 3`;
+const sqlAuditoriaLinhas = (recorte = true) => `SELECT au.id::text AS id, au.acao, ${recorte ? `(${painelSucesso('au')}) IS TRUE` : 'false'} AS painel_sucesso, to_char(au.criado_em AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS hora FROM public.auditoria au WHERE au.criado_em >= $1::timestamptz AND au.acao = ANY($2::text[])`;
+/** Acumulado (desde sempre) das auditorias que autorizam inserção: confrontado com o n_tup_ins entre pontos. */
+const SQL_AUDITORIAS_AUTORIZADAS = `SELECT /* auditorias_autorizadas */ count(*) FILTER (WHERE au.acao = 'COMERCIAL_TESTE_INICIADO')::bigint AS iniciados, count(*) FILTER (WHERE au.acao = 'COMERCIAL_TESTE_ESTENDIDO')::bigint AS estendidos
+  FROM public.auditoria au WHERE au.acao = ANY(ARRAY['COMERCIAL_TESTE_INICIADO', 'COMERCIAL_TESTE_ESTENDIDO']) AND ${painelSucesso('au')}`;
+/** Com recorte: `n` = linhas fora do critério, `total` = todas. */
+const sqlContagem = t => (RECORTE[t] ? `SELECT count(*) FILTER (WHERE (${RECORTE[t]('r')}) IS NOT TRUE)::bigint AS n, count(*)::bigint AS total FROM public.${t} r` : `SELECT count(*)::bigint AS n FROM public.${t}`);
+const sqlSituacao = (t, c) => `SELECT ${c}::text AS chave, count(*)::bigint AS n FROM public.${t} r${foraDoRecorte(t)} GROUP BY 1`;
 const textoDaLinha = colunas => colunas.map(c => `coalesce(${c}::text, '~')`).join(` || '|' || `);
 const sqlHash = (t, colunas) => `SELECT count(*)::bigint AS n, encode(sha256(convert_to(coalesce(string_agg(linha, E'\\n' ORDER BY linha COLLATE "C"), ''), 'UTF8')), 'hex') AS hash
-  FROM (SELECT ${textoDaLinha(colunas)} AS linha FROM public.${t}) x`;
+  FROM (SELECT ${textoDaLinha(colunas.map(c => `r.${c}`))} AS linha FROM public.${t} r${foraDoRecorte(t)}) x`;
 /** Impressão de cada linha pelas mesmas colunas estáveis do hash. Fica fora do relatório, que só leva agregados; quem classifica roda este SELECT (ele sai no --plano). */
-const sqlLinhasClassificadas = t => `SELECT encode(sha256(convert_to(${textoDaLinha(COLUNAS_HASH[t])}, 'UTF8')), 'hex') AS linha, ${COLUNAS_HASH[t].join(', ')} FROM public.${t} ORDER BY 1`;
+const sqlLinhasClassificadas = t => `SELECT encode(sha256(convert_to(${textoDaLinha(COLUNAS_HASH[t].map(c => `r.${c}`))}, 'UTF8')), 'hex') AS linha, ${COLUNAS_HASH[t].map(c => `r.${c}`).join(', ')} FROM public.${t} r${foraDoRecorte(t)} ORDER BY 1`;
 /** Linhas de estrutura das relações ancoradas: dão o hash canônico de cada uma e, se divergir, o relato do objeto. */
 const SQL_ESTRUTURA_OBJETOS = `SELECT c.relname AS objeto, x.linha FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace AND n.nspname='public' CROSS JOIN LATERAL (${linhasEstrutura('c.oid')}) x WHERE c.relname = ANY($1::text[])`;
 const RELACOES_ANCORADAS = Object.freeze(ANCORAS.filter(i => i.startsWith('relacao:')).map(i => i.slice('relacao:'.length)));
@@ -455,7 +509,8 @@ async function lerAncoras(db) {
   for (const t of RELACOES_ANCORADAS) ancoras[`relacao:${t}`] = hashLinhas(linhas[t]);
   return {ancoras, linhas};
 }
-const SQL_EXCECOES = `SELECT tipo, revogada_em IS NOT NULL AS revogada, valida_ate <= now() AS vencida, count(*)::bigint AS n FROM public.empresa_excecoes_comerciais GROUP BY 1, 2, 3`;
+/** `autorizada`: extensão ligada a um teste autorizado pela auditoria do painel. Sem o recorte pronto, nenhuma é (falha do lado seguro). */
+const sqlExcecoes = (recorte = true) => `SELECT r.tipo, r.revogada_em IS NOT NULL AS revogada, r.valida_ate <= now() AS vencida, ${recorte ? `(${extensaoAutorizada('r')}) IS TRUE` : 'false'} AS autorizada, count(*)::bigint AS n FROM public.empresa_excecoes_comerciais r GROUP BY 1, 2, 3, 4`;
 const SQL_CONTINUIDADES = `SELECT tipo, situacao, count(*)::bigint AS n FROM public.empresa_documento_continuidades GROUP BY 1, 2`;
 const SQL_CADASTROS = `SELECT situacao, situacao = 'PENDENTE' AND expira_em > now() AS nao_expirado, count(*)::bigint AS n FROM public.cadastros_publicos GROUP BY 1, 2`;
 const SQL_LOTES = `SELECT origem, pedido_id IS NOT NULL AS com_pedido, count(*)::bigint AS n FROM public.ia_credito_lotes GROUP BY 1, 2`;
@@ -470,11 +525,12 @@ const estadoMigracao = (id, valores, corpo) => {
   return v.every(Boolean) ? 'completa' : v.some(Boolean) ? 'parcial' : 'ausente';
 };
 
+const SETS_LEITURA = Object.freeze(["SET LOCAL statement_timeout = '60s'", "SET LOCAL lock_timeout = '5s'", "SET LOCAL TIME ZONE 'UTC'", "SET LOCAL DateStyle = 'ISO, YMD'", 'SET LOCAL search_path = pg_catalog']);
 /** Só leitura de agregados, numa fotografia REPEATABLE READ READ ONLY. Qualquer erro aborta tudo: nunca vira zero. */
 async function lerBanco(db, corte) {
   await db.query('BEGIN TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY');
   try {
-    for (const s of ["SET LOCAL statement_timeout = '60s'", "SET LOCAL lock_timeout = '5s'", "SET LOCAL TIME ZONE 'UTC'", "SET LOCAL DateStyle = 'ISO, YMD'", 'SET LOCAL search_path = pg_catalog']) await db.query(s);
+    for (const s of SETS_LEITURA) await db.query(s);
     const identidade = (await db.query(SQL_IDENTIDADE)).rows[0];
     if (!identidade) recusar('PAPEL_NAO_ENCONTRADO');
     if (identidade.somente_leitura !== 'on' || identidade.isolamento !== 'repeatable read') recusar('TRANSACAO_NAO_E_SOMENTE_LEITURA');
@@ -491,13 +547,21 @@ async function lerBanco(db, corte) {
     const legivel = o => o && ['r', 'p'].includes(o.tipo) && o.leitura === true && o.rls_ativa === false;
     // Coluna ausente já é FALHA estrutural pela assinatura: a leitura não pode virar erro que a esconda nem ler o que não existe.
     const colunasOk = objeto => { const m = MATRIZ.find(x => x.objeto === objeto); return bruto[m?.migracao]?.[`colunas_${objeto}`] !== false; };
+    // Correção 6 (Astra r2): as dependências do recorte são conferidas ANTES de qualquer leitura que as use; faltando, o recorte é INDETERMINADO.
+    const dependencias = (await db.query(SQL_DEPENDENCIAS_RECORTE)).rows[0] ?? {};
+    const faltasRecorte = [...Object.keys(DEPENDENCIAS_RECORTE), 'auditoria_jsonb'].filter(k => dependencias[k] !== true).map(k => `colunas:${k}`)
+      .concat(['auditoria', ...Object.keys(RECORTE)].filter(t => !legivel(catalogoObj.get(t))).map(t => `leitura:${t}`));
+    const recortePronto = faltasRecorte.length === 0;
     const dominio = {};
     const linhasClassificadas = {};
     for (const {objeto} of MATRIZ) {
       const o = catalogoObj.get(objeto);
       const e = {presente: Boolean(o), tipo: o?.tipo ?? null, leitura: o?.leitura ?? null, rls: o ? {ativa: o.rls_ativa, habilitada: o.relrowsecurity, forcada: o.relforcerowsecurity} : null};
-      if (o && legivel(o)) {
-        e.contagem = Number((await db.query(sqlContagem(objeto))).rows[0].n);
+      if (o && legivel(o) && RECORTE[objeto] && !recortePronto) e.recorte = {situacao: 'INDETERMINADO', faltas: faltasRecorte};
+      else if (o && legivel(o)) {
+        const contagem = (await db.query(sqlContagem(objeto))).rows[0];
+        e.contagem = Number(contagem.n);
+        if (RECORTE[objeto]) e.recorte = {situacao: 'APLICADO', total: Number(contagem.total), autorizadas: Number(contagem.total) - e.contagem};
         const colunas = COLUNAS_HASH[objeto];
         if (colunas && colunasOk(objeto) && e.contagem > 0) e.hash = (await db.query(sqlHash(objeto, colunas))).rows[0].hash;
         if (colunas && colunasOk(objeto) && e.contagem === 0) e.hash = sha('');
@@ -507,23 +571,87 @@ async function lerBanco(db, corte) {
       dominio[objeto] = e;
     }
     const ler = async (objeto, sql) => (legivel(catalogoObj.get(objeto)) && colunasOk(objeto) ? (await db.query(sql)).rows : null);
-    const excecoes = await ler('empresa_excecoes_comerciais', SQL_EXCECOES);
+    const excecoes = await ler('empresa_excecoes_comerciais', sqlExcecoes(recortePronto));
     const continuidades = await ler('empresa_documento_continuidades', SQL_CONTINUIDADES);
     const cadastros = await ler('cadastros_publicos', SQL_CADASTROS);
     const lotes = await ler('ia_credito_lotes', SQL_LOTES);
     const aud = catalogoObj.get('auditoria');
     let auditoria = {legivel: false, por_acao: []}, linhasProibidas = [];
-    if (legivel(aud)) {
-      const linhas = (await db.query(SQL_AUDITORIA, [corte])).rows.map(r => ({acao: r.acao, de_cobranca: r.de_cobranca, n: Number(r.n)}));
+    if (legivel(aud) && dependencias.auditoria_lida !== true) auditoria = {legivel: false, por_acao: [], colunas_ausentes: true};
+    else if (legivel(aud)) {
+      const linhas = (await db.query(sqlAuditoria(recortePronto), [corte])).rows.map(r => ({acao: r.acao, de_cobranca: r.de_cobranca, painel_sucesso: r.painel_sucesso === true, n: Number(r.n)}));
       auditoria = {legivel: true, por_acao: linhas};
-      const proibidas = [...new Set(linhas.filter(l => classeAuditoria(l.acao) !== null).map(l => l.acao))];
-      if (proibidas.length) linhasProibidas = (await db.query(SQL_AUDITORIA_LINHAS, [corte, proibidas])).rows;
+      // Correção 5: a classe é por (ação, origem/resultado). Um SUCESSO e um RECUSADO da mesma ação: só o RECUSADO entra na lista.
+      const proibida = (acao, painel) => { const c = classeAuditoria(acao, painel === true); return c !== null && c !== 'TESTE_AUTORIZADO'; };
+      const proibidas = [...new Set(linhas.filter(l => proibida(l.acao, l.painel_sucesso)).map(l => l.acao))];
+      if (proibidas.length) linhasProibidas = (await db.query(sqlAuditoriaLinhas(recortePronto), [corte, proibidas])).rows.filter(l => proibida(l.acao, l.painel_sucesso)).map(({id, acao, hora}) => ({id, acao, hora}));
     }
     const catalogo = (await db.query(SQL_CATALOGO)).rows;
-    const contadores = Object.fromEntries((await db.query(SQL_CONTADORES, [MATRIZ.map(m => m.objeto)])).rows.map(r => [r.objeto, {ins: Number(r.ins), del: Number(r.del)}]));
-    const reset = (await db.query(SQL_RESET)).rows[0]?.stats_reset ?? null;
-    return {identidade, migracoes, faltas, ancoras, estruturaObjetos, linhasClassificadas, corpoConflito, dominio, excecoes, continuidades, cadastros, lotes, auditoria, linhasProibidas, catalogo, foraDoEscopo: FORA_DO_ESCOPO.filter(t => catalogoObj.has(t)), contadores, statsReset: reset ? new Date(reset).toISOString() : null};
+    return {identidade, migracoes, faltas, ancoras, estruturaObjetos, linhasClassificadas, corpoConflito, dominio, excecoes, continuidades, cadastros, lotes, auditoria, linhasProibidas, catalogo, foraDoEscopo: FORA_DO_ESCOPO.filter(t => catalogoObj.has(t)), recorte: {pronto: recortePronto, faltas: faltasRecorte}};
   } finally { await db.query('ROLLBACK').catch(() => undefined); }
+}
+
+/** Uma leitura dos contadores, em transação própria: o pg_stat fica em cache dentro da transação, e o acumulado da auditoria vai junto. */
+async function lerContadoresUmaVez(db, comAuditoria) {
+  await db.query('BEGIN TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY');
+  try {
+    for (const s of SETS_LEITURA) await db.query(s);
+    const contadores = ordenar(Object.fromEntries((await db.query(SQL_CONTADORES, [MATRIZ.map(m => m.objeto)])).rows.map(r => [r.objeto, {ins: Number(r.ins), del: Number(r.del)}])));
+    const reset = (await db.query(SQL_RESET)).rows[0]?.stats_reset ?? null;
+    let autorizadas = null;
+    if (comAuditoria) {
+      const r = (await db.query(SQL_AUDITORIAS_AUTORIZADAS)).rows[0];
+      if (!r) throw Object.assign(new Error('auditorias autorizadas sem linha'), {code: 'AUD_SEM_LINHA'});
+      autorizadas = {iniciados: Number(r.iniciados), estendidos: Number(r.estendidos)};
+    }
+    return {contadores, statsReset: reset ? new Date(reset).toISOString() : null, autorizadas};
+  } finally { await db.query('ROLLBACK').catch(() => undefined); }
+}
+/**
+ * Correção 2 (Astra r2): o n_tup_ins chega ao pg_stat com atraso (o backend descarrega ao ficar ocioso, ~1 s) e a auditoria aparece no commit.
+ * Lê até `tentativas` vezes, com `intervalo` ms entre leituras, e só aceita duas leituras seguidas iguais. Sem isso, INCONCLUSIVO.
+ */
+/** Quantas vezes a fotografia (amostra, domínio, amostra) se repete antes de desistir. */
+const REPETICOES_FOTOGRAFIA = 3;
+/**
+ * Astra r2 de código, P1: no PG 15+ um backend ocupado descarrega as estatísticas em até PGSTAT_MAX_INTERVAL (60 s); ocioso, em ~10 s.
+ * Uma escrita confirmada antes da fotografia pode ainda não estar no pg_stat. A amostra final só é tirada depois desta quarentena, então
+ * toda escrita que a fotografia do domínio viu já entrou nos contadores. Antes do 15 o coletor era UDP com perda: lá nada prova (lacuna).
+ */
+const QUARENTENA_STATS_MS = 65_000;
+const VERSAO_MINIMA_STATS = 150000;
+/**
+ * Astra r2 de código, P1 (a prova pedida): a quarentena sozinha não basta, porque o backend só descarrega o pendente ao ficar ocioso
+ * (ou ao sair). Quem confirmou e seguiu numa consulta longa ou em "idle in transaction" guarda a estatística. Logo antes da amostra
+ * final, toda outra sessão deste banco (menos o autovacuum) tem de estar visível e ociosa há pelo menos OCIOSO_MINIMO_S (o ocioso
+ * descarrega em até 10 s). Sessão invisível ao papel, ativa, em transação ou ociosa há menos tempo = sem prova (INCONCLUSIVO).
+ */
+const OCIOSO_MINIMO_S = 11;
+const SQL_ESCRITORES = `SELECT count(*)::int AS total,
+  count(*) FILTER (WHERE state IS NULL OR state_change IS NULL)::int AS invisiveis,
+  count(*) FILTER (WHERE state IS NOT NULL AND state_change IS NOT NULL AND NOT (state = 'idle' AND state_change <= clock_timestamp() - interval '${OCIOSO_MINIMO_S} seconds'))::int AS recentes
+  FROM pg_stat_activity WHERE datname = current_database() AND pid <> pg_backend_pid() AND backend_type IS DISTINCT FROM 'autovacuum worker'`;
+/** Prova de descarga em transação própria só de leitura, como as demais leituras: o pg_stat_activity é fotografado no primeiro acesso da transação. */
+async function lerEscritores(db) {
+  await db.query('BEGIN TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY');
+  let r;
+  try {
+    for (const s of SETS_LEITURA) await db.query(s);
+    r = (await db.query(SQL_ESCRITORES)).rows?.[0];
+  } finally { await db.query('ROLLBACK').catch(() => undefined); }
+  const n = k => (Number.isInteger(Number(r?.[k])) && r?.[k] !== null && r?.[k] !== undefined ? Number(r[k]) : null);
+  const e = {total: n('total'), invisiveis: n('invisiveis'), recentes: n('recentes')};
+  return {...e, descarregados: e.total !== null && e.invisiveis === 0 && e.recentes === 0};
+}
+async function lerContadoresEstaveis(db, comAuditoria, {esperar = ms => new Promise(r => setTimeout(r, ms)), tentativas = 6, intervalo = 1100} = {}) {
+  let anterior = null;
+  for (let i = 1; i <= tentativas; i++) {
+    const atual = await lerContadoresUmaVez(db, comAuditoria);
+    if (anterior && JSON.stringify(atual) === JSON.stringify(anterior)) return {...atual, estaveis: true, leituras: i};
+    anterior = atual;
+    if (i < tentativas) await esperar(intervalo);
+  }
+  return {...anterior, estaveis: false, leituras: tentativas};
 }
 
 /** Parte comum a todas as bases: estrutura no prefixo, papel e RLS, regra de fechamento e estados terminais. */
@@ -559,17 +687,20 @@ function avaliarComum(leitura, prefixoIds) {
       if (e.presente && e.rls?.ativa !== false) motivos.push(`RLS_PODE_INDUZIR_ZERO:${objeto}`);
       else if (e.presente && e.leitura !== true) motivos.push(`SEM_PRIVILEGIO:${objeto}`);
       else if (e.presente && !['r', 'p'].includes(e.tipo)) motivos.push(`TIPO_INESPERADO:${objeto}`);
+      else if (quer && e.presente && e.recorte?.situacao === 'INDETERMINADO') motivos.push(`RECORTE_TESTE_INDETERMINADO:${objeto}`);
       else motivos.push(`OBJETO_${e.presente ? 'NAO_DECLARADO' : 'AUSENTE'}:${objeto}`);
     }
     objetos[objeto] = r;
   }
-  if (!leitura.auditoria.legivel) motivos.push('AUDITORIA_ILEGIVEL_OU_RLS');
+  if (!leitura.auditoria.legivel) motivos.push(leitura.auditoria.colunas_ausentes ? 'AUDITORIA_COLUNAS_AUSENTES' : 'AUDITORIA_ILEGIVEL_OU_RLS');
   const conhecidos = new Set([...MATRIZ.map(m => m.objeto), ...FORA_DO_ESCOPO]);
   const fechamento = leitura.catalogo.filter(({esquema, objeto}) => REGRA_FECHAMENTO.test(objeto) && !(esquema === 'public' && (conhecidos.has(objeto) || excluido(objeto))))
     .map(({esquema, objeto}) => `${esquema}.${objeto}`).sort();
   for (const t of fechamento) motivos.push(`TABELA_FORA_DA_MATRIZ:${t}`);
-  const vigentes = (leitura.excecoes ?? []).filter(l => !l.revogada && !l.vencida && l.tipo !== 'EXTENSAO_TESTE').reduce((s, l) => s + Number(l.n), 0);
-  if (vigentes) motivos.push('EXCECAO_VIGENTE_NAO_TERMINAL');
+  const somaVigentes = filtro => (leitura.excecoes ?? []).filter(l => !l.revogada && !l.vencida && filtro(l)).reduce((s, l) => s + Number(l.n), 0);
+  if (somaVigentes(l => l.tipo !== 'EXTENSAO_TESTE')) motivos.push('EXCECAO_VIGENTE_NAO_TERMINAL');
+  // Correção 3: extensão vigente só passa ligada a um teste autorizado pela auditoria do painel.
+  if (somaVigentes(l => l.tipo === 'EXTENSAO_TESTE' && l.autorizada !== true)) motivos.push('EXTENSAO_TESTE_VIGENTE_SEM_VINCULO');
   const continuidadesAbertas = (leitura.continuidades ?? []).filter(l => l.situacao !== 'CONCLUIDA').reduce((s, l) => s + Number(l.n), 0);
   if (continuidadesAbertas) motivos.push('CONTINUIDADE_NAO_CONCLUIDA');
   const estruturaDetalhe = Object.fromEntries(Object.entries(leitura.faltas ?? {}).filter(([id]) => estrutura[id] === 'FALHA/INCONCLUSIVO'));
@@ -616,11 +747,13 @@ function avaliarClassificados(leitura, d) {
 }
 const ordenar = o => Object.fromEntries(Object.entries(o).sort(([a], [b]) => (a < b ? -1 : 1)));
 
+/** VAZIA_SALVO_TESTE é VAZIA contada fora do recorte do teste autorizado (a leitura já tira as linhas autorizadas). */
+const DOMINIOS_VAZIOS = Object.freeze(['VAZIA', 'VAZIA_SALVO_TESTE']);
 /** Domínio VAZIA da matriz. Com LDT, "exatamente as linhas da LDT" substitui a matriz só nos objetos nominais. */
 function avaliarDominio(leitura, ldt) {
   const motivos = [];
   for (const {objeto, dominio} of MATRIZ) {
-    if (dominio !== 'VAZIA') continue;
+    if (!DOMINIOS_VAZIOS.includes(dominio)) continue;
     const e = leitura.dominio[objeto];
     if (!e.presente || !Number.isInteger(e.contagem)) continue;
     const ref = ldt?.objetos?.[objeto];
@@ -637,10 +770,10 @@ function avaliarDominio(leitura, ldt) {
 /** Ocorrência proibida desde o corte reprova, exceto a identificada uma a uma na LDT. Nunca exige auditoria = 0. */
 function avaliarAuditoria(leitura, ldt) {
   const motivos = [];
-  const classes = {EFEITO_ACEITO: 0, EFEITO_INCERTO: 0, TENTATIVA_RECUSADA: 0};
+  const classes = {EFEITO_ACEITO: 0, EFEITO_INCERTO: 0, TENTATIVA_RECUSADA: 0, TESTE_AUTORIZADO: 0};
   let semClasse = 0, deCobranca = 0;
   for (const l of leitura.auditoria.por_acao) {
-    const c = classeAuditoria(l.acao);
+    const c = classeAuditoria(l.acao, l.painel_sucesso === true);
     if (c) classes[c] += l.n;
     if (l.de_cobranca) { deCobranca += l.n; if (!c) semClasse += l.n; }
   }
@@ -729,19 +862,37 @@ function resultadoDoPonto(ponto, atual, historico) {
 }
 const CODIGO_DO_RESULTADO = Object.freeze({PASS: 0, 'S-PASS': 0, 'S-REG': 0, CONFORME: 0, FALHA: 3, 'S-FALHA': 3, 'S-HIST': 3, NAO_CONFORME: 3, INCONCLUSIVO: 1});
 
-/** n_tup_ins/del entre pontos: acusa linha criada e apagada. Reset ou leitura sem par é lacuna relatada, não prova. */
-function compararContadores(atual, reset, anterior, ponto) {
-  if (!eObjeto(anterior?.contadores)) return {situacao: 'SEM_LEITURA_ANTERIOR', movimentos: []};
-  if (anterior.stats_reset !== reset) return {situacao: 'LACUNA_RESET_DE_ESTATISTICAS', movimentos: []};
-  const movimentos = [];
+/** Inserções que a auditoria do painel autoriza, por tabela: INICIADO cria a linha da assinatura, ESTENDIDO cria a exceção. */
+const INSERCOES_AUTORIZADAS = Object.freeze({empresa_assinaturas: 'iniciados', empresa_excecoes_comerciais: 'estendidos'});
+/**
+ * n_tup_ins/del entre pontos: acusa linha criada e apagada. Reset ou leitura sem par é lacuna relatada, não prova.
+ * Correção 2: nas tabelas do recorte, Δins é confrontado com o Δ acumulado das auditorias autorizadas. Δins maior (ou leitura anterior sem
+ * o acumulado) = movimento; Δins menor = desalinhado (INCONCLUSIVO). Qualquer DEL continua movimento. Inserção abortada também conta no
+ * n_tup_ins: tentativa que falhou depois do INSERT reprova (lado seguro).
+ */
+function compararContadores(atual, reset, anterior, ponto, acumuladas = null) {
+  if (!eObjeto(anterior?.contadores)) return {situacao: 'SEM_LEITURA_ANTERIOR', movimentos: [], desalinhados: []};
+  if (anterior.stats_reset !== reset) return {situacao: 'LACUNA_RESET_DE_ESTATISTICAS', movimentos: [], desalinhados: []};
+  const movimentos = [], desalinhados = [];
+  let pares = 0, vigiadosAnterior = 0; // Astra r5, P2: mapa anterior sem nenhum objeto vigiado comparável não é comparação.
   for (const {objeto, dominio} of MATRIZ) {
     const a = atual[objeto], p = anterior.contadores[objeto];
     // Classificado também: linha criada e apagada entre pontos não muda o hash. `cadastros_publicos` só depois do P3, quando a contagem deixa de poder mudar.
-    const vigiado = dominio === 'VAZIA' || OBJETOS_HASHEADOS_CLASSIFICADOS.includes(objeto) || (objeto === 'cadastros_publicos' && DO_P3_EM_DIANTE.includes(ponto) && ponto !== 'P3');
+    const vigiado = DOMINIOS_VAZIOS.includes(dominio) || OBJETOS_HASHEADOS_CLASSIFICADOS.includes(objeto) || (objeto === 'cadastros_publicos' && DO_P3_EM_DIANTE.includes(ponto) && ponto !== 'P3');
+    if (vigiado && p) vigiadosAnterior++; // Astra r6, P3: saber qual fotografia ficou sem objetos vigiados.
     if (!a || !p || !vigiado) continue;
-    if (a.ins > p.ins || a.del > p.del) movimentos.push(objeto);
+    pares++;
+    if (a.del > p.del) { movimentos.push(objeto); continue; }
+    const chave = INSERCOES_AUTORIZADAS[objeto];
+    if (!chave) { if (a.ins > p.ins) movimentos.push(objeto); continue; }
+    const dIns = a.ins - p.ins, antes = anterior.auditorias_autorizadas?.[chave], agora = acumuladas?.[chave];
+    if (!Number.isInteger(antes) || !Number.isInteger(agora)) { if (dIns > 0) movimentos.push(objeto); continue; }
+    const dAud = agora - antes;
+    if (dIns > dAud) movimentos.push(objeto);
+    else if (dIns < dAud) desalinhados.push(objeto);
   }
-  return {situacao: 'COMPARADO', movimentos};
+  if (!pares) return {situacao: 'SEM_PARES_COMPARAVEIS', falta: vigiadosAnterior ? 'ATUAL' : 'ANTERIOR', movimentos: [], desalinhados: []};
+  return {situacao: 'COMPARADO', movimentos, desalinhados};
 }
 
 /** Alvo por sinais; sinais contraditórios recusam antes de conectar. */
@@ -764,11 +915,19 @@ function parametrosDaUrl(env) {
   return {host: u.hostname, port: Number(u.port || 5432), database: u.pathname.slice(1), user: usuario, password: senha, ssl, application_name: 'kidmais-conferidor-g-vazio', connectionTimeoutMillis: 10000};
 }
 
-const resumoInconclusivo = (d, motivo, extra = {}) => ({conferidor: 'G-VAZIO', versao: VERSAO, ponto: d?.ponto ?? null, resultado: 'INCONCLUSIVO', motivos: [motivo], marcador_perda_nao_descartada: d?.marcador_perda === true || d?.leitura_anterior?.marcador_perda_nao_descartada === true, ...extra});
+/** Astra r4, P1: ausência de movimento só é comparada no alvo de teste; fora dele nunca é provada, qualquer que seja a opção de descarga. */
+const rotuloAusencia = (movimento, alvo) => movimento.movimentos.length ? 'MOVIMENTO_ACUSADO' : alvo !== 'teste' || movimento.situacao !== 'COMPARADO' ? 'NAO_PROVADA' : 'COMPARADA_NO_TESTE';
+// Astra r4, P3: relatório antecipado tem o mesmo formato; sem decisão de domínio, resultado_sem_lacunas é null.
+const resumoInconclusivo = (d, motivo, extra = {}) => ({conferidor: 'G-VAZIO', versao: VERSAO, ponto: d?.ponto ?? null, resultado: 'INCONCLUSIVO', resultado_sem_lacunas: null, ausencia_de_movimento: 'NAO_PROVADA', motivos: [motivo], marcador_perda_nao_descartada: d?.marcador_perda === true || d?.leitura_anterior?.marcador_perda_nao_descartada === true, ...extra});
 
 /** Uma leitura. Devolve o relatório; só agregados, sem linha nem dado pessoal. */
-async function conferir(d, {env = process.env, Client, lerMarcador, listarPasta, agora = () => new Date()} = {}) {
+async function conferir(d, {env = process.env, Client, lerMarcador, listarPasta, agora = () => new Date(), esperar, tentativas, quarentenaMs, exigirDescarga} = {}) {
   validarDeclaracao(d);
+  // Fora do alvo de teste (que o CLI recusa) a quarentena é sempre a padrão; o teste pode encurtá-la, e o relatório publica a usada.
+  const quarentena = Number.isInteger(quarentenaMs) && quarentenaMs >= 0 ? quarentenaMs : d.alvo === 'teste' ? 0 : QUARENTENA_STATS_MS;
+  const pausa = esperar ?? (ms => new Promise(r => setTimeout(r, ms)));
+  // Prova de descarga dos escritores: exigida fora do alvo de teste; no teste, só quando pedida (o próprio harness tem sessões abertas).
+  const descargaExigida = typeof exigirDescarga === 'boolean' ? exigirDescarga : d.alvo !== 'teste';
   validarAlvo(d, env);
   const inicio = agora().toISOString();
   const prefixo = resolverPrefixo(d.prefixo, lerMarcador, listarPasta);
@@ -778,8 +937,22 @@ async function conferir(d, {env = process.env, Client, lerMarcador, listarPasta,
   let leitura;
   try {
     await db.connect();
-    leitura = await lerBanco(db, d.corte_p1);
-    validarBanco(d, leitura.identidade.banco);
+    // Astra r1 de código, P1: uma amostra estável ANTES e outra DEPOIS da fotografia do domínio. Se divergirem (inserção ou exclusão durante
+    // a leitura), a leitura inteira se repete; esgotadas as repetições, os contadores não provam nada (INCONCLUSIVO).
+    let cont = null, coerente = false, repeticoes = 0, escritores = null;
+    for (let i = 1; i <= REPETICOES_FOTOGRAFIA && !coerente; i++) {
+      repeticoes = i;
+      const antes = await lerContadoresEstaveis(db, false, {esperar, tentativas});
+      leitura = await lerBanco(db, d.corte_p1);
+      validarBanco(d, leitura.identidade.banco);
+      if (quarentena > 0) await pausa(quarentena);
+      escritores = await lerEscritores(db);
+      cont = await lerContadoresEstaveis(db, leitura.auditoria.legivel && leitura.recorte.pronto, {esperar, tentativas});
+      coerente = antes.estaveis && cont.estaveis && antes.statsReset === cont.statsReset && JSON.stringify(antes.contadores) === JSON.stringify(cont.contadores);
+    }
+    Object.assign(leitura, {contadores: cont.contadores, statsReset: cont.statsReset, autorizadas: cont.autorizadas, contadoresEstaveis: cont.estaveis, leiturasContadores: cont.leituras, fotografiaCoerente: coerente, repeticoesFotografia: repeticoes,
+      escritores, provaDescarga: !descargaExigida ? 'NAO_EXIGIDA' : escritores.descarregados ? 'PROVADA' : 'SEM_PROVA',
+      statsCumulativas: Number.isInteger(Number(leitura.identidade.versao_num)) && Number(leitura.identidade.versao_num) >= VERSAO_MINIMA_STATS});
   } catch (e) {
     if (e instanceof Recusa) throw e;
     return resumoInconclusivo(d, `LEITURA_IMPOSSIVEL:${/^[A-Z0-9_]{1,12}$/.test(String(e?.code ?? '')) ? e.code : 'SEM_CODIGO'}`, {inicio, fim: agora().toISOString()});
@@ -788,24 +961,57 @@ async function conferir(d, {env = process.env, Client, lerMarcador, listarPasta,
   const identidade = {banco: leitura.identidade.banco, servidor: leitura.identidade.servidor, porta: leitura.identidade.porta, versao: leitura.identidade.versao, artefato: env.RENDER_GIT_COMMIT ?? null, prefixo_declarado: prefixo.ids, fonte_do_prefixo: d.prefixo.fonte, marcadores: prefixo.evidencias};
   const papel = {session_user: leitura.identidade.papel_sessao, current_user: leitura.identidade.papel, rolsuper: leitura.identidade.rolsuper, rolbypassrls: leitura.identidade.rolbypassrls, somente_leitura: leitura.identidade.somente_leitura, isolamento: leitura.identidade.isolamento};
   const marcadorAntes = d.marcador_perda === true || d.leitura_anterior?.marcador_perda_nao_descartada === true;
-  const comum = {inicio, fim: agora().toISOString(), conferidor: 'G-VAZIO', versao: VERSAO, ponto: d.ponto, identidade, papel, migracoes: leitura.migracoes, dominio: leitura.dominio, contadores: leitura.contadores, stats_reset: leitura.statsReset, l1: d.barreira?.l1 ?? null, provedor: d.provedor ?? null};
+  const comum = {inicio, fim: agora().toISOString(), conferidor: 'G-VAZIO', versao: VERSAO, ponto: d.ponto, identidade, papel, migracoes: leitura.migracoes, dominio: leitura.dominio, contadores: leitura.contadores, stats_reset: leitura.statsReset, auditorias_autorizadas: leitura.autorizadas, contadores_estaveis: leitura.contadoresEstaveis, fotografia_coerente: leitura.fotografiaCoerente, repeticoes_fotografia: leitura.repeticoesFotografia, quarentena_ms: quarentena, escritores: leitura.escritores, prova_descarga: leitura.provaDescarga, estatisticas_cumulativas: leitura.statsCumulativas, leituras_contadores: leitura.leiturasContadores, recorte_teste: leitura.recorte, l1: d.barreira?.l1 ?? null, provedor: d.provedor ?? null};
   // Prefixo impossível de declarar ou sem marcador: só relata o catálogo, nunca emite PASS (§9.2.2).
-  if (prefixo.situacao !== 'DECLARADO') return {...comum, resultado: 'INCONCLUSIVO', motivos: [prefixo.motivo ?? 'PREFIXO_INDECLARAVEL'], catalogo_relatado: leitura.catalogo.filter(({objeto}) => REGRA_FECHAMENTO.test(objeto)).map(({esquema, objeto}) => `${esquema}.${objeto}`).sort(), marcador_perda_nao_descartada: marcadorAntes};
+  if (prefixo.situacao !== 'DECLARADO') return {...comum, resultado: 'INCONCLUSIVO', resultado_sem_lacunas: null, ausencia_de_movimento: 'NAO_PROVADA', motivos: [prefixo.motivo ?? 'PREFIXO_INDECLARAVEL'], catalogo_relatado: leitura.catalogo.filter(({objeto}) => REGRA_FECHAMENTO.test(objeto)).map(({esquema, objeto}) => `${esquema}.${objeto}`).sort(), marcador_perda_nao_descartada: marcadorAntes};
 
   const c = conformidade(leitura, d, prefixo.ids, env);
   const historico = d.ponto === 'S' || d.historico ? avaliarHistorico(d.historico) : null;
   const resultado = resultadoDoPonto(d.ponto, c.atual, historico);
   const marcador = marcadorAntes || resultado === 'S-HIST';
-  const movimento = compararContadores(leitura.contadores, leitura.statsReset, d.leitura_anterior, d.ponto);
+  // Astra r1 de código, P1: movimento só se decide com as duas pontas estáveis e a fotografia coerente; senão é lacuna (INCONCLUSIVO),
+  // e as falhas comprovadas pelo domínio continuam valendo.
+  // Astra r2 de código, P1: a leitura anterior com contadores só serve de ponta se provar o mesmo que esta (flags verdadeiras, não só
+  // "não falsas", e quarentena ao menos igual). Relatório legado sem esses campos é ponta instável.
+  const ant = d.leitura_anterior;
+  const anteriorInstavel = eObjeto(ant?.contadores) && !(ant.contadores_estaveis === true && ant.fotografia_coerente === true
+    && ant.estatisticas_cumulativas === true && Number.isInteger(ant.quarentena_ms) && ant.quarentena_ms >= quarentena
+    && (ant.prova_descarga === 'PROVADA' || (!descargaExigida && ant.prova_descarga === 'NAO_EXIGIDA')));
+  const pontasEstaveis = leitura.contadoresEstaveis === true && leitura.fotografiaCoerente === true && leitura.statsCumulativas === true && leitura.provaDescarga !== 'SEM_PROVA' && !anteriorInstavel;
+  const movimento = pontasEstaveis ? compararContadores(leitura.contadores, leitura.statsReset, d.leitura_anterior, d.ponto, leitura.autorizadas) : {situacao: 'PONTAS_NAO_ESTAVEIS', movimentos: [], desalinhados: []};
   // Restore: catálogo diferente do prefixo registrado é INCONCLUSIVO (§9.2.2), nunca PASS e nem conclusão sobre o domínio.
-  if (d.prefixo.fonte === 'restore' && (Object.values(c.comum.estrutura).includes('FALHA/INCONCLUSIVO') || c.comum.fora_do_prefixo.length)) return {...comum, resultado: 'INCONCLUSIVO', motivos: ['RESTORE_DIVERGENTE', ...c.comum.motivos.filter(m => /^(MIGRATION_|FORA_DO_PREFIXO:)/.test(m))], estrutura: c.comum.estrutura, estrutura_detalhe: c.comum.estrutura_detalhe, estrutura_divergente: c.comum.estrutura_divergente, fora_do_prefixo: c.comum.fora_do_prefixo, marcador_perda_nao_descartada: marcadorAntes};
+  if (d.prefixo.fonte === 'restore' && (Object.values(c.comum.estrutura).includes('FALHA/INCONCLUSIVO') || c.comum.fora_do_prefixo.length)) return {...comum, resultado: 'INCONCLUSIVO', resultado_sem_lacunas: null, ausencia_de_movimento: rotuloAusencia(movimento, d.alvo), motivos: ['RESTORE_DIVERGENTE', ...c.comum.motivos.filter(m => /^(MIGRATION_|FORA_DO_PREFIXO:)/.test(m))], estrutura: c.comum.estrutura, estrutura_detalhe: c.comum.estrutura_detalhe, estrutura_divergente: c.comum.estrutura_divergente, fora_do_prefixo: c.comum.fora_do_prefixo, marcador_perda_nao_descartada: marcadorAntes};
   const motivos = [...c.motivos];
   let final = resultado;
   if (movimento.movimentos.length) {
     motivos.push(...movimento.movimentos.map(o => `MOVIMENTO_ENTRE_PONTOS:${o}`));
     if (!['FALHA', 'S-FALHA', 'NAO_CONFORME'].includes(final)) final = ANTES_DO_S.includes(d.ponto) ? 'FALHA' : d.ponto === 'S' ? 'S-FALHA' : 'NAO_CONFORME';
   }
-  return {...comum, base: c.base, estado_atual: motivos.length ? 'A-FALHA' : c.atual, historico, estrutura: c.comum.estrutura, estrutura_detalhe: c.comum.estrutura_detalhe, estrutura_divergente: c.comum.estrutura_divergente, fora_do_prefixo: c.comum.fora_do_prefixo, objetos: c.comum.objetos, classificados: c.classificados.classificados, regra_de_fechamento: c.comum.fechamento, cadastros: c.classificados.cadastros, auditoria: c.auditoria, comparacao_contadores: movimento, excecoes: leitura.excecoes, continuidades: leitura.continuidades, creditos_lotes: leitura.lotes, resultado: final, motivos, marcador_perda_nao_descartada: marcador};
+  // Correção 2: contador instável ou desalinhado da auditoria não prova nada; reprovação já dada continua reprovação.
+  const lacunas = [...(leitura.contadoresEstaveis === false ? ['CONTADORES_NAO_ESTABILIZADOS'] : []),
+    ...(leitura.contadoresEstaveis === true && leitura.fotografiaCoerente === false ? ['CONTADORES_MUDARAM_DURANTE_A_LEITURA'] : []),
+    ...(leitura.statsCumulativas !== true ? ['ESTATISTICAS_SEM_GARANTIA_PG_ANTERIOR_AO_15'] : []),
+    ...(leitura.provaDescarga === 'SEM_PROVA' ? ['ESCRITORES_SEM_PROVA_DE_DESCARGA'] : []),
+    ...(anteriorInstavel ? ['CONTADORES_ANTERIORES_NAO_ESTABILIZADOS'] : []),
+    // Astra r4, P1: fora do alvo de teste, leitura anterior declarada sem contadores não é primeira fotografia; a comparação se perdeu.
+    // No alvo de teste (o CLI o recusa) a anterior pode trazer só o marcador de perda, e o harness é o único escritor.
+    ...(d.alvo !== 'teste' && ant !== undefined && !eObjeto(ant?.contadores) ? ['LEITURA_ANTERIOR_SEM_CONTADORES'] : []),
+    // Astra r5, P2: mapa de contadores presente mas sem par vigiado utilizável (ex.: esvaziado) também perdeu a comparação.
+    // Astra r6, P3: com a anterior cheia e a atual sem objetos vigiados, o motivo aponta a fotografia atual.
+    ...(d.alvo !== 'teste' && movimento.situacao === 'SEM_PARES_COMPARAVEIS' ? [movimento.falta === 'ATUAL' ? 'SEM_PARES_COMPARAVEIS' : 'LEITURA_ANTERIOR_SEM_CONTADORES'] : []),
+    ...(movimento.desalinhados ?? []).map(o => `CONTADOR_DESALINHADO_DA_AUDITORIA:${o}`),
+    // Astra r3 de código, P1: reset das estatísticas entre os pontos apaga a comparação; é lacuna, nunca PASS/CONFORME.
+    ...(movimento.situacao === 'LACUNA_RESET_DE_ESTATISTICAS' ? ['ESTATISTICAS_REINICIADAS_ENTRE_PONTOS'] : []),
+    // Decisão de Felipe 24/11 (após Astra r3, P1 track_counts e backend suspenso): contador do pg_stat não prova AUSÊNCIA de movimento
+    // contra escritor com coleta desligada ou suspenso com descarga pendente. Fora do alvo de teste (onde o harness é o único escritor),
+    // comparação sem movimento é lacuna; movimento acusado continua reprovando. A ausência fica para a conferência manual documentada.
+    ...(d.alvo !== 'teste' && movimento.situacao === 'COMPARADO' && !movimento.movimentos.length ? ['AUSENCIA_DE_MOVIMENTO_SEM_PROVA_TRANSACIONAL'] : [])];
+  const resultadoSemLacunas = final, apurados = motivos.length; // Astra r4, P2: estado_atual vem do apurado, não das lacunas.
+  if (lacunas.length) {
+    motivos.push(...lacunas);
+    if (!['FALHA', 'S-FALHA', 'S-HIST', 'NAO_CONFORME'].includes(final)) final = 'INCONCLUSIVO';
+  }
+  return {...comum, base: c.base, estado_atual: apurados ? 'A-FALHA' : c.atual, historico, estrutura: c.comum.estrutura, estrutura_detalhe: c.comum.estrutura_detalhe, estrutura_divergente: c.comum.estrutura_divergente, fora_do_prefixo: c.comum.fora_do_prefixo, objetos: c.comum.objetos, classificados: c.classificados.classificados, regra_de_fechamento: c.comum.fechamento, cadastros: c.classificados.cadastros, auditoria: c.auditoria, comparacao_contadores: movimento, ausencia_de_movimento: rotuloAusencia(movimento, d.alvo), resultado_sem_lacunas: resultadoSemLacunas, excecoes: leitura.excecoes, continuidades: leitura.continuidades, creditos_lotes: leitura.lotes, resultado: final, motivos, marcador_perda_nao_descartada: marcador};
 }
 
 /** Saída completa com SHA-256 dela; a última linha é o código. */
@@ -820,7 +1026,7 @@ function imprimir(relatorio, escrever = s => process.stdout.write(s)) {
 
 async function main(argv = process.argv.slice(2), env = process.env, {Client} = {}) {
   if (argv.length !== 1) { console.error('USO: --plano | --l1 | --declaracao=<arquivo>'); return 1; }
-  if (argv[0] === '--plano') { console.log(JSON.stringify({matriz: MATRIZ, fora_do_escopo: FORA_DO_ESCOPO, base: BASE, sequencia: SEQUENCIA, admitidos_ldt: ADMITIDOS_LDT, ancoras: ANCORAS, colunas_hash: COLUNAS_HASH, sql_preparacao_das_linhas: "SET TIME ZONE 'UTC'; SET DateStyle = 'ISO, YMD';", sql_linhas_classificadas: Object.fromEntries(OBJETOS_HASHEADOS_CLASSIFICADOS.map(t => [t, sqlLinhasClassificadas(t)]))}, null, 2)); return 0; }
+  if (argv[0] === '--plano') { console.log(JSON.stringify({matriz: MATRIZ, fora_do_escopo: FORA_DO_ESCOPO, base: BASE, sequencia: SEQUENCIA, admitidos_ldt: ADMITIDOS_LDT, ancoras: ANCORAS, colunas_hash: COLUNAS_HASH, sql_preparacao_das_linhas: "SET TIME ZONE 'UTC'; SET DateStyle = 'ISO, YMD';", sql_linhas_classificadas: Object.fromEntries(OBJETOS_HASHEADOS_CLASSIFICADOS.map(t => [t, sqlLinhasClassificadas(t)])), recorte_teste: {dependencias: DEPENDENCIAS_RECORTE, criterio: Object.fromEntries(Object.entries(RECORTE).map(([t, f]) => [t, f('r')])), sql_contagem: Object.fromEntries(Object.keys(RECORTE).map(t => [t, sqlContagem(t)])), sql_auditorias_autorizadas: SQL_AUDITORIAS_AUTORIZADAS}}, null, 2)); return 0; }
   if (argv[0] === '--l1') { console.log(JSON.stringify({servico: env.RENDER_SERVICE_ID ?? null, rotulos: rotulosL1(env)}, null, 2)); return 0; }
   const m = /^--declaracao=(.+)$/.exec(argv[0]);
   if (!m) { console.error('USO: --plano | --l1 | --declaracao=<arquivo>'); return 1; }
@@ -835,6 +1041,8 @@ async function main(argv = process.argv.slice(2), env = process.env, {Client} = 
 }
 
 module.exports = {ASSINATURAS, GATILHOS, DEFS_FUNCAO, RELACOES_DA_SEQUENCIA, FUNCOES_DA_SEQUENCIA, ANCORAS, TRAJETORIA, estadoEsperado, sqlAncoras, lerAncoras, canonica, hashLinhas, linhasEstrutura, ESTRUTURA_OBJETOS, FUNCOES_AUXILIARES, sqlLinhasClassificadas, OBJETOS_HASHEADOS_CLASSIFICADOS, colunasLidas, MATRIZ, BASE, SEQUENCIA, FORA_DO_ESCOPO, ADMITIDOS_LDT, COLUNAS_HASH, REGRA_FECHAMENTO, EXCLUIDOS, L1_DESLIGADAS, L1_AUSENTES, SERVICOS_L1, CODIGO_DO_RESULTADO, Recusa,
+  ORIGEM_PAINEL, ACOES_TESTE, COLUNAS_NULAS_NO_TESTE, painelSucesso, dataAud, testeAutorizado, extensaoAutorizada, RECORTE, DEPENDENCIAS_RECORTE, SQL_DEPENDENCIAS_RECORTE, COLUNAS_AUDITORIA_LIDAS, REPETICOES_FOTOGRAFIA, QUARENTENA_STATS_MS, VERSAO_MINIMA_STATS, OCIOSO_MINIMO_S, SQL_ESCRITORES, lerEscritores, SQL_AUDITORIAS_AUTORIZADAS, INSERCOES_AUTORIZADAS, DOMINIOS_VAZIOS,
+  sqlContagem, sqlHash, sqlSituacao, sqlExcecoes, sqlAuditoria, sqlAuditoriaLinhas, lerContadoresUmaVez, lerContadoresEstaveis,
   classeAuditoria, rotulosL1, l1Fechada, validarDeclaracao, resolverPrefixo, idsDoMarcador, estadoMigracao, lerBanco, avaliarComum, avaliarClassificados, avaliarDominio, avaliarAuditoria, avaliarBarreira, avaliarProvedor, validarLdt, conformidade, avaliarHistorico, resultadoDoPonto, compararContadores, validarAlvo, validarBanco, parametrosDaUrl, conferir, imprimir, main, excluido};
 
 if (require.main === module) main().then(c => { process.exitCode = c; }, () => { process.exitCode = 1; });

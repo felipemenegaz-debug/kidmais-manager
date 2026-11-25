@@ -449,6 +449,47 @@ const SQL_MATRIZ_CATALOGO = `SELECT o.nome, (c.oid IS NOT NULL) AS presente, coa
   FROM unnest($1::text[]) WITH ORDINALITY AS o(nome, ordem) LEFT JOIN pg_class c ON c.oid = to_regclass('public.' || o.nome)
   ORDER BY o.ordem`;
 const SQL_MATRIZ_PAPEL = 'SELECT rolsuper AS superusuario, rolbypassrls AS ignora_rls FROM pg_roles WHERE rolname = current_user';
+/**
+ * D-LAN-4 (D-VZ-5): "production vazia de cobrança, salvo teste autorizado". Mesmo critério do G-VAZIO (scripts/conferidor-g-vazio.cjs),
+ * repetido aqui de propósito para o bloco do B5 não carregar o conferidor B-26 inteiro; um teste exige o texto idêntico ao de lá.
+ * Teste autorizado = linha TESTE sem nada de cobrança, com exatamente um COMERCIAL_TESTE_INICIADO SUCESSO do painel para a empresa, início
+ * igual ao auditado e fim igual ao maior fim auditado (INICIADO, ou ESTENDIDO ligado a uma EXTENSAO_TESTE não revogada com o mesmo valida_ate).
+ */
+const ORIGEM_PAINEL = 'PAINEL_DESENVOLVEDOR';
+const COLUNAS_NULAS_NO_TESTE = Object.freeze(['ciclo', 'periodo_atual_fim', 'em_atraso_desde', 'cancelada_em', 'encerrada_em', 'provedor', 'provedor_cliente_id', 'provedor_assinatura_id', 'provedor_situacao', 'sincronizado_em', 'contratacao_atual_id']);
+const painelSucesso = au => `${au}.origem = '${ORIGEM_PAINEL}' AND ${au}.entidade_tipo = 'EMPRESA' AND ${au}.dados_depois->>'resultado' = 'SUCESSO'`;
+const dataAud = (au, campo) => `(CASE WHEN ${au}.dados_depois->>'${campo}' ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}[.][0-9]{3}Z$' THEN (${au}.dados_depois->>'${campo}')::timestamptz END)`;
+const iniciadoDo = (a, ai) => `public.auditoria ${ai} WHERE ${ai}.acao = 'COMERCIAL_TESTE_INICIADO' AND ${ai}.entidade_id = ${a}.empresa_id AND ${painelSucesso(ai)}`;
+const testeAutorizado = a => `(${a}.situacao = 'TESTE' AND ${a}.plano = 'UNICO' AND ${a}.documento_teste IS NOT NULL AND ${COLUNAS_NULAS_NO_TESTE.map(c => `${a}.${c} IS NULL`).join(' AND ')}
+  AND (SELECT count(*) FROM ${iniciadoDo(a, 'tai')}) = 1
+  AND EXISTS (SELECT 1 FROM ${iniciadoDo(a, 'tai')} AND date_trunc('milliseconds', ${a}.teste_inicio) = ${dataAud('tai', 'testeInicio')} AND ${dataAud('tai', 'testeFim')} IS NOT NULL)
+  AND NOT EXISTS (SELECT 1 FROM public.empresa_excecoes_comerciais tvr WHERE tvr.empresa_id = ${a}.empresa_id AND tvr.tipo = 'EXTENSAO_TESTE' AND tvr.revogada_em IS NOT NULL)
+  AND (SELECT CASE WHEN toc.exata THEN ${a}.teste_fim = toc.fim ELSE date_trunc('milliseconds', ${a}.teste_fim) = toc.fim END FROM (
+      SELECT ${dataAud('tai', 'testeFim')} AS fim, false AS exata FROM ${iniciadoDo(a, 'tai')} AND date_trunc('milliseconds', ${a}.teste_inicio) = ${dataAud('tai', 'testeInicio')}
+      UNION ALL SELECT ${dataAud('tae', 'testeFim')}, true FROM public.auditoria tae JOIN public.empresa_excecoes_comerciais tee ON tee.id::text = tae.dados_depois->>'excecaoId'
+        WHERE tae.acao = 'COMERCIAL_TESTE_ESTENDIDO' AND tae.entidade_id = ${a}.empresa_id AND ${painelSucesso('tae')}
+          AND tee.empresa_id = ${a}.empresa_id AND tee.tipo = 'EXTENSAO_TESTE' AND tee.revogada_em IS NULL AND tee.valida_ate = ${dataAud('tae', 'testeFim')}
+    ) toc WHERE toc.fim IS NOT NULL ORDER BY toc.fim DESC, toc.exata DESC LIMIT 1) IS TRUE)`;
+const estendidoDa = (x, xe) => `public.auditoria ${xe} WHERE ${xe}.acao = 'COMERCIAL_TESTE_ESTENDIDO' AND ${xe}.entidade_id = ${x}.empresa_id AND ${painelSucesso(xe)} AND ${xe}.dados_depois->>'excecaoId' = ${x}.id::text`;
+const extensaoAutorizada = x => `(${x}.tipo = 'EXTENSAO_TESTE' AND ${x}.revogada_em IS NULL
+  AND EXISTS (SELECT 1 FROM public.empresa_assinaturas txa WHERE txa.empresa_id = ${x}.empresa_id AND ${testeAutorizado('txa')})
+  AND (SELECT count(*) FROM ${estendidoDa(x, 'txe')}) = 1
+  AND EXISTS (SELECT 1 FROM ${estendidoDa(x, 'txe')} AND ${x}.valida_ate = ${dataAud('txe', 'testeFim')}))`;
+const RECORTE_TESTE = Object.freeze(['empresa_assinaturas', 'empresa_excecoes_comerciais']);
+const DEPENDENCIAS_RECORTE = Object.freeze({
+  empresa_assinaturas: ['empresa_id', 'plano', 'situacao', 'teste_inicio', 'teste_fim', 'documento_teste', ...COLUNAS_NULAS_NO_TESTE],
+  empresa_excecoes_comerciais: ['id', 'empresa_id', 'tipo', 'valida_ate', 'revogada_em'],
+  auditoria: ['acao', 'origem', 'entidade_tipo', 'entidade_id', 'dados_depois', 'criado_em'],
+});
+const colunasPresentes = (t, colunas) => `(SELECT count(*) FROM pg_attribute WHERE attrelid=to_regclass('public.${t}') AND NOT attisdropped AND attname = ANY(ARRAY[${colunas.map(c => `'${c}'`).join(', ')}]::name[]))=${colunas.length}`;
+const SQL_DEPENDENCIAS_RECORTE = `SELECT ${Object.entries(DEPENDENCIAS_RECORTE).map(([t, c]) => `(${colunasPresentes(t, c)}) AS ${t}`).join(', ')},
+  coalesce((SELECT format_type(atttypid, NULL) = 'jsonb' FROM pg_attribute WHERE attrelid=to_regclass('public.auditoria') AND attname='dados_depois' AND NOT attisdropped), false) AS auditoria_jsonb`;
+/** Extras que dependem do recorte; sem ele pronto, nenhum teste é autorizado e toda extensão vigente conta (lado seguro). */
+const CONTAGEM_RECORTE = Object.freeze({
+  empresa_assinaturas: pronto => (pronto ? `, count(*) FILTER (WHERE (${testeAutorizado('r')}) IS NOT TRUE)::text AS fora_do_teste` : ''),
+  empresa_excecoes_comerciais: pronto => ", count(*) FILTER (WHERE r.revogada_em IS NULL AND r.valida_ate > now() AND r.tipo = 'EXTENSAO_TESTE'"
+    + `${pronto ? ` AND (${extensaoAutorizada('r')}) IS NOT TRUE` : ''})::text AS extensoes_sem_vinculo`,
+});
 /** Contagem por objeto; os classificados com os recortes que decidem paradas (tudo agregado). */
 const CONTAGEM_EXTRA = Object.freeze({
   empresa_excecoes_comerciais: ", count(*) FILTER (WHERE revogada_em IS NULL AND valida_ate > now() AND tipo <> 'EXTENSAO_TESTE')::text AS vigentes_revogaveis",
@@ -460,7 +501,13 @@ const CONTAGEM_EXTRA = Object.freeze({
   ia_credito_lotes: ", count(*) FILTER (WHERE origem = 'COMPRA')::text AS origem_compra, count(*) FILTER (WHERE origem = 'FRANQUIA')::text AS origem_franquia"
     + ", count(*) FILTER (WHERE origem = 'CORTESIA')::text AS origem_cortesia, count(*) FILTER (WHERE origem = 'LEGADO')::text AS origem_legado"
     + ", count(*) FILTER (WHERE pedido_id IS NOT NULL)::text AS com_pedido"});
-const sqlContagem = t => { assert.match(t, /^[a-z_]+$/, 'MATRIZ_ILEGIVEL'); return `SELECT count(*)::text AS linhas${CONTAGEM_EXTRA[t] ?? ''} FROM public.${t}`; };
+// Alias `r`: o critério do recorte usa os seus próprios (tai, tae, tee, toc, txa, txe) e nunca colide.
+// Astra r1 de código, P2: `colunasOk` falso (coluna de que os extras dependem ausente) lê só o total; o chamador relata o motivo, nunca zero.
+const sqlContagem = (t, recortePronto = false, colunasOk = true) => {
+  assert.match(t, /^[a-z_]+$/, 'MATRIZ_ILEGIVEL');
+  if (!colunasOk) return `SELECT count(*)::text AS linhas FROM public.${t} r`;
+  return `SELECT count(*)::text AS linhas${CONTAGEM_EXTRA[t] ?? ''}${CONTAGEM_RECORTE[t]?.(recortePronto) ?? ''} FROM public.${t} r`;
+};
 const inteiro = v => { assert.ok(typeof v === 'string' && /^(0|[1-9][0-9]{0,17})$/.test(v), 'MATRIZ_ILEGIVEL'); return Number(v); };
 /** Fotografia coerente: catálogo, papel e contagens numa só transação REPEATABLE READ READ ONLY. */
 async function matriz(db) {
@@ -473,6 +520,17 @@ async function matriz(db) {
     const papel = (await db.query(SQL_MATRIZ_PAPEL)).rows;
     assert.ok(papel?.length === 1 && typeof papel[0].superusuario === 'boolean' && typeof papel[0].ignora_rls === 'boolean', 'MATRIZ_ILEGIVEL');
     const objetos = {}, motivos = [];
+    // D-LAN-4 (correção 6 do Astra r2): dependências do recorte conferidas antes de qualquer contagem que as use.
+    const visivel = l => l.presente && ['r', 'p'].includes(l.tipo) && l.ler && (!l.rls || papel[0].superusuario || papel[0].ignora_rls);
+    const audCat = (await db.query(SQL_MATRIZ_CATALOGO, [['auditoria']])).rows;
+    assert.ok(Array.isArray(audCat) && audCat.length === 1 && audCat[0]?.nome === 'auditoria', 'MATRIZ_ILEGIVEL');
+    for (const k of ['presente', 'rls', 'ler']) assert.ok(typeof audCat[0][k] === 'boolean', 'MATRIZ_ILEGIVEL');
+    const dep = (await db.query(SQL_DEPENDENCIAS_RECORTE)).rows?.[0];
+    assert.ok(dep && [...Object.keys(DEPENDENCIAS_RECORTE), 'auditoria_jsonb'].every(k => typeof dep[k] === 'boolean'), 'MATRIZ_ILEGIVEL');
+    const faltasRecorte = [...Object.keys(DEPENDENCIAS_RECORTE), 'auditoria_jsonb'].filter(k => dep[k] !== true).map(k => `colunas:${k}`)
+      .concat([['auditoria', audCat[0]], ...RECORTE_TESTE.map(t => [t, cat[MATRIZ.findIndex(m => m[0] === t)]])].filter(([, l]) => !visivel(l)).map(([t]) => `leitura:${t}`));
+    const recortePronto = faltasRecorte.length === 0;
+    if (!recortePronto) motivos.push('MATRIZ_RECORTE_TESTE_INDETERMINADO ' + faltasRecorte.join(','));
     for (const [i, [nome, migracao, grupo, estrutura]] of MATRIZ.entries()) {
       const l = cat[i];
       for (const k of ['presente', 'rls', 'rls_forcada', 'ler']) assert.ok(typeof l[k] === 'boolean', 'MATRIZ_ILEGIVEL');
@@ -488,17 +546,23 @@ async function matriz(db) {
       // RLS que possa induzir zero é FALHA (§9.2.2): só não vale para superusuário ou papel com BYPASSRLS.
       // Revisão Astra r2 (F): com RLS que pode induzir zero, a contagem não é lida (INDETERMINADA), nem vira zero.
       if (l.rls && !papel[0].superusuario && !papel[0].ignora_rls) { motivos.push('MATRIZ_RLS_PODE_INDUZIR_ZERO ' + nome); o.linhas = null; o.contagem = 'INDETERMINADA_RLS'; continue; }
-      const c = (await db.query(sqlContagem(nome))).rows;
+      const colunasOk = nome !== 'empresa_excecoes_comerciais' || dep.empresa_excecoes_comerciais === true;
+      if (!colunasOk) motivos.push('MATRIZ_EXCECOES_INDETERMINADAS colunas:empresa_excecoes_comerciais');
+      const c = (await db.query(sqlContagem(nome, recortePronto, colunasOk))).rows;
       assert.ok(c?.length === 1, 'MATRIZ_ILEGIVEL');
       for (const [k, v] of Object.entries(c[0])) o[k.replace(/_([a-z])/g, (_, x) => x.toUpperCase())] = inteiro(v);
-      if (GRUPOS_VAZIOS.includes(grupo) && o.linhas > 0) motivos.push(`MATRIZ_VAZIA_COM_LINHAS ${nome} ${o.linhas}`);
+      // Só a linha fora do teste autorizado reprova o vazio; sem o recorte pronto, toda linha conta.
+      const contam = nome === 'empresa_assinaturas' && recortePronto ? o.foraDoTeste : o.linhas;
+      if (nome === 'empresa_assinaturas') o.recorteTeste = recortePronto ? {situacao: 'APLICADO', autorizadas: o.linhas - o.foraDoTeste} : {situacao: 'INDETERMINADO', faltas: faltasRecorte};
+      if (GRUPOS_VAZIOS.includes(grupo) && contam > 0) motivos.push(`MATRIZ_VAZIA_COM_LINHAS ${nome} ${contam}`);
     }
     const ex = objetos.empresa_excecoes_comerciais, ct = objetos.empresa_documento_continuidades, ce = objetos.cadastros_empresas;
     if (ex?.vigentesRevogaveis > 0) motivos.push('MATRIZ_EXCECAO_VIGENTE_NAO_TERMINAL ' + ex.vigentesRevogaveis);
+    if (ex?.extensoesSemVinculo > 0) motivos.push('MATRIZ_EXTENSAO_TESTE_VIGENTE_SEM_VINCULO ' + ex.extensoesSemVinculo);
     if (ct?.naoConcluidas > 0) motivos.push('MATRIZ_CONTINUIDADE_NAO_CONCLUIDA ' + ct.naoConcluidas);
     if (ce?.linhas > 0) motivos.push('MATRIZ_CADASTRO_EMPRESA_EXIGE_EXPLICACAO_P1 ' + ce.linhas);
     await db.query('ROLLBACK');
-    return {matriz: {protocolo: 'REPEATABLE READ READ ONLY', papel: {superusuario: papel[0].superusuario, ignoraRls: papel[0].ignora_rls}, objetos,
+    return {matriz: {protocolo: 'REPEATABLE READ READ ONLY', papel: {superusuario: papel[0].superusuario, ignoraRls: papel[0].ignora_rls}, objetos, recorteTeste: {pronto: recortePronto, faltas: faltasRecorte},
       veredito: 'NAO_EMITIDO: G-VAZIO e do conferidor B-26 (hashes, auditoria, prefixo por marcadores, regra de fechamento)'}, motivos};
   } catch (e) { await db.query('ROLLBACK').catch(() => {}); throw e; }
 }
@@ -559,18 +623,38 @@ function checksPorRelacao(linhas) {
   }
   return divergentes;
 }
-const SQL_DOCUMENTOS = `SELECT 'empresa_assinaturas' AS origem, a.documento_teste AS doc,
-    EXISTS (SELECT 1 FROM public.assinatura_fundadores f WHERE f.empresa_id = a.empresa_id) AS tem_concessao
+// Astra r1–r2 de código, P1: recorte e visibilidade das relações do predicado no MESMO comando do inventário; sem leitura ou com RLS
+// ativa, fora_do_teste é NULL e o B-15 sai INDETERMINADO.
+const RELACOES_PREDICADO_B15 = Object.freeze(['empresa_assinaturas', 'empresa_excecoes_comerciais', 'auditoria']);
+const visivelNoComando = t => `COALESCE(has_table_privilege(to_regclass('public.${t}'), 'SELECT'), false) AND COALESCE(NOT row_security_active(to_regclass('public.${t}')), false)`;
+// Astra r3, P1: idem para as relações lidas, uma linha de controle por relação; sem ela verdadeira, INDETERMINADA, nunca VAZIO.
+const ORIGEM_CONTROLE = '_controle_visibilidade';
+const linhasDeControle = tabelas => tabelas.map(t => `SELECT '${ORIGEM_CONTROLE}', '${t}', NULL::boolean, NULL::boolean, (${visivelNoComando(t)})`).join('\n  UNION ALL ');
+const sqlDocumentos = (recorte = false) => `SELECT 'empresa_assinaturas' AS origem, a.documento_teste AS doc,
+    EXISTS (SELECT 1 FROM public.assinatura_fundadores f WHERE f.empresa_id = a.empresa_id) AS tem_concessao,
+    ${recorte ? `CASE WHEN ${RELACOES_PREDICADO_B15.map(visivelNoComando).join(' AND ')} THEN (${testeAutorizado('a')}) IS NOT TRUE END` : 'NULL::boolean'} AS fora_do_teste,
+    NULL::boolean AS visivel
   FROM public.empresa_assinaturas a
   UNION ALL
-  SELECT 'assinatura_fundadores', f.documento_beneficiario, true FROM public.assinatura_fundadores f`;
+  SELECT 'assinatura_fundadores', f.documento_beneficiario, true, NULL::boolean, NULL::boolean FROM public.assinatura_fundadores f
+  UNION ALL ${linhasDeControle(['empresa_assinaturas', 'assinatura_fundadores'])}`;
+const SQL_DOCUMENTOS = sqlDocumentos(false);
+/** Relações sem prova de visibilidade no comando: controle ausente, repetido, não booleano, falso ou estranho. */
+function separarControle(linhas, tabelas) {
+  assert.ok(Array.isArray(linhas), 'B15_CATALOGO_ILEGIVEL');
+  const controle = linhas.filter(l => l?.origem === ORIGEM_CONTROLE), dados = linhas.filter(l => l?.origem !== ORIGEM_CONTROLE);
+  const invisiveis = tabelas.filter(t => { const c = controle.filter(l => l.doc === t); return !(c.length === 1 && c[0].visivel === true); });
+  const estranhos = controle.filter(l => !tabelas.includes(l.doc));
+  return {dados, invisiveis: [...invisiveis, ...estranhos.map(l => String(l.doc))]};
+}
 /** B-15: só contagens. Documento nulo não é recusado pelo gatilho (doc IS NOT NULL) nem pelos CHECKs novos. */
 function inventarioDocumentos(linhas) {
-  const base = () => ({total: 0, nulos: 0, cpf11: 0, cnpj14: 0, outroFormato: 0, foraDoFormato091: 0, dvInvalido: 0});
+  const base = () => ({total: 0, nulos: 0, cpf11: 0, cnpj14: 0, outroFormato: 0, foraDoFormato091: 0, dvInvalido: 0, foraDoTeste: 0, recorteLido: 0});
   const r = {empresa_assinaturas: base(), assinatura_fundadores: base(), empresasSemConcessaoComDvInvalido: 0};
   for (const l of linhas) {
     const t = r[l.origem]; assert.ok(t, 'ORIGEM_INESPERADA');
     t.total++;
+    if (typeof l.fora_do_teste === 'boolean') { t.recorteLido++; if (l.fora_do_teste) t.foraDoTeste++; }
     if (l.doc === null || l.doc === undefined) { t.nulos++; continue; }
     const d = String(l.doc);
     if (/^[0-9]{11}$/.test(d)) t.cpf11++; else if (/^[0-9A-Z]{12}[0-9]{2}$/.test(d)) t.cnpj14++; else t.outroFormato++;
@@ -578,13 +662,16 @@ function inventarioDocumentos(linhas) {
     if (!documentoValido091(d)) { t.dvInvalido++; if (l.origem === 'empresa_assinaturas' && l.tem_concessao === false) r.empresasSemConcessaoComDvInvalido++; }
   }
   r.dvInvalidoTotal = r.empresa_assinaturas.dvInvalido + r.assinatura_fundadores.dvInvalido;
+  // Astra r2 de código, P2: recorte que não cobriu todas as linhas não publica contagem (0 parcial pareceria prova); sai nulo.
+  for (const o of ['empresa_assinaturas', 'assinatura_fundadores']) if (r[o].recorteLido < r[o].total) r[o].foraDoTeste = null;
   return r;
 }
 /** Origens dos documentos que a 091 valida (CHECKs novos) ou que um dia entram nas tabelas do gatilho de INSERT dela. Qualificadas. */
 const ORIGENS_091 = Object.freeze(['cadastros_empresas', 'solicitacoes_acesso_empresa', 'plataforma_empresas_cadastro']);
-const SQL_ORIGENS_091 = `SELECT 'cadastros_empresas' AS origem, documento AS doc FROM public.cadastros_empresas
-  UNION ALL SELECT 'solicitacoes_acesso_empresa', documento FROM public.solicitacoes_acesso_empresa
-  UNION ALL SELECT 'plataforma_empresas_cadastro', documento_fiscal FROM public.plataforma_empresas_cadastro`;
+const SQL_ORIGENS_091 = `SELECT 'cadastros_empresas' AS origem, documento AS doc, NULL::boolean AS tem_concessao, NULL::boolean AS fora_do_teste, NULL::boolean AS visivel FROM public.cadastros_empresas
+  UNION ALL SELECT 'solicitacoes_acesso_empresa', documento, NULL::boolean, NULL::boolean, NULL::boolean FROM public.solicitacoes_acesso_empresa
+  UNION ALL SELECT 'plataforma_empresas_cadastro', documento_fiscal, NULL::boolean, NULL::boolean, NULL::boolean FROM public.plataforma_empresas_cadastro
+  UNION ALL ${linhasDeControle(ORIGENS_091)}`;
 /**
  * Visibilidade de relações lidas fora da matriz (origens: revisão Astra r1, P2-F; legado e Fundador: r2, F): presença,
  * privilégio de leitura e RLS sem bypass. Qualquer falta = nenhuma leitura daquela parte (INDETERMINADA) e parada nomeada.
@@ -627,9 +714,17 @@ const NAO_COBERTO_B15 = Object.freeze(['preservação do APLICAR da 091 (aplicad
  * artificial fica condicionado ao G-VAZIO do P1 (B-26) e não vale se a própria matriz já mandou parar.
  */
 const LEGADO_091 = Object.freeze(['empresa_assinaturas', 'assinatura_fundadores']);
-async function b15(db, estado091, matrizParou = false) {
+async function b15(db, estado091, matrizParou = false, recortePronto = false) {
   const visLegado = await visibilidade(db, LEGADO_091, 'B15_LEGADO');
-  const legado = visLegado.length ? null : inventarioDocumentos((await somenteLeitura(db, SQL_DOCUMENTOS, [], '60s')).rows);
+  let legado = null;
+  if (!visLegado.length) {
+    const lido = separarControle((await somenteLeitura(db, sqlDocumentos(recortePronto === true), [], '60s')).rows, LEGADO_091);
+    if (lido.invisiveis.length) visLegado.push(...lido.invisiveis.map(t => `B15_LEGADO_SEM_VISIBILIDADE_NO_COMANDO ${t}`));
+    else legado = inventarioDocumentos(lido.dados);
+  }
+  // Recorte lido em todas as linhas de empresa_assinaturas desta fotografia; senão, nulo (INDETERMINADA).
+  const ea = legado?.empresa_assinaturas;
+  const foraDoTeste = recortePronto === true && ea && ea.recorteLido === ea.total ? ea.foraDoTeste : null;
   const l = (await somenteLeitura(db, SQL_COMPATIBILIDADE_091)).rows[0];
   for (const k of ['tabelas', 'checks']) assert.ok(Number.isInteger(l?.[k]) && l[k] >= 0, 'B15_CATALOGO_ILEGIVEL');
   for (const k of ['objetos_091', 'plataforma']) assert.ok(typeof l?.[k] === 'boolean', 'B15_CATALOGO_ILEGIVEL');
@@ -662,7 +757,11 @@ async function b15(db, estado091, matrizParou = false) {
     const visOrigens = (await visibilidade(db, ORIGENS_091, 'B15_ORIGEM')).map(m => m.replace('B15_ORIGEM_AUSENTES ', 'B15_ORIGENS_AUSENTES '));
     if (visOrigens.length) motivos.push(...visOrigens);
     else {
-      origens = inventarioOrigens((await somenteLeitura(db, SQL_ORIGENS_091, [], '60s')).rows);
+      const lido = separarControle((await somenteLeitura(db, SQL_ORIGENS_091, [], '60s')).rows, ORIGENS_091);
+      if (lido.invisiveis.length) motivos.push(...lido.invisiveis.map(t => `B15_ORIGEM_SEM_VISIBILIDADE_NO_COMANDO ${t}`));
+      else origens = inventarioOrigens(lido.dados);
+    }
+    if (origens) {
       if (aplicavel) {
         for (const t of ['cadastros_empresas', 'solicitacoes_acesso_empresa']) {
           if (origens[t].foraDoFormato091 > 0) motivos.push(`B15_091_CHECK_FALHARIA ${t} ${origens[t].foraDoFormato091}`);
@@ -671,10 +770,18 @@ async function b15(db, estado091, matrizParou = false) {
     }
   } else motivos.push('B15_ORIGENS_AUSENTES');
   const vazio = legado !== null && legado.empresa_assinaturas.total === 0 && legado.assinatura_fundadores.total === 0;
-  const prova = legado === null ? 'INDETERMINADA (legado sem visibilidade completa: nada lido)' : !vazio ? 'EXIGIDA (ramo COM-DADOS)'
-    : matrizParou ? 'INDETERMINADA (inventario legado vazio, mas a matriz parou: ramo VAZIO nao comprovado)'
-      : 'NAO_APLICAVEL_SE_G_VAZIO_P1 (§9.2.7: inventario legado vazio; condicionado ao veredito G-VAZIO do B-26 no P1; nao vale como prova geral)';
-  return {b15: {legado, inventarioLegado: legado === null ? 'INDETERMINADO' : vazio ? 'VAZIO' : 'COM_LINHAS', provaArtificialDocumentoLegado: prova,
+  // D-LAN-4: linhas de empresa_assinaturas que são todas teste autorizado (contadas pela matriz) não abrem o ramo COM-DADOS.
+  // Fundador com linha, ou qualquer assinatura fora do teste, continua EXIGIDA; recorte não lido (foraDoTeste nulo) = INDETERMINADA.
+  const soTeste = legado !== null && !vazio && legado.assinatura_fundadores.total === 0 && foraDoTeste === 0;
+  const recorteIndeterminado = legado !== null && !vazio && legado.assinatura_fundadores.total === 0 && (foraDoTeste === null || foraDoTeste === undefined);
+  const prova = legado === null ? 'INDETERMINADA (legado sem visibilidade completa: nada lido)'
+    : recorteIndeterminado ? 'INDETERMINADA (assinaturas com linha e recorte do teste autorizado nao lido)'
+      : !vazio && !soTeste ? 'EXIGIDA (ramo COM-DADOS)'
+        : matrizParou ? `INDETERMINADA (inventario legado ${soTeste ? 'so com teste autorizado' : 'vazio'}, mas a matriz parou: ramo VAZIO nao comprovado)`
+          : soTeste ? 'NAO_APLICAVEL_TESTE_AUTORIZADO (D-VZ-5: so linhas de teste autorizado pelo painel; condicionado ao veredito G-VAZIO do B-26 no P1; nao vale como prova geral)'
+            : 'NAO_APLICAVEL_SE_G_VAZIO_P1 (§9.2.7: inventario legado vazio; condicionado ao veredito G-VAZIO do B-26 no P1; nao vale como prova geral)';
+  const inventarioLegado = legado === null ? 'INDETERMINADO' : vazio ? 'VAZIO' : soTeste ? 'SO_TESTE_AUTORIZADO' : 'COM_LINHAS';
+  return {b15: {legado, inventarioLegado, provaArtificialDocumentoLegado: prova,
     compatibilidade091: compat, origensFuturas: origens, naoCoberto: NAO_COBERTO_B15}, motivos};
 }
 
@@ -764,7 +871,7 @@ function plano() {
     paradas: ['estado parcial ou ilegível; 100 divergente', 'prefixo de 089-118 diferente do esperado antes do E3 (além da base, só 099 e 105; 114 só com o par de corpos comprovado)',
       'E5b (E2c-RECONFERIR, D-ESC-8 = (c)): prefixo diferente do esperado depois do E3 (089, 092 e 093 completas; o resto como antes do E3, 118 ausente)',
       'combinados (B-21, E1, E2c e E5b): qualquer estado diferente de AUSENTE (ANTIGA, PARCIAL, NOVA) ou ilegível', 'E2c e E5b: 091 ou 094 fora de "ausente"',
-      'matriz: objeto obrigatório ausente, fora do escopo presente, linha em objeto VAZIA (lotes de crédito com a origem aberta), RLS que pode induzir zero, sem privilégio, exceção vigente de tipo revogável, continuidade não concluída, histórico de cadastro com linha (erro de consulta = FALHA 2; tipo, privilégio e RLS detectados = PARAR 3)',
+      'matriz: recorte do teste autorizado (D-VZ-5) sem colunas ou leitura de auditoria/assinaturas/exceções (INDETERMINADO); extensão de teste vigente sem vínculo ao teste autorizado; objeto obrigatório ausente, fora do escopo presente, linha em objeto VAZIA (lotes de crédito com a origem aberta), RLS que pode induzir zero, sem privilégio, exceção vigente de tipo revogável, continuidade não concluída, histórico de cadastro com linha (erro de consulta = FALHA 2; tipo, privilégio e RLS detectados = PARAR 3)',
       '105 completa sem a integridade de catálogo do aplicador (índice único parcial válido, gatilho na relação certa)', 'B-15: precheck estrutural da 091 falharia; CHECK da base divergente na sua relação (definição integral, PG 18) ou sem referência na versão do servidor; legado sem visibilidade; documento fora do formato dos CHECKs novos; origens ausentes, sem privilégio ou com RLS',
       'Fundador: relações sem visibilidade completa; qualquer concessão confirmada (ramo COM-DADOS), cobertura incompleta, prazo do B-9 vencido ou janela de aviso perdida',
       'B-15 com DV inválido no legado: informa DECISAO_D_OP_4_NECESSARIA (não para sozinho; adiar a 091 é tratamento válido)'],
@@ -789,7 +896,7 @@ async function conferir({modo: m, env, Client = require('pg').Client, agora = ne
     if (m === 'estado' || m === 'estadoPosE3') {
       for (const k of ['091', '094']) if (r.estados[k] !== 'ausente') motivos.push(`E2C_${k}_PRESENTE ${r.estados[k]}`);
     } else {
-      const b = await b15(db, r.estados['091'], mat.motivos.length > 0);
+      const b = await b15(db, r.estados['091'], mat.motivos.length > 0, mat.matriz.recorteTeste?.pronto === true);
       r.b15 = b.b15; motivos.push(...b.motivos);
       if (r.b15.legado?.dvInvalidoTotal > 0) r.decisao = 'DECISAO_D_OP_4_NECESSARIA';
       const f = await fundador(db, agora);
@@ -819,12 +926,13 @@ if (require.main === module) {
     (codigo === 0 ? console.log : console.error)(JSON.stringify(saida, null, 1)); process.exitCode = codigo;
   }).catch(e => { console.error('RECUSADO ' + curta(e)); process.exitCode = 1; });
 }
-module.exports = {CODIGOS_PUBLICOS, curta, FLAG_COMPLETO, FLAG_ESTADO, MIGRACOES, EXCLUIDAS, AMPLIADAS, SEM_MIGRATION, ESPERADO_ANTES_DO_E3, RAMOS_PROVEDOR, ENV_LIDAS,
+module.exports = {sqlDocumentos, RELACOES_PREDICADO_B15, CODIGOS_PUBLICOS, curta, FLAG_COMPLETO, FLAG_ESTADO, MIGRACOES, EXCLUIDAS, AMPLIADAS, SEM_MIGRATION, ESPERADO_ANTES_DO_E3, RAMOS_PROVEDOR, ENV_LIDAS,
   envLido, AVISO_DIAS, ANTECIPADO_DIAS, MARGEM_B9_DIAS, SQL_DOCUMENTOS, SQL_TOTAL_CONFIRMADAS, SQL_RENOVACAO_INSTALADA, sqlConcessoes, documentoValido091, formato091,
   dataValida, diasAntes, diaBrasil, somenteLeitura, carregarContrato109, lerNucleo, lerLista, SQL_ESTADO_118, lerEstado118, SQL_ESTADO_SATISFACAO, lerEstadoSatisfacao, OBJETOS_SATISFACAO, IDS_SATISFACAO, FUNCOES_SATISFACAO,
   FUNCOES_REDEFINIDAS, GATILHOS_SATISFACAO, CHECKS_SATISFACAO, CHECKS_REDEFINIDOS, divergenciasSatisfacao, estados, presentes, inventarioDocumentos,
   CHECKS_091, TABELAS_091, SQL_COMPATIBILIDADE_091, SQL_ORIGENS_091, ORIGENS_091, inventarioOrigens, b15, MATRIZ, GRUPOS_VAZIOS, SQL_MATRIZ_CATALOGO, SQL_MATRIZ_PAPEL,
   sqlContagem, matriz, fundador, provedor, modo, plano, conferir, principal, CODIGO, CONFLITO_098, SQL_COMBINADOS, lerCombinados, classificarCombinados,
   MOTIVO_COMBINADOS, combinados, REVISAO_114, ESPERADO_BASE_ANTES_DO_E3, CORPOS_114_ANTES_DO_E3, CONTAGEM_EXTRA, estado114, CHECKS_BASE_091, SQL_CHECKS_091,
-  checksPorRelacao, SQL_ORIGENS_CATALOGO, INTEGRIDADE_105, SQL_ESTRUTURA_105, INDICE_105_DEF, GATILHO_105_DEF, CORPO_105, NAO_NULAS_105, COLUNAS_105, SQL_RELACAO_105, RELACAO_105, sqlIntegridade105, integridade105, VERSAO_MAIOR_REFERENCIA_091, SQL_VERSAO_PG,
-  LEGADO_091, TABELAS_FUNDADOR, visibilidade, FLAG_ESTADO_POS_E3, ESPERADO_BASE_POS_E3, ESPERADO_POS_E3, PREFIXOS};
+  checksPorRelacao, SQL_ORIGENS_CATALOGO, ORIGEM_PAINEL, COLUNAS_NULAS_NO_TESTE, painelSucesso, dataAud, testeAutorizado, extensaoAutorizada, RECORTE_TESTE,
+  DEPENDENCIAS_RECORTE, SQL_DEPENDENCIAS_RECORTE, CONTAGEM_RECORTE, INTEGRIDADE_105, SQL_ESTRUTURA_105, INDICE_105_DEF, GATILHO_105_DEF, CORPO_105, NAO_NULAS_105, COLUNAS_105, SQL_RELACAO_105, RELACAO_105, sqlIntegridade105, integridade105, VERSAO_MAIOR_REFERENCIA_091, SQL_VERSAO_PG,
+  LEGADO_091, TABELAS_FUNDADOR, visibilidade, separarControle, ORIGEM_CONTROLE, linhasDeControle, FLAG_ESTADO_POS_E3, ESPERADO_BASE_POS_E3, ESPERADO_POS_E3, PREFIXOS};

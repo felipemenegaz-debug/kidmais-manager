@@ -113,7 +113,7 @@ async function principal() {
         cwd: raiz,
         env: ambiente(estado, porta, trabalho, registro, registroLimpeza),
         stdio: "inherit",
-        timeout: LIMITE_POR_SUITE_MS,
+        timeout: estado.limiteMs ?? LIMITE_POR_SUITE_MS,
       });
       const abertas = await conexoesDeTrabalho(admin, receita.TRABALHO);
       const eventos = guardaSalao.lerRegistro(registro);

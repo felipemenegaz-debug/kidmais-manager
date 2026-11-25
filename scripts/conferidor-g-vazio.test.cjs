@@ -297,8 +297,17 @@ test('estados terminais: exceção vigente e continuidade pendente reprovam; ter
   const l = leituraVazia();
   l.excecoes = [{tipo: 'CORTESIA', revogada: false, vencida: false, n: 1}];
   assert.deepEqual(motivos(l), ['EXCECAO_VIGENTE_NAO_TERMINAL']);
-  l.excecoes = [{tipo: 'CORTESIA', revogada: true, vencida: false, n: 1}, {tipo: 'CORTESIA', revogada: false, vencida: true, n: 1}, {tipo: 'EXTENSAO_TESTE', revogada: false, vencida: false, n: 2}];
+  l.excecoes = [{tipo: 'CORTESIA', revogada: true, vencida: false, n: 1}, {tipo: 'CORTESIA', revogada: false, vencida: true, n: 1}, {tipo: 'EXTENSAO_TESTE', revogada: false, vencida: false, autorizada: true, n: 2}];
   assert.deepEqual(motivos(l), []);
+  // D-LAN-4 correção 4: extensão vigente só passa ligada a um teste autorizado; sem vínculo (ou recorte indeterminado: autorizada null) reprova.
+  for (const autorizada of [false, null, undefined]) {
+    const s = leituraVazia();
+    s.excecoes = [{tipo: 'EXTENSAO_TESTE', revogada: false, vencida: false, autorizada, n: 1}];
+    assert.deepEqual(motivos(s), ['EXTENSAO_TESTE_VIGENTE_SEM_VINCULO'], String(autorizada));
+  }
+  const revogada = leituraVazia();
+  revogada.excecoes = [{tipo: 'EXTENSAO_TESTE', revogada: true, vencida: false, autorizada: false, n: 1}];
+  assert.deepEqual(motivos(revogada), [], 'revogada é terminal');
   l.continuidades = [{tipo: 'CESSAO', situacao: 'PENDENTE_PROVEDOR', n: 1}];
   assert.deepEqual(motivos(l), ['CONTINUIDADE_NAO_CONCLUIDA']);
   l.continuidades = [{tipo: 'CESSAO', situacao: 'CONCLUIDA', n: 1}];
@@ -539,26 +548,39 @@ function clienteFalso(cfg = {}) {
     async end() {}
     async query(sql) {
       (cfg.sqls ?? []).push(sql);
+      if (sql === cg.SQL_ESCRITORES) return {rows: [cfg.escritores ?? {total: 0, invisiveis: 0, recentes: 0}]};
       if (cfg.falhaEm && sql.includes(cfg.falhaEm)) throw Object.assign(new Error('senha=segredo'), {code: '42501'});
-      if (sql.includes('session_user')) return {rows: [{banco: cfg.banco ?? 'descartavel', versao: 'PG', servidor: '127.0.0.1', porta: 1, papel_sessao: 'a', papel: 'a', rolsuper: false, rolbypassrls: false, somente_leitura: cfg.somenteLeitura ?? 'on', isolamento: 'repeatable read', agora: new Date()}]};
+      if (sql.includes('session_user')) return {rows: [{banco: cfg.banco ?? 'descartavel', versao: 'PG', versao_num: cfg.versaoNum ?? 180006, servidor: '127.0.0.1', porta: 1, papel_sessao: 'a', papel: 'a', rolsuper: false, rolbypassrls: false, somente_leitura: cfg.somenteLeitura ?? 'on', isolamento: 'repeatable read', agora: new Date()}]};
       if (sql.includes('_corpo_conflito')) {
         const estrutura = Object.fromEntries(Object.entries(cg.ASSINATURAS).map(([id, itens]) => [id, Object.fromEntries(Object.keys(itens).map(k => [k, cg.BASE.includes(id)]))]));
         estrutura._corpo_conflito = null;
         return {rows: [{estrutura}]};
       }
       if (sql.includes('stats_reset')) return {rows: [{stats_reset: null}]};
+      if (cfg.objetos && sql.includes('c.relkind AS tipo')) return {rows: cfg.objetos};
+      if (cfg.dependencias && sql === cg.SQL_DEPENDENCIAS_RECORTE) return {rows: [cfg.dependencias]};
+      if (sql.includes('/* auditorias_autorizadas */')) return {rows: cfg.semAutorizadas ? [] : [{iniciados: '0', estendidos: '0'}]};
+      if (sql.includes('pg_stat_user_tables') && cfg.contadores) return {rows: cfg.contadores()};
       return {rows: []};
     }
   };
 }
+const semEspera = {esperar: async () => {}};
 const declaracaoSemPrefixo = (extra = {}) => ({...declaracao({ponto: 'P1', linha_base: undefined}), prefixo: {fonte: 'restore', itens: [], registro: {ponto: CORTE, origem: 'B-12'}}, ...extra});
 
 test('leitura: só SELECT, SET LOCAL, BEGIN READ ONLY e ROLLBACK, em ordem', async () => {
   const sqls = [];
-  const r = await cg.conferir(declaracaoSemPrefixo(), {env: {}, Client: clienteFalso({sqls})});
-  assert.equal(sqls[0], 'BEGIN TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY');
-  assert.equal(sqls.at(-1), 'ROLLBACK');
-  for (const s of sqls.slice(1, -1)) assert.match(s, /^(SET LOCAL |SELECT )/, s);
+  const r = await cg.conferir(declaracaoSemPrefixo(), {env: {}, Client: clienteFalso({sqls}), ...semEspera});
+  // Várias transações (leitura principal + uma por leitura dos contadores), cada uma BEGIN READ ONLY … ROLLBACK, sem nada fora delas.
+  let dentro = false, transacoes = 0;
+  for (const s of sqls) {
+    if (s === 'BEGIN TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY') { assert.ok(!dentro, 'BEGIN aninhado'); dentro = true; transacoes++; continue; }
+    if (s === 'ROLLBACK') { assert.ok(dentro, 'ROLLBACK solto'); dentro = false; continue; }
+    assert.ok(dentro, `fora de transação: ${s}`);
+    assert.match(s, /^(SET LOCAL |SELECT |\/\* auditorias_autorizadas \*\/)/, s);
+  }
+  assert.ok(!dentro);
+  assert.ok(transacoes >= 3, `principal + duas leituras de contadores (${transacoes})`);
   assert.ok(!sqls.some(s => /\b(INSERT|UPDATE|DELETE|TRUNCATE|DROP|ALTER|CREATE|GRANT|COMMIT)\b/.test(s)));
   assert.equal(r.papel.isolamento, 'repeatable read');
   assert.ok(r.inicio && r.fim);
@@ -650,13 +672,21 @@ test('bloco: ASCII, sha do corpo conferido, serviço guardado, conferidor carreg
     assert.match(c, /srv-dak77m2d0e5s73b8rkkg/);
     assert.match(c, /LINK_RECUSADO/);
   }
-  assert.match(bloco.corpo({modo: 'ENTREGAR'}), /CONTEUDO_DIVERGENTE/);
+  const entregas = bloco.MODOS.filter(m => m.startsWith('ENTREGAR-'));
+  assert.ok(entregas.length >= 2, 'D-LAN-4: conferidor passou de uma colagem');
+  assert.deepEqual(bloco.MODOS, [...entregas, 'CONFERIR', 'LIMPEZA']);
+  for (const m of entregas) { assert.match(bloco.corpo({modo: m}), /CONTEUDO_DIVERGENTE/); assert.ok(bloco.corpo({modo: m}).includes(`FRACAO_${/(\d+)$/.exec(m)[1]}_DIVERGENTE: nada gravado`), m); assert.doesNotMatch(bloco.corpo({modo: m}), /FRACAO_DIVERGENTE/); }
+  // As frações remontam exatamente o arquivo.
+  const zlib = require('node:zlib');
+  assert.deepEqual(zlib.gunzipSync(Buffer.from(bloco.fracoes().flatMap(p => p.linhas).join(''), 'base64')), bloco.lerConferidor());
+  assert.throws(() => bloco.gerar({modo: 'ENTREGAR', rotulo: 'abcdef1'}), {message: 'MODO_INVALIDO'});
+  assert.throws(() => bloco.gerar({modo: `ENTREGAR-${entregas.length + 1}`, rotulo: 'abcdef1'}), {message: 'MODO_INVALIDO'});
   assert.match(bloco.corpo({modo: 'CONFERIR'}), /--declaracao=/);
   assert.match(bloco.corpo({modo: 'LIMPEZA'}), /DIVERGENTE_PRESERVADO/);
   assert.ok(!/\b(psql|DROP|DELETE)\b/.test(bloco.corpo({modo: 'CONFERIR'})));
-  assert.throws(() => bloco.gerar({modo: 'ENTREGAR', rotulo: 'x'}), {message: 'ROTULO_INVALIDO'});
+  assert.throws(() => bloco.gerar({modo: 'ENTREGAR-1', rotulo: 'x'}), {message: 'ROTULO_INVALIDO'});
   assert.throws(() => bloco.gerar({modo: 'OUTRO', rotulo: 'abcdef1'}), {message: 'MODO_INVALIDO'});
-  assert.equal(bloco.gerar({modo: 'ENTREGAR', rotulo: 'abcdef1'}), bloco.gerar({modo: 'ENTREGAR', rotulo: 'abcdef1'}));
+  assert.equal(bloco.gerar({modo: 'ENTREGAR-1', rotulo: 'abcdef1'}), bloco.gerar({modo: 'ENTREGAR-1', rotulo: 'abcdef1'}));
 });
 
 test('bloco executado de verdade (bash -i em pasta temporária): serviço, entrega, repetição, adulteração, declaração e limpeza', () => {
@@ -680,13 +710,16 @@ test('bloco executado de verdade (bash -i em pasta temporária): serviço, entre
     const arquivo = path.join(destino, 'conferidor-g-vazio.cjs');
     const sha = bytes => createHash('sha256').update(bytes).digest('hex');
     const esperado = sha(bloco.lerConferidor());
+    const entregas = bloco.MODOS.filter(m => m.startsWith('ENTREGAR-'));
+    const N = entregas.length;
+    const pastaPartes = path.join(destino, '.partes');
 
-    const outro = colar(texto('ENTREGAR'), {...env, RENDER_SERVICE_ID: 'srv-outro'});
+    const outro = colar(texto('ENTREGAR-1'), {...env, RENDER_SERVICE_ID: 'srv-outro'});
     assert.match(outro, /SERVICO_DIVERGENTE/); assert.match(outro, /CODIGO_SAIDA_BLOCO=4/);
     assert.ok(!fs.existsSync(destino), 'serviço errado não cria nada');
 
     // Adultera o conteúdo entregue, não o controle: vale mesmo se o trecho que confere o sha mudar. Prova antes de rodar que a adulteração ocorreu.
-    const genuino = texto('ENTREGAR');
+    const genuino = texto('ENTREGAR-1');
     const partes = genuino.split('\n');
     const iPayload = partes.findIndex(l => /^[A-Za-z0-9+/]{76}$/.test(l));
     assert.ok(iPayload >= 0, 'há linha de conteúdo para adulterar');
@@ -697,10 +730,37 @@ test('bloco executado de verdade (bash -i em pasta temporária): serviço, entre
     assert.match(recusado, /CORPO_DIVERGENTE/); assert.match(recusado, /CODIGO_SAIDA_BLOCO=4/);
     assert.ok(!fs.existsSync(destino), 'corpo adulterado não executa');
 
-    const entregue = colar(texto('ENTREGAR'));
+    // Partes em ordem inversa e repetidas: só a última monta; fração adulterada no disco para com 4 e não monta.
+    const ultima = colar(texto(entregas[N - 1]));
+    assert.ok(ultima.includes(`PARTE_${N}_DE_${N}_GRAVADA`), ultima); assert.match(ultima, /FALTAM_PARTES/); assert.match(ultima, /CODIGO_SAIDA_BLOCO=0/);
+    assert.ok(!fs.existsSync(arquivo), 'sem todas as partes nada é instalado');
+    const deNovo = colar(texto(entregas[N - 1]));
+    assert.match(deNovo, /FALTAM_PARTES/); assert.match(deNovo, /CODIGO_SAIDA_BLOCO=0/);
+    const fracao = fs.readdirSync(pastaPartes).find(n => n.startsWith(`${N}-`));
+    assert.ok(fracao, 'fração gravada com o sha no nome');
+    fs.appendFileSync(path.join(pastaPartes, fracao), 'AAAA\n');
+    const fracaoRuim = colar(texto(entregas[N - 1]));
+    assert.ok(fracaoRuim.includes(`FRACAO_${N}_DIVERGENTE: nada gravado`), fracaoRuim); assert.doesNotMatch(fracaoRuim, /FRACAO_DIVERGENTE/); assert.match(fracaoRuim, /CODIGO_SAIDA_BLOCO=4/);
+    // Astra r1 de código, P3: colar as demais com a fração N adulterada no disco aponta a fração e sai 4 (não FALTAM_PARTES/0).
+    for (const m of entregas.slice(0, N - 1)) {
+      const r = colar(texto(m)); assert.ok(!/ENTREGUE/.test(r), r);
+      assert.ok(r.includes(`FRACAO_${N}_DIVERGENTE`), r); assert.doesNotMatch(r, /FALTAM_PARTES/); assert.match(r, /CODIGO_SAIDA_BLOCO=4/);
+    }
+    assert.ok(!fs.existsSync(arquivo), 'fração adulterada não monta o arquivo');
+    fs.rmSync(path.join(pastaPartes, fracao));
+    const entregue = colar(texto(entregas[N - 1]));
     assert.ok(entregue.includes(`ENTREGUE ${esperado}`), entregue); assert.match(entregue, /CODIGO_SAIDA_BLOCO=0/);
     assert.equal(sha(fs.readFileSync(arquivo)), esperado);
-    const repetido = colar(texto('ENTREGAR'));
+    assert.ok(!fs.existsSync(pastaPartes), 'frações saem depois de montar');
+    // Astra r1 de código, P2: o --plano roda na cópia isolada entregue (não no módulo do checkout), sai 0 e traz os dois critérios.
+    const plano = spawnSync(process.execPath, [arquivo, '--plano'], {cwd: destino, encoding: 'utf8', env: {PATH: process.env.PATH, SYSTEMROOT: process.env.SYSTEMROOT}});
+    assert.equal(plano.status, 0, plano.stderr);
+    const pj = JSON.parse(plano.stdout);
+    assert.deepEqual(Object.keys(pj.recorte_teste.criterio).sort(), ['empresa_assinaturas', 'empresa_excecoes_comerciais']);
+    assert.equal(pj.recorte_teste.criterio.empresa_assinaturas, cg.testeAutorizado('r'));
+    assert.equal(pj.recorte_teste.criterio.empresa_excecoes_comerciais, cg.extensaoAutorizada('r'));
+    assert.ok(pj.recorte_teste.sql_auditorias_autorizadas.includes('auditorias_autorizadas'));
+    const repetido = colar(texto(entregas[0]));
     assert.ok(repetido.includes(`JA_PRESENTE ${esperado}`), repetido); assert.match(repetido, /CODIGO_SAIDA_BLOCO=0/);
 
     const semDeclaracao = colar(texto('CONFERIR'));
@@ -710,7 +770,7 @@ test('bloco executado de verdade (bash -i em pasta temporária): serviço, entre
     assert.match(conferido, /ALVO_TESTE_SO_EM_TESTE/); assert.match(conferido, /CODIGO_SAIDA=1/); assert.match(conferido, /CODIGO_SAIDA_BLOCO=1/);
 
     fs.appendFileSync(arquivo, '// alterado\n');
-    const divergente = colar(texto('ENTREGAR'));
+    const divergente = colar(texto(entregas[0]));
     assert.match(divergente, /CONTEUDO_DIVERGENTE/); assert.match(divergente, /CODIGO_SAIDA_BLOCO=4/);
     const naoRoda = colar(texto('CONFERIR'));
     assert.match(naoRoda, /CONFERIDOR_AUSENTE_OU_DIVERGENTE/); assert.match(naoRoda, /CODIGO_SAIDA_BLOCO=4/);
@@ -720,7 +780,8 @@ test('bloco executado de verdade (bash -i em pasta temporária): serviço, entre
     assert.ok(!fs.existsSync(path.join(destino, 'declaracao.json')), 'a declaração sai');
 
     fs.rmSync(arquivo);
-    colar(texto('ENTREGAR'));
+    colar(texto(entregas[0]));
+    assert.ok(fs.existsSync(pastaPartes), 'fração pendente antes da limpeza');
     const limpo = colar(texto('LIMPEZA'));
     assert.match(limpo, /LIMPEZA_FEITA/); assert.match(limpo, /CODIGO_SAIDA_BLOCO=0/);
     assert.ok(!fs.existsSync(destino), 'nada fica para trás');
@@ -746,4 +807,387 @@ test('colunas lidas: lista fixa por objeto, para a prova de coluna ausente não 
     cadastros_publicos: ['situacao', 'expira_em'],
   };
   for (const {objeto} of cg.MATRIZ) assert.deepEqual(cg.colunasLidas(objeto), esperadas[objeto] ?? [], objeto);
+});
+
+// ---------- D-LAN-4: teste autorizado (plano r2 + correções Astra r2) ----------
+
+test('recorte: empresa_assinaturas é VAZIA_SALVO_TESTE e entra nos domínios vazios', () => {
+  const m = cg.MATRIZ.find(x => x.objeto === 'empresa_assinaturas');
+  assert.equal(m.dominio, 'VAZIA_SALVO_TESTE');
+  assert.deepEqual(cg.DOMINIOS_VAZIOS, ['VAZIA', 'VAZIA_SALVO_TESTE']);
+  assert.deepEqual(Object.keys(cg.RECORTE).sort(), ['empresa_assinaturas', 'empresa_excecoes_comerciais']);
+  assert.deepEqual(cg.INSERCOES_AUTORIZADAS, {empresa_assinaturas: 'iniciados', empresa_excecoes_comerciais: 'estendidos'});
+  // Linha de teste autorizada não conta; linha fora do critério conta como qualquer outra.
+  const l = leituraVazia();
+  l.dominio.empresa_assinaturas = {...l.dominio.empresa_assinaturas, contagem: 0, recorte: {situacao: 'APLICADO', total: 2, autorizadas: 2}};
+  assert.deepEqual(motivos(l), []);
+  l.dominio.empresa_assinaturas = {...l.dominio.empresa_assinaturas, contagem: 1, recorte: {situacao: 'APLICADO', total: 3, autorizadas: 2}};
+  assert.ok(motivos(l).some(m => /empresa_assinaturas/.test(m)), motivos(l).join(','));
+});
+
+test('recorte indeterminado (dependência ausente): nunca vira zero', () => {
+  const l = leituraVazia();
+  const {contagem, ...semContagem} = l.dominio.empresa_assinaturas;
+  assert.equal(contagem, 0);
+  l.dominio.empresa_assinaturas = {...semContagem, recorte: {situacao: 'INDETERMINADO', faltas: ['colunas:auditoria']}};
+  assert.ok(motivos(l).includes('RECORTE_TESTE_INDETERMINADO:empresa_assinaturas'), motivos(l).join(','));
+});
+
+test('predicado: alias próprio, auditoria SUCESSO do painel, um só INICIADO, maior testeFim e extensão não revogada', () => {
+  const p = cg.testeAutorizado('r');
+  for (const trecho of ["'PAINEL_DESENVOLVEDOR'", "'EMPRESA'", "'SUCESSO'", "'COMERCIAL_TESTE_INICIADO'", "'COMERCIAL_TESTE_ESTENDIDO'", "'EXTENSAO_TESTE'", 'revogada_em IS NULL', 'ORDER BY', 'DESC', 'LIMIT 1', "date_trunc('milliseconds'"]) assert.ok(p.includes(trecho), trecho);
+  for (const c of cg.COLUNAS_NULAS_NO_TESTE) assert.ok(p.includes(`r.${c} IS NULL`), c);
+  assert.ok(p.includes("r.situacao = 'TESTE'"));
+  assert.ok(/public\.auditoria/.test(p) && /public\.empresa_excecoes_comerciais/.test(p), 'tabelas qualificadas (search_path = pg_catalog)');
+  const x = cg.extensaoAutorizada('r');
+  for (const trecho of ["'EXTENSAO_TESTE'", 'revogada_em IS NULL', "'excecaoId'", "'COMERCIAL_TESTE_ESTENDIDO'"]) assert.ok(x.includes(trecho), trecho);
+  assert.ok(x.includes(cg.testeAutorizado('txa')), 'extensão exige teste autorizado da mesma empresa');
+  // A data da auditoria só é usada se tiver o formato ISO em ms; texto torto vira NULL e o critério cai (IS TRUE).
+  assert.match(cg.dataAud('au', 'testeFim'), /\[0-9\]\{3\}Z/);
+  assert.ok(cg.sqlContagem('empresa_assinaturas').includes('IS NOT TRUE'));
+  assert.ok(cg.sqlContagem('empresa_assinaturas').includes('FROM public.empresa_assinaturas r'));
+  assert.ok(!cg.sqlContagem('cobranca_eventos').includes('IS NOT TRUE'));
+  assert.ok(cg.SQL_AUDITORIAS_AUTORIZADAS.includes(cg.painelSucesso('au')));
+  assert.ok(cg.sqlAuditoria(false).includes('false AS painel_sucesso'), 'sem recorte pronto, nada vira TESTE_AUTORIZADO');
+  assert.ok(cg.sqlExcecoes(false).includes('false AS autorizada'), 'sem recorte pronto, extensão fica sem vínculo');
+});
+
+test('auditoria: TESTE_AUTORIZADO só com SUCESSO do painel; RECUSADO da mesma ação continua classificado', () => {
+  assert.equal(cg.classeAuditoria('COMERCIAL_TESTE_INICIADO', true), 'TESTE_AUTORIZADO');
+  assert.equal(cg.classeAuditoria('COMERCIAL_TESTE_ESTENDIDO', true), 'TESTE_AUTORIZADO');
+  assert.equal(cg.classeAuditoria('COBRANCA_WEBHOOK_RECUSADO', true), 'TENTATIVA_RECUSADA', 'painel não abre outras ações');
+  const semPainel = cg.classeAuditoria('COMERCIAL_TESTE_INICIADO', false);
+  assert.notEqual(semPainel, 'TESTE_AUTORIZADO');
+  const l = leituraVazia();
+  l.auditoria.por_acao = [{acao: 'COMERCIAL_TESTE_INICIADO', de_cobranca: false, painel_sucesso: true, n: 1}, {acao: 'COMERCIAL_TESTE_INICIADO', de_cobranca: false, painel_sucesso: false, n: 1}];
+  const r = cg.avaliarAuditoria(l, null).relatorio;
+  assert.equal(r.classes.TESTE_AUTORIZADO, 1);
+  assert.equal(Object.values(r.classes).reduce((a, b) => a + b, 0), semPainel ? 2 : 1, 'a outra linha segue a classe antiga');
+});
+
+test('contadores pareados: inserção coberta pela auditoria não é movimento; a mais é; a menos é desalinhado; sem acumulado é movimento', () => {
+  const ant = (ins, aud) => ({stats_reset: 'r', contadores: {empresa_assinaturas: {ins, del: 0}, empresa_excecoes_comerciais: {ins, del: 0}}, ...(aud ? {auditorias_autorizadas: aud} : {})});
+  const agora = ins => ({empresa_assinaturas: {ins, del: 0}, empresa_excecoes_comerciais: {ins, del: 0}});
+  const c = (a, p, acc) => cg.compararContadores(agora(a), 'r', p, 'P2', acc);
+  assert.deepEqual(c(2, ant(1, {iniciados: 1, estendidos: 3}), {iniciados: 2, estendidos: 4}), {situacao: 'COMPARADO', movimentos: [], desalinhados: []});
+  assert.deepEqual(c(3, ant(1, {iniciados: 1, estendidos: 3}), {iniciados: 2, estendidos: 5}).movimentos, ['empresa_assinaturas']);
+  assert.deepEqual(c(2, ant(1, {iniciados: 1, estendidos: 3}), {iniciados: 2, estendidos: 5}).desalinhados, ['empresa_excecoes_comerciais']);
+  // Relatório antigo, sem auditorias_autorizadas: qualquer inserção é movimento (lado seguro).
+  assert.deepEqual(c(2, ant(1, null), {iniciados: 1, estendidos: 1}).movimentos, ['empresa_assinaturas', 'empresa_excecoes_comerciais']);
+  assert.deepEqual(c(2, ant(1, {iniciados: 0, estendidos: 0}), null).movimentos, ['empresa_assinaturas', 'empresa_excecoes_comerciais']);
+  // Exclusão é sempre movimento, mesmo com auditoria.
+  const delAgora = {empresa_assinaturas: {ins: 1, del: 1}, empresa_excecoes_comerciais: {ins: 1, del: 0}};
+  assert.deepEqual(cg.compararContadores(delAgora, 'r', ant(1, {iniciados: 0, estendidos: 0}), 'P2', {iniciados: 0, estendidos: 0}).movimentos, ['empresa_assinaturas']);
+});
+
+test('contadores estáveis: duas leituras iguais seguidas; instável vira CONTADORES_NAO_ESTABILIZADOS e INCONCLUSIVO', async () => {
+  const base = cg.MATRIZ.map(m => ({objeto: m.objeto, ins: '0', del: '0'}));
+  let n = 0;
+  const instavel = () => base.map(r => (r.objeto === 'cobranca_eventos' ? {...r, ins: String(n++)} : r));
+  const esperas = [];
+  const db = new (clienteFalso({contadores: instavel}))();
+  const r = await cg.lerContadoresEstaveis(db, false, {esperar: async ms => esperas.push(ms), tentativas: 4, intervalo: 7});
+  assert.equal(r.estaveis, false); assert.equal(r.leituras, 4); assert.deepEqual(esperas, [7, 7, 7]);
+  const estavel = await cg.lerContadoresEstaveis(new (clienteFalso({contadores: () => base}))(), true, semEspera);
+  assert.equal(estavel.estaveis, true); assert.equal(estavel.leituras, 2);
+  assert.deepEqual(estavel.autorizadas, {iniciados: 0, estendidos: 0});
+  await assert.rejects(cg.lerContadoresEstaveis(new (clienteFalso({contadores: () => base, semAutorizadas: true}))(), true, semEspera), e => e.code === 'AUD_SEM_LINHA');
+  n = 0;
+  const rel = await cg.conferir(declaracaoSemPrefixo(), {env: {}, Client: clienteFalso({contadores: instavel}), esperar: async () => {}, tentativas: 3});
+  assert.equal(rel.contadores_estaveis, false);
+  assert.ok(rel.motivos.includes('CONTADORES_NAO_ESTABILIZADOS') || rel.resultado === 'INCONCLUSIVO', rel.motivos.join(','));
+  assert.equal(rel.resultado, 'INCONCLUSIVO');
+});
+
+test('--plano mostra o recorte do teste autorizado', async () => {
+  const saidas = [];
+  const orig = process.stdout.write;
+  process.stdout.write = s => { saidas.push(String(s)); return true; };
+  try { await cg.main(['--plano'], {}); } finally { process.stdout.write = orig; }
+  const plano = JSON.parse(saidas.join(''));
+  assert.ok(plano.recorte_teste, 'recorte_teste no plano');
+  assert.ok(plano.recorte_teste.sql_auditorias_autorizadas.includes('auditorias_autorizadas'));
+  assert.ok(plano.recorte_teste.criterio);
+});
+
+// ---------- Astra r1 de código (D-LAN-4 r2) ----------
+const comPrefixoR2 = {prefixo: {fonte: 'marcadores', pastas_marcadores: ['/m'], itens: []}, ponto: 'P9', linha_base: {}, cadastros_referencia: {}};
+
+test('r2 predicado: INICIADO exige testeFim válido e qualquer extensão revogada veta, antes do máximo', () => {
+  const p = cg.testeAutorizado('r');
+  assert.ok(p.includes(`${cg.dataAud('tai', 'testeFim')} IS NOT NULL`), 'testeFim inicial obrigatório');
+  assert.match(p, /NOT EXISTS \(SELECT 1 FROM public\.empresa_excecoes_comerciais tvr WHERE tvr\.empresa_id = r\.empresa_id AND tvr\.tipo = 'EXTENSAO_TESTE' AND tvr\.revogada_em IS NOT NULL\)/);
+});
+
+test('r2 fotografia: contadores que mudam entre a amostra de antes e a de depois repetem a leitura e terminam INCONCLUSIVO, sem movimento', async () => {
+  const base = cg.MATRIZ.map(m => ({objeto: m.objeto, ins: '0', del: '0'}));
+  let chamadas = 0;
+  // Cada amostra estável (duas leituras iguais) vê um valor novo: antes ≠ depois em toda repetição.
+  const mudaEntreAmostras = () => { const v = String(Math.floor(chamadas++ / 2)); return base.map(r => (r.objeto === 'cobranca_eventos' ? {...r, ins: v} : r)); };
+  const sqls = [];
+  const anterior = {stats_reset: null, contadores: Object.fromEntries(base.map(r => [r.objeto, {ins: 0, del: 0}])), contadores_estaveis: true, fotografia_coerente: true};
+  const rel = await cg.conferir(declaracaoSemPrefixo({...comPrefixoR2, leitura_anterior: anterior}), {env: {}, Client: clienteFalso({contadores: mudaEntreAmostras, sqls}), listarPasta: () => [], esperar: async () => {}});
+  assert.equal(rel.fotografia_coerente, false);
+  assert.equal(rel.repeticoes_fotografia, cg.REPETICOES_FOTOGRAFIA);
+  assert.equal(sqls.filter(s => s.includes('session_user')).length, cg.REPETICOES_FOTOGRAFIA, 'o domínio é relido a cada repetição');
+  assert.ok(rel.motivos.includes('CONTADORES_MUDARAM_DURANTE_A_LEITURA'), rel.motivos.join(','));
+  assert.ok(!rel.motivos.some(m => m.startsWith('MOVIMENTO_ENTRE_PONTOS')), 'sem pontas estáveis não se decide movimento');
+  assert.equal(rel.comparacao_contadores.situacao, 'PONTAS_NAO_ESTAVEIS');
+  assert.notEqual(rel.resultado, 'PASS');
+  // Coerente na 2ª repetição: segue com a leitura repetida.
+  let k = 0;
+  const mudaUmaVez = () => { const v = k++ < 2 ? '0' : '1'; return base.map(r => (r.objeto === 'cobranca_eventos' ? {...r, ins: v} : r)); };
+  const rel2 = await cg.conferir(declaracaoSemPrefixo(comPrefixoR2), {env: {}, Client: clienteFalso({contadores: mudaUmaVez}), listarPasta: () => [], esperar: async () => {}});
+  assert.equal(rel2.fotografia_coerente, true); assert.equal(rel2.repeticoes_fotografia, 2);
+  assert.ok(!rel2.motivos.includes('CONTADORES_MUDARAM_DURANTE_A_LEITURA'));
+});
+
+test('r2 leitura anterior instável: movimento aparente não é decidido; lacuna CONTADORES_ANTERIORES_NAO_ESTABILIZADOS', async () => {
+  const base = cg.MATRIZ.map(m => ({objeto: m.objeto, ins: m.objeto === 'cobranca_eventos' ? '5' : '0', del: '0'}));
+  const contadoresAnt = Object.fromEntries(base.map(r => [r.objeto, {ins: 0, del: 0}]));
+  // r3 (Astra r2, P1): a anterior só vale com tudo provado; legado sem campo, quarentena menor ou PG < 15 também são pontas instáveis.
+  const provada = {contadores_estaveis: true, fotografia_coerente: true, estatisticas_cumulativas: true, quarentena_ms: 65000, prova_descarga: 'PROVADA'};
+  const semCampo = campo => { const p = {...provada}; delete p[campo]; return p; };
+  const casos = [{...provada, contadores_estaveis: false}, {...provada, fotografia_coerente: false}, semCampo('fotografia_coerente'), semCampo('contadores_estaveis'),
+    semCampo('quarentena_ms'), semCampo('estatisticas_cumulativas'), {...provada, quarentena_ms: 64999}, {...provada, quarentena_ms: '65000'}, {...provada, estatisticas_cumulativas: false}, semCampo('prova_descarga'), {...provada, prova_descarga: 'SEM_PROVA'}];
+  for (const flags of casos) {
+    const rel = await cg.conferir(declaracaoSemPrefixo({...comPrefixoR2, leitura_anterior: {stats_reset: null, contadores: contadoresAnt, ...flags}}), {env: {}, Client: clienteFalso({contadores: () => base}), listarPasta: () => [], esperar: async () => {}, quarentenaMs: 65000});
+    assert.ok(rel.motivos.includes('CONTADORES_ANTERIORES_NAO_ESTABILIZADOS'), JSON.stringify(flags) + rel.motivos.join(','));
+    assert.ok(!rel.motivos.some(m => m.startsWith('MOVIMENTO_ENTRE_PONTOS')));
+    assert.notEqual(rel.resultado, 'PASS');
+  }
+  // Controle: com a anterior provada e a mesma quarentena, o mesmo movimento é acusado.
+  const ok = await cg.conferir(declaracaoSemPrefixo({...comPrefixoR2, leitura_anterior: {stats_reset: null, contadores: contadoresAnt, ...provada}}), {env: {}, Client: clienteFalso({contadores: () => base}), listarPasta: () => [], esperar: async () => {}, quarentenaMs: 65000});
+  assert.ok(ok.motivos.includes('MOVIMENTO_ENTRE_PONTOS:cobranca_eventos'), ok.motivos.join(','));
+  assert.ok(!ok.motivos.includes('CONTADORES_ANTERIORES_NAO_ESTABILIZADOS'));
+});
+
+test('r3 quarentena: a amostra final só sai depois da espera, que vem depois da fotografia; fora do teste a padrão é 65 s e sai no relatório', async () => {
+  assert.equal(cg.QUARENTENA_STATS_MS, 65000);
+  const ordem = [];
+  const esperar = async ms => { ordem.push(`ESPERA:${ms}`); };
+  const rel = await cg.conferir(declaracaoSemPrefixo({...comPrefixoR2, alvo: 'isolado'}), {env: {DATABASE_URL: 'postgresql://x@127.0.0.1:1/x'}, Client: clienteFalso({sqls: ordem}), listarPasta: () => [], esperar});
+  assert.equal(rel.quarentena_ms, cg.QUARENTENA_STATS_MS);
+  const iEspera = ordem.indexOf(`ESPERA:${cg.QUARENTENA_STATS_MS}`);
+  assert.ok(iEspera > 0, 'a quarentena padrão foi aguardada');
+  assert.ok(ordem.findIndex(s => s.includes('session_user')) < iEspera, 'a espera vem depois da fotografia do domínio');
+  assert.ok(ordem.slice(iEspera + 1).some(s => s.includes('n_tup_ins')), 'a amostra final vem depois da espera');
+  // Valor explícito é respeitado e publicado; inválido cai na padrão.
+  const ordem2 = [];
+  const rel2 = await cg.conferir(declaracaoSemPrefixo(comPrefixoR2), {env: {}, Client: clienteFalso({sqls: ordem2}), listarPasta: () => [], esperar: async ms => { ordem2.push(`ESPERA:${ms}`); }, quarentenaMs: 70000});
+  assert.equal(rel2.quarentena_ms, 70000); assert.ok(ordem2.includes('ESPERA:70000'));
+  const rel3 = await cg.conferir(declaracaoSemPrefixo({...comPrefixoR2, alvo: 'isolado'}), {env: {DATABASE_URL: 'postgresql://x@127.0.0.1:1/x'}, Client: clienteFalso(), listarPasta: () => [], esperar: async () => {}, quarentenaMs: -1});
+  assert.equal(rel3.quarentena_ms, cg.QUARENTENA_STATS_MS);
+});
+
+test('r3 PG anterior ao 15: estatísticas sem garantia viram lacuna e o movimento não é decidido', async () => {
+  const base = cg.MATRIZ.map(m => ({objeto: m.objeto, ins: m.objeto === 'cobranca_eventos' ? '5' : '0', del: '0'}));
+  const anterior = {stats_reset: null, contadores: Object.fromEntries(base.map(r => [r.objeto, {ins: 0, del: 0}])), contadores_estaveis: true, fotografia_coerente: true, estatisticas_cumulativas: true, quarentena_ms: 0, prova_descarga: 'NAO_EXIGIDA'};
+  for (const [versaoNum, garantida] of [[140010, false], [149999, false], [150000, true], [180006, true]]) {
+    const rel = await cg.conferir(declaracaoSemPrefixo({...comPrefixoR2, leitura_anterior: anterior}), {env: {}, Client: clienteFalso({contadores: () => base, versaoNum}), listarPasta: () => [], esperar: async () => {}});
+    assert.equal(rel.estatisticas_cumulativas, garantida, String(versaoNum));
+    assert.equal(rel.motivos.includes('ESTATISTICAS_SEM_GARANTIA_PG_ANTERIOR_AO_15'), !garantida, String(versaoNum));
+    assert.equal(rel.motivos.includes('MOVIMENTO_ENTRE_PONTOS:cobranca_eventos'), garantida, String(versaoNum));
+    if (!garantida) { assert.equal(rel.comparacao_contadores.situacao, 'PONTAS_NAO_ESTAVEIS'); assert.notEqual(rel.resultado, 'PASS'); }
+  }
+});
+
+test('r2 auditoria: coluna lida ausente (id/acao/origem/criado_em) vira AUDITORIA_COLUNAS_AUSENTES, nunca zero', () => {
+  assert.deepEqual([...cg.COLUNAS_AUDITORIA_LIDAS], ['id', 'acao', 'origem', 'criado_em']);
+  assert.ok(cg.SQL_DEPENDENCIAS_RECORTE.includes('AS auditoria_lida'));
+  const l = leituraVazia();
+  l.auditoria = {legivel: false, por_acao: [], colunas_ausentes: true};
+  assert.ok(motivos(l).includes('AUDITORIA_COLUNAS_AUSENTES'));
+  l.auditoria = {legivel: false, por_acao: []};
+  assert.ok(motivos(l).includes('AUDITORIA_ILEGIVEL_OU_RLS'));
+});
+
+test('r2 auditoria pelo lerBanco: auditoria legível com coluna lida ausente não é consultada e vira AUDITORIA_COLUNAS_AUSENTES', async () => {
+  const objetos = [{objeto: 'auditoria', tipo: 'r', leitura: true, rls_ativa: false, relrowsecurity: false, relforcerowsecurity: false}];
+  const consultouAuditoria = sqls => sqls.some(s => s.includes('FROM public.auditoria au WHERE au.criado_em >= $1::timestamptz GROUP BY'));
+  const sem = [];
+  const r = await cg.conferir(declaracaoSemPrefixo(comPrefixoR2), {env: {}, Client: clienteFalso({sqls: sem, objetos, dependencias: {auditoria_lida: false}}), ...semEspera, listarPasta: () => []});
+  assert.ok(r.motivos.includes('AUDITORIA_COLUNAS_AUSENTES'), r.motivos.join(','));
+  assert.ok(!consultouAuditoria(sem), 'coluna ausente: a auditoria não pode ser lida');
+  // Controle: com as colunas lidas presentes, a mesma auditoria é consultada e o motivo some.
+  const com = [];
+  const ok = await cg.conferir(declaracaoSemPrefixo(comPrefixoR2), {env: {}, Client: clienteFalso({sqls: com, objetos, dependencias: {auditoria_lida: true}}), ...semEspera, listarPasta: () => []});
+  assert.ok(consultouAuditoria(com));
+  assert.ok(!ok.motivos.includes('AUDITORIA_COLUNAS_AUSENTES'), ok.motivos.join(','));
+  assert.ok(!ok.motivos.includes('AUDITORIA_ILEGIVEL_OU_RLS'), ok.motivos.join(','));
+});
+
+test('r3 prova de descarga: fora do teste, sessão invisível, ativa ou ociosa há pouco = sem prova (lacuna, movimento não decidido); consulta antes da amostra final', async () => {
+  assert.equal(cg.OCIOSO_MINIMO_S, 11);
+  assert.ok(cg.SQL_ESCRITORES.includes("state = 'idle' AND state_change <= clock_timestamp() - interval '11 seconds'"));
+  assert.ok(cg.SQL_ESCRITORES.includes('pid <> pg_backend_pid()') && cg.SQL_ESCRITORES.includes('datname = current_database()'));
+  const base = cg.MATRIZ.map(m => ({objeto: m.objeto, ins: m.objeto === 'cobranca_eventos' ? '5' : '0', del: '0'}));
+  const anterior = {stats_reset: null, contadores: Object.fromEntries(base.map(r => [r.objeto, {ins: 0, del: 0}])), contadores_estaveis: true, fotografia_coerente: true, estatisticas_cumulativas: true, quarentena_ms: 65000, prova_descarga: 'PROVADA'};
+  const isolado = (escritores, extra = {}, sqls) => cg.conferir(declaracaoSemPrefixo({...comPrefixoR2, alvo: 'isolado', leitura_anterior: {...anterior, ...extra}}),
+    {env: {DATABASE_URL: 'postgresql://x@127.0.0.1:1/x'}, Client: clienteFalso({contadores: () => base, escritores, sqls}), listarPasta: () => [], esperar: async ms => { sqls?.push('ESPERA:' + ms); }});
+  for (const esc of [{total: 2, invisiveis: 0, recentes: 1}, {total: 2, invisiveis: 1, recentes: 0}, {total: null, invisiveis: 0, recentes: 0}, {}]) {
+    const rel = await isolado(esc);
+    assert.equal(rel.prova_descarga, 'SEM_PROVA', JSON.stringify(esc));
+    assert.ok(rel.motivos.includes('ESCRITORES_SEM_PROVA_DE_DESCARGA'), JSON.stringify(esc));
+    assert.ok(!rel.motivos.some(m => m.startsWith('MOVIMENTO_ENTRE_PONTOS')), JSON.stringify(esc));
+    assert.equal(rel.comparacao_contadores.situacao, 'PONTAS_NAO_ESTAVEIS'); assert.notEqual(rel.resultado, 'PASS');
+  }
+  // Controle: todas as outras sessões ociosas há tempo bastante = provada, e o mesmo movimento é acusado.
+  const ordem = [];
+  const ok = await isolado({total: 3, invisiveis: 0, recentes: 0}, {}, ordem);
+  assert.equal(ok.prova_descarga, 'PROVADA'); assert.deepEqual(ok.escritores, {total: 3, invisiveis: 0, recentes: 0, descarregados: true});
+  assert.ok(!ok.motivos.includes('ESCRITORES_SEM_PROVA_DE_DESCARGA'));
+  assert.ok(ok.motivos.includes('MOVIMENTO_ENTRE_PONTOS:cobranca_eventos'), ok.motivos.join(','));
+  const iEsp = ordem.indexOf('ESPERA:' + cg.QUARENTENA_STATS_MS), iEsc = ordem.lastIndexOf(cg.SQL_ESCRITORES);
+  assert.ok(iEsp >= 0 && iEsc > iEsp, 'a prova vem depois da quarentena');
+  assert.ok(ordem.slice(iEsc + 1).some(s => s.includes('n_tup_ins')), 'e antes da amostra final');
+  // Com a prova exigida, anterior "NAO_EXIGIDA" (de teste) não serve de ponta.
+  const antTeste = await isolado({total: 0, invisiveis: 0, recentes: 0}, {prova_descarga: 'NAO_EXIGIDA'});
+  assert.ok(antTeste.motivos.includes('CONTADORES_ANTERIORES_NAO_ESTABILIZADOS'), antTeste.motivos.join(','));
+  // No alvo de teste não é exigida (sai NAO_EXIGIDA), salvo pedido explícito.
+  const t1 = await cg.conferir(declaracaoSemPrefixo(comPrefixoR2), {env: {}, Client: clienteFalso({escritores: {total: 1, invisiveis: 0, recentes: 1}}), listarPasta: () => [], esperar: async () => {}});
+  assert.equal(t1.prova_descarga, 'NAO_EXIGIDA'); assert.ok(!t1.motivos.includes('ESCRITORES_SEM_PROVA_DE_DESCARGA'));
+  const t2 = await cg.conferir(declaracaoSemPrefixo(comPrefixoR2), {env: {}, Client: clienteFalso({escritores: {total: 1, invisiveis: 0, recentes: 1}}), listarPasta: () => [], esperar: async () => {}, exigirDescarga: true});
+  assert.equal(t2.prova_descarga, 'SEM_PROVA'); assert.ok(t2.motivos.includes('ESCRITORES_SEM_PROVA_DE_DESCARGA'));
+});
+
+// ---------- Astra r3 de código (D-LAN-4 r4) ----------
+test('r4 reset e ausência de movimento: reset entre pontos é lacuna; fora do teste, comparação sem movimento nunca certifica (INCONCLUSIVO), movimento acusado continua reprovando', async () => {
+  const zerada = cg.MATRIZ.map(m => ({objeto: m.objeto, ins: '0', del: '0'}));
+  const comMov = cg.MATRIZ.map(m => ({objeto: m.objeto, ins: m.objeto === 'cobranca_eventos' ? '5' : '0', del: '0'}));
+  const anterior = {stats_reset: null, contadores: Object.fromEntries(zerada.map(r => [r.objeto, {ins: 0, del: 0}])), contadores_estaveis: true, fotografia_coerente: true, estatisticas_cumulativas: true, quarentena_ms: 65000, prova_descarga: 'PROVADA'};
+  const livres = {total: 2, invisiveis: 0, recentes: 0};
+  const isolado = (contadores, extra = {}) => cg.conferir(declaracaoSemPrefixo({...comPrefixoR2, alvo: 'isolado', leitura_anterior: {...anterior, ...extra}}),
+    {env: {DATABASE_URL: 'postgresql://x@127.0.0.1:1/x'}, Client: clienteFalso({contadores: () => contadores, escritores: livres}), listarPasta: () => [], esperar: async () => {}});
+  // Prova de descarga PROVADA e nenhum movimento: ainda assim a ausência não está provada.
+  const sem = await isolado(zerada);
+  assert.equal(sem.prova_descarga, 'PROVADA');
+  assert.equal(sem.comparacao_contadores.situacao, 'COMPARADO');
+  assert.ok(sem.motivos.includes('AUSENCIA_DE_MOVIMENTO_SEM_PROVA_TRANSACIONAL'), sem.motivos.join(','));
+  assert.equal(sem.ausencia_de_movimento, 'NAO_PROVADA');
+  assert.ok(!['PASS', 'S-PASS', 'S-REG', 'CONFORME'].includes(sem.resultado), sem.resultado);
+  assert.equal(cg.CODIGO_DO_RESULTADO[sem.resultado] === 0, false);
+  assert.ok(typeof sem.resultado_sem_lacunas === 'string');
+  // Movimento acusado: reprova, e a lacuna de ausência não aparece.
+  const mov = await isolado(comMov);
+  assert.ok(mov.motivos.includes('MOVIMENTO_ENTRE_PONTOS:cobranca_eventos'));
+  assert.ok(!mov.motivos.includes('AUSENCIA_DE_MOVIMENTO_SEM_PROVA_TRANSACIONAL'));
+  assert.equal(mov.ausencia_de_movimento, 'MOVIMENTO_ACUSADO');
+  assert.ok(['FALHA', 'S-FALHA', 'NAO_CONFORME'].includes(mov.resultado), mov.resultado);
+  // Reset entre pontos: lacuna nomeada, nunca PASS/CONFORME, nem com contadores iguais.
+  for (const c of [zerada, comMov]) {
+    const rs = await isolado(c, {stats_reset: '2026-11-01T00:00:00Z'});
+    assert.equal(rs.comparacao_contadores.situacao, 'LACUNA_RESET_DE_ESTATISTICAS');
+    assert.ok(rs.motivos.includes('ESTATISTICAS_REINICIADAS_ENTRE_PONTOS'), rs.motivos.join(','));
+    assert.equal(rs.ausencia_de_movimento, 'NAO_PROVADA');
+    assert.equal(cg.CODIGO_DO_RESULTADO[rs.resultado] === 0, false, rs.resultado);
+  }
+  // Alvo de teste (o harness é o único escritor): comparação sem movimento não ganha a lacuna, mas reset continua lacuna.
+  const antTeste = {...anterior, quarentena_ms: 0, prova_descarga: 'NAO_EXIGIDA'};
+  const teste = extra => cg.conferir(declaracaoSemPrefixo({...comPrefixoR2, leitura_anterior: {...antTeste, ...extra}}), {env: {}, Client: clienteFalso({contadores: () => zerada}), listarPasta: () => [], esperar: async () => {}});
+  const t1 = await teste({});
+  assert.equal(t1.comparacao_contadores.situacao, 'COMPARADO');
+  assert.ok(!t1.motivos.includes('AUSENCIA_DE_MOVIMENTO_SEM_PROVA_TRANSACIONAL'), t1.motivos.join(','));
+  assert.equal(t1.ausencia_de_movimento, 'COMPARADA_NO_TESTE');
+  const t2 = await teste({stats_reset: '2026-11-01T00:00:00Z'});
+  assert.ok(t2.motivos.includes('ESTATISTICAS_REINICIADAS_ENTRE_PONTOS'), t2.motivos.join(','));
+  assert.equal(cg.CODIGO_DO_RESULTADO[t2.resultado] === 0, false, t2.resultado);
+});
+
+// ---------- Astra r4 de código (D-LAN-4 r5) ----------
+test('r5: fora do alvo de teste a ausência nunca é certificada, nem com a descarga dispensada; anterior sem contadores é lacuna; estado_atual vem do apurado; retornos antecipados têm os campos novos', async () => {
+  const zerada = cg.MATRIZ.map(m => ({objeto: m.objeto, ins: '0', del: '0'}));
+  const comMov = cg.MATRIZ.map(m => ({objeto: m.objeto, ins: m.objeto === 'cobranca_eventos' ? '5' : '0', del: '0'}));
+  const anterior = {stats_reset: null, contadores: Object.fromEntries(zerada.map(r => [r.objeto, {ins: 0, del: 0}])), contadores_estaveis: true, fotografia_coerente: true, estatisticas_cumulativas: true, quarentena_ms: 65000, prova_descarga: 'PROVADA'};
+  const livres = {total: 2, invisiveis: 0, recentes: 0};
+  const isolado = (contadores, ant, opcoes = {}) => cg.conferir(declaracaoSemPrefixo({...comPrefixoR2, alvo: 'isolado', ...(ant === undefined ? {} : {leitura_anterior: ant})}),
+    {env: {DATABASE_URL: 'postgresql://x@127.0.0.1:1/x'}, Client: clienteFalso({contadores: () => contadores, escritores: livres}), listarPasta: () => [], esperar: async () => {}, ...opcoes});
+  // P1: a opção da API que dispensa a descarga não dispensa a lacuna nem muda o rótulo.
+  const dispensada = await isolado(zerada, anterior, {exigirDescarga: false});
+  assert.equal(dispensada.prova_descarga, 'NAO_EXIGIDA');
+  assert.equal(dispensada.comparacao_contadores.situacao, 'COMPARADO');
+  assert.ok(dispensada.motivos.includes('AUSENCIA_DE_MOVIMENTO_SEM_PROVA_TRANSACIONAL'), dispensada.motivos.join(','));
+  assert.equal(dispensada.ausencia_de_movimento, 'NAO_PROVADA');
+  assert.equal(cg.CODIGO_DO_RESULTADO[dispensada.resultado] === 0, false, dispensada.resultado);
+  // P1: fora do alvo de teste, leitura anterior declarada sem contadores válidos é lacuna; sem leitura anterior, não. No teste (só marcador), não.
+  for (const ant of [{}, {contadores: null}, {contadores: 'x'}, {marcador_perda_nao_descartada: false}]) {
+    const r = await isolado(zerada, ant);
+    assert.equal(r.comparacao_contadores.situacao, 'SEM_LEITURA_ANTERIOR');
+    assert.ok(r.motivos.includes('LEITURA_ANTERIOR_SEM_CONTADORES'), JSON.stringify(ant) + ' ' + r.motivos.join(','));
+    assert.equal(r.ausencia_de_movimento, 'NAO_PROVADA');
+    assert.equal(cg.CODIGO_DO_RESULTADO[r.resultado] === 0, false, r.resultado);
+    const t = await cg.conferir(declaracaoSemPrefixo({...comPrefixoR2, leitura_anterior: ant}), {env: {}, Client: clienteFalso({contadores: () => zerada}), listarPasta: () => [], esperar: async () => {}});
+    assert.ok(!t.motivos.includes('LEITURA_ANTERIOR_SEM_CONTADORES'), t.motivos.join(','));
+    assert.equal(t.ausencia_de_movimento, 'NAO_PROVADA');
+  }
+  const primeira = await isolado(zerada, undefined);
+  assert.ok(!primeira.motivos.includes('LEITURA_ANTERIOR_SEM_CONTADORES'), primeira.motivos.join(','));
+  // P2: movimento acusado é apurado (A-FALHA). O caso só-lacuna (não A-FALHA) é provado na suíte PG: este falso nunca chega a CONFORME.
+  const mov = await isolado(comMov, anterior);
+  assert.equal(mov.estado_atual, 'A-FALHA');
+  // P3: retornos antecipados com o mesmo formato.
+  const imp = await cg.conferir(declaracaoSemPrefixo(), {env: {}, Client: clienteFalso({falhaConexao: true})});
+  assert.equal(imp.resultado_sem_lacunas, null); assert.equal(imp.ausencia_de_movimento, 'NAO_PROVADA');
+  const ind = await cg.conferir(declaracao({ponto: 'P1', linha_base: undefined, prefixo: {fonte: 'indeclaravel'}}), {env: {}, Client: clienteFalso()});
+  assert.deepEqual(ind.motivos, ['PREFIXO_INDECLARAVEL']);
+  assert.equal(ind.resultado_sem_lacunas, null); assert.equal(ind.ausencia_de_movimento, 'NAO_PROVADA');
+});
+
+// ---------- Astra r5 de código (D-LAN-4 r6) ----------
+test('r6: leitura anterior válida com mapa de contadores esvaziado não vira comparação; fora do teste é lacuna', async () => {
+  const zerada = cg.MATRIZ.map(m => ({objeto: m.objeto, ins: '0', del: '0'}));
+  const cheia = {stats_reset: null, contadores: Object.fromEntries(zerada.map(r => [r.objeto, {ins: 0, del: 0}])), contadores_estaveis: true, fotografia_coerente: true, estatisticas_cumulativas: true, quarentena_ms: 65000, prova_descarga: 'PROVADA'};
+  const livres = {total: 2, invisiveis: 0, recentes: 0};
+  const isolado = ant => cg.conferir(declaracaoSemPrefixo({...comPrefixoR2, alvo: 'isolado', leitura_anterior: ant}),
+    {env: {DATABASE_URL: 'postgresql://x@127.0.0.1:1/x'}, Client: clienteFalso({contadores: () => zerada, escritores: livres}), listarPasta: () => [], esperar: async () => {}});
+  for (const contadores of [{}, {objeto_inexistente: {ins: 0, del: 0}}]) {
+    const r = await isolado({...cheia, contadores});
+    assert.equal(r.comparacao_contadores.situacao, 'SEM_PARES_COMPARAVEIS', JSON.stringify(contadores));
+    assert.ok(r.motivos.includes('LEITURA_ANTERIOR_SEM_CONTADORES'), r.motivos.join(','));
+    assert.ok(!r.motivos.includes('AUSENCIA_DE_MOVIMENTO_SEM_PROVA_TRANSACIONAL'), r.motivos.join(','));
+    assert.equal(r.ausencia_de_movimento, 'NAO_PROVADA');
+    assert.equal(cg.CODIGO_DO_RESULTADO[r.resultado] === 0, false, r.resultado);
+    const t = await cg.conferir(declaracaoSemPrefixo({...comPrefixoR2, leitura_anterior: {...cheia, contadores}}), {env: {}, Client: clienteFalso({contadores: () => zerada}), listarPasta: () => [], esperar: async () => {}});
+    assert.ok(!t.motivos.includes('LEITURA_ANTERIOR_SEM_CONTADORES'), t.motivos.join(','));
+    assert.equal(t.ausencia_de_movimento, 'NAO_PROVADA');
+  }
+  // Com o mapa cheio a comparação acontece (controle).
+  const c = await isolado(cheia);
+  assert.equal(c.comparacao_contadores.situacao, 'COMPARADO');
+  assert.ok(!c.motivos.includes('LEITURA_ANTERIOR_SEM_CONTADORES'), c.motivos.join(','));
+});
+
+// ---------- Astra r6 de código (D-LAN-4 r7) ----------
+test('r7: anterior cheia e atual sem objetos vigiados aponta a fotografia atual, não a anterior', async () => {
+  const zerada = cg.MATRIZ.map(m => ({objeto: m.objeto, ins: '0', del: '0'}));
+  const cheia = {stats_reset: null, contadores: Object.fromEntries(zerada.map(r => [r.objeto, {ins: 0, del: 0}])), contadores_estaveis: true, fotografia_coerente: true, estatisticas_cumulativas: true, quarentena_ms: 65000, prova_descarga: 'PROVADA'};
+  const livres = {total: 2, invisiveis: 0, recentes: 0};
+  const isolado = (atual, ant) => cg.conferir(declaracaoSemPrefixo({...comPrefixoR2, alvo: 'isolado', leitura_anterior: ant}),
+    {env: {DATABASE_URL: 'postgresql://x@127.0.0.1:1/x'}, Client: clienteFalso({contadores: () => atual, escritores: livres}), listarPasta: () => [], esperar: async () => {}});
+  const atualVazia = await isolado([], cheia);
+  assert.equal(atualVazia.comparacao_contadores.situacao, 'SEM_PARES_COMPARAVEIS');
+  assert.equal(atualVazia.comparacao_contadores.falta, 'ATUAL');
+  assert.ok(atualVazia.motivos.includes('SEM_PARES_COMPARAVEIS'), atualVazia.motivos.join(','));
+  assert.ok(!atualVazia.motivos.includes('LEITURA_ANTERIOR_SEM_CONTADORES'), atualVazia.motivos.join(','));
+  assert.equal(atualVazia.ausencia_de_movimento, 'NAO_PROVADA');
+  assert.equal(cg.CODIGO_DO_RESULTADO[atualVazia.resultado] === 0, false, atualVazia.resultado);
+  // Anterior esvaziada continua apontando a anterior, mesmo com a atual também vazia.
+  for (const atual of [zerada, []]) {
+    const r = await isolado(atual, {...cheia, contadores: {}});
+    assert.equal(r.comparacao_contadores.falta, 'ANTERIOR');
+    assert.ok(r.motivos.includes('LEITURA_ANTERIOR_SEM_CONTADORES'), r.motivos.join(','));
+    assert.ok(!r.motivos.includes('SEM_PARES_COMPARAVEIS'), r.motivos.join(','));
+  }
+  // Anterior só com objetos não vigiados conta como anterior sem contadores vigiados.
+  // O único objeto da matriz que pode ficar fora da vigilância é cadastros_publicos, e só até o P3.
+  const naoVigiados = cg.MATRIZ.filter(m => !cg.DOMINIOS_VAZIOS.includes(m.dominio) && !cg.OBJETOS_HASHEADOS_CLASSIFICADOS.includes(m.objeto));
+  assert.deepEqual(naoVigiados.map(m => m.objeto), ['cadastros_publicos']);
+  const soNaoVigiados = await cg.conferir(declaracaoSemPrefixo({...comPrefixoR2, ponto: 'P3', alvo: 'isolado', leitura_anterior: {...cheia, contadores: {cadastros_publicos: {ins: 0, del: 0}}}}),
+    {env: {DATABASE_URL: 'postgresql://x@127.0.0.1:1/x'}, Client: clienteFalso({contadores: () => zerada, escritores: livres}), listarPasta: () => [], esperar: async () => {}});
+  assert.equal(soNaoVigiados.comparacao_contadores.falta, 'ANTERIOR');
+  assert.ok(soNaoVigiados.motivos.includes('LEITURA_ANTERIOR_SEM_CONTADORES'), soNaoVigiados.motivos.join(','));
+  // No alvo de teste nenhuma das duas lacunas entra.
+  const t = await cg.conferir(declaracaoSemPrefixo({...comPrefixoR2, leitura_anterior: cheia}), {env: {}, Client: clienteFalso({contadores: () => []}), listarPasta: () => [], esperar: async () => {}});
+  assert.ok(!t.motivos.includes('SEM_PARES_COMPARAVEIS') && !t.motivos.includes('LEITURA_ANTERIOR_SEM_CONTADORES'), t.motivos.join(','));
+  assert.equal(t.ausencia_de_movimento, 'NAO_PROVADA');
 });
