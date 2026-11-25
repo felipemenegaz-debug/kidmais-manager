@@ -219,3 +219,195 @@ test('piloto + 074a: com a venda ligada, a contratante em teste vê os planos co
     assert.deepEqual(vaga.map((v) => [v.documento_beneficiario, v.estado]), [[PILOTO_CNPJ, 'RESERVADA']]);
     assert.equal(await erro(preparar(ids.semCobranca)), 'EMPRESA_SEM_COBRANCA');
 });
+
+// Depois da 074a (contratacao_atual_id): o mesmo conjunto de colunas de production.
+test('D-LAN-4: conferidores G-VAZIO e B5 reconhecem o teste do painel (iniciar + estender ×2) e só ele; adulteração ou extensão revogada sai do recorte', async () => {
+    type Sq = Record<string, unknown> & { testeAutorizado: (a: string) => string; extensaoAutorizada: (a: string) => string; SQL_DEPENDENCIAS_RECORTE: string };
+    const cg = req('../../scripts/conferidor-g-vazio.cjs') as Sq & { sqlContagem: (t: string) => string; SQL_AUDITORIAS_AUTORIZADAS: string };
+    const b5 = req('../../scripts/conferencia-b5-producao.cjs') as Sq & { sqlContagem: (t: string, pronto: boolean) => string };
+    assert.equal(b5.testeAutorizado('r'), cg.testeAutorizado('r'));
+    const dep = (await client.query(cg.SQL_DEPENDENCIAS_RECORTE)).rows[0] as Record<string, boolean>;
+    assert.ok(Object.values(dep).every((v) => v === true), `dependências do recorte: ${JSON.stringify(dep)}`);
+    const dev = await sessaoDe(ids.dev);
+    // Segunda extensão pelo painel (a primeira veio do teste anterior): o teste_fim passa a ser o testeFim da última.
+    await operar(dev, ids.piloto, { operacao: 'estender-teste', dias: 3, motivo: 'Segunda extensão do piloto' });
+    const autorizado = async (empresa: string) => (await client.query(`SELECT (${cg.testeAutorizado('r')}) IS TRUE AS ok FROM public.empresa_assinaturas r WHERE r.empresa_id = $1`, [empresa])).rows[0]?.ok as boolean;
+    const extensoes = async (empresa: string) => (await client.query(`SELECT (${cg.extensaoAutorizada('r')}) IS TRUE AS ok FROM public.empresa_excecoes_comerciais r WHERE r.empresa_id = $1 AND r.tipo = 'EXTENSAO_TESTE' ORDER BY r.criado_em`, [empresa])).rows.map((x) => x.ok as boolean);
+    assert.equal(await autorizado(ids.piloto), true, 'iniciado e estendido pelo painel');
+    assert.deepEqual(await extensoes(ids.piloto), [true, true]);
+    // Fixture gravada direto (sem INICIADO do painel) e vencida: fora do teste autorizado; a extensão dela também.
+    assert.equal(await autorizado(ids.teste), false); assert.equal(await autorizado(ids.vencida), false);
+    assert.deepEqual(await extensoes(ids.teste), [false]);
+    // Contagens dos dois conferidores: só o piloto sai.
+    const total = await contar('SELECT count(*)::int AS n FROM empresa_assinaturas');
+    const gv = (await client.query(cg.sqlContagem('empresa_assinaturas'))).rows[0];
+    assert.deepEqual([Number(gv.n), Number(gv.total)], [total - 1, total]);
+    const bb = (await client.query(b5.sqlContagem('empresa_assinaturas', true))).rows[0];
+    assert.deepEqual([Number(bb.linhas), Number(bb.fora_do_teste)], [total, total - 1]);
+    const ex = (await client.query(b5.sqlContagem('empresa_excecoes_comerciais', true))).rows[0];
+    assert.equal(Number(ex.extensoes_sem_vinculo), 1, 'só a extensão da fixture sem INICIADO');
+    const gvx = (await client.query(cg.sqlContagem('empresa_excecoes_comerciais'))).rows[0];
+    assert.equal(Number(gvx.total) - Number(gvx.n), 2, 'as duas extensões do piloto saem da contagem do G-VAZIO');
+    const aut = (await client.query(cg.SQL_AUDITORIAS_AUTORIZADAS)).rows[0];
+    assert.deepEqual([Number(aut.iniciados), Number(aut.estendidos)], [
+        await contar("SELECT count(*)::int AS n FROM auditoria WHERE acao = 'COMERCIAL_TESTE_INICIADO' AND origem = 'PAINEL_DESENVOLVEDOR' AND dados_depois->>'resultado' = 'SUCESSO'"),
+        await contar("SELECT count(*)::int AS n FROM auditoria WHERE acao = 'COMERCIAL_TESTE_ESTENDIDO' AND origem = 'PAINEL_DESENVOLVEDOR' AND dados_depois->>'resultado' = 'SUCESSO'")]);
+    // Adulterações (cada uma desfeita por ROLLBACK): nenhuma mantém o piloto no recorte.
+    const sob = async (sql: string, params: unknown[]) => { await client.query('BEGIN'); try { await client.query(sql, params); return await autorizado(ids.piloto); } finally { await client.query('ROLLBACK'); } };
+    assert.equal(await sob("UPDATE empresa_assinaturas SET teste_fim = teste_fim + interval '1 day' WHERE empresa_id = $1", [ids.piloto]), false, 'prazo fora da auditoria');
+    assert.equal(await sob("UPDATE empresa_assinaturas SET provedor = 'ASAAS' WHERE empresa_id = $1", [ids.piloto]), false, 'cobrança ligada');
+    assert.equal(await sob("UPDATE empresa_excecoes_comerciais SET revogada_em = clock_timestamp(), revogada_por = $2, motivo_revogacao = 'Revogada no teste' WHERE id = (SELECT id FROM empresa_excecoes_comerciais WHERE empresa_id = $1 AND tipo = 'EXTENSAO_TESTE' ORDER BY criado_em DESC LIMIT 1)", [ids.piloto, ids.dev]), false, 'extensão revogada: lado seguro');
+    assert.equal(await sob("INSERT INTO auditoria (cliente_id, ator_tipo, usuario_id, acao, entidade_tipo, entidade_id, dados_antes, dados_depois, justificativa, origem) SELECT cliente_id, ator_tipo, usuario_id, acao, entidade_tipo, entidade_id, dados_antes, dados_depois, justificativa, origem FROM auditoria WHERE acao = 'COMERCIAL_TESTE_INICIADO' AND entidade_id = $1", [ids.piloto]), false, 'dois INICIADO');
+    // Astra r1 de código, P1: revogar a PRIMEIRA das duas extensões (a que não define o teste_fim) também tira o piloto do recorte.
+    assert.equal(await sob("UPDATE empresa_excecoes_comerciais SET revogada_em = clock_timestamp(), revogada_por = $2, motivo_revogacao = 'Revogada no teste' WHERE id = (SELECT id FROM empresa_excecoes_comerciais WHERE empresa_id = $1 AND tipo = 'EXTENSAO_TESTE' ORDER BY criado_em ASC LIMIT 1)", [ids.piloto, ids.dev]), false, 'primeira extensão revogada');
+    // Astra r1 de código, P2: INICIADO sem testeFim (ou com testeFim torto) não sustenta o teste, mesmo com as extensões em ordem.
+    // A auditoria é imutável (gatilho da 003): o gatilho sai só dentro da transação do sob, e o ROLLBACK o devolve.
+    const sobVarios = async (sqls: string[], params: unknown[]) => { await client.query('BEGIN'); try { for (const s of sqls) await client.query(s, s.includes('$1') ? params : []); return await autorizado(ids.piloto); } finally { await client.query('ROLLBACK'); } };
+    const semGatilho = (sql: string) => `ALTER TABLE auditoria DISABLE TRIGGER auditoria_bloquear_update_delete_trg; ${sql}`;
+    assert.equal(await sobVarios([semGatilho("SELECT 1"), "UPDATE auditoria SET dados_depois = dados_depois - 'testeFim' WHERE acao = 'COMERCIAL_TESTE_INICIADO' AND entidade_id = $1"], [ids.piloto]), false, 'INICIADO sem testeFim');
+    assert.equal(await sobVarios([semGatilho("SELECT 1"), "UPDATE auditoria SET dados_depois = jsonb_set(dados_depois, '{testeFim}', '\"amanha\"') WHERE acao = 'COMERCIAL_TESTE_INICIADO' AND entidade_id = $1"], [ids.piloto]), false, 'INICIADO com testeFim fora do formato');
+    assert.equal(await autorizado(ids.piloto), true, 'nada ficou depois dos ROLLBACKs');
+    // Astra r1 de código, P1/P2: B-15 no PG. O inventário traz o recorte linha a linha no mesmo comando (mesma fotografia).
+    const b5x = b5 as unknown as { sqlDocumentos: (r: boolean) => string; SQL_ORIGENS_091: string; ORIGEM_CONTROLE: string; LEGADO_091: string[]; ORIGENS_091: string[];
+        separarControle: (l: unknown[], t: string[]) => { dados: unknown[]; invisiveis: string[] }; inventarioDocumentos: (l: unknown[]) => { empresa_assinaturas: { total: number; foraDoTeste: number | null; recorteLido: number } };
+        b15: (db: unknown, e: string, parou: boolean, pronto: boolean) => Promise<{ b15: { inventarioLegado: string; provaArtificialDocumentoLegado: string; legado: { empresa_assinaturas: { total: number; foraDoTeste: number | null } } } }> };
+    const linhasDoc = (await client.query(b5x.sqlDocumentos(true))).rows as { origem: string; fora_do_teste: boolean | null }[];
+    // Astra r3 de código, P1: uma linha de controle de visibilidade por relação do legado, no mesmo comando.
+    const sep = b5x.separarControle(linhasDoc, b5x.LEGADO_091);
+    assert.deepEqual(sep.invisiveis, []);
+    const inv = b5x.inventarioDocumentos(sep.dados);
+    assert.deepEqual([inv.empresa_assinaturas.total, inv.empresa_assinaturas.recorteLido, inv.empresa_assinaturas.foraDoTeste], [total, total, total - 1]);
+    assert.ok(linhasDoc.filter((l) => l.origem === 'assinatura_fundadores').every((l) => l.fora_do_teste === null));
+    // Decisão do B-15 com o banco reduzido ao piloto (e depois piloto + uma assinatura fora do teste), tudo desfeito no fim.
+    // As transações READ ONLY do B-15 viram SAVEPOINTs dentro da transação do teste (o PG não aninha BEGIN).
+    const aninhado = { query: (sql: string, p?: unknown[]) => client.query(sql === 'BEGIN TRANSACTION READ ONLY' ? 'SAVEPOINT b15' : sql === 'ROLLBACK' ? 'ROLLBACK TO SAVEPOINT b15' : sql, p) };
+    const decisao = async (manter: string[]) => {
+        await client.query('BEGIN');
+        try {
+            // Histórico comercial não se apaga (gatilhos da 074 e FKs): modo réplica só nesta transação (SET LOCAL); o ROLLBACK desfaz tudo.
+            await client.query("SET LOCAL session_replication_role = 'replica'");
+            await client.query('DELETE FROM assinatura_fundadores');
+            await client.query('DELETE FROM empresa_assinaturas WHERE NOT (empresa_id = ANY($1::uuid[]))', [manter]);
+            return (await b5x.b15(aninhado, 'aplicada', false, true)).b15;
+        } finally { await client.query('ROLLBACK'); }
+    };
+    const so = await decisao([ids.piloto]);
+    assert.equal(so.inventarioLegado, 'SO_TESTE_AUTORIZADO', JSON.stringify(so));
+    assert.match(so.provaArtificialDocumentoLegado, /^NAO_APLICAVEL_TESTE_AUTORIZADO/);
+    const fora = await decisao([ids.piloto, ids.teste]);
+    assert.equal(fora.inventarioLegado, 'COM_LINHAS', JSON.stringify(fora));
+    assert.equal(fora.legado.empresa_assinaturas.foraDoTeste, 1);
+    assert.match(fora.provaArtificialDocumentoLegado, /^EXIGIDA/);
+    assert.equal(await contar('SELECT count(*)::int AS n FROM empresa_assinaturas'), total, 'as assinaturas voltaram');
+    // Astra r2 de código, P1: com RLS ativa numa relação do predicado (papel sem bypass), a prova não some em silêncio: o recorte de
+    // cada linha sai NULL no mesmo comando e o B-15 fica INDETERMINADO. Papel e RLS existem só nesta transação (ROLLBACK no fim).
+    const comoLeitor = async <T>(rls: string[], fn: () => Promise<T>, manter?: string[]) => {
+        await client.query('BEGIN');
+        try {
+            if (manter) {
+                // Base reduzida como na decisão acima (sem Fundador), para que só o recorte decida entre "só teste" e INDETERMINADA.
+                await client.query("SET LOCAL session_replication_role = 'replica'");
+                await client.query('DELETE FROM assinatura_fundadores');
+                await client.query('DELETE FROM empresa_assinaturas WHERE NOT (empresa_id = ANY($1::uuid[]))', [manter]);
+            }
+            await client.query('CREATE ROLE kidmais_b15_leitor_r3 NOLOGIN NOSUPERUSER NOBYPASSRLS');
+            await client.query('GRANT USAGE ON SCHEMA public TO kidmais_b15_leitor_r3');
+            await client.query('GRANT SELECT ON ALL TABLES IN SCHEMA public TO kidmais_b15_leitor_r3');
+            for (const t of rls) await client.query(`ALTER TABLE public.${t} ENABLE ROW LEVEL SECURITY`);
+            await client.query('SET LOCAL ROLE kidmais_b15_leitor_r3');
+            return await fn();
+        } finally { await client.query('ROLLBACK'); }
+    };
+    const recorteComo = (rls: string[]) => comoLeitor(rls, async () => ((await client.query(b5x.sqlDocumentos(true))).rows as { origem: string; fora_do_teste: boolean | null }[]).filter((l) => l.origem === 'empresa_assinaturas'));
+    // Controle: o mesmo papel, sem RLS, lê o recorte inteiro e acha o piloto.
+    const controle = await recorteComo([]);
+    assert.equal(controle.length, total);
+    assert.ok(controle.every((l) => typeof l.fora_do_teste === 'boolean'));
+    assert.equal(controle.filter((l) => l.fora_do_teste === false).length, 1);
+    for (const t of ['auditoria', 'empresa_excecoes_comerciais']) {
+        const linhas = await recorteComo([t]);
+        assert.equal(linhas.length, total, t);
+        assert.ok(linhas.every((l) => l.fora_do_teste === null), `RLS em ${t}: recorte NULL em todas as linhas`);
+        const inv2 = b5x.inventarioDocumentos(linhas);
+        assert.equal(inv2.empresa_assinaturas.foraDoTeste, null, `RLS em ${t}: nada publicado`);
+    }
+    // Pela função do B-15 inteira, com a base só do piloto: o mesmo papel sem RLS chega a "só teste"; com RLS só na auditoria,
+    // INDETERMINADA, nunca "só teste" nem "fora".
+    const b15Como = (rls: string[]) => comoLeitor(rls, async () => (await b5x.b15(aninhado, 'aplicada', false, true)).b15, [ids.piloto]);
+    const soComo = await b15Como([]);
+    assert.equal(soComo.inventarioLegado, 'SO_TESTE_AUTORIZADO', JSON.stringify(soComo));
+    const indet = await b15Como(['auditoria']);
+    assert.match(indet.provaArtificialDocumentoLegado, /^INDETERMINADA \(assinaturas com linha e recorte/, JSON.stringify(indet));
+    assert.notEqual(indet.inventarioLegado, 'SO_TESTE_AUTORIZADO');
+    assert.equal(indet.legado.empresa_assinaturas.foraDoTeste, null);
+    // Sem SELECT numa relação do predicado o PG recusa o comando inteiro (42501): falha nomeada, nunca contagem.
+    await assert.rejects(comoLeitor([], async () => {
+        await client.query('RESET ROLE'); await client.query('REVOKE SELECT ON public.auditoria FROM kidmais_b15_leitor_r3'); await client.query('SET LOCAL ROLE kidmais_b15_leitor_r3');
+        return client.query(b5x.sqlDocumentos(true));
+    }), (e: { code?: string }) => e.code === '42501');
+    // D-LAN-4 r4 (Astra r3, P1): RLS que esconde o legado aparece na linha de controle do PRÓPRIO comando (falsa), mesmo
+    // com zero linhas lidas; o mesmo papel sem RLS tem todas verdadeiras. Assim a conferência prévia não é a única prova. (Origens 091: não existem neste banco; cobertas no unitário.)
+    type Ctl = { origem: string; doc: string; visivel: boolean | null };
+    const controleComo = (rls: string[], sql: string) => comoLeitor(rls, async () => ((await client.query(sql)).rows as Ctl[]).filter((l) => l.origem === b5x.ORIGEM_CONTROLE));
+    for (const [sql, tabs] of [[b5x.sqlDocumentos(true), b5x.LEGADO_091], [b5x.sqlDocumentos(false), b5x.LEGADO_091]] as [string, string[]][]) {
+        const livre = await controleComo([], sql);
+        assert.deepEqual(livre.map((l) => [l.doc, l.visivel]), tabs.map((x) => [x, true]));
+        for (const t of tabs) {
+            const linhas = await comoLeitor([t], async () => (await client.query(sql)).rows as Ctl[]);
+            const ctl = linhas.filter((l) => l.origem === b5x.ORIGEM_CONTROLE);
+            assert.deepEqual(ctl.map((l) => [l.doc, l.visivel]), tabs.map((x) => [x, x !== t]), 'RLS em ' + t);
+            assert.equal(linhas.filter((l) => l.origem === t).length, 0, 'RLS sem política esconde todas as linhas de ' + t);
+            assert.deepEqual(b5x.separarControle(linhas, tabs).invisiveis, [t]);
+        }
+    }
+    assert.equal(await contar("SELECT count(*)::int AS n FROM pg_roles WHERE rolname = 'kidmais_b15_leitor_r3'"), 0, 'o papel não ficou');
+});
+
+test('G-VAZIO r3: prova de descarga no PostgreSQL real (sessão em transação aberta ou ativa = sem prova, mesmo parada há mais de 11 s; sessão que a sonda não enxerga = sem prova; todas ociosas há 11 s = provada; a própria sessão não conta)', { timeout: 120_000 }, async () => {
+    type Esc = { total: number | null; invisiveis: number | null; recentes: number | null; descarregados: boolean };
+    const cg = req('../../scripts/conferidor-g-vazio.cjs') as { lerEscritores: (db: Client) => Promise<Esc>; OCIOSO_MINIMO_S: number; VERSAO_MINIMA_STATS: number };
+    assert.ok(Number((await client.query<{ v: string }>("SELECT current_setting('server_version_num') AS v")).rows[0].v) >= cg.VERSAO_MINIMA_STATS, 'cluster de prova com estatísticas cumulativas');
+    const sonda = await conectarDescartavel({ travar: false });
+    const escritor = await conectarDescartavel({ travar: false });
+    const pausa = (ms: number) => new Promise((r) => setTimeout(r, ms));
+    try {
+        // Escritor que gravou e ficou em transação aberta: o PG não descarrega as estatísticas dele.
+        await escritor.query('BEGIN');
+        await escritor.query('SELECT 1');
+        const aberta = await cg.lerEscritores(sonda);
+        assert.equal(aberta.descarregados, false, JSON.stringify(aberta));
+        assert.ok((aberta.recentes ?? 0) >= 1 && aberta.invisiveis === 0, JSON.stringify(aberta));
+        // Parada em transação aberta há mais de 11 s continua sem prova: só "idle" conta como descarregada.
+        await pausa((cg.OCIOSO_MINIMO_S + 1) * 1000);
+        const abertaAntiga = await cg.lerEscritores(sonda);
+        assert.equal(abertaAntiga.descarregados, false, JSON.stringify(abertaAntiga));
+        assert.ok((abertaAntiga.recentes ?? 0) >= 1, JSON.stringify(abertaAntiga));
+        await escritor.query('ROLLBACK');
+        // Sessão ativa (comando em curso) também não prova nada.
+        const ativa = escritor.query('SELECT pg_sleep(3)');
+        await pausa(600);
+        const emCurso = await cg.lerEscritores(sonda);
+        assert.equal(emCurso.descarregados, false, JSON.stringify(emCurso));
+        await ativa;
+        // Ociosa há uns 3 s (menos de 11 s): ainda sem prova.
+        await pausa(3000);
+        const logo = await cg.lerEscritores(sonda);
+        assert.equal(logo.descarregados, false, JSON.stringify(logo));
+        // Todas as outras sessões ociosas há mais de 11 s: provada; a sonda lê várias vezes e nunca conta a si mesma.
+        await pausa((cg.OCIOSO_MINIMO_S + 1) * 1000);
+        const ok = await cg.lerEscritores(sonda);
+        assert.deepEqual({ ...ok, total: ok.total !== null && ok.total >= 2 }, { total: true, invisiveis: 0, recentes: 0, descarregados: true }, JSON.stringify(ok));
+        // Papel sem pg_read_all_stats vê as outras sessões sem estado: invisíveis, nunca "descarregadas".
+        await sonda.query('CREATE ROLE kidmais_escritores_cego_r3 NOLOGIN NOSUPERUSER');
+        try {
+            await sonda.query('SET ROLE kidmais_escritores_cego_r3');
+            const cego = await cg.lerEscritores(sonda);
+            assert.equal(cego.descarregados, false, JSON.stringify(cego));
+            assert.ok((cego.invisiveis ?? 0) >= 1, JSON.stringify(cego));
+        } finally { await sonda.query('RESET ROLE'); await sonda.query('DROP ROLE kidmais_escritores_cego_r3'); }
+    } finally {
+        await escritor.query('ROLLBACK').catch(() => undefined);
+        await encerrarDescartavel(escritor);
+        await encerrarDescartavel(sonda);
+    }
+});

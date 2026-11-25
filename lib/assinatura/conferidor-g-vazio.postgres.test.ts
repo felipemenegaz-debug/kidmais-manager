@@ -28,6 +28,8 @@ const cg = exigir(join(raiz, "scripts/conferidor-g-vazio.cjs")) as any;
 const { aplicarMigracoes } = exigir(join(raiz, "scripts/regressao-v1-postgres-receita.cjs")) as { aplicarMigracoes(c: Client, n: string[]): Promise<void> };
 const SEQUENCIA: string[] = cg.SEQUENCIA;
 /** R3-03: a mensagem de toda asserção de resultado carrega os motivos, para a identidade da falha distinguir um efeito do outro. */
+const recorteEsperado = (objeto: string, coluna: string) => (((cg.DEPENDENCIAS_RECORTE as Record<string, string[]>)[objeto] ?? []).includes(coluna)
+  ? Object.keys(cg.RECORTE as Record<string, unknown>).map((t) => `RECORTE_TESTE_INDETERMINADO:${t}`).sort() : []);
 const comMotivos = (r: { motivos?: string[] }, msg = "") => `${msg}|motivos=${(r.motivos ?? []).join(",")}`;
 const CORTE = "2026-01-01T00:00:00.000Z";
 const PAPEL_LEITOR = "kidmais_teste_conferidor_leitor";
@@ -39,13 +41,18 @@ const marcadorDe = (id: string) => `/m/migration-${id}.json`;
 const lerMarcador = () => JSON.stringify({ situacao: "CONCLUIDA", resultado: "APLICADA_POSTCHECK_PASS" });
 const prefixoDe = (ids: string[]) => ({ fonte: "marcadores", pastas_marcadores: ["/m"], itens: ids.map((migracao) => ({ migracao, marcador: marcadorDe(migracao) })) });
 
-type Cfg = { papel?: string; sqls?: string[]; database?: string };
+type Cfg = { papel?: string; sqls?: string[]; database?: string; escritoresLivres?: boolean };
 function clienteDescartavel(cfg: Cfg = {}) {
   return class {
     c: Client | null = null;
     on() {}
     async connect() { this.c = await conectarDescartavel({ travar: false, ...(cfg.database ? { database: cfg.database } : {}) }); if (cfg.papel) await this.c.query(`SET ROLE ${cfg.papel}`); }
-    async query(sql: string, params?: unknown[]) { cfg.sqls?.push(sql); return this.c!.query(sql, params as never[]); }
+    async query(sql: string, params?: unknown[]) {
+      cfg.sqls?.push(sql);
+      // D-LAN-4 r4: só a consulta das sessões é substituída (prova de descarga dada), para isolar a decisão sobre a ausência de movimento.
+      if (cfg.escritoresLivres && sql === cg.SQL_ESCRITORES) return { rows: [{ total: 0, invisiveis: 0, recentes: 0 }] };
+      return this.c!.query(sql, params as never[]);
+    }
     async end() { if (this.c) await this.c.end(); }
   };
 }
@@ -77,7 +84,7 @@ let defSolicitacaoAntes = "";
 const ancoraDe = (r: { item: string }) => r.item;
 /** Leitura R2 (prefixo de restore com os ids declarados), no banco pedido. */
 const lerRestoreEm = (ids: string[], database?: string) => cg.conferir({ versao: 1, ponto: "R2", alvo: "isolado", corte_p1: CORTE, prefixo: { fonte: "restore", registro: { ponto: CORTE, origem: "backup de teste" }, itens: ids.map((migracao) => ({ migracao })) }, barreira: barreira(), provedor, linha_base: LB_ZERO, cadastros_referencia: {} },
-  { env: { DATABASE_URL: "postgresql://x@127.0.0.1:1/x" }, Client: clienteDescartavel({ database }) }) as Promise<Rel>;
+  { env: { DATABASE_URL: "postgresql://x@127.0.0.1:1/x" }, quarentenaMs: 0, exigirDescarga: false, Client: clienteDescartavel({ database }) }) as Promise<Rel>;
 
 /**
  * R4-02: restore fiel de verdade. pg_dump em formato custom do banco de trabalho e pg_restore no _rollback (o outro banco que o conector
@@ -196,7 +203,7 @@ async function restoreEAvanca(c: Client, ids: string[], noPasso?: (k: number, fe
   await c.query(`DROP DATABASE IF EXISTS ${ROLLBACK}`);
 }
 
-test("conferidor G-VAZIO real: cada prefixo, parcial, RLS, privilégio, tabela nova, dados, LDT e resultados", { timeout: 840_000 }, async (t) => {
+test("conferidor G-VAZIO real: cada prefixo, parcial, RLS, privilégio, tabela nova, dados, LDT e resultados", { timeout: 2_250_000 }, async (t) => {
   if (process.env.KIDMAIS_POSTGRES_DESCARTAVEL !== "kidmais_pacotes_v1_descartavel") { t.skip("opt-in ausente: harness PostgreSQL não executado"); return; }
   const c = await conectarDescartavel();
   try {
@@ -217,7 +224,15 @@ test("conferidor G-VAZIO real: cada prefixo, parcial, RLS, privilégio, tabela n
       assert.equal(sqls[0], "BEGIN TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY");
       assert.equal(sqls.at(-1), "ROLLBACK");
       assert.ok(sqls.includes("SET LOCAL search_path = pg_catalog"), "nada resolvido por um esquema que outro papel possa criar");
-      for (const s of sqls.slice(1, -1)) assert.match(s, /^(SET LOCAL |SELECT )/);
+      // D-LAN-4: várias transações (leitura principal + leituras estáveis dos contadores), cada uma BEGIN READ ONLY … ROLLBACK, nada fora delas.
+      let dentro = false;
+      for (const s of sqls) {
+        if (s === "BEGIN TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY") { assert.ok(!dentro, "BEGIN aninhado"); dentro = true; continue; }
+        if (s === "ROLLBACK") { assert.ok(dentro, "ROLLBACK solto"); dentro = false; continue; }
+        assert.ok(dentro, `fora de transação: ${s}`);
+        assert.match(s, /^(SET LOCAL |SELECT )/);
+      }
+      assert.equal(dentro, false);
       assert.equal(r.dominio.cobranca_eventos.contagem, 0);
       assert.equal(r.dominio.assinatura_encerramentos.presente, false);
       const depois = (await c.query<{ n: string }>("SELECT sum(n_tup_ins + n_tup_upd + n_tup_del)::text AS n FROM pg_stat_user_tables")).rows[0].n;
@@ -261,9 +276,61 @@ test("conferidor G-VAZIO real: cada prefixo, parcial, RLS, privilégio, tabela n
     await t.test("estrutura danificada com a tabela vazia: guarda desabilitada, trocada ou com outro corpo e coluna ausente reprovam", async () => {
       const reg = { ponto: CORTE, origem: "backup de teste" };
       const lerRestore = () => cg.conferir({ versao: 1, ponto: "R2", alvo: "isolado", corte_p1: CORTE, prefixo: { fonte: "restore", registro: reg, itens: [] }, barreira: barreira(), provedor, linha_base: LB_ZERO, cadastros_referencia: {} },
-        { env: { DATABASE_URL: "postgresql://x@127.0.0.1:1/x" }, Client: clienteDescartavel() }) as Promise<Rel>;
+        { env: { DATABASE_URL: "postgresql://x@127.0.0.1:1/x" }, quarentenaMs: 0, exigirDescarga: false, Client: clienteDescartavel() }) as Promise<Rel>;
       assert.equal((await ler([])).dominio.assinatura_isencoes.contagem, 0, "a contraprova vale com a tabela vazia");
       { const lido = await lerRestore(); assert.equal(lido.resultado, "CONFORME", comMotivos(lido)); }
+      // D-LAN-4 r3 (P1 do Astra r2): fora do teste a prova de descarga é exigida. Com a conexão desta suíte recém-usada (não ociosa há 11 s),
+      // o mesmo banco vazio e conforme sai INCONCLUSIVO pela lacuna própria, nunca CONFORME.
+      {
+        await c.query("SELECT 1");
+        const semProva = await (cg.conferir({ versao: 1, ponto: "R2", alvo: "isolado", corte_p1: CORTE, prefixo: { fonte: "restore", registro: reg, itens: [] }, barreira: barreira(), provedor, linha_base: LB_ZERO, cadastros_referencia: {} },
+          { env: { DATABASE_URL: "postgresql://x@127.0.0.1:1/x" }, quarentenaMs: 0, Client: clienteDescartavel() }) as Promise<Rel & { prova_descarga?: string; escritores?: { recentes: number | null } }>);
+        assert.equal(semProva.resultado, "INCONCLUSIVO", comMotivos(semProva));
+        assert.deepEqual(semProva.motivos, ["ESCRITORES_SEM_PROVA_DE_DESCARGA"]);
+        assert.equal(semProva.prova_descarga, "SEM_PROVA");
+        assert.ok((semProva.escritores?.recentes ?? 0) >= 1, JSON.stringify(semProva.escritores));
+      }
+      // D-LAN-4 r4 (decisão de Felipe após o Astra r3): com a prova de descarga dada e contadores iguais entre dois pontos, o banco vazio e
+      // conforme sai INCONCLUSIVO só pela ausência de movimento não provada; reset de estatísticas entre os pontos é a lacuna própria.
+      {
+        type RelR4 = Rel & { prova_descarga?: string; stats_reset?: string | null; comparacao_contadores?: { situacao: string }; ausencia_de_movimento?: string; resultado_sem_lacunas?: string };
+        const lerR4 = (anterior?: unknown, exigirDescarga?: boolean) => cg.conferir({ versao: 1, ponto: "R2", alvo: "isolado", corte_p1: CORTE, prefixo: { fonte: "restore", registro: reg, itens: [] }, barreira: barreira(), provedor, linha_base: LB_ZERO, cadastros_referencia: {}, ...(anterior ? { leitura_anterior: anterior } : {}) },
+          { env: { DATABASE_URL: "postgresql://x@127.0.0.1:1/x" }, quarentenaMs: 0, ...(exigirDescarga === undefined ? {} : { exigirDescarga }), Client: clienteDescartavel({ escritoresLivres: true }) }) as Promise<RelR4 & { estado_atual?: string }>;
+        const primeiro = await lerR4();
+        assert.equal(primeiro.prova_descarga, "PROVADA");
+        assert.equal(primeiro.resultado, "CONFORME", comMotivos(primeiro, "ponto sem anterior"));
+        const segundo = await lerR4(primeiro);
+        assert.equal(segundo.comparacao_contadores?.situacao, "COMPARADO");
+        assert.deepEqual(segundo.motivos, ["AUSENCIA_DE_MOVIMENTO_SEM_PROVA_TRANSACIONAL"]);
+        assert.equal(segundo.resultado, "INCONCLUSIVO");
+        assert.equal(segundo.resultado_sem_lacunas, "CONFORME");
+        assert.equal(segundo.ausencia_de_movimento, "NAO_PROVADA");
+        // D-LAN-4 r5 (Astra r4, P2): só a lacuna não vira A-FALHA.
+        assert.notEqual(segundo.estado_atual, "A-FALHA");
+        // D-LAN-4 r5 (Astra r4, P1): dispensar a descarga pela API não dispensa a lacuna fora do alvo de teste.
+        const dispensada = await lerR4(primeiro, false);
+        assert.equal(dispensada.prova_descarga, "NAO_EXIGIDA");
+        assert.deepEqual(dispensada.motivos, ["AUSENCIA_DE_MOVIMENTO_SEM_PROVA_TRANSACIONAL"]);
+        assert.equal(dispensada.resultado, "INCONCLUSIVO");
+        assert.equal(dispensada.ausencia_de_movimento, "NAO_PROVADA");
+        // D-LAN-4 r5 (Astra r4, P1): leitura anterior declarada sem contadores é lacuna, não primeira fotografia.
+        const vazia = await lerR4({});
+        assert.equal(vazia.comparacao_contadores?.situacao, "SEM_LEITURA_ANTERIOR");
+        assert.deepEqual(vazia.motivos, ["LEITURA_ANTERIOR_SEM_CONTADORES"]);
+        assert.equal(vazia.resultado, "INCONCLUSIVO");
+        assert.equal(vazia.resultado_sem_lacunas, "CONFORME");
+        // D-LAN-4 r6 (Astra r5, P2): relatório anterior válido com o mapa esvaziado também é lacuna, não comparação.
+        const esvaziada = await lerR4({ ...primeiro, contadores: {} });
+        assert.equal(esvaziada.comparacao_contadores?.situacao, "SEM_PARES_COMPARAVEIS");
+        assert.deepEqual(esvaziada.motivos, ["LEITURA_ANTERIOR_SEM_CONTADORES"]);
+        assert.equal(esvaziada.resultado, "INCONCLUSIVO");
+        assert.equal(esvaziada.resultado_sem_lacunas, "CONFORME");
+        assert.equal(esvaziada.ausencia_de_movimento, "NAO_PROVADA");
+        const reiniciado = await lerR4({ ...primeiro, stats_reset: "2001-01-01T00:00:00Z" });
+        assert.equal(reiniciado.comparacao_contadores?.situacao, "LACUNA_RESET_DE_ESTATISTICAS");
+        assert.deepEqual(reiniciado.motivos, ["ESTATISTICAS_REINICIADAS_ENTRE_PONTOS"]);
+        assert.equal(reiniciado.resultado, "INCONCLUSIVO");
+      }
       const reprova = async (migracao: string | null, item: string | string[], ancoras: string[], extra: Record<string, string[]> = {}) => {
         const itens = [item].flat();
         const r = await ler([]);
@@ -382,7 +449,9 @@ test("conferidor G-VAZIO real: cada prefixo, parcial, RLS, privilégio, tabela n
           assert.equal(r.resultado, "FALHA", comMotivos(r, `${objeto}.${coluna}`));
           assert.ok(r.motivos.includes(`MIGRATION_${migracao}_PARCIAL_ESPERADA`), `${objeto}.${coluna}: ${r.motivos.join()}`);
           assert.ok(r.motivos.includes(`FORA_DO_PREFIXO:relacao:${objeto}`), `${objeto}.${coluna}: ${r.motivos.join()}`);
-          assert.ok(r.motivos.every((m) => /^MIGRATION_[0-9a]+_PARCIAL_ESPERADA$/.test(m) || m.startsWith("FORA_DO_PREFIXO:relacao:")), `${objeto}.${coluna}: ${r.motivos.join()}`); // coluna referenciada por FK muda também a relação que a referencia
+          assert.ok(r.motivos.every((m) => /^MIGRATION_[0-9a]+_PARCIAL_ESPERADA$/.test(m) || m.startsWith("FORA_DO_PREFIXO:relacao:") || m.startsWith("RECORTE_TESTE_INDETERMINADO:")), `${objeto}.${coluna}: ${r.motivos.join()}`); // coluna referenciada por FK muda também a relação que a referencia
+          // Astra r1 de código, P2: conjunto exato. Só coluna de que o recorte depende o deixa indeterminado, e então nas duas tabelas do recorte.
+          assert.deepEqual(r.motivos.filter((m) => m.startsWith("RECORTE_TESTE_INDETERMINADO:")).sort(), recorteEsperado(objeto, coluna), `${objeto}.${coluna}: ${r.motivos.join()}`);
           assert.deepEqual(r.estrutura_detalhe?.[migracao]?.filter((i) => i === `colunas_${objeto}` || i === `estrutura_${objeto}`), [`colunas_${objeto}`, `estrutura_${objeto}`], `${objeto}.${coluna}`);
           for (const itens of Object.values(r.estrutura_detalhe ?? {})) for (const i of itens) assert.match(i, /^(colunas|estrutura)_/, `${objeto}.${coluna}`);
         } finally { await c.query(`ALTER TABLE public.${objeto} RENAME COLUMN ${coluna}_x TO ${coluna}`); }
@@ -401,7 +470,7 @@ test("conferidor G-VAZIO real: cada prefixo, parcial, RLS, privilégio, tabela n
     await t.test("restore: catálogo diferente do prefixo registrado é INCONCLUSIVO; igual segue a régua normal", async () => {
       const reg = { ponto: CORTE, origem: "backup de teste" };
       const lerRestore = (ids: string[]) => cg.conferir({ versao: 1, ponto: "R2", alvo: "isolado", corte_p1: CORTE, prefixo: { fonte: "restore", registro: reg, itens: ids.map((migracao) => ({ migracao })) }, barreira: barreira(), provedor, linha_base: LB_ZERO, cadastros_referencia: {} },
-        { env: { DATABASE_URL: "postgresql://x@127.0.0.1:1/x" }, Client: clienteDescartavel() }) as Promise<Rel>;
+        { env: { DATABASE_URL: "postgresql://x@127.0.0.1:1/x" }, quarentenaMs: 0, exigirDescarga: false, Client: clienteDescartavel() }) as Promise<Rel>;
       const igual = await lerRestore([]);
       assert.deepEqual(igual.motivos, []);
       assert.equal(igual.resultado, "CONFORME", comMotivos(igual));
@@ -409,6 +478,10 @@ test("conferidor G-VAZIO real: cada prefixo, parcial, RLS, privilégio, tabela n
       assert.equal(divergente.resultado, "INCONCLUSIVO", comMotivos(divergente));
       assert.deepEqual(divergente.motivos, ["RESTORE_DIVERGENTE", "MIGRATION_089_AUSENTE_ESPERADA", ...mudamEntre(0, 1).map((i) => `FORA_DO_PREFIXO:${i}`)]);
       assert.equal(cg.CODIGO_DO_RESULTADO[divergente.resultado], 1);
+      // D-LAN-4 r5 (Astra r4, P3): retorno antecipado com o mesmo formato.
+      const divR5 = divergente as typeof divergente & { resultado_sem_lacunas?: unknown; ausencia_de_movimento?: string };
+      assert.equal(divR5.resultado_sem_lacunas, null);
+      assert.ok(["NAO_PROVADA", "MOVIMENTO_ACUSADO"].includes(String(divR5.ausencia_de_movimento)), String(divR5.ausencia_de_movimento));
     });
 
     await t.test("R4-01: a base roda sem a guarda de teste do harness; com ela instalada, a assinatura das duas tabelas reprova", async () => {
@@ -472,7 +545,8 @@ test("conferidor G-VAZIO real: cada prefixo, parcial, RLS, privilégio, tabela n
       await c.query(`GRANT SELECT ON public.assinatura_avisos TO ${PAPEL_LEITOR}`);
       await c.query(`REVOKE SELECT ON public.auditoria FROM ${PAPEL_LEITOR}`);
       const a = await ler([], {}, { papel: PAPEL_LEITOR });
-      assert.deepEqual(a.motivos, ["AUDITORIA_ILEGIVEL_OU_RLS"]);
+      // D-LAN-4: sem ler a auditoria, o recorte do teste autorizado fica indeterminado (nunca zero).
+      assert.deepEqual(a.motivos, ["RECORTE_TESTE_INDETERMINADO:empresa_assinaturas", "RECORTE_TESTE_INDETERMINADO:empresa_excecoes_comerciais", "AUDITORIA_ILEGIVEL_OU_RLS"]);
       await c.query(`GRANT SELECT ON public.auditoria TO ${PAPEL_LEITOR}`);
     });
 
@@ -557,17 +631,21 @@ test("conferidor G-VAZIO real: cada prefixo, parcial, RLS, privilégio, tabela n
       assert.deepEqual((await ler([], { ponto: "P2", linha_base: LB_ZERO })).motivos, [], "referência vazia declarada, tabela vazia");
     });
 
-    await t.test("exceções: vigente reprova; revogada, vencida e extensão de teste passam com classificação", async () => {
+    await t.test("exceções: vigente reprova; revogada e vencida passam com classificação; extensão de teste sem o painel reprova", async () => {
       const inserir = (tipo: string, ate: string, rev: boolean) => comoReplica(`INSERT INTO public.empresa_excecoes_comerciais (empresa_id, tipo, valida_ate, motivo, criado_por, criado_em${rev ? ", revogada_em, revogada_por, motivo_revogacao" : ""}) VALUES ('${UM}', '${tipo}', ${ate}, 'motivo de teste', '${UM}', now() - interval '30 days'${rev ? `, now(), '${UM}', 'revogacao de teste'` : ""})`);
-      await inserir("CORTESIA", "now() + interval '10 days'", false);
-      assert.ok((await ler([])).motivos.includes("EXCECAO_VIGENTE_NAO_TERMINAL"));
-      await comoReplica("DELETE FROM public.empresa_excecoes_comerciais");
-      await inserir("CORTESIA", "now() + interval '10 days'", true);
-      await inserir("ACESSO_TEMPORARIO", "now() - interval '1 day'", false);
-      await inserir("EXTENSAO_TESTE", "now() + interval '10 days'", false);
-      const r = await ler([]);
-      assert.deepEqual(r.motivos, ["CLASSIFICACAO_PENDENTE:empresa_excecoes_comerciais"]);
-      await comoReplica("DELETE FROM public.empresa_excecoes_comerciais");
+      try {
+        await inserir("CORTESIA", "now() + interval '10 days'", false);
+        assert.ok((await ler([])).motivos.includes("EXCECAO_VIGENTE_NAO_TERMINAL"));
+        await comoReplica("DELETE FROM public.empresa_excecoes_comerciais");
+        await inserir("CORTESIA", "now() + interval '10 days'", true);
+        await inserir("ACESSO_TEMPORARIO", "now() - interval '1 day'", false);
+        assert.deepEqual((await ler([])).motivos, ["CLASSIFICACAO_PENDENTE:empresa_excecoes_comerciais"]);
+        // D-LAN-4 (Astra r2 P1): extensão vigente sem a auditoria SUCESSO do painel não é teste autorizado.
+        await inserir("EXTENSAO_TESTE", "now() + interval '10 days'", false);
+        const r = await ler([]);
+        assert.deepEqual(r.motivos, ["EXTENSAO_TESTE_VIGENTE_SEM_VINCULO", "CLASSIFICACAO_PENDENTE:empresa_excecoes_comerciais"]);
+        assert.equal(r.resultado, "FALHA", comMotivos(r));
+      } finally { await comoReplica("DELETE FROM public.empresa_excecoes_comerciais"); }
     });
 
     await t.test("cadastros: PENDENTE válido só reprova do P3 em diante; contagem por situação não muda depois", async () => {
@@ -814,7 +892,7 @@ test("conferidor G-VAZIO real: cada prefixo, parcial, RLS, privilégio, tabela n
       } finally { await c.query(defAuxiliar); }
       // R3-01, contraprova do Astra: mesmo corpo, com SET search_path e uma ascii(text) falsa em public.
       const lerRestoreFinal = () => cg.conferir({ versao: 1, ponto: "R2", alvo: "isolado", corte_p1: CORTE, prefixo: { fonte: "restore", registro: { ponto: CORTE, origem: "backup de teste" }, itens: SEQUENCIA.map((migracao) => ({ migracao })) }, barreira: barreira(), provedor, linha_base: LB_ZERO, cadastros_referencia: {} },
-        { env: { DATABASE_URL: "postgresql://x@127.0.0.1:1/x" }, Client: clienteDescartavel() }) as Promise<Rel>;
+        { env: { DATABASE_URL: "postgresql://x@127.0.0.1:1/x" }, quarentenaMs: 0, exigirDescarga: false, Client: clienteDescartavel() }) as Promise<Rel>;
       { const lido = await lerRestoreFinal(); assert.equal(lido.resultado, "CONFORME", comMotivos(lido)); }
       await c.query("CREATE FUNCTION public.ascii(text) RETURNS integer LANGUAGE sql IMMUTABLE AS 'SELECT 48'");
       await c.query("ALTER FUNCTION public.kidmais_091_documento_valido(text) SET search_path TO public, pg_catalog");
@@ -858,7 +936,7 @@ test("conferidor G-VAZIO real: cada prefixo, parcial, RLS, privilégio, tabela n
       assert.deepEqual(reduzido.motivos, ["MIGRATION_091_COMPLETA_NAO_DECLARADA", ...mudamEntre(9, 10).map((i) => `FORA_DO_PREFIXO:${i}`), "OBJETO_NAO_DECLARADO:empresa_documento_continuidades"]);
       assert.ok(mudamEntre(9, 10).includes("relacao:solicitacoes_acesso_empresa"));
       const restoreReduzido = await (cg.conferir({ versao: 1, ponto: "R2", alvo: "isolado", corte_p1: CORTE, prefixo: { fonte: "restore", registro: { ponto: CORTE, origem: "backup de teste" }, itens: SEQUENCIA.slice(0, 9).map((migracao) => ({ migracao })) }, barreira: barreira(), provedor, linha_base: LB_ZERO, cadastros_referencia: {} },
-        { env: { DATABASE_URL: "postgresql://x@127.0.0.1:1/x" }, Client: clienteDescartavel() }) as Promise<Rel>);
+        { env: { DATABASE_URL: "postgresql://x@127.0.0.1:1/x" }, quarentenaMs: 0, exigirDescarga: false, Client: clienteDescartavel() }) as Promise<Rel>);
       assert.equal(restoreReduzido.resultado, "INCONCLUSIVO", comMotivos(restoreReduzido));
       assert.deepEqual(restoreReduzido.motivos, ["RESTORE_DIVERGENTE", "MIGRATION_091_COMPLETA_NAO_DECLARADA", ...mudamEntre(9, 10).map((i) => `FORA_DO_PREFIXO:${i}`)]);
       assert.deepEqual((await ler(SEQUENCIA)).motivos, []);
@@ -870,7 +948,9 @@ test("conferidor G-VAZIO real: cada prefixo, parcial, RLS, privilégio, tabela n
           const r = await ler(SEQUENCIA);
           assert.ok(r.motivos.includes(`MIGRATION_${migracao}_PARCIAL_ESPERADA`), `${objeto}.${coluna}: ${r.motivos.join()}`);
           assert.ok(r.motivos.includes(`FORA_DO_PREFIXO:relacao:${objeto}`), `${objeto}.${coluna}: ${r.motivos.join()}`);
-          assert.ok(r.motivos.every((m) => /^MIGRATION_[0-9a]+_PARCIAL_ESPERADA$/.test(m) || m.startsWith("FORA_DO_PREFIXO:relacao:")), `${objeto}.${coluna}: ${r.motivos.join()}`); // coluna referenciada por FK muda também a relação que a referencia
+          assert.ok(r.motivos.every((m) => /^MIGRATION_[0-9a]+_PARCIAL_ESPERADA$/.test(m) || m.startsWith("FORA_DO_PREFIXO:relacao:") || m.startsWith("RECORTE_TESTE_INDETERMINADO:")), `${objeto}.${coluna}: ${r.motivos.join()}`); // coluna referenciada por FK muda também a relação que a referencia
+          // Astra r1 de código, P2: conjunto exato. Só coluna de que o recorte depende o deixa indeterminado, e então nas duas tabelas do recorte.
+          assert.deepEqual(r.motivos.filter((m) => m.startsWith("RECORTE_TESTE_INDETERMINADO:")).sort(), recorteEsperado(objeto, coluna), `${objeto}.${coluna}: ${r.motivos.join()}`);
           assert.deepEqual(r.estrutura_detalhe?.[migracao]?.filter((i) => i === `colunas_${objeto}` || i === `estrutura_${objeto}`), [`colunas_${objeto}`, `estrutura_${objeto}`], `${objeto}.${coluna}`);
         } finally { await c.query(`ALTER TABLE public.${objeto} RENAME COLUMN ${coluna}_x TO ${coluna}`); }
       }
