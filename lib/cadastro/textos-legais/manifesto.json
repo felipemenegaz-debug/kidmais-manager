@@ -55,6 +55,16 @@
       "versao": "2026-11-17-dpa",
       "sha256": "3b78ffa320658f58ec8277f9385a42908cfeb8618632a00a50a4da9e4e6f5fde",
       "arquivo": "DPA-2026-11-17-dpa.txt"
+    },
+    {
+      "documento": "TERMOS_USO",
+      "versao": "2026-11-25-termos",
+      "sha256": "aaf1725fd0475a73bf4717fb551e8d54d271811556105be73cce669fcf1f33bc",
+      "arquivo": "TERMOS_USO-2026-11-25-termos.txt",
+      "dpa": {
+        "versao": "2026-11-17-dpa",
+        "sha256": "3b78ffa320658f58ec8277f9385a42908cfeb8618632a00a50a4da9e4e6f5fde"
+      }
     }
   ]
 }

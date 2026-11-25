@@ -289,7 +289,7 @@ export type SaidaQueFalhou = { id: string; conversa_id: string; empresa_id: stri
  * F8 (revisão da E-ME1, §7): conversa, irmãs do grupo e memória sempre filtradas pela empresa e pelo ambiente DA SAÍDA. As
  * FKs de grupo não são compostas; uma referência cruzada que o schema aceite nunca cancela nem altera outra empresa.
  */
-export async function tratarSaidaQueFalhou(tx: DbExecutor, saida: SaidaQueFalhou, opcoes: { certamenteNaoSaiu: boolean }) {
+export async function tratarSaidaQueFalhou(tx: DbExecutor, saida: SaidaQueFalhou, opcoes: { certamenteNaoSaiu: boolean; encaminhar?: boolean; versaoEsperada?: string | number }) {
   const escopo = [saida.empresa_id, saida.ambiente];
   // Trava da conversa pelo id (mesma consulta e mesma ordem de travas de antes: a FK mensagem→conversa é composta, então é a
   // conversa da própria saída); em seguida o escopo é conferido sem trava nova. Fora do escopo: nada é tocado.
@@ -301,7 +301,10 @@ export async function tratarSaidaQueFalhou(tx: DbExecutor, saida: SaidaQueFalhou
   const prontas = [...irmas.map((x) => x.midia_pronta_id), opcoes.certamenteNaoSaiu ? saida.midia_pronta_id ?? null : null].filter((x): x is string => !!x);
   if (prontas.length) await tx.query(`UPDATE whatsapp_atendimento_conversas SET contexto=jsonb_set(contexto,'{enviados}',COALESCE((SELECT jsonb_agg(e) FROM jsonb_array_elements(contexto->'enviados') e
     WHERE NOT (e->>'prontaId' = ANY($2::text[]))),'[]'::jsonb)) WHERE id=$1 AND empresa_id=$3 AND ambiente=$4 AND jsonb_typeof(contexto->'enviados')='array'`, [saida.conversa_id, prontas, ...escopo]);
-  if (!saida.autor_usuario_id) await tx.query("UPDATE whatsapp_atendimento_conversas SET estado='AGUARDANDO_HUMANO',versao=versao+1,atualizada_em=clock_timestamp() WHERE id=$1 AND empresa_id=$2 AND ambiente=$3 AND estado='IA'", [saida.conversa_id, ...escopo]);
+  // Termos 2026-11-25 (Astra r3): quem chama pode pedir para só cancelar (encaminhar=false), quando a saída já não vale para
+  // a versão atual da conversa; o padrão (encaminhar ausente) mantém o comportamento de antes. Astra r4 (P3): com
+  // versaoEsperada, o encaminhamento só acontece se a conversa ainda estiver nessa versão (sem ela, nenhuma condição nova).
+  if (!saida.autor_usuario_id && opcoes.encaminhar !== false) await tx.query("UPDATE whatsapp_atendimento_conversas SET estado='AGUARDANDO_HUMANO',versao=versao+1,atualizada_em=clock_timestamp() WHERE id=$1 AND empresa_id=$2 AND ambiente=$3 AND estado='IA' AND ($4::bigint IS NULL OR versao=$4::bigint)", [saida.conversa_id, ...escopo, opcoes.versaoEsperada ?? null]);
   return { irmasCanceladas: irmas.length };
 }
 /**

@@ -60,6 +60,12 @@ test("H-ME: atendimento multiempresa (modo, direito, recepção, tela, rodízio,
   try {
     assert.ok((await q("SELECT to_regclass('public.whatsapp_conexoes') IS NOT NULL AND to_regclass('public.assinatura_isencoes') IS NOT NULL AND to_regclass('public.whatsapp_atendimento_controles_contato') IS NOT NULL AS ok")).rows[0].ok, "modelo com 060–083 e 074a");
     assert.equal((await q("SELECT to_regclass('public.whatsapp_atendimento_rodizio') AS r")).rows[0].r, null, "modelo sem a 117");
+    // Termos 2026-11-25 (r2): sem a 135 o Wall-e não responde sozinho em empresa que paga a Meta; esta suíte prova o atendimento
+    // normal, então aplica a 135 (pre, portão de deploy, up, post) antes, como as demais multiempresa (harness-multiempresa.aplicar135).
+    await q(ler("database/checks/20261123_135_precheck.sql"));
+    await q("SET kidmais.portao_135 = 'deploy-novo-live-sem-gravador-antigo'");
+    try { await q(ler("database/migrations/20261123_135_whatsapp_consumo_mensal.sql")); } finally { await q("RESET kidmais.portao_135"); }
+    await q(ler("database/checks/20261123_135_postcheck.sql"));
     const id = async (sql: string, v: unknown[]) => (await q(sql, v)).rows[0].id as string;
     const empresa = async (rotulo: string) => {
       const e = await id(`INSERT INTO empresas (codigo, nome, status) VALUES ($1, $2, 'PROVISIONAMENTO') RETURNING id`, [cod("me"), `Buffet sintético ${rotulo} (multiempresa)`]);
