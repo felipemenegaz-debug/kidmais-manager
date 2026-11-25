@@ -5,7 +5,7 @@
 - o produto **iA.Fest**;
 - o canal oficial **contato@demerzellabs.com.br**;
 - o encarregado **Felipe Menegaz**;
-- os textos `2026-11-17-termos`, `2026-11-17-privacidade` e `2026-11-17-dpa`.
+- os textos `2026-11-25-termos`, `2026-11-17-privacidade` e `2026-11-17-dpa` (os Termos 2026-11-25 só mudaram as tarifas da Meta no atendimento pelo WhatsApp).
 
 O buffet **Kidmais Festas** é uma empresa cliente da plataforma. Pessoas ligadas à Demerzel Labs atuam nele.
 

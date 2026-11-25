@@ -1,4 +1,5 @@
 import * as nodeCrypto from "node:crypto";
+import { readFileSync } from "node:fs";
 import { randomBytes, randomUUID } from "node:crypto";
 import { conectarDescartavel } from "../../comercial/postgres-descartavel.ts";
 import type { DbExecutor } from "../../db/contracts.ts";
@@ -256,3 +257,15 @@ export async function esperandoTrava(q: Q, trechos: string[], oque = "espera") {
 export async function conexaoExtra() { return conectarDescartavel({ travar: false }); }
 export { cod };
 export const SENHA = SENHA_FIXA;
+
+/**
+ * Termos 2026-11-25 (r2, "código garante"): sem a 135 o Wall-e não responde sozinho em empresa que paga a Meta (passa à equipe).
+ * As suítes multiempresa provam o atendimento normal, então aplicam a 135 (pre, portão de deploy, up, post) sobre o modelo 112.
+ */
+export async function aplicar135(q: Q) {
+  const ler = (f: string) => readFileSync(f, "utf8");
+  await q(ler("database/checks/20261123_135_precheck.sql"));
+  await q("SET kidmais.portao_135 = 'deploy-novo-live-sem-gravador-antigo'");
+  try { await q(ler("database/migrations/20261123_135_whatsapp_consumo_mensal.sql")); } finally { await q("RESET kidmais.portao_135"); }
+  await q(ler("database/checks/20261123_135_postcheck.sql"));
+}
