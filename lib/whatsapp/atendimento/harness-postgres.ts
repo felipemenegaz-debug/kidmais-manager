@@ -82,7 +82,7 @@ export function carregarAtendimento(empresaPiloto: string, ambiente = "staging",
   // 12/10: a privacidade comprova a empresa ATIVA da sessão (não a piloto) pelo mesmo Tenant Context, na conexão do harness.
   const privacidade = carregarComponente("lib/whatsapp/atendimento/privacidade.ts", {
     "node:crypto": nodeCrypto, "../../db/postgres.ts": postgres, "../../saas/provar-tenant.ts": tenant, "../../perfil/reautenticacao.ts": reautenticacao,
-    "./configuracao.ts": configuracao, "./core.ts": core, "./arquivos.ts": arquivos, "./walle/oportunidade.ts": oportunidade,
+    "./configuracao.ts": configuracao, "./core.ts": core, "./arquivos.ts": arquivos, "./walle/oportunidade.ts": oportunidade, "./aviso-equipe.ts": avisoEquipe,
   }).modulo as typeof import("./privacidade.ts");
   const worker = carregarComponente("lib/whatsapp/atendimento/worker.ts", {
     "../../db/postgres.ts": postgres, "./configuracao.ts": configuracao, "./core.ts": core, "./service.ts": servico, "./transporte.ts": transporteSemRede, "./arquivos.ts": arquivos, "./multiempresa.ts": multiempresa, "./aviso-equipe.ts": avisoEquipe, "./walle/oportunidade.ts": oportunidade, "./motivo-falha.ts": motivoFalha,

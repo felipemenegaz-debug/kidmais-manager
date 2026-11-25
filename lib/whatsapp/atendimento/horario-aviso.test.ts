@@ -1,8 +1,9 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { configuracaoSchema, ehMensagemEncaminhamento, MENSAGEM_ENCAMINHAMENTO, mensagemEncaminhamento } from './core.ts';
+import { configuracaoSchema, ehEncaminhamentoFixo, fonteEncaminhamento, MENSAGEM_ENCAMINHAMENTO, mensagemEncaminhamento } from './core.ts';
 import { avisoEquipeSchema, horaFalada, horarioEquipeSchema, momentoLocal, retornoForaDoHorario, situacaoHorario, type HorarioEquipe } from './horario.ts';
-import { chaveDoAviso, JANELA_AVISO_HORAS, mensagemAvisoEquipe, motivosDaPassagem, seloAguardandoEquipe } from './aviso-equipe.ts';
+import { chaveDoAviso, contextoNaFila, MAX_TENTATIVAS, marcaNaFila, mensagemAvisoEquipe, planoDoAviso, REPETIR_APOS_MINUTOS, seloAguardandoEquipe } from './aviso-equipe.ts';
+import { createHash } from 'node:crypto';
 
 // 25/11/2026 é quarta-feira. São Paulo = UTC-3 (sem horário de verão).
 const util = { inicio: '09:00', fim: '18:00' };
@@ -77,20 +78,44 @@ test('e-mail de aviso: motivo e link, nunca texto do cliente; HTML escapado; cha
   assert.deepEqual(Object.keys(m).sort(), ['assunto', 'html', 'idempotencia', 'para', 'texto']);
 });
 
-test('motivos do aviso: ligados à passagem atual (Astra r1, P2), não à idade de 30 min', () => {
+test('marca do aviso nasce na transição para a fila (Astra r2, P2): SQL da marca e dos motivos', () => {
+  const sql = contextoNaFila('contexto', "'AGUARDANDO_HUMANO'", '$2::jsonb');
+  // Só quando a conversa ENTRA na fila (o estado antigo, lido pelo UPDATE, não era AGUARDANDO_HUMANO).
+  assert.match(sql, /estado IS DISTINCT FROM 'AGUARDANDO_HUMANO'/);
+  assert.match(sql, /'estado','PENDENTE'/);
+  assert.match(sql, /'motivos',\(CASE WHEN jsonb_typeof\(\(\$2::jsonb\)->'motivos'\)='array'/);
+  // Passagem reescrita antes do 1º envio atualiza os motivos; passagem nula não apaga.
+  assert.match(sql, /WHEN \(\$2::jsonb\) IS NOT NULL AND .*'PENDENTE' THEN jsonb_set/);
+  assert.match(sql, /ELSE contexto END$/);
+  // Sem passagem no comando: motivos vazios (e-mail com motivo genérico), sem o 2º ramo.
+  const sem = contextoNaFila();
+  assert.match(sem, /'motivos','\[\]'::jsonb/);
+  assert.doesNotMatch(sem, /jsonb_set/);
+  assert.equal(marcaNaFila(false), '', 'sem a 082 não há onde gravar');
+  assert.ok(marcaNaFila(true, '$3::text').startsWith(",contexto=CASE WHEN ($3::text)='AGUARDANDO_HUMANO'"));
+});
+
+test('tentativas por destinatário (Astra r2, P2): quem falha sempre não impede o próximo', () => {
   const agora = new Date('2026-11-25T15:00:00.000Z');
+  const r = (e: string) => createHash('sha256').update(e).digest('hex').slice(0, 16);
   const em = (min: number) => new Date(agora.getTime() - min * 60_000).toISOString();
-  assert.deepEqual(motivosDaPassagem({ motivos: ['PAGAMENTO', 'PAGAMENTO', 'INVENTADO', 3], em: em(5) }, undefined, agora), ['PAGAMENTO']);
-  // Worker atrasado 31 min (ou horas): a reclamação ainda aguardando mantém o motivo.
-  assert.deepEqual(motivosDaPassagem({ motivos: ['RECLAMACAO'], em: em(31) }, undefined, agora), ['RECLAMACAO'], 'atraso do worker');
-  assert.deepEqual(motivosDaPassagem({ motivos: ['RECLAMACAO'], em: em(JANELA_AVISO_HORAS * 60 + 1) }, undefined, agora), [], 'fora da janela do aviso');
-  // Retomada pela equipe registra a saída; passagem gravada ANTES dela é velha, mesmo com 2 min de idade.
-  assert.deepEqual(motivosDaPassagem({ motivos: ['RECLAMACAO'], em: em(3) }, em(2), agora), [], 'passagem anterior à última saída da fila');
-  assert.deepEqual(motivosDaPassagem({ motivos: ['RECLAMACAO'], em: em(1) }, em(2), agora), ['RECLAMACAO'], 'passagem nova depois da saída');
-  assert.deepEqual(motivosDaPassagem({ motivos: ['RECLAMACAO'], em: em(1) }, 'lixo', agora), [], 'saída ilegível: sem motivo');
-  assert.deepEqual(motivosDaPassagem({ motivos: ['PAGAMENTO'], em: em(-5) }, undefined, agora), [], 'no futuro');
-  assert.deepEqual(motivosDaPassagem(null, undefined, agora), []);
-  assert.deepEqual(motivosDaPassagem({ motivos: 'PAGAMENTO', em: em(1) }, undefined, agora), []);
+  const [a, b] = ['a@buffet.test', 'b@buffet.test'];
+  // A tentou 1x agora há pouco: B (nunca tentado) é chamado; A espera o intervalo.
+  let p = planoDoAviso([a, b], [], { [r(a)]: { n: 1, em: em(1) } }, agora);
+  assert.deepEqual(p.prontos, [b]);
+  // Os dois liberados: o menos tentado primeiro.
+  p = planoDoAviso([a, b], [], { [r(a)]: { n: 2, em: em(REPETIR_APOS_MINUTOS) }, [r(b)]: { n: 1, em: em(REPETIR_APOS_MINUTOS) } }, agora);
+  assert.deepEqual(p.prontos, [b, a]);
+  // A esgotou; B ainda tem tentativa: FALHOU (segue tentando B), nunca ESGOTADO.
+  p = planoDoAviso([a, b], [], { [r(a)]: { n: MAX_TENTATIVAS, em: em(60) } }, agora);
+  assert.deepEqual(p.prontos, [b]);
+  p = planoDoAviso([a, b], [], { [r(a)]: { n: MAX_TENTATIVAS, em: em(60) }, [r(b)]: { n: 1, em: em(1) } }, agora);
+  assert.deepEqual(p.prontos, []);
+  assert.equal(p.semEnvio, 'FALHOU');
+  p = planoDoAviso([a, b], [r(b)], { [r(a)]: { n: MAX_TENTATIVAS, em: em(60) } }, agora);
+  assert.equal(p.semEnvio, 'ESGOTADO');
+  assert.equal(planoDoAviso([a, b], [r(a), r(b)], {}, agora).semEnvio, 'ENVIADO');
+  assert.equal(planoDoAviso([], [], {}, agora).semEnvio, 'SEM_DESTINATARIO');
 });
 
 test('encaminhamento de contingência: frase de horário fora do expediente, texto antigo sem horário (Astra r1, P2)', () => {
@@ -102,8 +127,18 @@ test('encaminhamento de contingência: frase de horário fora do expediente, tex
   const sabado = mensagemEncaminhamento(semana, sp('2026-11-28T10:00:00'));
   assert.notEqual(sabado, MENSAGEM_ENCAMINHAMENTO);
   // Todos os textos fixos continuam isentos da revogação por configuração no envio; textos do modelo não.
-  for (const t of [MENSAGEM_ENCAMINHAMENTO, fora, sabado]) assert.ok(ehMensagemEncaminhamento(t), t);
-  for (const t of ['Oi! Encaminhei sua mensagem para a equipe.', fora + ' Algo mais', fora.replace(/.$/, ''), null, undefined]) assert.ok(!ehMensagemEncaminhamento(t), String(t));
+  // Astra r2 (P2): a isenção vem da origem gravada na saída, não do texto.
+  const origem = JSON.parse(fonteEncaminhamento());
+  for (const t of [MENSAGEM_ENCAMINHAMENTO, fora, sabado]) assert.ok(ehEncaminhamentoFixo({ texto: t, fonte: origem }), t);
+  // FAQ/Wall-e com exatamente o mesmo texto: não isenta.
+  for (const t of [MENSAGEM_ENCAMINHAMENTO, fora]) {
+    assert.ok(!ehEncaminhamentoFixo({ texto: t, fonte: { tipo: 'WALLE', fontes: [{ tipo: 'PRONTA', id: 'x', versao: 1 }] } }), 'Wall-e com o mesmo texto');
+    assert.ok(!ehEncaminhamentoFixo({ texto: t, fonte: { tipo: 'PRONTA', id: 'x', versao: 1, por: 'ATENDENTE' } }), 'pronta com o mesmo texto');
+    assert.ok(!ehEncaminhamentoFixo({ texto: t, fonte: { origem: 'ENCAMINHAMENTO_FIXO', tipo: 'WALLE' } }), 'origem misturada');
+  }
+  // Sem fonte (base sem a 082 ou linha antiga): só o texto antigo exato; o formato com horário não basta.
+  assert.ok(ehEncaminhamentoFixo({ texto: MENSAGEM_ENCAMINHAMENTO, fonte: null }));
+  for (const t of [fora, sabado, 'Oi! Encaminhei sua mensagem para a equipe.', null, undefined]) assert.ok(!ehEncaminhamentoFixo({ texto: t }), String(t));
 });
 
 test('selo do menu: ambiente inválido ou banco fora dão 0, sem derrubar a sessão (Astra r1, P1)', async () => {

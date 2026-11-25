@@ -1,6 +1,6 @@
 import { withTransaction, db } from '../../db/postgres.ts';
 import { ambienteAtendimento, atendimentoAtivo, contatoPermitido, empresaPiloto, entendimentoSoRegras, origemMidia } from './configuracao.ts';
-import { ehMensagemEncaminhamento, mensagemEncaminhamento, dadoSensivel, entradaFaseB, comandoDireto, passagemSemRespostaAutomatica, pausaPedidaNaRecepcao, semAutomatico, dataDeInteresse, hojeOperacao, janelaAberta, responder, type ConfiguracaoAtendimento, type Interpretacao, type OrigemMarcaPausa } from './core.ts';
+import { ehEncaminhamentoFixo, fonteEncaminhamento, mensagemEncaminhamento, dadoSensivel, entradaFaseB, comandoDireto, passagemSemRespostaAutomatica, pausaPedidaNaRecepcao, semAutomatico, dataDeInteresse, hojeOperacao, janelaAberta, responder, type ConfiguracaoAtendimento, type Interpretacao, type OrigemMarcaPausa } from './core.ts';
 import { configuracao, correlacionarStatus, limparStatusExpirados, recuperarTrabalhosInterrompidos, registroDaPausa, suprimirPesquisasDoContato, tem082, temControlesPrivacidade, tratarSaidaQueFalhou, type Conversa, type Mensagem, type SaidaQueFalhou } from './service.ts';
 import { conteudoDaMensagem, type ConteudoSaida } from './transporte.ts';
 import { motivoSeguro } from './motivo-falha.ts';
@@ -10,7 +10,7 @@ import type { Passagem, ResultadoWallE } from './walle/tipos.ts';
 import { capturarOportunidadesPendentes, qualificaPedidoFesta, SQL_MARCA_PENDENTE, temMarcaPendente } from './walle/oportunidade.ts';
 import type { DbExecutor } from '../../db/contracts.ts';
 import { CHAVE_RODIZIO, eTransitorio, ehPilotoDe, empresaOperaAtendimento, empresasNaOrdemDoRodizio, lerPortao, modoEfetivo, pilotoOpcional, registrarVezDoRodizio, travarProvedor } from './multiempresa.ts';
-import { avisarPassagensPendentes } from './aviso-equipe.ts';
+import { avisarPassagensPendentes, contextoNaFila, marcaNaFila } from './aviso-equipe.ts';
 import type { EnviarEmail } from '../../acessos/email.ts';
 
 /**
@@ -79,7 +79,7 @@ async function encaminharSemResposta(tx: DbExecutor, conversa: Conversa, entrada
     const pausa = !limite && !!entrada && !semAutomatico(conversa) && pausaPedidaNaRecepcao(entrada.texto);
     const passagem = passagemSemRespostaAutomatica(conversa.contexto, em, pausa, limite ? origem : 'SEM_RESPOSTA_AUTOMATICA');
     const marca = pausa && !limite ? { semAutomatico: { motivo: 'PARAR_A_CONFIRMAR', em, origem: origem as OrigemMarcaPausa } } : {};
-    await tx.query("UPDATE whatsapp_atendimento_conversas SET estado='AGUARDANDO_HUMANO',passagem=$2::jsonb,contexto=COALESCE(contexto,'{}'::jsonb)||$3::jsonb,versao=versao+1,atualizada_em=clock_timestamp() WHERE id=$1 AND estado='IA'",
+    await tx.query(`UPDATE whatsapp_atendimento_conversas SET estado='AGUARDANDO_HUMANO',passagem=$2::jsonb,contexto=${contextoNaFila("COALESCE(contexto,'{}'::jsonb)||$3::jsonb", "'AGUARDANDO_HUMANO'", '$2::jsonb')},versao=versao+1,atualizada_em=clock_timestamp() WHERE id=$1 AND estado='IA'`,
       [conversa.id, JSON.stringify(passagem), JSON.stringify(marca)]);
   } else await tx.query("UPDATE whatsapp_atendimento_conversas SET estado='AGUARDANDO_HUMANO',versao=versao+1,atualizada_em=clock_timestamp() WHERE id=$1 AND estado='IA'", [conversa.id]);
   // Saídas automáticas ainda na fila desta conversa não saem mais (as do atendente não são tocadas).
@@ -94,7 +94,7 @@ async function encaminharSemResposta(tx: DbExecutor, conversa: Conversa, entrada
  * equipe). Saídas do atendente não são tocadas. Mesma ordem de travas da reserva (mensagem → conversa), SKIP LOCKED.
  * Com o atendimento desligado (flag/receptor) não consulta o banco, como o processador normal.
  */
-export async function encaminharFilaSemAutomacao(opcoes: { maxTarefas?: number } = {}) {
+export async function encaminharFilaSemAutomacao(opcoes: { maxTarefas?: number; ate?: number; relogio?: () => number } = {}) {
   if (!atendimentoAtivo()) return { estado: 'DESLIGADO' as const, tarefas: 0 };
   // A recuperação de trabalhos EM VOO (PROCESSANDO/ENVIANDO vencidos) vale para todo o ambiente, em qualquer modo.
   await recuperarTrabalhosInterrompidos();
@@ -102,8 +102,10 @@ export async function encaminharFilaSemAutomacao(opcoes: { maxTarefas?: number }
   // (inclusive depois do rollback): só a piloto; as pendentes das outras empresas ficam PRESERVADAS (nada é tocado).
   const ambiente = ambienteAtendimento(), max = opcoes.maxTarefas ?? 200;
   const piloto = pilotoOpcional(empresaPiloto);
+  // Fatia 8 (Astra r2, P2): com `ate` (instante absoluto no `relogio`), nenhuma tarefa nova começa depois dele.
+  const relogio = opcoes.relogio ?? Date.now, ate = opcoes.ate ?? Infinity;
   let tarefas = 0;
-  while (tarefas < max) {
+  while (tarefas < max && relogio() < ate) {
     const tratou = await withTransaction(async tx => {
       const multi = (await modoEfetivo(tx)) === 'MULTI';
       if (!multi && !piloto) return false;
@@ -133,16 +135,19 @@ export async function encaminharFilaSemAutomacao(opcoes: { maxTarefas?: number }
  */
 export async function processarLote(deps: DependenciasWorker, opcoes: { maxTarefas?: number; prazoMs?: number; relogio?: () => number; semAutomacao?: boolean } = {}) {
   const max = opcoes.maxTarefas ?? 20, prazo = opcoes.prazoMs ?? 30000, relogio = opcoes.relogio ?? Date.now;
+  // Fatia 8 (Astra r2, P2): o orçamento conta desde a ENTRADA do lote, inclusive limpeza e fila sem automação.
+  const inicio = relogio();
   if (!atendimentoAtivo()) return { estado: 'DESLIGADO' as const, tarefas: 0 };
   // Revisão final (M3): automação global desligada ⇒ esvazia a fila para a equipe, sem modelo, Wall-e nem envio.
   if (opcoes.semAutomacao) {
-    const r = await encaminharFilaSemAutomacao();
-    // Fatia 8: sem automação, a fila vai inteira para a equipe; o aviso por e-mail vale igual.
-    await avisarEquipeDoLote(deps.avisoEquipe, { prazo: relogio() + AVISO_PRAZO_SEM_AUTOMACAO_MS, relogio });
+    // Fatia 8: sem automação, a fila vai inteira para a equipe; o aviso por e-mail vale igual. Um prazo só, desde a entrada:
+    // a fila para nele e o aviso não começa nada depois dele (a fila que sobrar segue no próximo lote).
+    const ate = inicio + AVISO_PRAZO_SEM_AUTOMACAO_MS;
+    const r = await encaminharFilaSemAutomacao({ ate, relogio });
+    await avisarEquipeDoLote(deps.avisoEquipe, { prazo: ate, relogio });
     return r;
   }
   await limparStatusExpirados();
-  const inicio = relogio();
   let tarefas = 0;
   let estado: 'DESLIGADO' | 'SEM_TAREFA' | 'LIMITE' = 'LIMITE';
   while (tarefas < max && relogio() - inicio < prazo) {
@@ -336,7 +341,7 @@ async function executarTarefa(deps: DependenciasWorker, { mensagem, conversa, co
         // 3b: a resposta só fica gravada se couber no teto mensal (reserva do que o INSERT gravou, gravarNoTeto); senão o
         // savepoint desfaz tudo desta transação e a equipe recebe em silêncio (LIMITE_MENSAL).
         const coube = await gravarNoTeto(tx, mensagem, async () => {
-        await tx.query('UPDATE whatsapp_atendimento_conversas SET interesse=$2::jsonb,estado=$3,nao_contatar=nao_contatar OR $4,atualizada_em=clock_timestamp() WHERE id=$1', [conversa.id, JSON.stringify(interesse), resposta.encerrada ? 'ENCERRADA' : resposta.humano ? 'AGUARDANDO_HUMANO' : 'IA',resposta.encerrada]);
+        await tx.query(`UPDATE whatsapp_atendimento_conversas SET interesse=$2::jsonb,estado=$3${marcaNaFila(await tem082(tx), '$3::text')},nao_contatar=nao_contatar OR $4,atualizada_em=clock_timestamp() WHERE id=$1`, [conversa.id, JSON.stringify(interesse), resposta.encerrada ? 'ENCERRADA' : resposta.humano ? 'AGUARDANDO_HUMANO' : 'IA',resposta.encerrada]);
         // PARAR entendido pelo modelo: mesmo alcance da recepção nas pesquisas (só o WhatsApp), na mesma transação.
         if (resposta.encerrada) await suprimirPesquisasDoContato(tx, empresa, atual.contato);
         await tx.query("UPDATE whatsapp_atendimento_mensagens SET estado='PROCESSADA' WHERE id=$1", [mensagem.id]);
@@ -382,7 +387,7 @@ async function executarTarefa(deps: DependenciasWorker, { mensagem, conversa, co
         const aindaValida = mensagemAindaValida(mensagem, atual);
         await tx.query("UPDATE whatsapp_atendimento_mensagens SET estado='CANCELADA' WHERE id=$1 AND estado='PROCESSANDO'", [mensagem.id]);
         if (await temControlesPrivacidade(tx)) await tratarSaidaQueFalhou(tx, saidaDe(doGrupo), { certamenteNaoSaiu: true, encaminhar: aindaValida, versaoEsperada: atual.versao });
-        if (aindaValida) await tx.query("UPDATE whatsapp_atendimento_conversas SET estado='AGUARDANDO_HUMANO',versao=versao+1,atualizada_em=clock_timestamp() WHERE id=$1 AND estado='IA' AND versao=$2", [atual.id, atual.versao]);
+        if (aindaValida) await tx.query(`UPDATE whatsapp_atendimento_conversas SET estado='AGUARDANDO_HUMANO'${marcaNaFila(await tem082(tx))},versao=versao+1,atualizada_em=clock_timestamp() WHERE id=$1 AND estado='IA' AND versao=$2`, [atual.id, atual.versao]);
         console.warn('[Atendimento WhatsApp] saída automática cancelada: contagem mensal indisponível (135 ausente).');
         return null;
       }
@@ -395,14 +400,14 @@ async function executarTarefa(deps: DependenciasWorker, { mensagem, conversa, co
       // acontece depois, fora dela. Um salvamento que chega antes do COMMIT espera e grava `atualizada_em` depois; um
       // salvamento depois do COMMIT NÃO retém o envio já iniciado: o texto lido aqui sai (ou termina INCERTO).
       const vigente = await configuracaoPortao(tx, empresa, true);
-      const revogada = !mensagem.autor_usuario_id && !ehMensagemEncaminhamento(mensagem.texto) && ((await tx.query("SELECT 1 FROM whatsapp_atendimento_config c JOIN whatsapp_atendimento_mensagens m ON m.empresa_id=c.empresa_id AND m.ambiente=c.ambiente WHERE m.id=$1 AND c.empresa_id=$2 AND c.ambiente=$3 AND c.atualizada_em > m.criada_em", [mensagem.id, empresa, ambiente])).rows.length > 0
+      const revogada = !mensagem.autor_usuario_id && !ehEncaminhamentoFixo(mensagem) && ((await tx.query("SELECT 1 FROM whatsapp_atendimento_config c JOIN whatsapp_atendimento_mensagens m ON m.empresa_id=c.empresa_id AND m.ambiente=c.ambiente WHERE m.id=$1 AND c.empresa_id=$2 AND c.ambiente=$3 AND c.atualizada_em > m.criada_em", [mensagem.id, empresa, ambiente])).rows.length > 0
         || !(await materialAindaAutorizado(tx, mensagem, empresa, ambiente)));
       const valida = mensagemAindaValida(mensagem,atual);
       const ok = empresaAtiva && autorAtivo && !revogada && contatoPermitido(atual.contato) && valida && atendimentoAtivo() && vigente?.ativo && await opera(tx);
       await tx.query("UPDATE whatsapp_atendimento_mensagens SET estado=$2,iniciada_em=clock_timestamp() WHERE id=$1 AND estado='PROCESSANDO'", [mensagem.id, ok ? 'ENVIANDO' : 'CANCELADA']);
       // Revogada quando ainda seria enviada, com a IA conduzindo: o cliente ficaria sem resposta, então a conversa vai
       // para a equipe. Estado humano (AGUARDANDO_HUMANO, HUMANO, ENCERRADA) e responsável não mudam.
-      if (revogada && valida && atual.estado === 'IA') await tx.query("UPDATE whatsapp_atendimento_conversas SET estado='AGUARDANDO_HUMANO',versao=versao+1,atualizada_em=clock_timestamp() WHERE id=$1 AND estado='IA'", [atual.id]);
+      if (revogada && valida && atual.estado === 'IA') await tx.query(`UPDATE whatsapp_atendimento_conversas SET estado='AGUARDANDO_HUMANO'${marcaNaFila(await tem082(tx))},versao=versao+1,atualizada_em=clock_timestamp() WHERE id=$1 AND estado='IA'`, [atual.id]);
       if (!ok) return null;
       // Arquivo próprio (082): URL pública com o token do arquivo, na origem https configurada; sem ela, nada sai (FALHOU).
       const arquivo = mensagem.midia_arquivo_id ? (await tx.query<{ token: string; nome: string }>('SELECT token,nome FROM whatsapp_atendimento_arquivos WHERE id=$1 AND empresa_id=$2 AND ambiente=$3', [mensagem.midia_arquivo_id, empresa, ambiente])).rows[0] : null;
@@ -436,7 +441,7 @@ async function executarTarefa(deps: DependenciasWorker, { mensagem, conversa, co
       // (correlacionarStatus) — irmãs na fila canceladas com GRUPO_INCOMPLETO, memória ajustada, equipe chamada. O que já saiu
       // continua com o cliente; INCERTO nunca é reenviado.
       if (final && await temControlesPrivacidade(tx)) await tratarSaidaQueFalhou(tx, saidaDe(mensagem as MensagemDeGrupo), { certamenteNaoSaiu: final === 'FALHOU' });
-      await tx.query("UPDATE whatsapp_atendimento_conversas SET estado='AGUARDANDO_HUMANO',versao=versao+1,atualizada_em=clock_timestamp() WHERE id=$1 AND estado='IA'", [conversa.id]);
+      await tx.query(`UPDATE whatsapp_atendimento_conversas SET estado='AGUARDANDO_HUMANO'${marcaNaFila(await tem082(tx))},versao=versao+1,atualizada_em=clock_timestamp() WHERE id=$1 AND estado='IA'`, [conversa.id]);
     });
     return 'ENCAMINHADA';
   }
@@ -487,7 +492,7 @@ async function bloquearPorPedido(mensagem: Mensagem, contato: string, registro: 
   await withTransaction(async tx => {
     // Rodada 18: reclamação junto do pedido de parar fica na fila da equipe (AGUARDANDO_HUMANO + passagem), com o mesmo
     // bloqueio (nao_contatar): nada é enviado e a equipe não consegue assumir nem responder (ATENDIMENTO_CONTATO_BLOQUEADO).
-    if (registro) await tx.query("UPDATE whatsapp_atendimento_conversas SET estado='AGUARDANDO_HUMANO',nao_contatar=true,passagem=$3::jsonb,versao=versao+1,atualizada_em=clock_timestamp() WHERE id=$1 AND empresa_id=$2", [mensagem.conversa_id, empresa, JSON.stringify(registro)]);
+    if (registro) await tx.query(`UPDATE whatsapp_atendimento_conversas SET estado='AGUARDANDO_HUMANO'${marcaNaFila(true, "'AGUARDANDO_HUMANO'", '$3::jsonb')},nao_contatar=true,passagem=$3::jsonb,versao=versao+1,atualizada_em=clock_timestamp() WHERE id=$1 AND empresa_id=$2`, [mensagem.conversa_id, empresa, JSON.stringify(registro)]);
     else await tx.query("UPDATE whatsapp_atendimento_conversas SET estado='ENCERRADA',nao_contatar=true,versao=versao+1,atualizada_em=clock_timestamp() WHERE id=$1 AND empresa_id=$2", [mensagem.conversa_id, empresa]);
     await tx.query("UPDATE whatsapp_atendimento_mensagens SET estado='PROCESSADA' WHERE id=$1 AND estado='PROCESSANDO'", [mensagem.id]);
     await cancelarSaidasNaFila(tx, mensagem.conversa_id, empresa, ambiente);
@@ -505,7 +510,7 @@ async function pausarSemMarca(mensagem: Mensagem) {
   await withTransaction(async tx => {
     const atual = (await tx.query<Conversa>('SELECT * FROM whatsapp_atendimento_conversas WHERE id=$1 FOR UPDATE', [mensagem.conversa_id])).rows[0];
     if (!atual || !mensagemAindaValida(mensagem, atual)) { await tx.query("UPDATE whatsapp_atendimento_mensagens SET estado='CANCELADA' WHERE id=$1 AND estado='PROCESSANDO'", [mensagem.id]); return; }
-    await tx.query("UPDATE whatsapp_atendimento_conversas SET estado='AGUARDANDO_HUMANO',versao=versao+1,atualizada_em=clock_timestamp() WHERE id=$1", [atual.id]);
+    await tx.query(`UPDATE whatsapp_atendimento_conversas SET estado='AGUARDANDO_HUMANO'${marcaNaFila(await tem082(tx))},versao=versao+1,atualizada_em=clock_timestamp() WHERE id=$1`, [atual.id]);
     await tx.query("UPDATE whatsapp_atendimento_mensagens SET estado='PROCESSADA' WHERE id=$1 AND estado='PROCESSANDO'", [mensagem.id]);
     await tx.query(`UPDATE whatsapp_atendimento_mensagens SET estado='CANCELADA' WHERE id IN (SELECT id FROM whatsapp_atendimento_mensagens
       WHERE conversa_id=$1 AND empresa_id=$2 AND ambiente=$3 AND direcao='SAIDA' AND estado='PENDENTE' AND autor_usuario_id IS NULL FOR UPDATE SKIP LOCKED)`, [atual.id, empresa, ambiente]);
@@ -557,7 +562,7 @@ async function passarEmSilencio(mensagem: Mensagem, passagem: Passagem, origem: 
     // Rodada 22: pedido de parar sem bloqueio definitivo marca a conversa: nenhum envio automático depois (só a equipe).
     // B5: a marca sempre registra a origem (FILA = barreira do worker; WALLE = silêncio do Wall-e).
     const marca = passagem.motivos.includes('PARAR_A_CONFIRMAR') ? { semAutomatico: { motivo: 'PARAR_A_CONFIRMAR', em: passagem.em, origem } } : {};
-    await tx.query("UPDATE whatsapp_atendimento_conversas SET estado='AGUARDANDO_HUMANO',passagem=$2::jsonb,contexto=contexto||$3::jsonb,versao=versao+1,atualizada_em=clock_timestamp() WHERE id=$1", [atual.id, JSON.stringify(passagem), JSON.stringify(marca)]);
+    await tx.query(`UPDATE whatsapp_atendimento_conversas SET estado='AGUARDANDO_HUMANO',passagem=$2::jsonb,contexto=${contextoNaFila('contexto||$3::jsonb', "'AGUARDANDO_HUMANO'", '$2::jsonb')},versao=versao+1,atualizada_em=clock_timestamp() WHERE id=$1`, [atual.id, JSON.stringify(passagem), JSON.stringify(marca)]);
     await tx.query("UPDATE whatsapp_atendimento_mensagens SET estado='PROCESSADA' WHERE id=$1 AND estado='PROCESSANDO'", [mensagem.id]);
     await cancelarSaidasNaFila(tx, atual.id, empresa, ambiente);
   });
@@ -584,9 +589,15 @@ async function encaminharSemModelo(mensagem: Mensagem, estadoEntrada: 'FALHOU' |
     // entrada em PROCESSANDO e a deixa PROCESSADA (LIMITE_MENSAL), em vez de FALHOU.
     const coube = await gravarNoTeto(tx, mensagem, async () => {
     await tx.query("UPDATE whatsapp_atendimento_mensagens SET estado=$2 WHERE id=$1 AND estado='PROCESSANDO'", [mensagem.id, estadoEntrada]);
-    const versao = Number(atual.versao) + 1;
-    await tx.query("UPDATE whatsapp_atendimento_conversas SET estado='AGUARDANDO_HUMANO',versao=$2,atualizada_em=clock_timestamp() WHERE id=$1", [atual.id, versao]);
-    return (await tx.query<{ id: string }>(`INSERT INTO whatsapp_atendimento_mensagens(conversa_id,empresa_id,ambiente,origem_id,direcao,texto,estado,versao_conversa) VALUES($1,$2,$3,$4,'SAIDA',$5,'PENDENTE',$6) ON CONFLICT(origem_id) DO NOTHING RETURNING id`, [atual.id, empresa, ambiente, mensagem.id, mensagemEncaminhamento(vigente.horarioEquipe, new Date()), versao])).rows.length;
+    const versao = Number(atual.versao) + 1, com082 = await tem082(tx);
+    await tx.query(`UPDATE whatsapp_atendimento_conversas SET estado='AGUARDANDO_HUMANO'${marcaNaFila(com082)},versao=$2,atualizada_em=clock_timestamp() WHERE id=$1`, [atual.id, versao]);
+    // Fatia 8 (Astra r2, P2): com a 082, a origem fica gravada na saída e é ela que isenta o envio da revogação.
+    // Sem a 082 não há onde gravar a origem: o texto fica o antigo exato (sem a frase do horário), reconhecido por igualdade.
+    const texto = com082 ? mensagemEncaminhamento(vigente.horarioEquipe, new Date()) : mensagemEncaminhamento(null, new Date());
+    return (await tx.query<{ id: string }>(com082
+      ? `INSERT INTO whatsapp_atendimento_mensagens(conversa_id,empresa_id,ambiente,origem_id,direcao,texto,estado,versao_conversa,fonte) VALUES($1,$2,$3,$4,'SAIDA',$5,'PENDENTE',$6,$7::jsonb) ON CONFLICT(origem_id) DO NOTHING RETURNING id`
+      : `INSERT INTO whatsapp_atendimento_mensagens(conversa_id,empresa_id,ambiente,origem_id,direcao,texto,estado,versao_conversa) VALUES($1,$2,$3,$4,'SAIDA',$5,'PENDENTE',$6) ON CONFLICT(origem_id) DO NOTHING RETURNING id`,
+      com082 ? [atual.id, empresa, ambiente, mensagem.id, texto, versao, fonteEncaminhamento()] : [atual.id, empresa, ambiente, mensagem.id, texto, versao])).rows.length;
     });
     if (!coube) await encaminharSemResposta(tx, atual, mensagem, 'LIMITE_MENSAL');
   });
@@ -634,7 +645,7 @@ async function tratarConversaSemArquivo(tx: DbExecutor, mensagem: Mensagem, atua
     AND empresa_id=$3 AND ambiente=$4 AND conversa_id=$5 AND estado='CANCELADA' AND midia_pronta_id IS NOT NULL AND to_jsonb(whatsapp_atendimento_mensagens)->>'motivo_cancelamento' IN ('ARQUIVO_INDISPONIVEL','ARQUIVO_REVOGADO')`, [m.id, m.origem_grupo_id ?? null, m.empresa_id, m.ambiente, m.conversa_id])).rows.map((x) => x.midia_pronta_id);
   if (prontas.length) await tx.query(`UPDATE whatsapp_atendimento_conversas SET contexto=jsonb_set(contexto,'{enviados}',COALESCE((SELECT jsonb_agg(e) FROM jsonb_array_elements(contexto->'enviados') e
     WHERE NOT (e->>'prontaId' = ANY($2::text[]))),'[]'::jsonb)) WHERE id=$1 AND empresa_id=$3 AND ambiente=$4 AND jsonb_typeof(contexto->'enviados')='array'`, [atual.id, prontas, m.empresa_id, m.ambiente]);
-  if (!mensagem.autor_usuario_id) await tx.query("UPDATE whatsapp_atendimento_conversas SET estado='AGUARDANDO_HUMANO',versao=versao+1,atualizada_em=clock_timestamp() WHERE id=$1 AND empresa_id=$2 AND ambiente=$3 AND estado='IA'", [atual.id, m.empresa_id, m.ambiente]);
+  if (!mensagem.autor_usuario_id) await tx.query(`UPDATE whatsapp_atendimento_conversas SET estado='AGUARDANDO_HUMANO'${marcaNaFila(true)},versao=versao+1,atualizada_em=clock_timestamp() WHERE id=$1 AND empresa_id=$2 AND ambiente=$3 AND estado='IA'`, [atual.id, m.empresa_id, m.ambiente]);
 }
 async function materialAindaAutorizado(tx: DbExecutor, mensagem: Mensagem, empresa: string, ambiente: string) {
   const fonte = mensagem.fonte as { tipo?: string; fontes?: { tipo?: string; id?: string; versao?: number }[] } | null | undefined;
@@ -656,7 +667,8 @@ async function materialAindaAutorizado(tx: DbExecutor, mensagem: Mensagem, empre
  */
 /** Memória do Wall-e na conversa; `marca` = SQL_MARCA_PENDENTE (com a 132, 6º parâmetro) ou vazio. */
 function memoriaDaConversa(marca: string) {
-  return `UPDATE whatsapp_atendimento_conversas SET interesse=$2::jsonb,contexto=$3::jsonb || (SELECT COALESCE(jsonb_object_agg(k,v),'{}'::jsonb) FROM jsonb_each(COALESCE(contexto,'{}'::jsonb)) t(k,v) WHERE k IN ('semAutomatico','avisoEquipe','avisoEquipeSaida')),passagem=COALESCE($4::jsonb,passagem),estado=$5,atualizada_em=clock_timestamp()${marca} WHERE id=$1`;
+  const base = "$3::jsonb || (SELECT COALESCE(jsonb_object_agg(k,v),'{}'::jsonb) FROM jsonb_each(COALESCE(contexto,'{}'::jsonb)) t(k,v) WHERE k IN ('semAutomatico','avisoEquipe'))";
+  return `UPDATE whatsapp_atendimento_conversas SET interesse=$2::jsonb,contexto=${contextoNaFila(base, '$5::text', '$4::jsonb')},passagem=COALESCE($4::jsonb,passagem),estado=$5,atualizada_em=clock_timestamp()${marca} WHERE id=$1`;
 }
 async function responderWallE(porta: PortaWallE, mensagem: Mensagem, conversa: Conversa, texto: string, historico: string[], opera: (tx: DbExecutor) => Promise<boolean>, config: ConfiguracaoAtendimento) {
   const empresa = mensagem.empresa_id, ambiente = mensagem.ambiente;

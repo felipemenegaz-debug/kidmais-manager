@@ -38,10 +38,18 @@ export function mensagemEncaminhamento(horario: HorarioEquipe | undefined | null
   const retorno = retornoForaDoHorario(horario, agora);
   return retorno ? ENCAMINHAMENTO_COM_HORARIO + retorno : MENSAGEM_ENCAMINHAMENTO;
 }
-/** Saída é um dos textos fixos de encaminhamento (isenta da revogação por configuração no envio, como antes). */
-export function ehMensagemEncaminhamento(texto: string | null | undefined) {
-  if (texto === MENSAGEM_ENCAMINHAMENTO) return true;
-  return typeof texto === 'string' && texto.startsWith(ENCAMINHAMENTO_COM_HORARIO + 'Agora estamos fora do horário de atendimento: a equipe responde ') && texto.endsWith('.') && !texto.includes(String.fromCharCode(10)) && texto.length <= 240;
+/** Origem gravada em `fonte` da saída de contingência (com a 082): é ela, e não o texto, que isenta a saída da revogação. */
+export const ORIGEM_ENCAMINHAMENTO = 'ENCAMINHAMENTO_FIXO';
+export const fonteEncaminhamento = () => JSON.stringify({ origem: ORIGEM_ENCAMINHAMENTO });
+/**
+ * Saída é o encaminhamento fixo de contingência (isento da revogação por configuração no envio). Fatia 8 (Astra r2, P2):
+ * reconhecido pela ORIGEM gravada na saída, nunca pelo formato do texto (uma FAQ ou resposta do Wall-e com o mesmo texto
+ * continua sujeita à revogação). Linha sem `fonte` (base sem a 082 ou anterior a esta fatia): só o texto antigo exato.
+ */
+export function ehEncaminhamentoFixo(mensagem: { texto?: string | null; fonte?: unknown }) {
+  const fonte = mensagem.fonte;
+  if (fonte !== null && fonte !== undefined) return typeof fonte === 'object' && !Array.isArray(fonte) && (fonte as { origem?: unknown }).origem === ORIGEM_ENCAMINHAMENTO && Object.keys(fonte).length === 1;
+  return mensagem.texto === MENSAGEM_ENCAMINHAMENTO;
 }
 /**
  * O JSON Schema enviado ao modelo só garante `string | null` em `data`; o modelo pode devolver a data como o cliente

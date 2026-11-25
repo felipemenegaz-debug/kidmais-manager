@@ -39,12 +39,13 @@ const MENSAGEM: Record<string, string> = {
   ATENDIMENTO_REAUTENTICACAO: 'Confirme sua senha antes desta ação.',
   ATENDIMENTO_GRUPO_PARCIAL: 'Parte desta resposta já foi enviada e este arquivo ainda está na fila. Esperar não resolve: assuma ou encerre a conversa (a fila automática sai) e revogue de novo. Nada foi alterado.',
   ATENDIMENTO_CONTATO_INVALIDO: 'Informe o número completo, só com dígitos (DDI, DDD e número).',
+  ATENDIMENTO_AVISO_SEM_082: 'O aviso por e-mail ainda não está disponível neste ambiente (migration 082 não aplicada). Deixe a lista de e-mails vazia para salvar.',
   ATENDIMENTO_AVISO_DESTINATARIO: 'Os e-mails de aviso precisam ser de pessoas com acesso ao Atendimento desta empresa (Gestão ou Administrativo), com o acesso ativo.',
   ATENDIMENTO_PRONTA_MIDIA_ALTERADA: 'A foto ou o vídeo desta mensagem pronta mudou ou foi removido depois da prévia. Nada foi enviado: remova o anexo e abra a prévia de novo para revisar.',
 };
 // Regra de negócio não é indisponibilidade: só falha inesperada (banco, configuração) devolve 503.
 const CONFLITO = ['ATENDIMENTO_CARDAPIO_INDISPONIVEL', 'ATENDIMENTO_DESATUALIZADO', 'ATENDIMENTO_ENVIO_EM_ANDAMENTO', 'ATENDIMENTO_CONTATO_BLOQUEADO', 'ATENDIMENTO_PAUSA_PEDIDA', 'ATENDIMENTO_JANELA_EXPIRADA', 'ATENDIMENTO_ASSUMA_ANTES_DE_ENVIAR', 'ATENDIMENTO_AUTOMACAO_DESLIGADA', 'ATENDIMENTO_RECURSO_NAO_INCLUIDO', 'ATENDIMENTO_IA_DESLIGADA', 'ATENDIMENTO_LEGENDA_LONGA',
-  'ATENDIMENTO_PRONTA_ATALHO_EM_USO', 'ATENDIMENTO_PRONTA_TITULO_EM_USO', 'ATENDIMENTO_PRONTA_DESATUALIZADA', 'ATENDIMENTO_PRONTA_MIDIA_ALTERADA', 'ATENDIMENTO_RECURSO_082_INDISPONIVEL', 'ATENDIMENTO_ARQUIVO_INVALIDO',
+  'ATENDIMENTO_PRONTA_ATALHO_EM_USO', 'ATENDIMENTO_PRONTA_TITULO_EM_USO', 'ATENDIMENTO_PRONTA_DESATUALIZADA', 'ATENDIMENTO_PRONTA_MIDIA_ALTERADA', 'ATENDIMENTO_RECURSO_082_INDISPONIVEL', 'ATENDIMENTO_AVISO_SEM_082', 'ATENDIMENTO_ARQUIVO_INVALIDO',
   'ATENDIMENTO_ARQUIVO_INDISPONIVEL', 'ATENDIMENTO_ARQUIVO_VENCIDO', 'ATENDIMENTO_ARQUIVO_NAO_VENCIDO', 'ATENDIMENTO_EXCLUSAO_ADIADA', 'ATENDIMENTO_GRUPO_PARCIAL'];
 // Dado informado inválido (data, prazo): 400, nunca 503.
 const INVALIDO = ['ATENDIMENTO_DATA_INVALIDA', 'ATENDIMENTO_PRAZO_INVALIDO', 'ATENDIMENTO_CONTATO_INVALIDO', 'ATENDIMENTO_AVISO_DESTINATARIO'];

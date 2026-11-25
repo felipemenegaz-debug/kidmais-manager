@@ -11,7 +11,8 @@ type LinkPublico = { ok: true; link: string } | { ok: false; motivo: 'OUTRA_EMPR
 type Dados = { configuracao: Configuracao | null; automacaoDisponivel: boolean; podeConfigurar: boolean; wallE?: { disponivel: boolean; linkPublico?: LinkPublico } };
 const nova = (): Configuracao => ({ ativo: false, nome: '', perguntas: [], limites: { respostasPor24h: 20 }, wallE: { ativo: false } });
 /** Sem a 082 o Wall-e não existe neste ambiente: a chave não é gravada (o atendimento da fase B segue igual). */
-function semWallE(c: Configuracao): Configuracao { const copia = { ...c }; delete copia.wallE; return copia; }
+/** Sem a 082 (Wall-e indisponível): nem o Wall-e nem os e-mails de aviso vão (a marca do aviso mora na 082; Astra r2, P2). */
+function semWallE(c: Configuracao): Configuracao { const copia = { ...c }; delete copia.wallE; delete copia.avisoEquipe; return copia; }
 /** Ordem da tela: a semana começa na segunda. */
 const DIAS_TELA: DiaSemana[] = [...DIAS_SEMANA.slice(1), DIAS_SEMANA[0]];
 const FAIXA_PADRAO = { inicio: '09:00', fim: '18:00' };
@@ -96,7 +97,8 @@ export default function ConfiguracaoAtendimento() {
             <label className={styles.opcao}><input type="checkbox" checked={!!f} onChange={e => mudar(e.target.checked ? FAIXA_PADRAO : null)} />Atende<span className={styles.oculto}> {NOME_DIA[dia]}</span></label>
             {f && <><label>Das<input type="time" required value={f.inicio} onChange={e => mudar({ ...f, inicio: e.target.value })} /></label><label>às<input type="time" required value={f.fim} onChange={e => mudar({ ...f, fim: e.target.value })} /></label></>}
           </fieldset>; })}
-        <label>E-mails que recebem o aviso de conversa passada para a equipe (até {LIMITE_EMAILS_AVISO}, um por linha)<textarea value={emailsTexto ?? ''} rows={3} onChange={e => setEmailsTexto(e.target.value)} aria-describedby="aviso-ajuda" /></label>
+        <label>E-mails que recebem o aviso de conversa passada para a equipe (até {LIMITE_EMAILS_AVISO}, um por linha)<textarea value={dados.wallE?.disponivel ? emailsTexto ?? '' : ''} rows={3} disabled={!dados.wallE?.disponivel} onChange={e => setEmailsTexto(e.target.value)} aria-describedby="aviso-ajuda" /></label>
+        {!dados.wallE?.disponivel && <p className={styles.nota} role="note">O aviso por e-mail ainda não está disponível neste ambiente: depende da mesma atualização do servidor que traz o Wall-e. Enquanto isso, acompanhe a fila pelo selo do Atendimento no menu.</p>}
         <p id="aviso-ajuda" className={styles.nota}>Só e-mails de pessoas com acesso ao Atendimento desta empresa (Gestão ou Administrativo). O aviso traz o motivo e o link da conversa, que pede login; nunca as mensagens do cliente. Um aviso por conversa passada; deixe vazio para não avisar.</p>
       </section>
       <details className={`${styles.painel} ${styles.maisOpcoes}`}><summary>Limites e opções avançadas</summary>
