@@ -24,8 +24,8 @@ test('situação do horário: dentro, antes de abrir, depois de fechar, fim de s
   assert.deepEqual(situacaoHorario(semana, sp('2026-11-25T17:59:00')), { configurado: true, dentro: true });
   assert.equal(retornoForaDoHorario(semana, sp('2026-11-25T12:00:00')), '');
   assert.equal(retornoForaDoHorario(undefined, sp('2026-11-25T23:00:00')), '');
-  assert.equal(retornoForaDoHorario(semana, sp('2026-11-25T07:00:00')), 'Agora estamos fora do horário de atendimento: a equipe responde na quarta-feira a partir das 9h.');
-  assert.equal(retornoForaDoHorario(semana, sp('2026-11-25T18:00:00')), 'Agora estamos fora do horário de atendimento: a equipe responde na quinta-feira a partir das 9h.', 'fim exclusivo');
+  assert.equal(retornoForaDoHorario(semana, sp('2026-11-25T07:00:00')), 'Sua mensagem foi encaminhada fora do horário de atendimento: a equipe responde na quarta-feira a partir das 9h.');
+  assert.equal(retornoForaDoHorario(semana, sp('2026-11-25T18:00:00')), 'Sua mensagem foi encaminhada fora do horário de atendimento: a equipe responde na quinta-feira a partir das 9h.', 'fim exclusivo');
   // Astra r3 (P2): composta na quarta 23:59 local (UTC já é quinta 02:59) e enviada na quinta 00:01: a mesma frase continua
   // certa nos dois relógios, porque diz o dia da semana e nunca "hoje"/"amanhã".
   const composta = retornoForaDoHorario(semana, new Date('2026-11-26T02:59:00.000Z'));
@@ -152,4 +152,31 @@ test('selo do menu: ambiente inválido ou banco fora dão 0, sem derrubar a sess
   assert.equal(await seloAguardandoEquipe(banco(3), 'e', () => 'staging'), 3);
   assert.equal(await seloAguardandoEquipe(banco(3), 'e', () => { throw new Error('KIDMAIS_DEPLOY_ENV ausente'); }), 0, 'ambiente lança de forma síncrona');
   assert.equal(await seloAguardandoEquipe({ query: async () => { throw new Error('42P01'); } } as never, 'e', () => 'staging'), 0, 'banco falha');
+});
+
+// Fatia 9 (Astra r4 da fatia 8, P-F8-2 e P-F8-4), relógio fixo.
+test('P-F8-2: passagens da fase B (pedido de atendente e interesse completo) usam o horário vigente', async () => {
+  const { responder } = await import('./core.ts');
+  const humano = { intencao: 'HUMANO' as const, perguntaId: null, data: null, convidados: null };
+  const interesse = { intencao: 'INTERESSE' as const, perguntaId: null, data: '2027-03-10', convidados: 50 };
+  const cfg = (horarioEquipe?: HorarioEquipe) => configuracaoSchema.parse({ ativo: true, nome: 'Buffet', perguntas: [], horarioEquipe });
+  const domingo = sp('2026-11-29T10:00:00');
+  const ANTIGO = 'Vou encaminhar seu pedido para um atendente. A resposta dependerá do horário da equipe.';
+  assert.equal(responder(cfg({ seg: util }), humano, { data: null, convidados: null }, '2026-11-29', domingo).texto,
+    'Vou encaminhar seu pedido para um atendente. Sua mensagem foi encaminhada fora do horário de atendimento: a equipe responde na segunda-feira a partir das 9h.');
+  assert.equal(responder(cfg(), humano, { data: null, convidados: null }, '2026-11-29', domingo).texto, ANTIGO, 'sem horário: texto antigo');
+  assert.equal(responder(cfg({ dom: util }), humano, { data: null, convidados: null }, '2026-11-29', domingo).texto, ANTIGO, 'dentro do horário: texto antigo');
+  const r = responder(cfg({ seg: util }), interesse, { data: '2027-03-10', convidados: 50 }, '2026-11-29', domingo);
+  assert.equal(r.humano, true);
+  assert.equal(r.texto, 'Registrei seu interesse para 10/03/2027 e 50 pessoas. Vou encaminhar para a equipe conferir disponibilidade, pacote e valores. A data ainda não está reservada. Sua mensagem foi encaminhada fora do horário de atendimento: a equipe responde na segunda-feira a partir das 9h.');
+  assert.ok(responder(cfg(), interesse, { data: '2027-03-10', convidados: 50 }, '2026-11-29', domingo).texto?.endsWith('A data ainda não está reservada.'), 'sem horário: texto antigo');
+});
+test('P-F8-4: a frase fala do momento da passagem; composta antes da abertura continua verdadeira depois dela', () => {
+  const composta = retornoForaDoHorario(semana, sp('2026-11-30T08:59:00'));
+  assert.equal(composta, 'Sua mensagem foi encaminhada fora do horário de atendimento: a equipe responde na segunda-feira a partir das 9h.');
+  assert.doesNotMatch(composta, /Agora|estamos fora/);
+  // No envio, às 09h01, a equipe já está aberta: o fecho recomposto (contingência, worker.ts) é o texto sem previsão.
+  assert.equal(retornoForaDoHorario(semana, sp('2026-11-30T09:01:00')), '');
+  assert.equal(mensagemEncaminhamento(semana, sp('2026-11-30T09:01:00')), MENSAGEM_ENCAMINHAMENTO);
+  assert.match(mensagemEncaminhamento(semana, sp('2026-11-30T08:59:00')), /foi encaminhada fora do horário/);
 });

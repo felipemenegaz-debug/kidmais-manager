@@ -85,8 +85,11 @@ export function situacaoHorario(horario: HorarioEquipe | undefined | null, agora
 /**
  * Frase FIXA ao cliente na passagem, fora do horário. Vazia dentro do horário ou sem horário cadastrado (o texto da
  * passagem fica exatamente como antes). Nunca vem do modelo.
+ * Fatia 9 (Astra r4 da fatia 8, P-F8-4): a frase fala do MOMENTO DA PASSAGEM ("foi encaminhada fora do horário"), nunca
+ * do momento da leitura ("agora estamos fora"): composta às 08h59 e enviada às 09h01, continua verdadeira. O
+ * encaminhamento de contingência, isento da revalidação, é recomposto no despacho (worker.ts).
  */
 export function retornoForaDoHorario(horario: HorarioEquipe | undefined | null, agora: Date) {
   const s = situacaoHorario(horario, agora);
-  return s.configurado && !s.dentro ? `Agora estamos fora do horário de atendimento: a equipe responde ${s.quando}.` : '';
+  return s.configurado && !s.dentro ? `Sua mensagem foi encaminhada fora do horário de atendimento: a equipe responde ${s.quando}.` : '';
 }

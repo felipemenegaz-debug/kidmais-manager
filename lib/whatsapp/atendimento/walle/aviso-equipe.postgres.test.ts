@@ -50,6 +50,9 @@ import { NOME_MOTIVO } from "./tipos.ts";
  *  A23 modo PILOTO (rollback): o lote da piloto não manda o aviso de outra empresa, nem se o modo muda no meio;
  *      de volta a MULTI, o aviso sai uma vez;
  *  A12 passa a ser retry 22 h depois (dentro da janela).
+ * Fatia 9 (Astra r4 da fatia 8, 26/11), Wall-e desligado (fase B), relógio fixo no domingo:
+ *  A24 «atendente» na fase B: marca e e-mail com PEDIDO_CLIENTE, sem o texto; resposta com a previsão do horário salvo;
+ *  A25 contingência enfileirada com 9h e horário corrigido para 14h antes do despacho: sai 14h, ainda isenta.
  */
 const ler = (f: string) => readFileSync(f, "utf8");
 const MIGRATIONS = [
@@ -518,6 +521,49 @@ test("aviso à equipe por e-mail na passagem: um por passagem, destinatários au
       await multi.worker.avisarEquipeDoLote(avisoEquipe);
       assert.equal(deB(), 1, "A23: de volta a MULTI, o aviso de B sai uma vez");
       assert.equal((await conversa(B.empresa, contato)).contexto.avisoEquipe.estado, "ENVIADO");
+    }
+
+    // Fatia 9 (Astra r4 da fatia 8): Wall-e DESLIGADO na configuração (fase B, com a 082), relógio fixo no domingo 10h.
+    {
+      const domingo = () => new Date("2026-11-29T10:00:00-03:00");
+      const faseB = { ...deps, agora: domingo };
+      const semAviso9 = { ...faseB, avisoEquipe: undefined };
+      const config = (inicio: string) => servico.salvarConfiguracao(A.sessao, { ...base, wallE: { ativo: false }, avisoEquipe: { emails: [A.rep.email, adm.email] }, horarioEquipe: { seg: { inicio, fim: "18:00" } } });
+      await config("09:00");
+      await worker.avisarEquipeDoLote(avisoEquipe); // nada pendente de casos anteriores
+      // A24 (P-F8-1 e P-F8-2) — «atendente» na fase B: marca com PEDIDO_CLIENTE, e-mail com o rótulo e sem o texto; a resposta
+      // ao cliente diz quando a equipe volta.
+      const contato = "5561900000824", antes = emails.length, enviadosAntes = envios.length;
+      await receber(servico, contato, "atendente");
+      await worker.processarLote(semAviso9, { maxTarefas: 10 });
+      const cv24 = await conversa(A.empresa, contato);
+      assert.equal(cv24.estado, "AGUARDANDO_HUMANO", "A24: fase B passou para a equipe");
+      assert.deepEqual(cv24.contexto.avisoEquipe.motivos, ["PEDIDO_CLIENTE"], "A24: motivo gravado na marca");
+      const enviada = envios.slice(enviadosAntes).map((x) => JSON.stringify(x)).join(" | ");
+      assert.ok(enviada.includes("Vou encaminhar seu pedido para um atendente. Sua mensagem foi encaminhada fora do horário de atendimento: a equipe responde na segunda-feira a partir das 9h."), "A24: previsão pelo horário salvo");
+      await worker.avisarEquipeDoLote(avisoEquipe);
+      assert.equal(emails.length, antes + 2);
+      for (const m of emails.slice(antes)) {
+        assert.ok(m.texto.includes(NOME_MOTIVO.PEDIDO_CLIENTE), "A24: o e-mail leva o rótulo do motivo");
+        assert.ok(!m.texto.includes("A conversa aguarda a equipe."), "A24: não o genérico");
+        assert.doesNotMatch(`${m.assunto} | ${m.texto} | ${m.html}`, /atendente|5561900000824/, "A24: nunca o texto nem o telefone do cliente");
+      }
+      // A25 (P-F8-3) — contingência enfileirada prometendo 9h; a equipe corrige para 14h antes do despacho: sai 14h, isenta.
+      const c25 = "5561900000825";
+      await receber(servico, c25, "qual o valor do pacote?");
+      await worker.processarLote(semAviso9, { maxTarefas: 1 }); // só a entrada: a contingência fica na fila
+      const fila = (await c.query("SELECT m.id, m.texto, m.fonte FROM whatsapp_atendimento_mensagens m JOIN whatsapp_atendimento_conversas v ON v.id = m.conversa_id WHERE v.contato = $1 AND m.direcao = 'SAIDA'", [c25])).rows;
+      assert.equal(fila.length, 1);
+      assert.deepEqual(fila[0].fonte, JSON.parse(fonteEncaminhamento()), "A25: contingência com a origem gravada");
+      assert.match(fila[0].texto, /a partir das 9h.$/, "A25: composta com o horário de então");
+      await config("14:00");
+      const enviadosAntes25 = envios.length;
+      await worker.processarLote(semAviso9, { maxTarefas: 10 });
+      const final = (await c.query("SELECT estado, texto FROM whatsapp_atendimento_mensagens WHERE id = $1", [fila[0].id])).rows[0];
+      assert.equal(final.estado, "SUBMETIDA", "A25: a isenção continua (a edição da configuração não a revoga)");
+      assert.match(final.texto, /na segunda-feira a partir das 14h.$/, "A25: texto gravado recomposto");
+      assert.match(JSON.stringify(envios.slice(enviadosAntes25)), /a partir das 14h./, "A25: o provedor recebe o horário vigente");
+      assert.doesNotMatch(JSON.stringify(envios.slice(enviadosAntes25)), /a partir das 9h/, "A25: nunca o horário antigo");
     }
 
     // A18 — sem a 082 (simulada pela coluna que o tem082 confere), e-mails de aviso não são aceitos.

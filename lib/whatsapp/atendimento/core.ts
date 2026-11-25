@@ -276,9 +276,12 @@ export function passagemSemRespostaAutomatica(contexto: unknown, em: string, pau
     coletado: { data: texto(c.data, 10), turno: null, convidados: Number.isInteger(c.convidados) ? (c.convidados as number) : null, pacote: null, unidade: null, tema: texto(c.tema, 60) } };
 }
 /** O modelo escolhe uma resposta publicada; nunca escreve preço, promessa ou cláusula. */
-export function responder(config: ConfiguracaoAtendimento, plano: Interpretacao, interesse: { data: string | null; convidados: number | null }, hoje = hojeOperacao()) {
+export function responder(config: ConfiguracaoAtendimento, plano: Interpretacao, interesse: { data: string | null; convidados: number | null }, hoje = hojeOperacao(), agora = new Date()) {
   if (plano.intencao === 'PARAR') return { texto: null, humano: false, encerrada: true };
-  if (plano.intencao === 'HUMANO') return { texto: 'Vou encaminhar seu pedido para um atendente. A resposta dependerá do horário da equipe.', humano: true, encerrada: false };
+  // Fatia 9 (Astra r4 da fatia 8, P-F8-2): fora do horário cadastrado, a passagem da fase B diz quando a equipe volta
+  // (frase escrita por código, no relógio da composição); sem horário ou dentro dele, o texto é o de antes.
+  const retorno = retornoForaDoHorario(config.horarioEquipe, agora);
+  if (plano.intencao === 'HUMANO') return { texto: retorno ? `Vou encaminhar seu pedido para um atendente. ${retorno}` : 'Vou encaminhar seu pedido para um atendente. A resposta dependerá do horário da equipe.', humano: true, encerrada: false };
   if (plano.data && !dataValida(plano.data)) return { texto: 'Essa data não existe no calendário. Qual é a data completa da festa, incluindo o ano?', humano: false, encerrada: false };
   if (plano.data && plano.data < hoje) return { texto: 'Essa data já passou. Qual é a data desejada para a festa, incluindo o ano?', humano: false, encerrada: false };
   const faq = config.perguntas.find(p => p.id === plano.perguntaId);
@@ -286,7 +289,7 @@ export function responder(config: ConfiguracaoAtendimento, plano: Interpretacao,
   if (plano.intencao === 'INTERESSE') {
     if (!interesse.data) return { texto: 'Qual é a data desejada para a festa? Informe também o ano.', humano: false, encerrada: false };
     if (!interesse.convidados) return { texto: 'Quantas pessoas você pretende convidar?', humano: false, encerrada: false };
-    return { texto: `Registrei seu interesse para ${interesse.data.split('-').reverse().join('/')} e ${interesse.convidados} pessoas. Vou encaminhar para a equipe conferir disponibilidade, pacote e valores. A data ainda não está reservada.`, humano: true, encerrada: false };
+    return { texto: `Registrei seu interesse para ${interesse.data.split('-').reverse().join('/')} e ${interesse.convidados} pessoas. Vou encaminhar para a equipe conferir disponibilidade, pacote e valores. A data ainda não está reservada.${retorno ? ` ${retorno}` : ''}`, humano: true, encerrada: false };
   }
   return { texto: 'Sou o atendimento virtual da ' + config.nome + '. Posso ajudar com as informações publicadas e encaminhar sua festa para a equipe. Para falar com uma pessoa, escreva “atendente”.', humano: plano.intencao === 'DUVIDA', encerrada: false };
 }
