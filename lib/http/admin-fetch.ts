@@ -78,8 +78,11 @@ function esperarFimDaTroca(signal?: AbortSignal | null): Promise<'terminou' | 'p
 // pendente, prazo da espera ou cancelamento pelo sinal): não diz nada do servidor e não alimenta a troca de host.
 // O 401 também leva a marca que o classificou (revisão do merge a6c070f1, P2): `fimDaSessao` diz só o que valia na
 // chegada da resposta; quem usa a confirmação depois de um await confere a marca de novo (fimConfirmado/cruzouTroca).
-type Confirmacao = { estado: 'valida'; info: InfoSessao; marca: MarcaDaSessao } | { estado: 'encerrada'; marca: MarcaDaSessao } | { estado: 'obsoleta' } | { estado: 'falha'; status?: number; local?: true; fimDaSessao?: boolean; marca?: MarcaDaSessao };
+type Confirmacao = { estado: 'valida'; info: InfoSessao; marca: MarcaDaSessao } | { estado: 'encerrada'; marca: MarcaDaSessao } | { estado: 'obsoleta' } | { estado: 'falha'; status?: number; local?: true; fimDaSessao?: boolean; marca?: MarcaDaSessao; saida?: true };
 const FALHA_LOCAL: Confirmacao = { estado: 'falha', local: true };
+// `saida` = a causa foi a saída da página, decidida UMA vez na classificação (Astra r1, P2): quem consome não relê o prazo.
+const FALHA_NA_SAIDA: Confirmacao = { estado: 'falha', local: true, saida: true };
+const falhaNaSaida = (c: Confirmacao) => c.estado === 'falha' && c.saida === true;
 /** Falha que vale como indício de troca de host: não 401 (fim real) e não decidida localmente. */
 const falhaDoServidor = (c: Confirmacao): c is { estado: 'falha'; status?: number } => c.estado === 'falha' && !('local' in c && c.local) && c.status !== 401;
 /** Falha decidida aqui (troca desta página pendente, prazo da espera, releitura cruzada ou cancelamento). */
@@ -113,6 +116,21 @@ function descartarPagina(aviso: string | undefined, destino: string | undefined,
     }
     reiniciarContextoEmpresa(aviso, destino, origem);
 }
+/**
+ * Saída da página (25/11/2026): depois de `pagehide`, ou de um `beforeunload` recente, a navegação completa pode abortar a
+ * leitura da sessão. Essa falha não diz nada do servidor: é local (sem aviso, sem descarte, sem alimentar a troca de host),
+ * e nada é entregue, como em toda falha. O `beforeunload` vale só por um prazo curto, porque a saída pode ser cancelada
+ * (pergunta de alterações não salvas) ou virar download; `pageshow` (volta do bfcache) zera tudo.
+ */
+const PRAZO_DA_SAIDA_MS = 10_000;
+let saidaPedidaEm: number | null = null;
+let paginaEscondida = false;
+if (typeof window !== 'undefined' && typeof window.addEventListener === 'function') {
+    window.addEventListener('beforeunload', () => { saidaPedidaEm = Date.now(); });
+    window.addEventListener('pagehide', () => { paginaEscondida = true; });
+    window.addEventListener('pageshow', () => { paginaEscondida = false; saidaPedidaEm = null; });
+}
+const paginaSaindo = () => paginaEscondida || (saidaPedidaEm !== null && Date.now() - saidaPedidaEm < PRAZO_DA_SAIDA_MS);
 async function confirmarSessao(signal?: AbortSignal | null, releitura = false): Promise<Confirmacao> {
     const marca = marcaDaSessao();
     try {
@@ -131,8 +149,11 @@ async function confirmarSessao(signal?: AbortSignal | null, releitura = false): 
         if (!sessaoObsoletaDesde(marca)) return { estado: 'encerrada', marca };
         return releitura ? FALHA_LOCAL : { estado: 'obsoleta' };
     }
-    catch {
-        return signal?.aborted ? FALHA_LOCAL : { estado: 'falha' };
+    catch (erro) {
+        if (signal?.aborted) return FALHA_LOCAL;
+        // Só interrupção do transporte (pedido ou leitura do corpo) vira falha da saída; JSON inválido continua sendo
+        // falha do servidor mesmo com a saída pedida (Astra r1, P2).
+        return paginaSaindo() && !(erro instanceof SyntaxError) ? FALHA_NA_SAIDA : { estado: 'falha' };
     }
 }
 
@@ -267,7 +288,8 @@ function protegerResposta(natureza: Natureza, resposta: Response, situacao: Situ
 }
 
 /**
- * Confirmação posterior antiga e a troca de empresa desta página ainda sem resultado no prazo: nada é entregue, e nada é
+ * Confirmação posterior antiga e a troca de empresa desta página ainda sem resultado no prazo, ou confirmação abortada
+ * pela saída da página (falhaNaSaida): nada é entregue, e nada é
  * descartado, travado nem navegado com base nessa resposta (a troca, se concluir, descarta a página; se for recusada, a
  * tela e a busca continuam). O resultado real da escrita fica registrado, com o mesmo texto da tela mantida.
  */
@@ -474,7 +496,9 @@ export async function adminFetch(input: RequestInfo | URL, init: RequestInit = {
     // Recorte 5, r12: sem resultado da troca desta página (prazo da espera ou releitura que cruzou outra troca, com uma
     // troca ainda pendente), nada é entregue, descartado, travado nem navegado com base nessa resposta; o resultado real
     // da escrita fica registrado com o texto da tela mantida. A própria troca decide a página.
-    if (falhaLocal(depois) && fimDaTrocaEmCurso() !== null) throw semConfirmacaoNaTroca(natureza, situacao, avisoDeSucesso, envio);
+    // 25/11/2026: o mesmo vale para a confirmação abortada pela saída da página (navegação completa já em curso): leitura
+    // não entregue e sem aviso falso na tela seguinte; escrita com o resultado registrado; nada navega por cima da saída.
+    if ((falhaLocal(depois) && fimDaTrocaEmCurso() !== null) || falhaNaSaida(depois)) throw semConfirmacaoNaTroca(natureza, situacao, avisoDeSucesso, envio);
     if (depois.estado === 'falha') {
         if (falhaDoServidor(depois)) {
             const decisao = await decidirFalhaSessao({ tipo: tipoDaFalha(depois.status), telaCarregada: true, aindaValida });

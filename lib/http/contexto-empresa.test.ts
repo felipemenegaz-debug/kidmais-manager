@@ -7,14 +7,20 @@ import { carregarModulo } from '../acessos/teste-carregador.ts';
  * escrita repetida e aviso com o resultado real quando a empresa/sessão muda durante uma operação.
  */
 type Resp = { status: number; corpo: unknown };
-type Leitura = { sessaoId: string | null; empresa: string | null } | 'rede' | 'http500' | 'corpo-invalido';
+// 'saida:<evento>': a página dispara o evento de saída (pagehide/beforeunload) e a navegação aborta a leitura da sessão.
+type Leitura = { sessaoId: string | null; empresa: string | null } | 'rede' | 'http500' | 'corpo-invalido' | `saida:${string}`;
 function ambiente(roteiro: { sessoes: Leitura[]; alvo?: Resp | 'rede'; reautenticar?: Resp }) {
     const navegacoes: string[] = [];
     const armazenado = new Map<string, string>();
     const chamadas: Array<{ url: string; metodo: string; sessao: string | null }> = [];
+    const ouvintes = new Map<string, Array<() => void>>();
+    const disparar = (evento: string) => (ouvintes.get(evento) ?? []).forEach((f) => f());
     let leitura = 0;
     const g = globalThis as unknown as Record<string, unknown>;
-    g.window = { location: { pathname: '/admin/clientes', replace: (u: string) => navegacoes.push(`replace:${u}`), assign: (u: string) => navegacoes.push(`assign:${u}`) } };
+    g.window = {
+        location: { pathname: '/admin/clientes', replace: (u: string) => navegacoes.push(`replace:${u}`), assign: (u: string) => navegacoes.push(`assign:${u}`) },
+        addEventListener: (evento: string, f: () => void) => ouvintes.set(evento, [...(ouvintes.get(evento) ?? []), f]),
+    };
     g.sessionStorage = { getItem: (k: string) => armazenado.get(k) ?? null, setItem: (k: string, v: string) => armazenado.set(k, v), removeItem: (k: string) => armazenado.delete(k) };
     g.fetch = async (input: string, init: RequestInit = {}) => {
         const metodo = (init.method ?? 'GET').toUpperCase();
@@ -26,6 +32,10 @@ function ambiente(roteiro: { sessoes: Leitura[]; alvo?: Resp | 'rede'; reautenti
             if (s === 'rede') throw new TypeError('fetch failed');
             if (s === 'http500') return new Response('{}', { status: 500 });
             if (s === 'corpo-invalido') return new Response('<html>', { status: 200 });
+            if (typeof s === 'string') {
+                s.slice('saida:'.length).split('+').forEach(disparar);
+                throw new TypeError('Failed to fetch');
+            }
             return new Response(JSON.stringify({ ok: true, data: { usuarioId: s.sessaoId ? 'u' : null, sessaoId: s.sessaoId, csrf: 'c', contexto: { empresaAtual: s.empresa ? { id: s.empresa } : null } } }));
         }
         if (String(input) === '/api/admin/autenticacao') {
@@ -38,7 +48,7 @@ function ambiente(roteiro: { sessoes: Leitura[]; alvo?: Resp | 'rede'; reautenti
     };
     const mod = carregarModulo('lib/http/admin-fetch.ts', {}, new Map()) as Record<string, (...a: unknown[]) => Promise<unknown>>;
     const ctx = carregarModulo('lib/http/contexto-empresa-cliente.ts', {}, new Map()) as Record<string, (...a: unknown[]) => unknown>;
-    return { mod, ctx, navegacoes, chamadas, aviso: () => armazenado.get('kidmais-aviso-contexto') ?? null, alvos: () => chamadas.filter((c) => c.url === '/api/x').length };
+    return { mod, ctx, navegacoes, chamadas, disparar, aviso:() => armazenado.get('kidmais-aviso-contexto') ?? null, alvos: () => chamadas.filter((c) => c.url === '/api/x').length };
 }
 // O carregador cria instâncias separadas; admin-fetch usa a SUA instância do contexto. Os testes observam pelo comportamento.
 
@@ -189,4 +199,105 @@ test('falha na confirmação ANTES do envio: nada é enviado nem entregue', asyn
     const escrita = ambiente({ sessoes: ['http500'], alvo: { status: 200, corpo: { ok: true } } });
     await assert.rejects(escrita.mod.adminFetch('/api/x', { method: 'POST' }), /Nada foi enviado/);
     assert.equal(leitura.alvos() + escrita.alvos(), 0);
+});
+
+// 25/11/2026 (faixa vermelha na Gestão): a confirmação posterior abortada pela saída da própria página (navegação completa
+// em curso) não é falha do servidor. Nada é entregue, como em toda falha, mas a página não é descartada, nada navega por
+// cima da saída e a tela seguinte não recebe aviso de leitura descartada.
+const DADO = { ok: true, data: { segredo: 'dado-da-empresa-A' } };
+
+test('leitura com a página saindo (pagehide ou beforeunload): dados NÃO entregues, sem descarte e sem aviso', async () => {
+    for (const saida of ['saida:pagehide', 'saida:beforeunload', 'saida:beforeunload+pagehide'] as const) {
+        const a = ambiente({ sessoes: [A, saida], alvo: { status: 200, corpo: DADO } });
+        let entregue: unknown = null;
+        await assert.rejects(async () => { entregue = await a.mod.adminFetch('/api/x'); }, (e: Error & { tipo?: string }) => e.tipo === 'SESSAO_NAO_CONFIRMADA', saida);
+        assert.equal(entregue, null, `${saida}: a resposta não chega ao componente`);
+        assert.deepEqual(a.navegacoes, [], `${saida}: nada navega por cima da saída`);
+        assert.equal(a.aviso(), null, `${saida}: a tela seguinte não recebe aviso falso`);
+        assert.equal(a.alvos(), 1, saida);
+    }
+});
+
+test('escrita com a página saindo: resultado real registrado para a próxima tela, sem descarte e sem repetir', async () => {
+    const a = ambiente({ sessoes: [A, 'saida:pagehide'], alvo: { status: 200, corpo: { ok: true } } });
+    await assert.rejects(a.mod.adminFetch('/api/x', { method: 'POST' }), /foi concluída, mas não foi possível confirmar a sessão/);
+    assert.match(a.aviso()!, /foi concluída/);
+    assert.doesNotMatch(a.aviso()!, /descartados/);
+    assert.deepEqual(a.navegacoes, []);
+    assert.equal(a.alvos(), 1);
+});
+
+test('falha na confirmação ANTES do envio com a página saindo: nada é enviado, nada navega, sem aviso', async () => {
+    const a = ambiente({ sessoes: ['saida:pagehide'], alvo: { status: 200, corpo: { ok: true } } });
+    await assert.rejects(a.mod.adminFetch('/api/x', { method: 'POST' }), /Nada foi enviado/);
+    assert.equal(a.alvos(), 0);
+    assert.deepEqual(a.navegacoes, []);
+    assert.equal(a.aviso(), null);
+});
+
+const DESCARTE = /Não foi possível confirmar a empresa ativa depois da leitura/;
+function comRelogio(corpo: (r: { agora: () => number; ir: (ms: number) => void; irDepoisDaLeitura: (ms: number) => void }) => Promise<void>) {
+    const original = Date.now;
+    const t0 = original();
+    let relogio = t0;
+    let depois: number | null = null;
+    // `irDepoisDaLeitura`: a próxima leitura do relógio ainda vê o valor atual; as seguintes veem o novo.
+    Date.now = () => { const v = relogio; if (depois !== null) { relogio = depois; depois = null; } return v; };
+    return corpo({ agora: () => relogio, ir: (ms) => { relogio = t0 + ms; }, irDepoisDaLeitura: (ms) => { depois = t0 + ms; } }).finally(() => { Date.now = original; });
+}
+
+test('volta do bfcache (pageshow) depois de beforeunload + pagehide: a falha seguinte, ainda nos 10 s, descarta como antes', async () => {
+    await comRelogio(async ({ ir }) => {
+        const a = ambiente({ sessoes: [A, 'saida:beforeunload+pagehide', A, 'rede'], alvo: { status: 200, corpo: DADO } });
+        await assert.rejects(a.mod.adminFetch('/api/x'));
+        assert.equal(a.aviso(), null);
+        assert.deepEqual(a.navegacoes, []);
+        ir(1_000);
+        a.disparar('pageshow');
+        await assert.rejects(a.mod.adminFetch('/api/x'), DESCARTE);
+        assert.equal(a.navegacoes.at(-1), 'replace:/admin/dashboard');
+        assert.match(a.aviso()!, /dados recebidos foram descartados/);
+    });
+});
+
+test('beforeunload sem saída (cancelada ou download): aos 9.999 ms ainda é saída; aos 10.000 ms a falha descarta como antes', async () => {
+    await comRelogio(async ({ ir }) => {
+        const dentro = ambiente({ sessoes: [A, 'rede'], alvo: { status: 200, corpo: DADO } });
+        dentro.disparar('beforeunload');
+        ir(9_999);
+        await assert.rejects(dentro.mod.adminFetch('/api/x'), (e: Error & { tipo?: string }) => e.tipo === 'SESSAO_NAO_CONFIRMADA' && !DESCARTE.test(e.message));
+        assert.deepEqual(dentro.navegacoes, []);
+        assert.equal(dentro.aviso(), null);
+    });
+    await comRelogio(async ({ ir }) => {
+        const fora = ambiente({ sessoes: [A, 'rede'], alvo: { status: 200, corpo: DADO } });
+        fora.disparar('beforeunload');
+        ir(10_000);
+        await assert.rejects(fora.mod.adminFetch('/api/x'), DESCARTE);
+        assert.equal(fora.navegacoes.at(-1), 'replace:/admin/dashboard');
+        assert.match(fora.aviso()!, /dados recebidos foram descartados/);
+    });
+});
+
+test('causa decidida uma vez: classificada como saída aos 9.999 ms e consumida aos 10.000 ms continua sem descarte', async () => {
+    await comRelogio(async ({ ir, irDepoisDaLeitura }) => {
+        const a = ambiente({ sessoes: [A, 'saida:virar'], alvo: { status: 200, corpo: DADO } });
+        a.disparar('beforeunload');
+        ir(9_999);
+        // O relógio passa do prazo logo depois de a falha ser classificada, antes de o adminFetch decidir.
+        (globalThis as unknown as { window: { addEventListener: (e: string, f: () => void) => void } }).window.addEventListener('virar', () => irDepoisDaLeitura(10_000));
+        await assert.rejects(a.mod.adminFetch('/api/x'), (e: Error & { tipo?: string }) => e.tipo === 'SESSAO_NAO_CONFIRMADA' && !DESCARTE.test(e.message));
+        assert.deepEqual(a.navegacoes, []);
+        assert.equal(a.aviso(), null);
+    });
+});
+
+test('JSON inválido na confirmação com a saída pedida (beforeunload) continua falha do servidor: descarta como antes', async () => {
+    await comRelogio(async () => {
+        const a = ambiente({ sessoes: [A, 'corpo-invalido'], alvo: { status: 200, corpo: DADO } });
+        a.disparar('beforeunload');
+        await assert.rejects(a.mod.adminFetch('/api/x'), DESCARTE);
+        assert.equal(a.navegacoes.at(-1), 'replace:/admin/dashboard');
+        assert.match(a.aviso()!, /dados recebidos foram descartados/);
+    });
 });
