@@ -46,9 +46,15 @@ function ambiente(roteiro: { sessoes: Leitura[]; alvo?: Resp | 'rede'; reautenti
             throw new TypeError('fetch failed');
         return new Response(JSON.stringify(roteiro.alvo!.corpo), { status: roteiro.alvo!.status });
     };
-    const mod = carregarModulo('lib/http/admin-fetch.ts', {}, new Map()) as Record<string, (...a: unknown[]) => Promise<unknown>>;
+    // Instância do endereço compartilhada com o admin-fetch, para contar as decisões de troca de host (Astra r2, P3).
+    const cache = new Map();
+    const cli = carregarModulo('lib/enderecos/cliente.ts', {}, cache) as Record<string, (...a: unknown[]) => unknown>;
+    const decidirOriginal = cli.decidirFalhaSessao;
+    let decisoes = 0;
+    cli.decidirFalhaSessao = (...x: unknown[]) => { decisoes += 1; return decidirOriginal(...x); };
+    const mod = carregarModulo('lib/http/admin-fetch.ts', {}, cache) as Record<string, (...a: unknown[]) => Promise<unknown>>;
     const ctx = carregarModulo('lib/http/contexto-empresa-cliente.ts', {}, new Map()) as Record<string, (...a: unknown[]) => unknown>;
-    return { mod, ctx, navegacoes, chamadas, disparar, aviso:() => armazenado.get('kidmais-aviso-contexto') ?? null, alvos: () => chamadas.filter((c) => c.url === '/api/x').length };
+    return { mod, ctx, navegacoes, chamadas, disparar, decisoes: () => decisoes, aviso:() => armazenado.get('kidmais-aviso-contexto') ?? null, alvos: () => chamadas.filter((c) => c.url === '/api/x').length };
 }
 // O carregador cria instâncias separadas; admin-fetch usa a SUA instância do contexto. Os testes observam pelo comportamento.
 
@@ -215,6 +221,7 @@ test('leitura com a página saindo (pagehide ou beforeunload): dados NÃO entreg
         assert.deepEqual(a.navegacoes, [], `${saida}: nada navega por cima da saída`);
         assert.equal(a.aviso(), null, `${saida}: a tela seguinte não recebe aviso falso`);
         assert.equal(a.alvos(), 1, saida);
+        assert.equal(a.decisoes(), 0, `${saida}: a saída não consulta a troca de host`);
     }
 });
 
@@ -225,6 +232,7 @@ test('escrita com a página saindo: resultado real registrado para a próxima te
     assert.doesNotMatch(a.aviso()!, /descartados/);
     assert.deepEqual(a.navegacoes, []);
     assert.equal(a.alvos(), 1);
+    assert.equal(a.decisoes(), 0);
 });
 
 test('falha na confirmação ANTES do envio com a página saindo: nada é enviado, nada navega, sem aviso', async () => {
@@ -233,6 +241,7 @@ test('falha na confirmação ANTES do envio com a página saindo: nada é enviad
     assert.equal(a.alvos(), 0);
     assert.deepEqual(a.navegacoes, []);
     assert.equal(a.aviso(), null);
+    assert.equal(a.decisoes(), 0);
 });
 
 const DESCARTE = /Não foi possível confirmar a empresa ativa depois da leitura/;
@@ -268,6 +277,7 @@ test('beforeunload sem saída (cancelada ou download): aos 9.999 ms ainda é sa�
         await assert.rejects(dentro.mod.adminFetch('/api/x'), (e: Error & { tipo?: string }) => e.tipo === 'SESSAO_NAO_CONFIRMADA' && !DESCARTE.test(e.message));
         assert.deepEqual(dentro.navegacoes, []);
         assert.equal(dentro.aviso(), null);
+        assert.equal(dentro.decisoes(), 0, 'dentro do prazo: sem decisão de troca de host');
     });
     await comRelogio(async ({ ir }) => {
         const fora = ambiente({ sessoes: [A, 'rede'], alvo: { status: 200, corpo: DADO } });
@@ -276,6 +286,7 @@ test('beforeunload sem saída (cancelada ou download): aos 9.999 ms ainda é sa�
         await assert.rejects(fora.mod.adminFetch('/api/x'), DESCARTE);
         assert.equal(fora.navegacoes.at(-1), 'replace:/admin/dashboard');
         assert.match(fora.aviso()!, /dados recebidos foram descartados/);
+        assert.equal(fora.decisoes(), 1, 'controle positivo: falha de rede fora do prazo passa pela decisão uma vez');
     });
 });
 
@@ -289,6 +300,7 @@ test('causa decidida uma vez: classificada como saída aos 9.999 ms e consumida 
         await assert.rejects(a.mod.adminFetch('/api/x'), (e: Error & { tipo?: string }) => e.tipo === 'SESSAO_NAO_CONFIRMADA' && !DESCARTE.test(e.message));
         assert.deepEqual(a.navegacoes, []);
         assert.equal(a.aviso(), null);
+        assert.equal(a.decisoes(), 0);
     });
 });
 
