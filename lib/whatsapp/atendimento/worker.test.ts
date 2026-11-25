@@ -347,7 +347,7 @@ test('saída automática pendente gerada antes de a configuração mudar é canc
   assert.deepEqual(comandos.filter(c=>c.sql.includes("SET estado='AGUARDANDO_HUMANO',versao=versao+1")).map(c=>c.args),[['c']]);
 });
 test('mensagem humana e encaminhamento fixo não dependem das respostas publicadas: a revogação não os cancela',async()=>{
-  for (const m of [{...mensagem,origem_id:null,autor_usuario_id:'u'},{...mensagem,texto:core.MENSAGEM_ENCAMINHAMENTO}]) {
+  for (const m of [{...mensagem,origem_id:null,autor_usuario_id:'u'},{...mensagem,texto:core.MENSAGEM_ENCAMINHAMENTO,fonte:{origem:'ENCAMINHAMENTO_FIXO'}}]) {
     let envios=0; const comandos:string[]=[];
     const conv=m.autor_usuario_id?{...conversa,estado:'HUMANO' as const,responsavel_id:'u'}:{...conversa,estado:'AGUARDANDO_HUMANO' as const};
     const worker=carregar(async(sql)=>{
@@ -363,6 +363,22 @@ test('mensagem humana e encaminhamento fixo não dependem das respostas publicad
     assert.equal(envios,1);
     assert.equal(comandos.some(sql=>sql.includes('c.atualizada_em > m.criada_em')),false,'nem consulta a revogação');
   }
+});
+
+// Astra r3 (r4): o texto exato do encaminhamento SEM a origem gravada (FAQ da fase B, base sem a 082) passa pela revogação.
+test('texto do encaminhamento sem origem gravada: a revogação é consultada e cancela',async()=>{
+  let envios=0; const comandos:string[]=[];
+  const worker=carregar(async(sql)=>{
+    comandos.push(sql);
+    if(sql.includes("SELECT id FROM empresas")) return {rows:[{id:'e'}]};
+    if(sql.includes('SELECT m.*')) return {rows:[{...mensagem,texto:core.MENSAGEM_ENCAMINHAMENTO,fonte:null}]};
+    if(sql.includes('SELECT * FROM whatsapp_atendimento_conversas')) return {rows:[{...conversa,estado:'AGUARDANDO_HUMANO' as const}]};
+    if(sql.includes('c.atualizada_em > m.criada_em')) return {rows:[{'?column?':1}]};
+    return {rows:[]};
+  });
+  await worker.processarAtendimento({interpretar:async()=>{throw Error('IA proibida');},enviar:async()=>{envios++;return 'id';}});
+  assert.equal(comandos.some(sql=>sql.includes('c.atualizada_em > m.criada_em')),true,'consulta a revogação');
+  assert.equal(envios,0,'não sai');
 });
 
 test('saída revogada com a conversa já com a equipe: estado e responsável humanos são preservados',async()=>{

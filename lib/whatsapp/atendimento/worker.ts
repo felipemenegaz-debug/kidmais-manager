@@ -173,7 +173,11 @@ export async function avisarEquipeDoLote(porta: PortaAvisoEquipe | undefined, li
   if (!porta) return;
   try {
     if (!(await tem082(db()))) return;
-    const r = await avisarPassagensPendentes(withTransaction, ambienteAtendimento(), porta.enviar, porta.origem(), { prazo: limite.prazo, relogio: limite.relogio });
+    const r = await avisarPassagensPendentes(withTransaction, ambienteAtendimento(), porta.enviar, porta.origem(), {
+      prazo: limite.prazo, relogio: limite.relogio,
+      // Astra r3 (P2): o mesmo modo efetivo da fila (PILOTO depois do rollback: só a piloto).
+      escopo: async (tx) => ({ multi: (await modoEfetivo(tx)) === 'MULTI', piloto: pilotoOpcional(empresaPiloto) }),
+    });
     for (const codigo of r.falhas) console.warn('[Atendimento WhatsApp] aviso à equipe não enviado (%s); tenta de novo depois.', codigo);
   } catch (erro) {
     console.warn('[Atendimento WhatsApp] aviso à equipe não enviado (%s); tenta de novo depois.', motivoSeguro(erro));

@@ -26,6 +26,15 @@ import { MOTIVOS_PASSAGEM, NOME_MOTIVO, type MotivoPassagem } from './walle/tipo
  * de empresa ATIVA e papel com acesso ao atendimento — na reserva E de novo imediatamente antes de CADA envio, junto com
  * a conversa ainda na fila com a mesma marca. Quem perdeu o acesso, ou conversa assumida no meio, para o envio.
  *
+ * Astra r3 (r4, 25/11):
+ *  - o prazo do lote é lido de novo DEPOIS do COMMIT da tentativa, imediatamente antes de chamar o provedor; vencido,
+ *    a tentativa recém-gravada é desfeita (o destinatário volta ao que era) e nada sai;
+ *  - o despacho segue o modo efetivo (como a fila): MULTI, todas as empresas; PILOTO, só a piloto; sem piloto, nada.
+ *    Revalidado antes de CADA envio; fora do escopo, a marca fica PARCIAL e continua quando o modo voltar;
+ *  - cada aceite do provedor é gravado na marca logo depois do envio (uma queda no meio não reenvia quem já recebeu);
+ *  - a chave de idempotência do provedor vale 24 h: um destinatário só é tentado de novo até JANELA_IDEMPOTENCIA_HORAS
+ *    depois da PRIMEIRA tentativa; depois disso conta como esgotado (melhor um aviso a menos que um duplicado).
+ *
  * Nunca lança para o lote: falha vira código no log (sem e-mail, link ou conteúdo).
  */
 export const PAPEIS_AVISO = ['ADMINISTRATIVO', 'REPRESENTANTE_AUTORIZADO'] as const;
@@ -33,9 +42,13 @@ export const PAPEIS_AVISO = ['ADMINISTRATIVO', 'REPRESENTANTE_AUTORIZADO'] as co
 export const MAX_TENTATIVAS = 3;
 /** Nova tentativa do mesmo destinatário (falha do provedor ou queda no meio do envio) só depois deste intervalo. */
 export const REPETIR_APOS_MINUTOS = 10;
+/** Astra r3 (P2): a idempotência do provedor (Resend) expira em 24 h; nova tentativa só dentro desta janela desde a 1ª. */
+export const JANELA_IDEMPOTENCIA_HORAS = 23;
 
-/** Tentativas de um destinatário (pelo hash curto): quantas e quando foi a última. */
-export type DestinoAviso = { n: number; em: string };
+/** Tentativas de um destinatário (pelo hash curto): quantas, quando foi a última e quando foi a primeira. */
+export type DestinoAviso = { n: number; em: string; primeira?: string };
+/** Escopo do despacho, lido na transação (o mesmo modo efetivo da fila): MULTI ou só a piloto. */
+export type EscopoAviso = (tx: DbExecutor) => Promise<{ multi: boolean; piloto: string | null }>;
 export type MarcaAviso = {
   chave: string;
   /**
@@ -139,24 +152,28 @@ const ehResumo = (f: unknown): f is string => typeof f === 'string' && /^[0-9a-f
 function destinosDe(valor: unknown): Record<string, DestinoAviso> {
   if (!valor || typeof valor !== 'object' || Array.isArray(valor)) return {};
   const saida: Record<string, DestinoAviso> = {};
+  const data = (x: unknown): x is string => typeof x === 'string' && Number.isFinite(Date.parse(x));
   for (const [k, v] of Object.entries(valor as Record<string, unknown>)) {
-    const d = v && typeof v === 'object' ? v as { n?: unknown; em?: unknown } : null;
-    if (ehResumo(k) && d && Number.isInteger(d.n) && Number(d.n) >= 0 && typeof d.em === 'string' && Number.isFinite(Date.parse(d.em))) saida[k] = { n: Number(d.n), em: d.em };
+    const d = v && typeof v === 'object' ? v as { n?: unknown; em?: unknown; primeira?: unknown } : null;
+    if (ehResumo(k) && d && Number.isInteger(d.n) && Number(d.n) >= 0 && data(d.em)) saida[k] = data(d.primeira) ? { n: Number(d.n), em: d.em, primeira: d.primeira } : { n: Number(d.n), em: d.em };
   }
   return saida;
 }
 
 type Transacao = <T>(trabalho: (tx: DbExecutor) => Promise<T>) => Promise<T>;
 type Reservado = { conversaId: string; empresaId: string; chave: string; para: string[]; empresaNome: string; motivos: MotivoPassagem[]; feitos: string[]; pendentes: string[] };
-type Opcoes = { limite?: number; agora?: () => Date; prazo?: number; relogio?: () => number };
+type Opcoes = { escopo: EscopoAviso; limite?: number; agora?: () => Date; prazo?: number; relogio?: () => number };
+/** Ainda dentro da idempotência do provedor: nunca tentado, ou a 1ª tentativa tem menos de JANELA_IDEMPOTENCIA_HORAS. */
+const naJanela = (d: DestinoAviso | undefined, agora: Date) => !d || d.n === 0 || agora.getTime() - Date.parse(d.primeira ?? d.em) < JANELA_IDEMPOTENCIA_HORAS * 3_600_000;
 
 /**
  * Quem recebe nesta rodada e o estado da marca se ninguém puder receber agora. Pendentes: autorizados ainda não feitos.
- * Prontos: pendentes com tentativa sobrando e sem tentativa recente; os menos tentados primeiro (depois, ordem do e-mail).
+ * Restantes: pendentes com tentativa sobrando e ainda na janela de idempotência (Astra r3).
+ * Prontos: restantes sem tentativa recente; os menos tentados primeiro (depois, ordem do e-mail).
  */
 export function planoDoAviso(autorizados: string[], feitos: string[], destinos: Record<string, DestinoAviso>, agora: Date) {
   const pendentes = autorizados.filter((p) => !feitos.includes(resumoDe(p)));
-  const restantes = pendentes.filter((p) => (destinos[resumoDe(p)]?.n ?? 0) < MAX_TENTATIVAS);
+  const restantes = pendentes.filter((p) => (destinos[resumoDe(p)]?.n ?? 0) < MAX_TENTATIVAS && naJanela(destinos[resumoDe(p)], agora));
   const tentou = (p: string) => destinos[resumoDe(p)]?.n ?? 0;
   const prontos = restantes
     .filter((p) => { const d = destinos[resumoDe(p)]; return !d || d.n === 0 || agora.getTime() - Date.parse(d.em) >= REPETIR_APOS_MINUTOS * 60_000; })
@@ -174,8 +191,8 @@ export function planoDoAviso(autorizados: string[], feitos: string[], destinos: 
  * é conferido de novo DEPOIS da revalidação, imediatamente antes de chamar o provedor (Astra r2, P2); o que faltar fica
  * PARCIAL na marca e o próximo lote continua.
  */
-export async function avisarPassagensPendentes(transacao: Transacao, ambiente: string, enviar: EnviarEmail, origem: string, opcoes: Opcoes = {}) {
-  const limite = opcoes.limite ?? 10, agora = opcoes.agora ?? (() => new Date());
+export async function avisarPassagensPendentes(transacao: Transacao, ambiente: string, enviar: EnviarEmail, origem: string, opcoes: Opcoes) {
+  const limite = opcoes.limite ?? 10, agora = opcoes.agora ?? (() => new Date()), escopo = opcoes.escopo;
   const relogio = opcoes.relogio ?? Date.now, prazo = opcoes.prazo ?? Infinity;
   const saida = { enviados: 0, falhas: [] as string[], semDestinatario: 0, parcial: false };
   const vistas: string[] = [];
@@ -184,18 +201,22 @@ export async function avisarPassagensPendentes(transacao: Transacao, ambiente: s
     let reservado: Reservado | null | 'SEM_ENVIO';
     try {
       reservado = await transacao(async (tx) => {
+        // Astra r3 (P2): o mesmo modo efetivo da fila. PILOTO (inclusive depois do rollback): só a piloto; sem piloto: nada.
+        const e = await escopo(tx);
+        if (!e.multi && !e.piloto) return null;
         const c = (await tx.query<{ id: string; empresa_id: string; marca: Partial<MarcaAviso> | null; configuracao: unknown; nome: string }>(
           `SELECT c.id::text, c.empresa_id::text, c.contexto->'avisoEquipe' AS marca, cfg.configuracao, e.nome
              FROM whatsapp_atendimento_conversas c
              JOIN empresas e ON e.id = c.empresa_id AND e.status = 'ATIVA'
              LEFT JOIN whatsapp_atendimento_config cfg ON cfg.empresa_id = c.empresa_id AND cfg.ambiente = c.ambiente
             WHERE c.ambiente = $1 AND c.estado = 'AGUARDANDO_HUMANO' AND NOT (c.id = ANY($2::uuid[]))
+              AND ($4::boolean OR c.empresa_id = $5::uuid)
               AND jsonb_typeof(c.contexto->'avisoEquipe') = 'object'
               AND (c.contexto->'avisoEquipe'->>'estado' IN ('PENDENTE', 'PARCIAL')
                 OR (c.contexto->'avisoEquipe'->>'estado' IN ('ENVIANDO', 'FALHOU')
                     AND (c.contexto->'avisoEquipe'->>'em')::timestamptz < clock_timestamp() - make_interval(mins => $3)))
             ORDER BY c.atualizada_em, c.id LIMIT 1
-            FOR UPDATE OF c SKIP LOCKED`, [ambiente, vistas, REPETIR_APOS_MINUTOS])).rows[0];
+            FOR UPDATE OF c SKIP LOCKED`, [ambiente, vistas, REPETIR_APOS_MINUTOS, e.multi, e.multi ? null : e.piloto])).rows[0];
         if (!c) return null;
         vistas.push(c.id);
         const marca = c.marca ?? {};
@@ -220,32 +241,44 @@ export async function avisarPassagensPendentes(transacao: Transacao, ambiente: s
     const r = reservado;
     const link = `${origem}/admin/atendimento?conversa=${encodeURIComponent(r.conversaId)}`;
     const feitos = [...r.feitos];
-    let ok = 0, interrompida = false, cortada = false;
+    let ok = 0, interrompida = false, cortada = false, fora = false;
     for (const para of r.para) {
       if (relogio() >= prazo) { cortada = true; break; }
-      let pode: 'ENVIAR' | 'SEM_ACESSO' | 'SAIU' | 'PRAZO';
+      let pode: Conferencia;
       try {
-        pode = await transacao((tx) => conferirAntesDoEnvio(tx, r, para, () => relogio() < prazo, agora));
+        pode = await transacao((tx) => conferirAntesDoEnvio(tx, r, para, () => relogio() < prazo, agora, escopo));
       } catch (erro) {
         saida.falhas.push(codigo(erro)); continue;
       }
-      if (pode === 'SAIU') { interrompida = true; break; }
-      if (pode === 'PRAZO') { cortada = true; break; }
-      if (pode === 'SEM_ACESSO') { feitos.push(resumoDe(para)); continue; }
+      if (pode.acao === 'SAIU') { interrompida = true; break; }
+      if (pode.acao === 'PRAZO') { cortada = true; break; }
+      if (pode.acao === 'FORA') { fora = true; break; }
+      if (pode.acao === 'SEM_ACESSO') { feitos.push(resumoDe(para)); continue; }
+      if (pode.acao !== 'ENVIAR') continue; // JANELA: fora da idempotência do provedor, não tenta mais
+      // Astra r3 (P2): o COMMIT da tentativa também gasta tempo. O prazo é lido de novo AQUI, imediatamente antes do
+      // provedor; vencido, a tentativa recém-gravada é desfeita e nada sai.
+      const feita = pode;
+      if (relogio() >= prazo) {
+        try { await transacao((tx) => desfazerTentativa(tx, r, para, feita.anterior, feita.em)); } catch (erro) { saida.falhas.push(codigo(erro)); }
+        cortada = true; break;
+      }
       try {
         await enviar(mensagemAvisoEquipe({ para, empresaNome: r.empresaNome, motivos: r.motivos, link, idempotencia: chaveDoAviso(r.empresaId, r.conversaId, r.chave, para) }));
-        ok++;
-        feitos.push(resumoDe(para));
       } catch (erro) {
-        saida.falhas.push(codigo(erro));
+        saida.falhas.push(codigo(erro)); continue;
       }
+      ok++;
+      feitos.push(resumoDe(para));
+      // Astra r3 (P2): o aceite vai para a marca já, não no fim do laço: uma queda antes do próximo não reenvia este.
+      try { await transacao((tx) => gravarFeito(tx, r, para)); } catch (erro) { saida.falhas.push(codigo(erro)); }
     }
     if (ok) saida.enviados++;
     // Conversa saiu da fila (ou outra passagem começou) no meio: a marca já foi limpa/trocada; nada a gravar.
     if (interrompida) continue;
     if (cortada) saida.parcial = true;
     const faltam = r.pendentes.some((p) => !feitos.includes(resumoDe(p)));
-    const estado: MarcaAviso['estado'] = cortada ? 'PARCIAL' : faltam ? 'FALHOU' : 'ENVIADO';
+    // Fora do escopo (rollback para a piloto no meio): PARCIAL; só volta a ser escolhida quando o modo a incluir.
+    const estado: MarcaAviso['estado'] = cortada || fora ? 'PARCIAL' : faltam ? 'FALHOU' : 'ENVIADO';
     try {
       // Só a marca desta passagem (mesma chave); as tentativas por destinatário já foram gravadas antes de cada envio.
       await transacao((tx) => tx.query("UPDATE whatsapp_atendimento_conversas SET contexto=jsonb_set(jsonb_set(contexto,'{avisoEquipe,estado}',to_jsonb($3::text)),'{avisoEquipe,feitos}',$4::jsonb) WHERE id=$1 AND contexto->'avisoEquipe'->>'chave'=$2",
@@ -264,22 +297,44 @@ export async function avisarPassagensPendentes(transacao: Transacao, ambiente: s
  * prazo do lote é conferido de novo (Astra r2, P2: a revalidação também gasta tempo); dentro dele, a tentativa deste
  * destinatário é gravada na marca (FOR UPDATE: duas rodadas não contam a mesma) e o envio começa logo após o COMMIT.
  */
-async function conferirAntesDoEnvio(tx: DbExecutor, r: Reservado, para: string, dentroDoPrazo: () => boolean, agora: () => Date): Promise<'ENVIAR' | 'SEM_ACESSO' | 'SAIU' | 'PRAZO'> {
+type Conferencia = { acao: 'SEM_ACESSO' | 'SAIU' | 'PRAZO' | 'FORA' | 'JANELA' } | { acao: 'ENVIAR'; anterior: unknown; em: string };
+async function conferirAntesDoEnvio(tx: DbExecutor, r: Reservado, para: string, dentroDoPrazo: () => boolean, agora: () => Date, escopo: EscopoAviso): Promise<Conferencia> {
   const c = (await tx.query<{ configuracao: unknown; destino: unknown }>(
     `SELECT cfg.configuracao, c.contexto->'avisoEquipe'->'destinos'->$3 AS destino FROM whatsapp_atendimento_conversas c
        LEFT JOIN whatsapp_atendimento_config cfg ON cfg.empresa_id = c.empresa_id AND cfg.ambiente = c.ambiente
       WHERE c.id = $1 AND c.estado = 'AGUARDANDO_HUMANO' AND c.contexto->'avisoEquipe'->>'chave' = $2
       FOR UPDATE OF c`, [r.conversaId, r.chave, resumoDe(para)])).rows[0];
-  if (!c) return 'SAIU';
+  if (!c) return { acao: 'SAIU' };
+  // Astra r3 (P2): o modo pode ter voltado para PILOTO depois da reserva (rollback): empresa fora do escopo não envia.
+  const e = await escopo(tx);
+  if (!e.multi && e.piloto !== r.empresaId) return { acao: 'FORA' };
   const config = configuracaoSchema.safeParse(c.configuracao);
   const lista = config.success ? (config.data.avisoEquipe?.emails ?? []).map((e) => e.toLowerCase()) : [];
-  if (!lista.includes(para)) return 'SEM_ACESSO';
-  if (!(await destinatariosAutorizados(tx, r.empresaId, [para])).length) return 'SEM_ACESSO';
-  if (!dentroDoPrazo()) return 'PRAZO';
-  const n = (destinosDe({ [resumoDe(para)]: c.destino })[resumoDe(para)]?.n ?? 0) + 1;
+  if (!lista.includes(para)) return { acao: 'SEM_ACESSO' };
+  if (!(await destinatariosAutorizados(tx, r.empresaId, [para])).length) return { acao: 'SEM_ACESSO' };
+  const atual = destinosDe({ [resumoDe(para)]: c.destino })[resumoDe(para)];
+  if (!naJanela(atual, agora())) return { acao: 'JANELA' };
+  if (!dentroDoPrazo()) return { acao: 'PRAZO' };
+  const em = agora().toISOString();
   await tx.query("UPDATE whatsapp_atendimento_conversas SET contexto=jsonb_set(contexto,ARRAY['avisoEquipe','destinos',$2::text],$3::jsonb) WHERE id=$1",
-    [r.conversaId, resumoDe(para), JSON.stringify({ n, em: agora().toISOString() })]);
-  return 'ENVIAR';
+    [r.conversaId, resumoDe(para), JSON.stringify({ n: (atual?.n ?? 0) + 1, em, primeira: atual && atual.n > 0 ? atual.primeira ?? atual.em : em })]);
+  return { acao: 'ENVIAR', anterior: c.destino ?? null, em };
+}
+
+/** Prazo vencido entre o COMMIT da tentativa e o provedor: devolve o destinatário ao que era (só se a tentativa ainda é esta). */
+async function desfazerTentativa(tx: DbExecutor, r: Reservado, para: string, anterior: unknown, em: string) {
+  await tx.query(`UPDATE whatsapp_atendimento_conversas
+      SET contexto = CASE WHEN $4::jsonb IS NULL THEN contexto #- ARRAY['avisoEquipe','destinos',$3::text] ELSE jsonb_set(contexto, ARRAY['avisoEquipe','destinos',$3::text], $4::jsonb) END
+    WHERE id = $1 AND contexto->'avisoEquipe'->>'chave' = $2 AND contexto->'avisoEquipe'->'destinos'->$3::text->>'em' = $5`,
+    [r.conversaId, r.chave, resumoDe(para), anterior === null || anterior === undefined ? null : JSON.stringify(anterior), em]);
+}
+
+/** Aceite do provedor gravado logo depois do envio (só na marca desta passagem; sem repetir o hash). */
+async function gravarFeito(tx: DbExecutor, r: Reservado, para: string) {
+  await tx.query(`UPDATE whatsapp_atendimento_conversas
+      SET contexto = jsonb_set(contexto, '{avisoEquipe,feitos}', COALESCE(contexto->'avisoEquipe'->'feitos', '[]'::jsonb) || jsonb_build_array($3::text))
+    WHERE id = $1 AND contexto->'avisoEquipe'->>'chave' = $2 AND NOT (COALESCE(contexto->'avisoEquipe'->'feitos', '[]'::jsonb) @> jsonb_build_array($3::text))`,
+    [r.conversaId, r.chave, resumoDe(para)]);
 }
 
 /** Código curto para o log: nunca mensagem, e-mail, link ou conteúdo. */

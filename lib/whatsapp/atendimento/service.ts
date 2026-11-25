@@ -198,7 +198,9 @@ export async function receberEntrada(entrada: Entrada, opcoes: { automacaoGlobal
       // Conversa que saiu da IA por causa deste pedido: o resumo para a equipe é o da pausa (o mesmo do resolvedor). Com a
       // automação global desligada o resumo já foi gravado acima (inclui a pausa); conversa já com a equipe: só a marca.
       const resumo = estadoAtual === 'IA' && automacaoGlobal ? JSON.stringify(registroDaPausa(entrada.texto, em, conversa.contexto)) : null;
-      await tx.query("UPDATE whatsapp_atendimento_conversas SET contexto=COALESCE(contexto,'{}'::jsonb)||jsonb_build_object('semAutomatico',$2::jsonb),passagem=COALESCE($3::jsonb,passagem),versao=versao+1 WHERE id=$1",
+      // Astra r3 (P2): a conversa entrou na fila acima com a marca PENDENTE ainda sem motivo; o resumo da pausa leva os
+      // motivos para a marca no mesmo UPDATE (contextoNaFila: só enquanto a marca está PENDENTE).
+      await tx.query(`UPDATE whatsapp_atendimento_conversas SET contexto=${contextoNaFila("COALESCE(contexto,'{}'::jsonb)||jsonb_build_object('semAutomatico',$2::jsonb)", 'estado', '$3::jsonb')},passagem=COALESCE($3::jsonb,passagem),versao=versao+1 WHERE id=$1`,
         [conversa.id, JSON.stringify({ motivo: 'PARAR_A_CONFIRMAR', em, origem: 'RECEPCAO' }), resumo]);
     }
   });

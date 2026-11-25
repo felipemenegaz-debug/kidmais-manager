@@ -5,6 +5,7 @@ import { conectarDescartavel } from "../../../comercial/postgres-descartavel.ts"
 import type { DbExecutor } from "../../../db/contracts.ts";
 import type { MensagemEmail } from "../../../acessos/email.ts";
 import { carregarAtendimento, cod, db } from "../harness-postgres.ts";
+import * as multiempresa from "../multiempresa.ts";
 import type { ConteudoSaida } from "../transporte.ts";
 import type { PortaWallE } from "../worker.ts";
 import { contarAguardandoEquipe, MAX_TENTATIVAS } from "../aviso-equipe.ts";
@@ -41,6 +42,14 @@ import { NOME_MOTIVO } from "./tipos.ts";
  *  A16 sem automação: um prazo só desde a entrada do lote (a fila e o aviso não começam nada depois dele);
  *  A17 contingência reconhecida pela origem gravada: a de verdade sai; a resposta automática com o MESMO texto é revogada;
  *  A18 sem a 082, salvar e-mails de aviso é recusado (ATENDIMENTO_AVISO_SEM_082).
+ * Astra r3 (r4, 25/11):
+ *  A19 o prazo vence entre o COMMIT da tentativa e o provedor: nada sai e a tentativa é desfeita;
+ *  A20 queda depois do 1º aceite: o aceite já está na marca e o lote seguinte não reenvia para ele;
+ *  A21 janela de idempotência: 1ª tentativa há 24 h, o destinatário não é tentado de novo (ESGOTADO);
+ *  A22 pausa reconhecida na recepção com automação ligada: o e-mail leva o motivo da pausa;
+ *  A23 modo PILOTO (rollback): o lote da piloto não manda o aviso de outra empresa, nem se o modo muda no meio;
+ *      de volta a MULTI, o aviso sai uma vez;
+ *  A12 passa a ser retry 22 h depois (dentro da janela).
  */
 const ler = (f: string) => readFileSync(f, "utf8");
 const MIGRATIONS = [
@@ -120,7 +129,7 @@ test("aviso à equipe por e-mail na passagem: um por passagem, destinatários au
     const tentativas = (cv: { contexto: { avisoEquipe: { destinos: Record<string, { n: number }> } } }) => Object.values(cv.contexto.avisoEquipe.destinos).map((d) => d.n).sort();
     // Envelhece a marca e as tentativas em 11 min (libera o retry sem esperar).
     const envelhecer = (conversaId: string, intervalo = "11 minutes") => c.query(`UPDATE whatsapp_atendimento_conversas SET contexto = jsonb_set(jsonb_set(contexto, '{avisoEquipe,em}', to_jsonb((clock_timestamp() - $2::interval)::text)),
-      '{avisoEquipe,destinos}', COALESCE((SELECT jsonb_object_agg(k, v || jsonb_build_object('em', (clock_timestamp() - $2::interval)::text)) FROM jsonb_each(contexto->'avisoEquipe'->'destinos') d(k, v)), '{}'::jsonb)) WHERE id = $1`, [conversaId, intervalo]);
+      '{avisoEquipe,destinos}', COALESCE((SELECT jsonb_object_agg(k, v || jsonb_build_object('em', (clock_timestamp() - $2::interval)::text, 'primeira', (clock_timestamp() - $2::interval)::text)) FROM jsonb_each(contexto->'avisoEquipe'->'destinos') d(k, v)), '{}'::jsonb)) WHERE id = $1`, [conversaId, intervalo]);
 
     // A2 — passagem: um aviso por destinatário autorizado.
     const c1 = "5561900000801";
@@ -301,7 +310,8 @@ test("aviso à equipe por e-mail na passagem: um por passagem, destinatários au
       assert.deepEqual(tentativas(await conversa(A.empresa, contato)), [2, 2]);
     }
 
-    // A12 — sem janela de 24 h: a marca pendente é avisada mesmo antiga, e o retry depois de 24 h também.
+    // A12 — sem janela de 24 h na seleção: a marca pendente é avisada mesmo antiga, e o retry 22 h depois também
+    // (dentro da janela de idempotência do provedor; depois dela, A21).
     {
       const contato = "5561900000810", antes: number = emails.length;
       await receber(servico, contato, PEDIDO);
@@ -312,9 +322,9 @@ test("aviso à equipe por e-mail na passagem: um por passagem, destinatários au
       await worker.avisarEquipeDoLote(avisoEquipe);
       falharEmail = false;
       assert.equal((await conversa(A.empresa, contato)).contexto.avisoEquipe.estado, "FALHOU", "A12: passagem de 30 h ainda tentada");
-      await envelhecer(cv12.id, "25 hours");
+      await envelhecer(cv12.id, "22 hours");
       await worker.avisarEquipeDoLote(avisoEquipe);
-      assert.equal(emails.length, antes + 2, "A12: retry depois de 24 h ainda avisa");
+      assert.equal(emails.length, antes + 2, "A12: retry 22 h depois ainda avisa");
       assert.equal((await conversa(A.empresa, contato)).contexto.avisoEquipe.estado, "ENVIADO");
     }
 
@@ -411,6 +421,103 @@ test("aviso à equipe por e-mail na passagem: um por passagem, destinatários au
       const cv17 = await conversa(A.empresa, imitacao);
       assert.equal(cv17.estado, "AGUARDANDO_HUMANO", "A17: revogada com a IA conduzindo, vai para a equipe");
       assert.equal(cv17.contexto.avisoEquipe.estado, "PENDENTE", "A17: com a marca do aviso");
+    }
+
+    // A19 — o prazo vence depois do COMMIT da tentativa (4ª leitura do relógio): nada sai e a tentativa é desfeita.
+    await worker.avisarEquipeDoLote(avisoEquipe); // marcas da piloto ainda pendentes (A17) saem antes: o relógio conta só este caso
+    {
+      const contato = "5561900000818", antes: number = emails.length;
+      await receber(servico, contato, PEDIDO);
+      await worker.processarLote(semAviso, { maxTarefas: 10 });
+      let leituras = 0;
+      await worker.avisarEquipeDoLote(avisoEquipe, { prazo: 1_000, relogio: () => (++leituras >= 4 ? 5_000 : 0) });
+      const cv19 = await conversa(A.empresa, contato);
+      assert.equal(leituras, 4, "A19: o relógio foi lido depois do COMMIT");
+      assert.equal(emails.length, antes, "A19: nenhum e-mail depois do prazo");
+      assert.equal(cv19.contexto.avisoEquipe.estado, "PARCIAL");
+      assert.deepEqual(cv19.contexto.avisoEquipe.destinos, {}, "A19: tentativa desfeita");
+      await worker.avisarEquipeDoLote(avisoEquipe);
+      assert.equal(emails.length, antes + 2, "A19: o lote seguinte avisa");
+      assert.deepEqual(tentativas(await conversa(A.empresa, contato)), [1, 1]);
+    }
+
+    // A20 — queda depois do 1º aceite (o relógio lança na 5ª leitura, antes do 2º): o aceite já está na marca.
+    {
+      const contato = "5561900000819", antes: number = emails.length;
+      const [primeiro, segundo] = [A.rep.email, adm.email].sort();
+      await receber(servico, contato, PEDIDO);
+      await worker.processarLote(semAviso, { maxTarefas: 10 });
+      let leituras = 0;
+      await worker.avisarEquipeDoLote(avisoEquipe, { prazo: 1_000, relogio: () => { if (++leituras === 5) throw Object.assign(new Error("queda"), { codigo: "QUEDA" }); return 0; } });
+      assert.deepEqual(emails.slice(antes).map((m) => m.para), [primeiro], "A20: só o 1º saiu antes da queda");
+      const cv20 = await conversa(A.empresa, contato);
+      assert.equal(cv20.contexto.avisoEquipe.estado, "ENVIANDO", "A20: a queda deixou a marca em curso");
+      assert.equal(cv20.contexto.avisoEquipe.feitos.length, 1, "A20: o aceite do 1º já foi gravado");
+      await envelhecer(cv20.id);
+      await worker.avisarEquipeDoLote(avisoEquipe);
+      assert.deepEqual(emails.slice(antes).map((m) => m.para), [primeiro, segundo], "A20: depois, só o 2º; o 1º não recebe de novo");
+      assert.equal((await conversa(A.empresa, contato)).contexto.avisoEquipe.estado, "ENVIADO");
+    }
+
+    // A21 — janela de idempotência do provedor: a 1ª tentativa foi há 24 h; ninguém é tentado de novo.
+    {
+      const contato = "5561900000820", antes: number = emails.length;
+      await receber(servico, contato, PEDIDO);
+      await worker.processarLote(semAviso, { maxTarefas: 10 });
+      falharEmail = true;
+      await worker.avisarEquipeDoLote(avisoEquipe);
+      falharEmail = false;
+      const cv21 = await conversa(A.empresa, contato);
+      assert.equal(cv21.contexto.avisoEquipe.estado, "FALHOU");
+      await envelhecer(cv21.id, "24 hours");
+      await worker.avisarEquipeDoLote(avisoEquipe);
+      assert.equal(emails.length, antes, "A21: fora da janela, nenhum reenvio");
+      const fim21 = await conversa(A.empresa, contato);
+      assert.equal(fim21.contexto.avisoEquipe.estado, "ESGOTADO");
+      assert.deepEqual(tentativas(fim21), [1, 1], "A21: nenhuma tentativa nova");
+    }
+
+    // A22 — pausa reconhecida na recepção com a automação ligada: a marca nasce com o motivo da pausa.
+    {
+      const contato = "5561900000821", antes: number = emails.length;
+      await receber(servico, contato, "pausa as mensagens");
+      const cv22 = await conversa(A.empresa, contato);
+      assert.equal(cv22.estado, "AGUARDANDO_HUMANO", "A22: a pausa vai para a equipe na recepção");
+      assert.deepEqual(cv22.contexto.avisoEquipe.motivos, ["PARAR_A_CONFIRMAR"], "A22: motivo gravado na marca");
+      await worker.avisarEquipeDoLote(avisoEquipe);
+      assert.equal(emails.length, antes + 2);
+      for (const m of emails.slice(antes)) {
+        assert.ok(m.texto.includes(NOME_MOTIVO.PARAR_A_CONFIRMAR), "A22: o e-mail leva o motivo da pausa");
+        assert.doesNotMatch(m.texto, /A conversa aguarda a equipe\./, "A22: não o genérico");
+        assert.doesNotMatch(`${m.texto}\n${m.html}`, /pausa as mensagens/, "A22: nunca o texto do cliente");
+      }
+    }
+
+    // A23 — modo efetivo: PILOTO (rollback) não manda o aviso de outra empresa; de volta a MULTI, sai uma vez.
+    {
+      await worker.avisarEquipeDoLote(avisoEquipe); // nada da piloto pendente antes do caso
+      await daB.servico.salvarConfiguracao(B.sessao, { ...base, avisoEquipe: { emails: [B.rep.email] } });
+      const contato = "5561900000822";
+      await receber(daB.servico, contato, PEDIDO);
+      await daB.worker.processarLote(semAviso, { maxTarefas: 10 });
+      const deB = () => emails.filter((m) => m.para === B.rep.email).length;
+      assert.equal((await conversa(B.empresa, contato)).contexto.avisoEquipe.estado, "PENDENTE");
+      await worker.avisarEquipeDoLote(avisoEquipe);
+      assert.equal(deB(), 0, "A23: PILOTO (piloto A) não manda o aviso de B");
+      assert.equal((await conversa(B.empresa, contato)).contexto.avisoEquipe.estado, "PENDENTE", "A23: a marca de B fica intacta");
+      // MULTI na reserva, PILOTO na revalidação (rollback no meio): nada sai e a marca fica PARCIAL.
+      const modos: ("MULTI" | "PILOTO")[] = ["MULTI", "PILOTO"];
+      const viraNoMeio = carregarAtendimento(A.empresa, "staging", { "./multiempresa.ts": { ...multiempresa, modoEfetivo: async () => modos.shift() ?? "PILOTO" } });
+      await viraNoMeio.worker.avisarEquipeDoLote(avisoEquipe);
+      assert.equal(deB(), 0, "A23: rollback entre a reserva e o envio: nada sai");
+      assert.equal((await conversa(B.empresa, contato)).contexto.avisoEquipe.estado, "PARCIAL", "A23: fica PARCIAL");
+      await worker.avisarEquipeDoLote(avisoEquipe);
+      assert.equal(deB(), 0, "A23: PARCIAL de B continua fora do lote da piloto A");
+      const multi = carregarAtendimento(A.empresa, "staging", { "./multiempresa.ts": { ...multiempresa, modoEfetivo: async () => "MULTI" } });
+      await multi.worker.avisarEquipeDoLote(avisoEquipe);
+      await multi.worker.avisarEquipeDoLote(avisoEquipe);
+      assert.equal(deB(), 1, "A23: de volta a MULTI, o aviso de B sai uma vez");
+      assert.equal((await conversa(B.empresa, contato)).contexto.avisoEquipe.estado, "ENVIADO");
     }
 
     // A18 — sem a 082 (simulada pela coluna que o tem082 confere), e-mails de aviso não são aceitos.

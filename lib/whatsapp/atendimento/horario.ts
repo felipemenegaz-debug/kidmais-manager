@@ -58,8 +58,10 @@ export type SituacaoHorario = { configurado: false } | { configurado: true; dent
 
 /**
  * Situação do horário agora. Sem horário cadastrado (ausente ou sem nenhum dia) = `configurado: false`.
- * Fora do horário, `quando` diz quando a equipe volta: "hoje a partir das 9h", "amanhã a partir das 9h",
- * "na segunda-feira a partir das 9h" ou, se o único dia é o de hoje e já passou, "na próxima segunda-feira…".
+ * Fora do horário, `quando` diz quando a equipe volta SEMPRE pelo dia da semana: "na segunda-feira a partir das 9h" (também
+ * quando é hoje, antes de abrir) ou, se o único dia é o de hoje e já passou, "na próxima segunda-feira…". Astra r3 (P2): a
+ * frase vai para a fila de saída e pode ser enviada depois da meia-noite de São Paulo; "hoje"/"amanhã" mudariam de sentido,
+ * o nome do dia não (o próximo dia de atendimento está sempre a menos de 7 dias, e "próxima" só aparece quando é daqui a 7).
  * O fim da faixa é exclusivo (às 18:00 de uma faixa 09:00–18:00 já é fora).
  */
 export function situacaoHorario(horario: HorarioEquipe | undefined | null, agora: Date): SituacaoHorario {
@@ -67,14 +69,13 @@ export function situacaoHorario(horario: HorarioEquipe | undefined | null, agora
   const { dia, minuto } = momentoLocal(agora);
   const hoje = horario[dia];
   if (hoje && minuto >= minutos(hoje.inicio) && minuto < minutos(hoje.fim)) return { configurado: true, dentro: true };
-  if (hoje && minuto < minutos(hoje.inicio)) return { configurado: true, dentro: false, quando: `hoje a partir das ${horaFalada(hoje.inicio)}` };
+  if (hoje && minuto < minutos(hoje.inicio)) return { configurado: true, dentro: false, quando: `${ARTIGO[dia]} ${NOME_DIA[dia]} a partir das ${horaFalada(hoje.inicio)}` };
   const indice = DIAS_SEMANA.indexOf(dia);
   for (let i = 1; i <= 7; i++) {
     const proximo = DIAS_SEMANA[(indice + i) % 7];
     const f = horario[proximo];
     if (!f) continue;
     const a = `a partir das ${horaFalada(f.inicio)}`;
-    if (i === 1) return { configurado: true, dentro: false, quando: `amanhã ${a}` };
     if (i === 7) return { configurado: true, dentro: false, quando: `${ARTIGO[proximo]} ${proximo === 'sab' || proximo === 'dom' ? 'próximo' : 'próxima'} ${NOME_DIA[proximo]} ${a}` };
     return { configurado: true, dentro: false, quando: `${ARTIGO[proximo]} ${NOME_DIA[proximo]} ${a}` };
   }

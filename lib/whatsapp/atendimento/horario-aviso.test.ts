@@ -24,19 +24,23 @@ test('situação do horário: dentro, antes de abrir, depois de fechar, fim de s
   assert.deepEqual(situacaoHorario(semana, sp('2026-11-25T17:59:00')), { configurado: true, dentro: true });
   assert.equal(retornoForaDoHorario(semana, sp('2026-11-25T12:00:00')), '');
   assert.equal(retornoForaDoHorario(undefined, sp('2026-11-25T23:00:00')), '');
-  assert.equal(retornoForaDoHorario(semana, sp('2026-11-25T07:00:00')), 'Agora estamos fora do horário de atendimento: a equipe responde hoje a partir das 9h.');
-  assert.equal(retornoForaDoHorario(semana, sp('2026-11-25T18:00:00')), 'Agora estamos fora do horário de atendimento: a equipe responde amanhã a partir das 9h.', 'fim exclusivo');
-  // Quarta 23:59 local (UTC já é quinta 02:59): amanhã. Quinta 00:00 local: hoje.
-  assert.match(retornoForaDoHorario(semana, new Date('2026-11-26T02:59:00.000Z')), /amanhã a partir das 9h\.$/);
-  assert.match(retornoForaDoHorario(semana, new Date('2026-11-26T03:00:00.000Z')), /hoje a partir das 9h\.$/);
-  // Sexta à noite, sábado e domingo: segunda (domingo à noite, segunda é "amanhã").
+  assert.equal(retornoForaDoHorario(semana, sp('2026-11-25T07:00:00')), 'Agora estamos fora do horário de atendimento: a equipe responde na quarta-feira a partir das 9h.');
+  assert.equal(retornoForaDoHorario(semana, sp('2026-11-25T18:00:00')), 'Agora estamos fora do horário de atendimento: a equipe responde na quinta-feira a partir das 9h.', 'fim exclusivo');
+  // Astra r3 (P2): composta na quarta 23:59 local (UTC já é quinta 02:59) e enviada na quinta 00:01: a mesma frase continua
+  // certa nos dois relógios, porque diz o dia da semana e nunca "hoje"/"amanhã".
+  const composta = retornoForaDoHorario(semana, new Date('2026-11-26T02:59:00.000Z'));
+  assert.match(composta, /na quinta-feira a partir das 9h\.$/);
+  assert.equal(retornoForaDoHorario(semana, new Date('2026-11-26T03:01:00.000Z')), composta, 'depois da meia-noite, o mesmo dia');
+  for (const t of ['2026-11-25T07:00:00', '2026-11-25T18:00:00', '2026-11-29T23:00:00', '2026-11-30T00:30:00']) assert.doesNotMatch(retornoForaDoHorario(semana, sp(t)), /hoje|amanhã/, t);
+  // Sexta à noite, sábado e domingo: segunda (domingo 23:59 e segunda 00:01 dizem a mesma coisa).
   for (const t of ['2026-11-27T19:00:00', '2026-11-28T10:00:00']) assert.match(retornoForaDoHorario(semana, sp(t)), /na segunda-feira a partir das 9h\.$/, t);
-  assert.match(retornoForaDoHorario(semana, sp('2026-11-29T23:00:00')), /amanhã a partir das 9h\.$/);
-  assert.match(retornoForaDoHorario({ ...semana, sab: { inicio: '10:00', fim: '14:00' } }, sp('2026-11-27T19:00:00')), /amanhã a partir das 10h\.$/);
+  assert.equal(retornoForaDoHorario(semana, sp('2026-11-29T23:59:00')), retornoForaDoHorario(semana, sp('2026-11-30T00:01:00')));
+  assert.match(retornoForaDoHorario(semana, sp('2026-11-29T23:00:00')), /na segunda-feira a partir das 9h\.$/);
+  assert.match(retornoForaDoHorario({ ...semana, sab: { inicio: '10:00', fim: '14:00' } }, sp('2026-11-27T19:00:00')), /no sábado a partir das 10h\.$/);
   // Só um dia na semana e ele já passou: a próxima ocorrência é daqui a 7 dias.
   assert.match(retornoForaDoHorario({ qua: { inicio: '13:30', fim: '17:00' } }, sp('2026-11-25T18:00:00')), /na próxima quarta-feira a partir das 13h30\.$/);
   assert.match(retornoForaDoHorario({ sab: { inicio: '09:00', fim: '12:00' } }, sp('2026-11-28T13:00:00')), /no próximo sábado a partir das 9h\.$/);
-  assert.match(retornoForaDoHorario({ qua: { inicio: '13:30', fim: '17:00' } }, sp('2026-11-25T08:00:00')), /hoje a partir das 13h30\.$/);
+  assert.match(retornoForaDoHorario({ qua: { inicio: '13:30', fim: '17:00' } }, sp('2026-11-25T08:00:00')), /na quarta-feira a partir das 13h30\.$/);
   // Dia marcado como sem atendimento (null) conta como fechado.
   assert.match(retornoForaDoHorario({ ...semana, qui: null }, sp('2026-11-25T20:00:00')), /na sexta-feira a partir das 9h\.$/);
 });
@@ -123,7 +127,7 @@ test('encaminhamento de contingência: frase de horário fora do expediente, tex
   assert.equal(mensagemEncaminhamento(semana, sp('2026-11-25T10:00:00')), MENSAGEM_ENCAMINHAMENTO, 'dentro do horário: igual a antes');
   const fora = mensagemEncaminhamento(semana, sp('2026-11-25T23:00:00'));
   assert.equal(fora, 'Não consigo responder automaticamente agora. Encaminhei sua mensagem para a equipe. ' + retornoForaDoHorario(semana, sp('2026-11-25T23:00:00')));
-  assert.match(fora, /fora do horário de atendimento: a equipe responde amanhã/);
+  assert.match(fora, /fora do horário de atendimento: a equipe responde na quinta-feira a partir das 9h.$/);
   const sabado = mensagemEncaminhamento(semana, sp('2026-11-28T10:00:00'));
   assert.notEqual(sabado, MENSAGEM_ENCAMINHAMENTO);
   // Todos os textos fixos continuam isentos da revogação por configuração no envio; textos do modelo não.
@@ -136,9 +140,11 @@ test('encaminhamento de contingência: frase de horário fora do expediente, tex
     assert.ok(!ehEncaminhamentoFixo({ texto: t, fonte: { tipo: 'PRONTA', id: 'x', versao: 1, por: 'ATENDENTE' } }), 'pronta com o mesmo texto');
     assert.ok(!ehEncaminhamentoFixo({ texto: t, fonte: { origem: 'ENCAMINHAMENTO_FIXO', tipo: 'WALLE' } }), 'origem misturada');
   }
-  // Sem fonte (base sem a 082 ou linha antiga): só o texto antigo exato; o formato com horário não basta.
-  assert.ok(ehEncaminhamentoFixo({ texto: MENSAGEM_ENCAMINHAMENTO, fonte: null }));
-  for (const t of [fora, sabado, 'Oi! Encaminhei sua mensagem para a equipe.', null, undefined]) assert.ok(!ehEncaminhamentoFixo({ texto: t }), String(t));
+  // Astra r3 (P2): sem origem gravada (FAQ da fase B, base sem a 082, linha antiga) não há isenção, nem com o texto exato.
+  for (const t of [MENSAGEM_ENCAMINHAMENTO, fora, sabado, 'Oi! Encaminhei sua mensagem para a equipe.', null, undefined]) {
+    assert.ok(!ehEncaminhamentoFixo({ texto: t }), String(t));
+    assert.ok(!ehEncaminhamentoFixo({ texto: t, fonte: null }), String(t));
+  }
 });
 
 test('selo do menu: ambiente inválido ou banco fora dão 0, sem derrubar a sessão (Astra r1, P1)', async () => {

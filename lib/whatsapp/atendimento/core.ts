@@ -44,12 +44,12 @@ export const fonteEncaminhamento = () => JSON.stringify({ origem: ORIGEM_ENCAMIN
 /**
  * Saída é o encaminhamento fixo de contingência (isento da revogação por configuração no envio). Fatia 8 (Astra r2, P2):
  * reconhecido pela ORIGEM gravada na saída, nunca pelo formato do texto (uma FAQ ou resposta do Wall-e com o mesmo texto
- * continua sujeita à revogação). Linha sem `fonte` (base sem a 082 ou anterior a esta fatia): só o texto antigo exato.
+ * continua sujeita à revogação). Astra r3 (P2): linha sem `fonte` (FAQ da fase B, base sem a 082, linha antiga) nunca é
+ * isenta, nem com o texto exato: passa pela revalidação da configuração como qualquer saída automática.
  */
 export function ehEncaminhamentoFixo(mensagem: { texto?: string | null; fonte?: unknown }) {
   const fonte = mensagem.fonte;
-  if (fonte !== null && fonte !== undefined) return typeof fonte === 'object' && !Array.isArray(fonte) && (fonte as { origem?: unknown }).origem === ORIGEM_ENCAMINHAMENTO && Object.keys(fonte).length === 1;
-  return mensagem.texto === MENSAGEM_ENCAMINHAMENTO;
+  return !!fonte && typeof fonte === 'object' && !Array.isArray(fonte) && (fonte as { origem?: unknown }).origem === ORIGEM_ENCAMINHAMENTO && Object.keys(fonte).length === 1;
 }
 /**
  * O JSON Schema enviado ao modelo só garante `string | null` em `data`; o modelo pode devolver a data como o cliente
