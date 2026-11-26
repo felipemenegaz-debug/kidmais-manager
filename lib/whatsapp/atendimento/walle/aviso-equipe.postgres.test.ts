@@ -53,6 +53,9 @@ import { NOME_MOTIVO } from "./tipos.ts";
  * Fatia 9 (Astra r4 da fatia 8, 26/11), Wall-e desligado (fase B), relógio fixo no domingo:
  *  A24 «atendente» na fase B: marca e e-mail com PEDIDO_CLIENTE, sem o texto; resposta com a previsão do horário salvo;
  *  A25 contingência enfileirada com 9h e horário corrigido para 14h antes do despacho: sai 14h, ainda isenta.
+ * Fatia 9 r2 (Astra r1, 26/11), modo MODELO:
+ *  A26 DUVIDA sem pergunta publicada: marca sem motivo (nunca CONTRATACAO), e-mail genérico, resposta com a previsão;
+ *  A27 Wall-e ligado: a porta recebe hoje e agora do mesmo instante da tarefa (deps.agora).
  */
 const ler = (f: string) => readFileSync(f, "utf8");
 const MIGRATIONS = [
@@ -564,6 +567,33 @@ test("aviso à equipe por e-mail na passagem: um por passagem, destinatários au
       assert.match(final.texto, /na segunda-feira a partir das 14h.$/, "A25: texto gravado recomposto");
       assert.match(JSON.stringify(envios.slice(enviadosAntes25)), /a partir das 14h./, "A25: o provedor recebe o horário vigente");
       assert.doesNotMatch(JSON.stringify(envios.slice(enviadosAntes25)), /a partir das 9h/, "A25: nunca o horário antigo");
+      // A26 (fatia 9 r2, P-F9-1 e P-F9-2) — modo MODELO (fase B): DUVIDA sem pergunta publicada (perguntaId nulo) vai para a
+      // equipe SEM motivo na marca (não é CONTRATACAO): o e-mail fica no texto genérico. A resposta traz a previsão (14h).
+      const modelo = carregarAtendimento(A.empresa, "staging", { "./configuracao.ts": { entendimentoSoRegras: () => false, origemMidia: () => "https://midia.kidmais.example", ambienteAtendimento: () => "staging", empresaPiloto: () => A.empresa, atendimentoAtivo: () => true, contatoPermitido: (x: string) => x.startsWith("55619") } });
+      const duvida = { ...semAviso9, interpretar: async () => ({ intencao: "DUVIDA" as const, perguntaId: null, data: null, convidados: null }) };
+      await worker.avisarEquipeDoLote(avisoEquipe); // a passagem da A25 sai antes
+      const c26 = "5561900000826", antes26 = emails.length, enviadosAntes26 = envios.length;
+      await receber(servico, c26, "vocês têm estacionamento?");
+      await modelo.worker.processarLote(duvida, { maxTarefas: 10 });
+      const cv26 = await conversa(A.empresa, c26);
+      assert.equal(cv26.estado, "AGUARDANDO_HUMANO", "A26: dúvida sem resposta publicada vai para a equipe");
+      assert.deepEqual(cv26.contexto.avisoEquipe.motivos, [], "A26: sem motivo na marca (nunca CONTRATACAO)");
+      assert.ok(JSON.stringify(envios.slice(enviadosAntes26)).includes("Não encontrei essa informação nas respostas publicadas. Vou encaminhar sua pergunta para a equipe. Sua mensagem foi encaminhada fora do horário de atendimento: a equipe responde na segunda-feira a partir das 14h."), "A26: previsão pelo horário vigente");
+      await worker.avisarEquipeDoLote(avisoEquipe);
+      assert.equal(emails.length, antes26 + 2);
+      for (const m of emails.slice(antes26)) {
+        assert.ok(m.texto.includes("A conversa aguarda a equipe."), "A26: o e-mail fica no texto genérico");
+        assert.ok(!m.texto.includes(NOME_MOTIVO.CONTRATACAO), "A26: nunca o rótulo de contratação");
+        assert.doesNotMatch(`${m.assunto} | ${m.texto} | ${m.html}`, /estacionamento|5561900000826/, "A26: nunca o texto nem o telefone do cliente");
+      }
+      // A27 (fatia 9 r2, P-F9-3) — Wall-e LIGADO: a porta recebe o dia (hoje) e o instante (agora) do MESMO relógio da tarefa.
+      await servico.salvarConfiguracao(A.sessao, { ...base, avisoEquipe: { emails: [A.rep.email, adm.email] }, horarioEquipe: { seg: { inicio: "14:00", fim: "18:00" } } });
+      const vistos: { hoje: string; agora: string }[] = [];
+      const espiao = { ...semAviso9, wallE: { responder: async (e: Parameters<PortaWallE["responder"]>[0]) => { vistos.push({ hoje: e.hoje, agora: e.agora }); return portaWallE.responder(e); } } };
+      await receber(servico, "5561900000827", "oi, tudo bem?");
+      await worker.processarLote(espiao, { maxTarefas: 10 });
+      assert.deepEqual(vistos, [{ hoje: "2026-11-29", agora: domingo().toISOString() }], "A27: dia e instante do mesmo relógio da tarefa");
+      await worker.avisarEquipeDoLote(avisoEquipe);
     }
 
     // A18 — sem a 082 (simulada pela coluna que o tem082 confere), e-mails de aviso não são aceitos.

@@ -291,6 +291,9 @@ export function responder(config: ConfiguracaoAtendimento, plano: Interpretacao,
     if (!interesse.convidados) return { texto: 'Quantas pessoas você pretende convidar?', humano: false, encerrada: false };
     return { texto: `Registrei seu interesse para ${interesse.data.split('-').reverse().join('/')} e ${interesse.convidados} pessoas. Vou encaminhar para a equipe conferir disponibilidade, pacote e valores. A data ainda não está reservada.${retorno ? ` ${retorno}` : ''}`, humano: true, encerrada: false };
   }
+  // Fatia 9 r2 (Astra r1, P-F9-2): dúvida sem resposta publicada também vai para a equipe; fora do horário, a resposta diz
+  // que foi encaminhada e quando a equipe volta. Sem previsão (dentro do horário ou sem horário), o texto de antes.
+  if (plano.intencao === 'DUVIDA' && retorno) return { texto: `Não encontrei essa informação nas respostas publicadas. Vou encaminhar sua pergunta para a equipe. ${retorno}`, humano: true, encerrada: false };
   return { texto: 'Sou o atendimento virtual da ' + config.nome + '. Posso ajudar com as informações publicadas e encaminhar sua festa para a equipe. Para falar com uma pessoa, escreva “atendente”.', humano: plano.intencao === 'DUVIDA', encerrada: false };
 }
 

@@ -171,6 +171,24 @@ test('P-F8-2: passagens da fase B (pedido de atendente e interesse completo) usa
   assert.equal(r.texto, 'Registrei seu interesse para 10/03/2027 e 50 pessoas. Vou encaminhar para a equipe conferir disponibilidade, pacote e valores. A data ainda não está reservada. Sua mensagem foi encaminhada fora do horário de atendimento: a equipe responde na segunda-feira a partir das 9h.');
   assert.ok(responder(cfg(), interesse, { data: '2027-03-10', convidados: 50 }, '2026-11-29', domingo).texto?.endsWith('A data ainda não está reservada.'), 'sem horário: texto antigo');
 });
+// Fatia 9 r2 (Astra r1, P-F9-2): dúvida sem resposta publicada vai para a equipe e, fora do horário, diz quando ela volta.
+test('P-F9-2: dúvida sem FAQ fora do horário traz a previsão; dentro ou sem horário, o texto de antes; FAQ intacta', async () => {
+  const { responder } = await import('./core.ts');
+  const perguntas = [{ id: 'endereco', pergunta: 'Onde fica?', resposta: 'Endereço aprovado.' }];
+  const cfg = (horarioEquipe?: HorarioEquipe) => configuracaoSchema.parse({ ativo: true, nome: 'Buffet', perguntas, horarioEquipe });
+  const semFaq = { intencao: 'DUVIDA' as const, perguntaId: null, data: null, convidados: null };
+  const comFaq = { ...semFaq, perguntaId: 'endereco' };
+  const vazio = { data: null, convidados: null };
+  const domingo = sp('2026-11-29T10:00:00'), segunda = sp('2026-11-30T10:00:00');
+  const ANTIGO = 'Sou o atendimento virtual da Buffet. Posso ajudar com as informações publicadas e encaminhar sua festa para a equipe. Para falar com uma pessoa, escreva “atendente”.';
+  const fora = responder(cfg({ seg: util }), semFaq, vazio, '2026-11-29', domingo);
+  assert.deepEqual(fora, { texto: 'Não encontrei essa informação nas respostas publicadas. Vou encaminhar sua pergunta para a equipe. Sua mensagem foi encaminhada fora do horário de atendimento: a equipe responde na segunda-feira a partir das 9h.', humano: true, encerrada: false });
+  assert.deepEqual(responder(cfg({ seg: util }), semFaq, vazio, '2026-11-30', segunda), { texto: ANTIGO, humano: true, encerrada: false }, 'dentro do horário: texto antigo');
+  assert.deepEqual(responder(cfg(), semFaq, vazio, '2026-11-29', domingo), { texto: ANTIGO, humano: true, encerrada: false }, 'sem horário: texto antigo');
+  assert.deepEqual(responder(cfg({ seg: util }), comFaq, vazio, '2026-11-29', domingo), { texto: 'Endereço aprovado.', humano: false, encerrada: false }, 'FAQ continua com a resposta publicada');
+  // Saudação/OUTRO não vai para a equipe e não ganha previsão.
+  assert.deepEqual(responder(cfg({ seg: util }), { ...semFaq, intencao: 'OUTRO' as const }, vazio, '2026-11-29', domingo), { texto: ANTIGO, humano: false, encerrada: false });
+});
 test('P-F8-4: a frase fala do momento da passagem; composta antes da abertura continua verdadeira depois dela', () => {
   const composta = retornoForaDoHorario(semana, sp('2026-11-30T08:59:00'));
   assert.equal(composta, 'Sua mensagem foi encaminhada fora do horário de atendimento: a equipe responde na segunda-feira a partir das 9h.');

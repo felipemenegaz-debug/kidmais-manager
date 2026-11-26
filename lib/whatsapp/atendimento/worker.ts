@@ -277,7 +277,10 @@ async function executarTarefa(deps: DependenciasWorker, { mensagem, conversa, co
   // C2 + C4 de novo antes do modelo, na gravação e antes de ENVIANDO (a piloto não tem esses portões: true sem consulta).
   // F7: leitura que falha antes de ENVIANDO é transitória (a tarefa volta para a fila).
   const opera = (tx: DbExecutor) => lerPortao('LEITURA_HABILITACAO', () => empresaOperaAtendimento(tx, empresa, { piloto, ambiente }));
-  const agoraFrase = deps.agora ?? (() => new Date());
+  // Fatia 9 r2 (Astra r1, P-F9-3): UM instante por tarefa. A data da festa (hoje), a previsão de retorno e o Wall-e leem o
+  // mesmo relógio; a tarefa de despacho é outra tarefa e captura o próprio instante.
+  const instante = (deps.agora ?? (() => new Date()))();
+  const agoraFrase = () => instante;
   try {
     if (mensagem.direcao === 'ENTRADA') {
       // Ordem lógica: as entradas seguem o horário do evento, não a ordem de chegada. A tarefa válida é a da versão
@@ -332,7 +335,7 @@ async function executarTarefa(deps: DependenciasWorker, { mensagem, conversa, co
       let plano: Interpretacao;
       try { plano = comando ?? await deps.interpretar!(empresa, entradaFaseB(historico.map(m => m.texto), atual, conversa.interesse), vigente); }
       catch (erro) { console.warn('[Atendimento WhatsApp] interpretação falhou (%s); entrada encaminhada à equipe.', motivoSeguro(erro)); return await encaminharSemModelo(mensagem, 'FALHOU', opera, agoraFrase); }
-      const hoje = hojeOperacao();
+      const hoje = hojeOperacao(instante);
       // Data passada ou inexistente não substitui nem conserva interesse: uma data anterior já vencida também é descartada.
       const interesse = { data: dataDeInteresse(plano.data, hoje) ?? dataDeInteresse(conversa.interesse.data, hoje), convidados: plano.convidados ?? conversa.interesse.convidados };
       await withTransaction(async tx => {
@@ -350,8 +353,10 @@ async function executarTarefa(deps: DependenciasWorker, { mensagem, conversa, co
         const coube = await gravarNoTeto(tx, mensagem, async () => {
         // Fatia 9 (Astra r4 da fatia 8, P-F8-1): a passagem da fase B grava o motivo na marca do aviso (com a 082): pedido de
         // atendente = PEDIDO_CLIENTE; interesse completo encaminhado = CONTRATACAO. Só o código do motivo, nunca o texto.
+        // Fatia 9 r2 (P-F9-1): dúvida sem resposta publicada não é contratação: sem motivo, o aviso fica no texto genérico.
         const com082 = await tem082(tx);
-        const motivoDaPassagem = resposta.humano ? JSON.stringify({ motivos: [plano.intencao === 'HUMANO' ? 'PEDIDO_CLIENTE' : 'CONTRATACAO'] }) : null;
+        const motivoFaseB = !resposta.humano ? null : plano.intencao === 'HUMANO' ? 'PEDIDO_CLIENTE' : plano.intencao === 'INTERESSE' ? 'CONTRATACAO' : null;
+        const motivoDaPassagem = motivoFaseB ? JSON.stringify({ motivos: [motivoFaseB] }) : null;
         const argsConversa = [conversa.id, JSON.stringify(interesse), resposta.encerrada ? 'ENCERRADA' : resposta.humano ? 'AGUARDANDO_HUMANO' : 'IA', resposta.encerrada];
         await tx.query(`UPDATE whatsapp_atendimento_conversas SET interesse=$2::jsonb,estado=$3${marcaNaFila(com082, '$3::text', '$5::jsonb')},nao_contatar=nao_contatar OR $4,atualizada_em=clock_timestamp() WHERE id=$1`, com082 ? [...argsConversa, motivoDaPassagem] : argsConversa);
         // PARAR entendido pelo modelo: mesmo alcance da recepção nas pesquisas (só o WhatsApp), na mesma transação.
@@ -690,7 +695,7 @@ function memoriaDaConversa(marca: string) {
 }
 async function responderWallE(porta: PortaWallE, mensagem: Mensagem, conversa: Conversa, texto: string, historico: string[], opera: (tx: DbExecutor) => Promise<boolean>, config: ConfiguracaoAtendimento, agoraFrase: () => Date) {
   const empresa = mensagem.empresa_id, ambiente = mensagem.ambiente;
-  const hoje = hojeOperacao();
+  const hoje = hojeOperacao(agoraFrase());
   let resultado: ResultadoWallE;
   // F5: `config` é a VIGENTE lida pelo portão completo logo antes (ativo e Wall-e ligados), nunca a capturada na reserva.
   try {

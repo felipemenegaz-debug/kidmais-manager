@@ -715,3 +715,31 @@ test('P-F8-3/P-F8-4: contingência isenta é recomposta no despacho com o horár
     assert.doesNotMatch(caso.esperado,/Agora estamos/);
   }
 });
+// Fatia 9 r2 (Astra r1, P-F9-3): um único instante por tarefa. A data da festa e a previsão usam o mesmo relógio (deps.agora,
+// lido uma vez). Datas longe do relógio real nos dois sentidos: um mutante que use o relógio do sistema erra uma delas.
+test('P-F9-3: data da festa e previsão no mesmo instante da tarefa (deps.agora lido uma vez)',async()=>{
+  const casos=[
+    // Relógio da tarefa: domingo 02/06/2030 10h; a festa em 01/06/2030 já passou (no relógio do sistema, ainda não).
+    {agora:'2030-06-02T10:00:00-03:00',data:'2030-06-01',esperado:'Essa data já passou. Qual é a data desejada para a festa, incluindo o ano?',estado:'IA'},
+    // Relógio da tarefa: domingo 05/01/2020 10h; a festa em 10/01/2020 ainda vem (no relógio do sistema, já passou).
+    {agora:'2020-01-05T10:00:00-03:00',data:'2020-01-10',esperado:'Registrei seu interesse para 10/01/2020 e 40 pessoas. Vou encaminhar para a equipe conferir disponibilidade, pacote e valores. A data ainda não está reservada. Sua mensagem foi encaminhada fora do horário de atendimento: a equipe responde na segunda-feira a partir das 9h.',estado:'AGUARDANDO_HUMANO'},
+  ];
+  for (const caso of casos) {
+    const entrada={...mensagem,direcao:'ENTRADA',origem_id:null,texto:'quero uma festa'};
+    const comandos:{sql:string;args?:unknown[]}[]=[];
+    const worker=carregar(async(sql,args)=>{
+      comandos.push({sql,args});
+      if(sql.includes("SELECT id FROM empresas")) return {rows:[{id:'e'}]};
+      if(sql.includes('SELECT m.*')) return {rows:[entrada]};
+      if(sql.includes('SELECT * FROM whatsapp_atendimento_conversas')) return {rows:[conversa]};
+      if(sql.includes("'SAIDA',$5,'PENDENTE',$6")) return {rows:[{id:'s'}]};
+      return {rows:[]};
+    },true,true,20,cfgComHorario('09:00'));
+    let leituras=0;
+    const deps={interpretar:async()=>({intencao:'INTERESSE' as const,perguntaId:null,data:caso.data,convidados:40}),enviar:async()=>'id',agora:()=>{leituras++;return new Date(caso.agora);}} as unknown as DepsComRelogio;
+    assert.equal(await worker.processarAtendimento(deps),'PROCESSADA');
+    assert.equal(comandos.find(c=>c.sql.includes("'SAIDA',$5,'PENDENTE',$6"))?.args?.[4],caso.esperado);
+    assert.equal(comandos.find(c=>c.sql.includes('SET interesse=$2::jsonb'))?.args?.[2],caso.estado);
+    assert.equal(leituras,1,'um único instante por tarefa');
+  }
+});
