@@ -35,13 +35,15 @@ type OpFontes = { link?: string | null; linkPublico?: string | null; agendaFalha
   /** Teste manual de 12/10/2026: composição por pacote e preço dos adicionais na tabela vigente (ausente: sem a fonte). */
   composicoes?: (codigo: string) => Composicao | null; precos?: Record<string, (convidados: number | null) => PrecoAdicional>;
   /** Revisão de 6281e35 (M1): a lista de pacotes falha. */
-  pacotesFalha?: boolean };
+  pacotesFalha?: boolean;
+  /** Pacotes no lugar dos três padrão (faixa sem máximo ou sem mínimo, visto em production em 25/11/2026). */
+  pacotes?: Awaited<ReturnType<FontesWallE['pacotes']>> };
 function fontesFake(op: OpFontes = {}) {
   const chamadas: string[] = [];
   const fontes: FontesWallE = {
     async contratoDaEmpresa() { return 'OFICIAL_KIDMAIS'; },
     async prontasAutorizadas(f) { chamadas.push(`prontas:${f}`); return PRONTAS[f] ?? []; },
-    async pacotes() { chamadas.push('pacotes'); if (op.pacotesFalha) throw new Error('PACOTES_INDISPONIVEIS'); return [
+    async pacotes() { chamadas.push('pacotes'); if (op.pacotesFalha) throw new Error('PACOTES_INDISPONIVEIS'); if (op.pacotes) return op.pacotes; return [
       { id: 'pk-e', codigo: 'ESSENCIAL', nome: 'Essencial', descricao: null, duracaoMinutos: 240, convidadosMinimos: 30, convidadosMaximos: 60 },
       { id: 'pk-c', codigo: 'COMPLETA', nome: 'Completa', descricao: null, duracaoMinutos: 240, convidadosMinimos: 50, convidadosMaximos: 100 },
       { id: 'pk-p', codigo: 'PREMIUM', nome: 'Premium', descricao: null, duracaoMinutos: 300, convidadosMinimos: 60, convidadosMaximos: 150 },
@@ -892,6 +894,24 @@ test('rodada 9 — horário em outras palavras, "pode parar de mandar o pdf" com
   assert.equal(entenderPorRegras('pode parar de mandar o pdf, já recebi', catalogos).parar ?? null, null);
   const cap = (await conversa(['quais pacotes vocês têm?', 'e pra cento e sessenta pessoas, tem algum?'])).ultima;
   assert.match(texto(cap), /Para 160 convidados, nenhum pacote cadastrado comporta/);
+});
+
+test('faixa de convidados sem máximo ou sem mínimo: nunca "null" (production 25/11/2026)', async () => {
+  const pacotes = [
+    { id: 'pk-pocket', codigo: 'POCKET', nome: 'Kidmais Pocket', descricao: null, duracaoMinutos: 240, convidadosMinimos: 20, convidadosMaximos: null },
+    { id: 'pk-mini', codigo: 'MINI', nome: 'Mini Festa Kidmais', descricao: null, duracaoMinutos: 240, convidadosMinimos: 30, convidadosMaximos: null },
+    { id: 'pk-teto', codigo: 'TETO', nome: 'Teto', descricao: null, duracaoMinutos: 240, convidadosMinimos: null, convidadosMaximos: 80 },
+    { id: 'pk-livre', codigo: 'LIVRE', nome: 'Livre', descricao: null, duracaoMinutos: 240, convidadosMinimos: null, convidadosMaximos: null },
+  ];
+  const esperado = /Para 50 convidados: o pacote Kidmais Pocket \(a partir de 20\), o pacote Mini Festa Kidmais \(a partir de 30\), o pacote Teto \(até 80\) e o pacote Livre\./;
+  for (const pergunta of ['orçamento de festa para o dia 20/12 50 pessoas', 'quanto fica pra 50 convidados?', 'cabe 50 pessoas em algum pacote?']) {
+    const r = (await conversa([pergunta], { pacotes })).ultima;
+    assert.doesNotMatch(texto(r), /null/, pergunta);
+    assert.match(texto(r), esperado, pergunta);
+  }
+  const duracao = (await conversa(['até quantas pessoas vai e quanto tempo dura cada pacote?'], { pacotes })).ultima;
+  assert.doesNotMatch(texto(duracao), /null/);
+  assert.match(texto(duracao), /Kidmais Pocket, a partir de 20 convidados e 4 horas/);
 });
 
 // ---------------------------------------------------------------- rodada 10
