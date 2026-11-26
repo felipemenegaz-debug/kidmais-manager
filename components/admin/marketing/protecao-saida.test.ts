@@ -393,7 +393,7 @@ test('layout raiz instala o guardião (componente cliente avaliado na hidrataç�
   const ler = (f: string) => fs.readFileSync(new URL(`../../../${f}`, import.meta.url), 'utf8');
   const layout = ler('app/layout.tsx');
   assert.match(layout, /import InstalarGuardiaoHistorico from "@\/components\/InstalarGuardiaoHistorico";/);
-  assert.match(layout, /<body[^>]*><InstalarGuardiaoHistorico \/>\{children\}<\/body>/);
+  assert.match(layout, /<body[^>]*><InstalarGuardiaoHistorico \/><ObservadorDeRota \/>\{children\}<\/body>/);
   assert.match(ler('components/InstalarGuardiaoHistorico.tsx'), /^instalarGuardiaoDeHistorico\(\);$/m);
 });
 
