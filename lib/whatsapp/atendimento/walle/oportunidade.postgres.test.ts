@@ -995,17 +995,22 @@ test("Wall-e 1a: pedido de festa vira cartão no funil, sem duplicar, isolado, r
         const fone38 = "5561900008382";
         const cv38 = await pendente38(fone38);
         const comercial38 = await conectarDescartavel({ travar: false });
+        let emCurso38: Promise<unknown> | null = null;
         try {
           await comercial38.query("BEGIN");
           await comercial38.query("SET LOCAL lock_timeout = '10s'");
           await comercial38.query("SELECT id FROM empresas WHERE id=$1 FOR NO KEY UPDATE", [A.empresa]);
           const pid38 = Number((await comercial38.query<{ pid: number }>("SELECT pg_backend_pid() AS pid")).rows[0].pid);
           let marcarPid38!: (p: number) => void;
-          const pidCaptura38 = new Promise<number>((r) => { marcarPid38 = r; });
+          let falharPid38!: (e: unknown) => void;
+          const pidCaptura38 = new Promise<number>((r, f) => { marcarPid38 = r; falharPid38 = f; });
           const captura38 = withTransaction(async (tx) => {
             marcarPid38(Number((await tx.query<{ pid: number }>("SELECT pg_backend_pid() AS pid")).rows[0].pid));
             return capturarOportunidade(tx, cv38);
           });
+          // Falha antes de marcar o PID (conexão, pg_backend_pid) rejeita a espera em vez de deixá-la pendurada.
+          captura38.catch(falharPid38);
+          emCurso38 = captura38;
           const pidC38 = await pidCaptura38;
           const esperou38 = await esperarAte(q, `SELECT 1 FROM pg_stat_activity WHERE pid=${pidC38} AND ${pid38} = ANY(pg_blocking_pids(pid))`, 5_000);
           const modo38 = (await q<{ mode: string }>("SELECT l.locktype || ':' || l.mode || ':' || l.granted AS mode FROM pg_locks l WHERE l.pid=$1 AND l.locktype IN ('tuple','transactionid') ORDER BY 1", [pidC38])).rows.map((r) => r.mode);
@@ -1023,6 +1028,8 @@ test("Wall-e 1a: pedido de festa vira cartão no funil, sem duplicar, isolado, r
           assert.equal(await captura38, "CRIADO", "F38: depois do COMMIT a captura cria o cartão");
         } finally {
           await comercial38.query("ROLLBACK").catch(() => undefined);
+          // Com a trava comercial liberada, a captura em curso termina antes de fechar a conexão e seguir.
+          if (emCurso38) await emCurso38.catch(() => undefined);
           await comercial38.end();
         }
         const r38 = await atribuida38(fone38);
