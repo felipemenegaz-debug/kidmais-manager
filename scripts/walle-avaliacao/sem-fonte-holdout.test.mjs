@@ -26,11 +26,11 @@ async function modulos() {
 const item = (id, texto) => ({ id, texto, intencoes: ['DUVIDA'], decisao: 'RESPONDER', entidades: {} });
 
 // Perguntas sem fonte na empresa sintética, cada uma com variações escritas como clientes escrevem.
+// Recorte da r3: o entendimento.ts não muda nesta fatia. Wi-fi fica fora: "wi" e "fi" são curtas para a regra de FAQ, e
+// a pergunta publicada sobre wi-fi continua indo para a equipe, como na base (pendência do entendimento, outra fatia).
 const CASOS = [
   { id: 'fraldario', pergunta: 'Vocês têm fraldário no salão?', resposta: 'Resposta aprovada sintética: temos fraldário no banheiro feminino e no masculino.',
     variacoes: ['tem fraldario?', 'O espaço tem fraldário pra trocar o bebê?', 'boa tarde! no salão de vcs tem fraldário?'] },
-  { id: 'wifi', pergunta: 'O salão tem wi-fi para os convidados?', resposta: 'Resposta aprovada sintética: temos wi-fi liberado para os convidados.',
-    variacoes: ['tem wifi pros convidados?', 'Tem wi-fi no salão?', 'os convidados podem usar o wi-fi do salão?'] },
 ];
 
 test('fatia 7: pergunta sem fonte passa para a equipe, vira resposta aprovada mascarada e depois é respondida pelo Wall-e', { timeout: 120_000 }, async () => {
@@ -38,7 +38,12 @@ test('fatia 7: pergunta sem fonte passa para a equipe, vira resposta aprovada ma
   const entender = (catalogos) => (t, contexto) => ent.entenderPorRegras(t, catalogos, contexto);
   for (const caso of CASOS) {
     // 1) Antes: sem fonte → equipe com INFORMACAO_INDISPONIVEL, e a passagem guarda só o trecho mascarado.
-    const comDados = `Oi, aqui é a Fulana Teste, meu número é 11987654321 e meu e-mail fulana@exemplo.com. ${caso.pergunta}`;
+    // Com apresentação ("aqui é a Fulana"), a mensagem inteira sai da lista (Astra r2, P1: sem exceção para o marcador).
+    const comNome = `Oi, aqui é a Fulana Teste. ${caso.pergunta}`;
+    const rNome = await res.resolverWallE({ texto: comNome, entendimento: ent.entenderPorRegras(comNome, CATALOGOS, {}), contexto: {}, config: CONFIG, catalogos: CATALOGOS, agora: AGORA }, FONTES);
+    assert.ok(rNome.passagem?.motivos.includes('INFORMACAO_INDISPONIVEL'), `${caso.id}: ${JSON.stringify(rNome.passagem?.motivos)}`);
+    assert.equal(texto.perguntaSugerida(rNome.passagem.ultimaMensagem), null, `${caso.id}: apresentação não pode virar sugestão`);
+    const comDados = `Oi, meu número é 11987654321 e meu e-mail fulana@exemplo.com. ${caso.pergunta}`;
     const entendimento = ent.entenderPorRegras(comDados, CATALOGOS, {});
     const r = await res.resolverWallE({ texto: comDados, entendimento, contexto: {}, config: CONFIG, catalogos: CATALOGOS, agora: AGORA }, FONTES);
     assert.ok(r.passagem?.motivos.includes('INFORMACAO_INDISPONIVEL'), `${caso.id}: ${JSON.stringify(r.passagem?.motivos)}`);
@@ -79,8 +84,8 @@ test('fatia 7: a resposta aprovada nova não captura perguntas de outros assunto
   }
 });
 
-// Astra r1 (P2): a resposta aprovada só é escolhida por correspondência integral depois das grafias reconhecidas
-// (wi-fi/wifi/wi fi). Nenhum acerto parcial novo: palavras juntas ou compostos com o mesmo começo não casam.
+// Astra r1 (P2): a fatia não cria acerto parcial novo (o entendimento.ts é o da base): compostos com o mesmo começo
+// ou palavras parecidas continuam sem resposta aprovada.
 async function decidir(perguntas, t) {
   const { m, ent, core } = await modulos();
   const config = core.configuracaoSchema.parse({ ...CONFIG, perguntas: [...CONFIG.perguntas, ...perguntas] });
@@ -89,20 +94,15 @@ async function decidir(perguntas, t) {
   return l;
 }
 
-test('fatia 7 r2: "Tem wi-fi?" publicada responde "Tem wi-fi?" e "Tem wifi?" (holdout positivo)', { timeout: 120_000 }, async () => {
-  const faq = { id: 'faq_wifi_curta', pergunta: 'Tem wi-fi?', resposta: 'Resposta aprovada sintética: sim, a senha fica na recepção.' };
-  for (const t of ['Tem wi-fi?', 'Tem wifi?', 'tem wi fi?', 'Vocês têm wifi?']) {
-    const l = await decidir([faq], t);
-    assert.equal(l.decisao, 'RESPONDER', `"${t}": ${l.decisao} ${l.motivos} ${l.resposta}`);
-    assert.ok(l.resposta.includes(faq.resposta), `"${t}": ${l.resposta}`);
-  }
-});
-
 test('fatia 7 r2: sem acerto parcial novo (holdout negativo valet × vale transporte, guarda-roupa × guarda-volumes)', { timeout: 120_000 }, async () => {
   const casos = [
     { faq: { id: 'faq_vale', pergunta: 'Tem estacionamento?', resposta: 'Resposta aprovada sintética: aceitamos vale transporte.' }, textos: ['Tem valet?', 'Vocês têm valet?'] },
     { faq: { id: 'faq_vt', pergunta: 'Aceitam vale transporte?', resposta: 'Resposta aprovada sintética: sim, vale transporte.' }, textos: ['Tem valet?'] },
     { faq: { id: 'faq_volumes', pergunta: 'Tem guarda-volumes?', resposta: 'Resposta aprovada sintética: o guarda-volumes fica na entrada.' }, textos: ['Tem guarda-roupa?', 'tem guarda roupa?'] },
+    // Astra r2 (P2), fechados pelo recorte: interrogativo descartado, prefixo pela grafia nova e "wifimax" como fonte.
+    { faq: { id: 'faq_wifi', pergunta: 'Tem wifi?', resposta: 'Sim.' }, textos: ['Onde tem wifi?'] },
+    { faq: { id: 'faq_wifi_interno', pergunta: 'Tem wi-fi interno?', resposta: 'Resposta aprovada sintética: wi-fi só no salão.' }, textos: ['Tem wifi internacional?'] },
+    { faq: { id: 'faq_estac_max', pergunta: 'Tem estacionamento?', resposta: 'Temos wifimax.' }, textos: ['Tem wi-fi e estacionamento?'] },
   ];
   for (const { faq, textos } of casos) for (const t of textos) {
     const l = await decidir([faq], t);

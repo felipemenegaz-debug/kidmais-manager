@@ -1,4 +1,4 @@
-import { ENTRADA_SENSIVEL_OMITIDA, REGISTRO_SENSIVEL, apresentacaoComNome, dadoSensivel, normalizarParaPrivacidade, ocultarDadosPessoais, perguntaComDadoPessoal } from './core.ts';
+import { ENTRADA_SENSIVEL_OMITIDA, REGISTRO_SENSIVEL, apresentacaoComNome, normalizarParaPrivacidade, ocultarDadosPessoais, perguntaComDadoPessoal, sensivelParaPublicar } from './core.ts';
 
 export { perguntaComDadoPessoal };
 
@@ -20,22 +20,24 @@ function idDoGrupo(chave: string) {
   return h.toString(16).padStart(8, '0');
 }
 
-/** Corte em até `limite` caracteres sem partir um marcador ("[telefone omitido]"): se cair dentro de um, recua até antes do colchete. */
+/**
+ * Corte em até `limite` caracteres sem partir um marcador ("[telefone omitido]"): recua até o último espaço e, depois do
+ * recuo, se sobrar um colchete aberto sem fechar, corta antes dele (Astra r2, P3: o recuo por palavra partia o marcador).
+ */
 function cortar(texto: string, limite: number) {
   if (texto.length <= limite) return texto;
-  let fim = limite;
-  const abre = texto.lastIndexOf('[', fim - 1);
-  if (abre >= 0 && texto.indexOf(']', abre) >= fim) fim = abre;
-  const corte = texto.slice(0, fim + 1);
-  const espaco = corte.lastIndexOf(' ');
-  return (espaco > limite / 2 && espaco <= fim ? corte.slice(0, espaco) : texto.slice(0, fim)).trim();
+  const espaco = texto.slice(0, limite + 1).lastIndexOf(' ');
+  let r = espaco > limite / 2 ? texto.slice(0, espaco) : texto.slice(0, limite);
+  const abre = r.lastIndexOf('[');
+  if (abre >= 0 && r.indexOf(']', abre) < 0) r = r.slice(0, abre);
+  return r.trim();
 }
 
 type Sugestao = { texto: string } | { omitida: 'sensivel' | 'descartada' };
 function classificar(trecho: unknown): Sugestao {
   const bruto = typeof trecho === 'string' ? trecho : '';
   if (!bruto.trim()) return { omitida: 'descartada' };
-  if (bruto.includes(REGISTRO_SENSIVEL) || bruto.includes(ENTRADA_SENSIVEL_OMITIDA) || dadoSensivel(bruto) || apresentacaoComNome(bruto)) return { omitida: 'sensivel' };
+  if (bruto.includes(REGISTRO_SENSIVEL) || bruto.includes(ENTRADA_SENSIVEL_OMITIDA) || sensivelParaPublicar(bruto) || apresentacaoComNome(bruto)) return { omitida: 'sensivel' };
   // Máscara, uma linha, corte e máscara de novo (o corte não pode deixar à mostra parte de um dado que a máscara pegaria inteiro).
   const texto = cortar(ocultarDadosPessoais(cortar(ocultarDadosPessoais(bruto).replace(/\s+/gu, ' ').trim(), LIMITE_PERGUNTA)), LIMITE_PERGUNTA);
   return texto.length >= 3 && chaveDoGrupo(texto) ? { texto } : { omitida: 'descartada' };

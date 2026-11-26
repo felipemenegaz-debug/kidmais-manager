@@ -88,9 +88,39 @@ test('sem fonte: apresentação com nome em qualquer caixa não vira sugestão e
     assert.equal(perguntaSugerida(t), null, t);
     assert.equal(perguntaComDadoPessoal(t), true, t);
   }
-  // Papel sem apresentação continua válido; o marcador logo depois do gatilho já está mascarado (só pede revisão).
-  for (const t of ['O pai do aniversariante paga?', 'A mãe da criança pode ficar no salão?', 'Tem wi-fi no salão?']) assert.equal(perguntaComDadoPessoal(t), false, t);
-  assert.equal(perguntaSugerida('Me chamo [nome omitido], tem wifi?'), 'Me chamo [nome omitido], tem wifi?');
+  // Papel sem apresentação continua válido.
+  for (const t of ['O pai do aniversariante paga?', 'A mãe da criança pode ficar no salão?', 'Tem wi-fi no salão?', 'Vocês fazem festa para menino e menina?']) assert.equal(perguntaComDadoPessoal(t), false, t);
+});
+
+test('sem fonte: gatilho de apresentação omite a mensagem inteira, também com marcador ou sobrenome (Astra r2, P1)', () => {
+  // Sem exceção para o marcador: "[ana silva]" não é marcador e o fim do nome é ambíguo ("[nome omitido] silva").
+  const casos = ['Me chamo [nome omitido], tem wifi?', 'me chamo [ana silva], tem wifi?', 'me chamo [nome omitido] silva, tem wifi?',
+    trechoParaRegistro('me chamo Ana silva, tem wifi?'), 'meu filho se chama pedro silva, tem wifi?', 'minha filha se chama ana', 'Meu filho Pedro faz 5 anos, tem wifi?',
+    'o aniversariante é o joão, tem wifi?', 'chamo ana, tem fraldário?', 'ele se chama pedro, tem wifi?', 'O nome da minha filha é Bia, tem wifi?'];
+  for (const t of casos) {
+    assert.equal(perguntaSugerida(t), null, t);
+    assert.equal(perguntaComDadoPessoal(t), true, t);
+  }
+  const r = agruparSemFonte(casos.map((ultimaMensagem) => ({ ultimaMensagem, em: '2027-01-19T10:00:00.000Z' })), []);
+  assert.deepEqual([r.grupos.length, r.omitidasSensiveis], [0, casos.length]);
+});
+
+test('sem fonte: dado sensível com espaço duplo, quebra de linha ou pontuação no meio (Astra r2, P1)', () => {
+  const casos = ['Meu filho tem pressão  alta, tem wifi?', 'Tem lugar para quem tem pressão\nalta?', 'pressão\t alta: tem cadeira?', 'cardápio sem   glúten?'];
+  for (const t of casos) {
+    assert.equal(perguntaSugerida(t), null, t);
+    assert.equal(perguntaComDadoPessoal(t), true, t);
+  }
+  const r = agruparSemFonte(casos.map((ultimaMensagem) => ({ ultimaMensagem, em: '2027-01-19T10:00:00.000Z' })), []);
+  assert.deepEqual([r.grupos.length, r.omitidasSensiveis], [0, casos.length]);
+});
+
+test('sem fonte: o corte por palavra nunca parte um marcador (Astra r2, P3)', () => {
+  assert.equal(perguntaSugerida(`${'a'.repeat(220)} [telefone omitido],${'b'.repeat(40)}`), 'a'.repeat(220));
+  assert.equal(perguntaSugerida(`${'a'.repeat(200)} tem [telefone omitido] e ${'b'.repeat(60)}`), `${'a'.repeat(200)} tem [telefone omitido] e`);
+});
+
+test('sem fonte: apresentação em minúsculas fica fora da lista e entra na contagem', () => {
   const r = agruparSemFonte([{ ultimaMensagem: 'me chamo ana silva, tem wifi?', em: '2027-01-19T10:00:00.000Z' }], []);
   assert.deepEqual([r.grupos.length, r.omitidasSensiveis], [0, 1]);
 });

@@ -69,7 +69,7 @@ test('sem fonte: escopo por empresa e ambiente, papel pela rota e texto publicad
       './configuracao.ts': configuracao, './core.ts': core, './service.ts': servico, './sem-fonte-texto.ts': semFonteTexto,
     }).modulo as typeof import('./sem-fonte.ts');
 
-    async function passagem(empresa: string, ambiente: string, ultimaMensagem: string, dias: number, extra: { motivo?: string; naoContatar?: boolean; soMotivoAntigo?: boolean; em?: string } = {}) {
+    async function passagem(empresa: string, ambiente: string, ultimaMensagem: unknown, dias: number, extra: { motivo?: string; naoContatar?: boolean; soMotivoAntigo?: boolean; em?: string } = {}) {
       const motivo = extra.motivo ?? 'INFORMACAO_INDISPONIVEL';
       const em = extra.em ?? emDias(dias);
       const p = extra.soMotivoAntigo ? { motivo, em, ultimaMensagem } : { motivo, motivos: [motivo], em, ultimaMensagem };
@@ -97,6 +97,9 @@ test('sem fonte: escopo por empresa e ambiente, papel pela rota e texto publicad
     // Contagem (Astra r1, P3/P1): apresentação com nome em minúsculas é omitida e contada; texto curto é só descartado.
     await passagem(A, 'staging', 'me chamo ana silva, tem wifi?', 2);
     await passagem(A, 'staging', 'ok', 2);
+    // Astra r2 (P3): ultimaMensagem que não é texto (número de 5 dígitos, objeto) fica fora da consulta: nem grupo nem contagem.
+    await passagem(A, 'staging', 12345, 2);
+    await passagem(A, 'staging', { a: 1 }, 2);
     // A pergunta já publicada fica por último e marcada.
     await c.query(`INSERT INTO whatsapp_atendimento_config (empresa_id, ambiente, configuracao) VALUES ($1, 'staging', $2::jsonb)`,
       [A, JSON.stringify({ ativo: false, nome: 'Empresa sintética', perguntas: [{ id: 'faq_estac', pergunta: 'Tem estacionamento coberto?', resposta: 'Sim, para 20 carros.' }] })]);
@@ -162,7 +165,7 @@ test('sem fonte: escopo por empresa e ambiente, papel pela rota e texto publicad
     const estac = { id: 'faq_estac', pergunta: 'Tem estacionamento coberto?', resposta: 'Sim, para 20 carros.' };
     await assert.rejects(salvar([estac, { id: 'faq_wifi', pergunta: 'Tem wi-fi? me chama no [telefone omitido]', resposta: 'Sim.' }]), /ATENDIMENTO_PERGUNTA_DADO_PESSOAL/);
     await assert.rejects(salvar([estac, { id: 'faq_wifi', pergunta: 'Tem wi-fi? me chama no 11987654321', resposta: 'Sim.' }]), /ATENDIMENTO_PERGUNTA_DADO_PESSOAL/);
-    for (const pergunta of ['Meu filho tem diabetes, tem wifi?', core.REGISTRO_SENSIVEL, core.ENTRADA_SENSIVEL_OMITIDA, 'me chamo ana silva, tem wifi?']) {
+    for (const pergunta of ['Meu filho tem diabetes, tem wifi?', 'Tem cadeira para pressão  alta?', 'Tem cardápio sem\nglúten?', core.REGISTRO_SENSIVEL, core.ENTRADA_SENSIVEL_OMITIDA, 'me chamo ana silva, tem wifi?']) {
       await assert.rejects(salvar([estac, { id: 'faq_wifi', pergunta, resposta: 'Sim.' }]), /ATENDIMENTO_PERGUNTA_DADO_PESSOAL/, pergunta);
     }
     // Exceção das perguntas antigas (Astra r1, P2): só a MESMA pergunta (mesmo id e texto), uma vez.

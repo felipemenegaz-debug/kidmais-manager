@@ -189,15 +189,32 @@ export function trechoParaRegistro(texto: string | null | undefined, limite = 50
 }
 const MARCADOR_OMITIDO = /\[[^\]\n]{0,40}omitid[ao][^\]\n]{0,40}\]/iu;
 /**
- * Fatia 7 (Astra r1, P1): apresentação com gatilho explícito seguida de uma palavra, EM QUALQUER CAIXA ("me chamo ana
- * silva", "sou a mãe do pedro"). A máscara geral só reconhece o nome com inicial maiúscula (para não apagar o resto da
- * frase); aqui, onde o texto vai ser publicado, o fim do nome é ambíguo: a mensagem inteira não vira sugestão e a
- * pergunta com esse trecho é recusada no salvar. O marcador "[nome omitido]" logo depois do gatilho não é nome.
+ * Fatia 7 (Astra r1 e r2, P1): apresentação de alguém, EM QUALQUER CAIXA ("me chamo ana silva", "sou a mãe do pedro",
+ * "meu filho se chama pedro", "meu filho pedro"). A máscara geral só reconhece o nome com inicial maiúscula (para não
+ * apagar o resto da frase), e o fim do nome é sempre ambíguo ("me chamo [nome omitido] silva" deixa o sobrenome).
+ * Onde o texto vai ser publicado não há exceção: com o gatilho seguido de qualquer palavra ou marcador, a mensagem
+ * inteira não vira sugestão e a pergunta é recusada no salvar. Conservador de propósito: "meu filho vai fazer 5 anos"
+ * também sai da lista (é pergunta pessoal, não pergunta geral para uma resposta aprovada).
+ * "O pai do aniversariante paga?" (papel, sem "sou" nem "meu/minha") continua valendo.
  */
-// Sobre o texto sem acento e em minúsculas. "pai do aniversariante" sem "sou" é papel, não apresentação.
-const APRESENTACAO = new RegExp(String.raw`(?<![\p{L}])(?:meu nome e|me chamo|eu chamo|aqui e (?:a|o)|sou (?:a|o)|sou (?:mae|pai|avo|tia|tio|madrinha|padrinho|irma|irmao) d[ao]|o nome (?:dele|dela) e|nome d[ao] (?:crianca|aniversariante) e)\s+(?!\[)\p{L}`, 'u');
+const PARENTESCO = '(?:filho|filha|neto|neta|sobrinho|sobrinha|enteado|enteada|afilhado|afilhada|bebe|menino|menina)s?';
+const APRESENTACAO = new RegExp('(?<![\\p{L}])(?:meu nome e|me chamo|eu chamo|chamo|se chama|chama se|aqui e (?:a|o)|sou (?:a|o)'
+  + '|sou (?:mae|pai|avo|tia|tio|madrinha|padrinho|irma|irmao) d[ao]|nome d(?:ele|ela|o|a|os|as)(?: \\p{L}+){0,3} e'
+  + '|(?:o|a) aniversariante (?:e|se chama)|(?:meu|minha|meus|minhas) ' + PARENTESCO + ')\\s*(?:\\[|\\p{L})', 'u');
+/** Texto uniforme para as checagens de privacidade da fatia: normalizado, sem acento, minúsculo, pontuação e espaços únicos. */
+function uniforme(texto: string) {
+  return semAcentoMinusculo(normalizarParaPrivacidade(texto)).replace(/[^\p{L}\p{N}\s[\]]/gu, ' ').replace(/\s+/gu, ' ').trim();
+}
 export function apresentacaoComNome(texto: string) {
-  return APRESENTACAO.test(semAcentoMinusculo(normalizarParaPrivacidade(texto)).replace(/[^\p{L}\p{N}\s[\]]/gu, ' ').replace(/\s+/gu, ' '));
+  return APRESENTACAO.test(uniforme(texto));
+}
+/**
+ * Fatia 7 (Astra r2, P1): dado sensível também com espaços, quebras de linha ou pontuação no meio ("pressão  alta",
+ * "pressão\nalta"): a lista de termos usa um espaço só. Testa o texto original e o uniforme (mais omissões, nunca menos).
+ */
+export function sensivelParaPublicar(texto: string) {
+  const n = normalizarParaPrivacidade(texto);
+  return dadoSensivel(n) || dadoSensivel(n.replace(/\s+/gu, ' ')) || dadoSensivel(uniforme(n));
 }
 /**
  * Fatia 7 — validação do texto que será publicado como pergunta aprovada (Onda 2): recusa marcador de dado omitido
@@ -209,7 +226,7 @@ export function apresentacaoComNome(texto: string) {
 export function perguntaComDadoPessoal(pergunta: string) {
   const normal = normalizarParaPrivacidade(pergunta);
   return MARCADOR_OMITIDO.test(normal) || normal.includes(REGISTRO_SENSIVEL) || normal.includes(ENTRADA_SENSIVEL_OMITIDA)
-    || ocultarDadosPessoais(normal) !== normal || apresentacaoComNome(normal) || dadoSensivel(normal);
+    || ocultarDadosPessoais(normal) !== normal || apresentacaoComNome(normal) || sensivelParaPublicar(normal);
 }
 /** D1/B2 — texto livre que o modelo devolveu (tema): só se não for sensível; normalizado e minimizado. */
 export function textoDoModeloSeguro(valor: string | null | undefined) {

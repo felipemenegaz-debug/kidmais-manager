@@ -32,7 +32,7 @@ export async function perguntasSemFonte(sessao: SessaoParaTenant, agora = new Da
     for (;;) {
       const linhas: (PassagemSemFonte & { id: string })[] = (await tx.query<PassagemSemFonte & { id: string }>(`SELECT id::text AS id, passagem->'ultimaMensagem' #>> '{}' AS "ultimaMensagem", passagem->>'em' AS em
           FROM whatsapp_atendimento_conversas
-         WHERE empresa_id=$1 AND ambiente=$2 AND passagem IS NOT NULL AND jsonb_typeof(passagem)='object' AND nao_contatar=false
+         WHERE empresa_id=$1 AND ambiente=$2 AND passagem IS NOT NULL AND jsonb_typeof(passagem)='object' AND jsonb_typeof(passagem->'ultimaMensagem')='string' AND nao_contatar=false
            AND (passagem->'motivos' ? 'INFORMACAO_INDISPONIVEL' OR passagem->>'motivo'='INFORMACAO_INDISPONIVEL')
            AND passagem->>'em' >= $3 AND passagem->>'em' <= $4
            AND ($5::text IS NULL OR (passagem->>'em', id::text) < ($5::text, $6::text))
