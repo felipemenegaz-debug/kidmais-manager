@@ -5,7 +5,7 @@ import { conectarDescartavel } from "../../comercial/postgres-descartavel.ts";
 import { MENSAGEM_ENCAMINHAMENTO } from "./core.ts";
 import * as multiempresa from "./multiempresa.ts";
 import { adiado, noPrazo } from "./harness-postgres.ts";
-import { aoFimDaTransacao, carregarMultiempresa, cod, comGancho, conexaoExtra, fixturesMultiempresa, flags, semGanchos, SENHA } from "./harness-multiempresa.ts";
+import { aoFimDaTransacao, aplicar135, carregarMultiempresa, cod, comGancho, conexaoExtra, fixturesMultiempresa, flags, semGanchos, SENHA } from "./harness-multiempresa.ts";
 import type { AlvoEnvio, DependenciasWorker } from "./worker.ts";
 
 /**
@@ -46,6 +46,7 @@ test("E-ME1 r2: corridas de status (1c-AB, 1c-BA, 1d) e de rodízio (3, 3b, 3d, 
   const q = (sql: string, v: unknown[] = []) => c.query(sql, v);
   const extra = await conexaoExtra();
   try {
+    await aplicar135(q); // Termos 2026-11-25: sem a 135 saída automática de quem paga a Meta não sai.
     await q(UP); await q(POS);
     const criarUsuario = async (papel: string) => (await q(`INSERT INTO usuarios_administrativos (email, nome, senha_hash, papel, ativo) VALUES ($1, 'Harness corridas', $2, $3, true) RETURNING id`, [`${cod("u")}@example.test`, SENHA, papel])).rows[0].id as string;
     const f = fixturesMultiempresa(q, criarUsuario);

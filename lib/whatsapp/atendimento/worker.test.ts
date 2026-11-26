@@ -6,6 +6,7 @@ import * as core from './core.ts';
 import * as transporte from './transporte.ts';
 import * as arquivos from './arquivos.ts';
 import * as multiempresa from './multiempresa.ts';
+import * as avisoEquipe from './aviso-equipe.ts';
 import * as motivoFalha from './motivo-falha.ts';
 import * as oportunidade from './walle/oportunidade.ts';
 import type { Conversa, Mensagem } from './service.ts';
@@ -22,7 +23,7 @@ function carregar(consulta: (sql: string, args?: unknown[]) => Promise<{rows: un
     '../../db/postgres.ts':{db:()=>({query}),withTransaction:async(fn:(tx:unknown)=>unknown)=>fn({query})},
     './configuracao.ts':{entendimentoSoRegras:()=>modoRegras.ativo,ambienteAtendimento:()=> 'staging',empresaPiloto:()=> 'e',atendimentoAtivo:()=>ativo,contatoPermitido:()=>permitido,origemMidia:()=>null},
     './arquivos.ts':arquivos,
-    './multiempresa.ts':multiempresa,
+    './multiempresa.ts':multiempresa, './aviso-equipe.ts': avisoEquipe,
     './core.ts':core,
     './motivo-falha.ts':motivoFalha,
     // 3b: teto mensal da Meta fora do alcance destas unidades (provado no PostgreSQL em teto-mensal.postgres.test.ts).
@@ -346,7 +347,7 @@ test('saída automática pendente gerada antes de a configuração mudar é canc
   assert.deepEqual(comandos.filter(c=>c.sql.includes("SET estado='AGUARDANDO_HUMANO',versao=versao+1")).map(c=>c.args),[['c']]);
 });
 test('mensagem humana e encaminhamento fixo não dependem das respostas publicadas: a revogação não os cancela',async()=>{
-  for (const m of [{...mensagem,origem_id:null,autor_usuario_id:'u'},{...mensagem,texto:core.MENSAGEM_ENCAMINHAMENTO}]) {
+  for (const m of [{...mensagem,origem_id:null,autor_usuario_id:'u'},{...mensagem,texto:core.MENSAGEM_ENCAMINHAMENTO,fonte:{origem:'ENCAMINHAMENTO_FIXO'}}]) {
     let envios=0; const comandos:string[]=[];
     const conv=m.autor_usuario_id?{...conversa,estado:'HUMANO' as const,responsavel_id:'u'}:{...conversa,estado:'AGUARDANDO_HUMANO' as const};
     const worker=carregar(async(sql)=>{
@@ -362,6 +363,22 @@ test('mensagem humana e encaminhamento fixo não dependem das respostas publicad
     assert.equal(envios,1);
     assert.equal(comandos.some(sql=>sql.includes('c.atualizada_em > m.criada_em')),false,'nem consulta a revogação');
   }
+});
+
+// Astra r3 (r4): o texto exato do encaminhamento SEM a origem gravada (FAQ da fase B, base sem a 082) passa pela revogação.
+test('texto do encaminhamento sem origem gravada: a revogação é consultada e cancela',async()=>{
+  let envios=0; const comandos:string[]=[];
+  const worker=carregar(async(sql)=>{
+    comandos.push(sql);
+    if(sql.includes("SELECT id FROM empresas")) return {rows:[{id:'e'}]};
+    if(sql.includes('SELECT m.*')) return {rows:[{...mensagem,texto:core.MENSAGEM_ENCAMINHAMENTO,fonte:null}]};
+    if(sql.includes('SELECT * FROM whatsapp_atendimento_conversas')) return {rows:[{...conversa,estado:'AGUARDANDO_HUMANO' as const}]};
+    if(sql.includes('c.atualizada_em > m.criada_em')) return {rows:[{'?column?':1}]};
+    return {rows:[]};
+  });
+  await worker.processarAtendimento({interpretar:async()=>{throw Error('IA proibida');},enviar:async()=>{envios++;return 'id';}});
+  assert.equal(comandos.some(sql=>sql.includes('c.atualizada_em > m.criada_em')),true,'consulta a revogação');
+  assert.equal(envios,0,'não sai');
 });
 
 test('saída revogada com a conversa já com a equipe: estado e responsável humanos são preservados',async()=>{
@@ -548,7 +565,11 @@ test('modo regras é conferido a cada uso: o worker lê a variável do canal (n�
   const raiz=readFileSync('app/api/admin/inteligencia/whatsapp/modelo.ts','utf8');
   assert.match(raiz,/interpretar: comModelo \? interpretarMensagem : null, entender: comModelo \? entenderComModelo : null/);
   // E-ME1: o envio leva a empresa dona da saída (alvo) para enviarPelaEmpresa.
-  assert.match(raiz,/processarLote\(\{interpretar:portas\.interpretar,enviar:\(contato, conteudo, alvo\) => enviarPelaEmpresa\(contato, conteudo, \{ alvo \}\),wallE:criarPortaWallE\(portas\.entender, \{ sinais: sinaisJev, direitoModelo: direitoModeloAtendimento \}\),direitoModelo:direitoModeloAtendimento\}/);
+  assert.match(raiz,/processarLote\(\{interpretar:portas\.interpretar,enviar:\(contato, conteudo, alvo\) => enviarPelaEmpresa\(contato, conteudo, \{ alvo \}\),wallE:criarPortaWallE\(portas\.entender, \{ sinais: sinaisJev, direitoModelo: direitoModeloAtendimento \}\),direitoModelo:direitoModeloAtendimento,/);
+  // Fatia 8: a porta do aviso vem da rota do processador (fora da pasta da IA) e só existe com o e-mail configurado.
+  assert.match(raiz,/direitoModelo:direitoModeloAtendimento,avisoEquipe\}/);
+  const rotaProcessar=readFileSync('app/api/integracoes/gupshup/atendimento/processar/route.ts','utf8');
+  assert.match(rotaProcessar,/const avisoEquipe = situacaoEmail\(\)\.configurado \? \{ enviar: criarEnviarEmail\(\), origem: \(\) => origemPublica\(\) \} : undefined;\n\s*return Response\.json\(await processarFilaAtendimento\(avisoEquipe\)/);
 });
 
 // Correção da pausa: a pausa reconhecida pelas regras vem antes do limite diário; nada sai, nem o texto fixo.
@@ -619,4 +640,127 @@ test('E-ME1: mensagem e conversa de empresas (ou ambientes) diferentes nunca sã
   assert.equal(valida(mensagem,conversa,agora),true);
   assert.equal(valida({...mensagem,empresa_id:'b'},conversa,agora),false);
   assert.equal(valida({...mensagem,ambiente:'production'},conversa,agora),false);
+});
+
+// Fatia 9 (Astra r4 da fatia 8): previsão de retorno pelo horário VIGENTE, com relógio fixo (deps.agora).
+// Domingo 29/11/2026 10h em São Paulo; a equipe abre na segunda às 9h.
+const domingo = () => new Date('2026-11-29T10:00:00-03:00');
+const horarioSeg = (inicio: string) => ({ seg: { inicio, fim: '18:00' } });
+const cfgComHorario = (inicio: string) => () => ({ativo:true,nome:'Kidmais',perguntas:[],limites:{respostasPor24h:20},horarioEquipe:horarioSeg(inicio)});
+type DepsComRelogio = Parameters<ReturnType<typeof carregar>['processarAtendimento']>[0];
+// Segunda 10h (dentro do horário): sem previsão. Os dois relógios juntos provam que a frase usa deps.agora, não a hora real.
+const segunda10 = () => new Date('2026-11-30T10:00:00-03:00');
+test('P-F8-2: pedido direto «atendente» na fase B, fora do horário: a resposta diz quando a equipe volta',async()=>{
+  for (const [relogio,esperado] of [[domingo,'Vou encaminhar seu pedido para um atendente. Sua mensagem foi encaminhada fora do horário de atendimento: a equipe responde na segunda-feira a partir das 9h.'],[segunda10,'Vou encaminhar seu pedido para um atendente. A resposta dependerá do horário da equipe.']] as const) {
+  const entrada={...mensagem,direcao:'ENTRADA',origem_id:null,texto:'atendente'};
+  const comandos:{sql:string;args?:unknown[]}[]=[];
+  const worker=carregar(async(sql,args)=>{
+    comandos.push({sql,args});
+    if(sql.includes("SELECT id FROM empresas")) return {rows:[{id:'e'}]};
+    if(sql.includes('SELECT m.*')) return {rows:[entrada]};
+    if(sql.includes('SELECT * FROM whatsapp_atendimento_conversas')) return {rows:[conversa]};
+    if(sql.includes("'SAIDA',$5,'PENDENTE',$6")) return {rows:[{id:'s'}]};
+    return {rows:[]};
+  },true,true,20,cfgComHorario('09:00'));
+  const deps={interpretar:async()=>{throw Error('IA proibida');},enviar:async()=>'id',agora:relogio} as unknown as DepsComRelogio;
+  assert.equal(await worker.processarAtendimento(deps),'PROCESSADA');
+  const saida=comandos.find(c=>c.sql.includes("'SAIDA',$5,'PENDENTE',$6"));
+  assert.equal(saida?.args?.[4],esperado);
+  assert.equal(comandos.find(c=>c.sql.includes('SET interesse=$2::jsonb'))?.args?.[2],'AGUARDANDO_HUMANO');
+  }
+});
+test('P-F8-2: contingência sem a 082 usa o horário salvo (antes descartado); sem horário, o texto antigo exato',async()=>{
+  for (const [cfg,esperado,relogio] of [[cfgComHorario('09:00'),core.mensagemEncaminhamento(horarioSeg('09:00'),domingo()),domingo],[cfgComHorario('09:00'),core.MENSAGEM_ENCAMINHAMENTO,segunda10],[undefined,core.MENSAGEM_ENCAMINHAMENTO,domingo]] as const) {
+    const entrada={...mensagem,direcao:'ENTRADA',origem_id:null,texto:'Qual o horário de vocês?'};
+    const comandos:{sql:string;args?:unknown[]}[]=[];
+    const worker=carregar(async(sql,args)=>{
+      comandos.push({sql,args});
+      if(sql.includes("SELECT id FROM empresas")) return {rows:[{id:'e'}]};
+      if(sql.includes('SELECT m.*')) return {rows:[entrada]};
+      if(sql.includes('SELECT * FROM whatsapp_atendimento_conversas')) return {rows:[conversa]};
+      return {rows:[]};
+    },true,true,20,cfg);
+    const deps={interpretar:async()=>{throw Error('ATENDIMENTO_MODELO_INDISPONIVEL');},enviar:async()=>'id',agora:relogio} as unknown as DepsComRelogio;
+    assert.equal(await worker.processarAtendimento(deps),'ENCAMINHADA');
+    const fixa=comandos.find(c=>c.sql.includes("'SAIDA',$5,'PENDENTE',$6"));
+    assert.equal(fixa?.args?.[4],esperado);
+  }
+  assert.match(core.mensagemEncaminhamento(horarioSeg('09:00'),domingo()),/na segunda-feira a partir das 9h\.$/);
+});
+test('P-F8-3/P-F8-4: contingência isenta é recomposta no despacho com o horário vigente e o relógio do envio',async()=>{
+  const casos=[
+    // Enfileirada prometendo 9h; a equipe corrigiu para 14h antes do despacho.
+    {composta:core.mensagemEncaminhamento(horarioSeg('09:00'),domingo()),inicio:'14:00',envio:domingo,esperado:core.mensagemEncaminhamento(horarioSeg('14:00'),domingo())},
+    // Composta segunda 08h59 (fora), enviada 09h01 (dentro): sai o texto sem previsão.
+    {composta:core.mensagemEncaminhamento(horarioSeg('09:00'),new Date('2026-11-30T08:59:00-03:00')),inicio:'09:00',envio:()=>new Date('2026-11-30T09:01:00-03:00'),esperado:core.MENSAGEM_ENCAMINHAMENTO},
+  ];
+  assert.match(casos[0].esperado,/a partir das 14h\.$/);
+  for (const caso of casos) {
+    const comandos:{sql:string;args?:unknown[]}[]=[]; const enviados:unknown[]=[];
+    const m={...mensagem,texto:caso.composta,fonte:{origem:'ENCAMINHAMENTO_FIXO'}};
+    const worker=carregar(async(sql,args)=>{
+      comandos.push({sql,args});
+      if(sql.includes("SELECT id FROM empresas")) return {rows:[{id:'e'}]};
+      if(sql.includes('SELECT m.*')) return {rows:[m]};
+      if(sql.includes('SELECT * FROM whatsapp_atendimento_conversas')) return {rows:[{...conversa,estado:'AGUARDANDO_HUMANO' as const}]};
+      if(sql.includes('c.atualizada_em > m.criada_em')) return {rows:[{'?column?':1}]};
+      return {rows:[]};
+    },true,true,20,cfgComHorario(caso.inicio));
+    const deps={interpretar:async()=>{throw Error('IA proibida');},enviar:async(_c:string,conteudo:unknown)=>{enviados.push(conteudo);return 'id';},agora:caso.envio} as unknown as DepsComRelogio;
+    assert.equal(await worker.processarAtendimento(deps),'SUBMETIDA','a isenção continua: a mudança da configuração não a revoga');
+    assert.equal(comandos.some(c=>c.sql.includes('c.atualizada_em > m.criada_em')),false);
+    assert.equal(enviados.length,1);
+    assert.equal((enviados[0] as {texto?:string}).texto,caso.esperado,'o provedor recebe o texto recomposto');
+    assert.deepEqual(comandos.find(c=>c.sql.includes('SET texto=$2'))?.args,['m',caso.esperado],'o texto gravado acompanha o enviado');
+    assert.doesNotMatch(caso.esperado,/Agora estamos/);
+  }
+});
+// Fatia 9 r2 (Astra r1, P-F9-3): um único instante por tarefa. A data da festa e a previsão usam o mesmo relógio (deps.agora,
+// lido uma vez). Datas longe do relógio real nos dois sentidos: um mutante que use o relógio do sistema erra uma delas.
+test('P-F9-3: data da festa e previsão no mesmo instante da tarefa (deps.agora lido uma vez)',async()=>{
+  const casos=[
+    // Relógio da tarefa: domingo 02/06/2030 10h; a festa em 01/06/2030 já passou (no relógio do sistema, ainda não).
+    {agora:'2030-06-02T10:00:00-03:00',data:'2030-06-01',esperado:'Essa data já passou. Qual é a data desejada para a festa, incluindo o ano?',estado:'IA'},
+    // Relógio da tarefa: domingo 05/01/2020 10h; a festa em 10/01/2020 ainda vem (no relógio do sistema, já passou).
+    {agora:'2020-01-05T10:00:00-03:00',data:'2020-01-10',esperado:'Registrei seu interesse para 10/01/2020 e 40 pessoas. Vou encaminhar para a equipe conferir disponibilidade, pacote e valores. A data ainda não está reservada. Sua mensagem foi encaminhada fora do horário de atendimento: a equipe responde na segunda-feira a partir das 9h.',estado:'AGUARDANDO_HUMANO'},
+  ];
+  for (const caso of casos) {
+    const entrada={...mensagem,direcao:'ENTRADA',origem_id:null,texto:'quero uma festa'};
+    const comandos:{sql:string;args?:unknown[]}[]=[];
+    const worker=carregar(async(sql,args)=>{
+      comandos.push({sql,args});
+      if(sql.includes("SELECT id FROM empresas")) return {rows:[{id:'e'}]};
+      if(sql.includes('SELECT m.*')) return {rows:[entrada]};
+      if(sql.includes('SELECT * FROM whatsapp_atendimento_conversas')) return {rows:[conversa]};
+      if(sql.includes("'SAIDA',$5,'PENDENTE',$6")) return {rows:[{id:'s'}]};
+      return {rows:[]};
+    },true,true,20,cfgComHorario('09:00'));
+    let leituras=0;
+    const deps={interpretar:async()=>({intencao:'INTERESSE' as const,perguntaId:null,data:caso.data,convidados:40}),enviar:async()=>'id',agora:()=>{leituras++;return new Date(caso.agora);}} as unknown as DepsComRelogio;
+    assert.equal(await worker.processarAtendimento(deps),'PROCESSADA');
+    assert.equal(comandos.find(c=>c.sql.includes("'SAIDA',$5,'PENDENTE',$6"))?.args?.[4],caso.esperado);
+    assert.equal(comandos.find(c=>c.sql.includes('SET interesse=$2::jsonb'))?.args?.[2],caso.estado);
+    assert.equal(leituras,1,'um único instante por tarefa');
+  }
+});
+// Fatia 9 r3 (Astra r2, P-F9-4): o despacho lê o relógio DEPOIS das travas. A tarefa começa segunda 08h59 (fora do horário,
+// abertura às 9h) e a trava da configuração (FOR SHARE) só é obtida às 09h01: a contingência sai SEM previsão.
+test('P-F9-4: despacho que espera a trava de 08h59 a 09h01 não promete a abertura (relógio lido depois das travas)',async()=>{
+  const comandos:{sql:string;args?:unknown[]}[]=[]; const enviados:unknown[]=[];
+  const composta=core.mensagemEncaminhamento(horarioSeg('09:00'),new Date('2026-11-30T08:58:00-03:00'));
+  assert.match(composta,/a partir das 9h\.$/);
+  let hora='2026-11-30T08:59:00-03:00'; let travas=0;
+  const m={...mensagem,texto:composta,fonte:{origem:'ENCAMINHAMENTO_FIXO'}};
+  const worker=carregar(async(sql,args)=>{
+    comandos.push({sql,args});
+    if(sql.includes("SELECT id FROM empresas")) return {rows:[{id:'e'}]};
+    if(sql.includes('SELECT m.*')) return {rows:[m]};
+    if(sql.includes('SELECT * FROM whatsapp_atendimento_conversas')) return {rows:[{...conversa,estado:'AGUARDANDO_HUMANO' as const}]};
+    return {rows:[]};
+  },true,true,20,(travar)=>{ if(travar){ travas++; hora='2026-11-30T09:01:00-03:00'; } return cfgComHorario('09:00')(); });
+  const deps={interpretar:async()=>{throw Error('IA proibida');},enviar:async(_c:string,conteudo:unknown)=>{enviados.push(conteudo);return 'id';},agora:()=>new Date(hora)} as unknown as DepsComRelogio;
+  assert.equal(await worker.processarAtendimento(deps),'SUBMETIDA');
+  assert.ok(travas>=1,'a trava da configuração foi obtida no despacho');
+  assert.equal((enviados[0] as {texto?:string}).texto,core.MENSAGEM_ENCAMINHAMENTO,'o provedor recebe o texto sem previsão');
+  assert.deepEqual(comandos.find(c=>c.sql.includes('SET texto=$2'))?.args,['m',core.MENSAGEM_ENCAMINHAMENTO],'o texto gravado acompanha o enviado');
 });

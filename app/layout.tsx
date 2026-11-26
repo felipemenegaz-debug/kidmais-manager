@@ -4,6 +4,7 @@ import type { ReactNode } from "react";
 import "./globals.css";
 import "@/components/site/tokens-publicos.css";
 import InstalarGuardiaoHistorico from "@/components/InstalarGuardiaoHistorico";
+import ObservadorDeRota from "@/components/ObservadorDeRota";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -29,7 +30,7 @@ export default function RootLayout({ children }: { children: ReactNode }) {
       lang="pt-BR"
       className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
     >
-      <body className="min-h-full flex flex-col"><InstalarGuardiaoHistorico />{children}</body>
+      <body className="min-h-full flex flex-col"><InstalarGuardiaoHistorico /><ObservadorDeRota />{children}</body>
     </html>
   );
 }

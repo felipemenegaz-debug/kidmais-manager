@@ -1,7 +1,7 @@
 /**
  * Catálogo das versões PUBLICADAS dos documentos legais anteriores às vigentes (grupo B, revisão 00cecac, P2-B2): texto
  * canônico e SHA-256 de cada versão, reconstruídos do histórico do Git da base staging 326895e com o módulo de cada
- * commit (gerado; não editar à mão), mais as vigentes do staging fc3e857f (commit d9bf69ff), substituídas pela R-5, e as R-5 2026-11-15 (commit b4997343, LIVE em staging 16/11/2026), substituídas pelas 2026-11-17. Permite recuperar o texto exato de aceites antigos, conferido pelo hash. Versões
+ * commit (gerado; não editar à mão), mais as vigentes do staging fc3e857f (commit d9bf69ff), substituídas pela R-5, e as R-5 2026-11-15 (commit b4997343, LIVE em staging 16/11/2026), substituídas pelas 2026-11-17, e os Termos 2026-11-17 (commit 9ddfe7ad), substituídos pelos 2026-11-25 (tarifas da Meta na conta do buffet). Permite recuperar o texto exato de aceites antigos, conferido pelo hash. Versões
  * locais nunca publicadas ficam fora. Versão sem texto aqui nem no banco é lacuna explícita (404), nunca trocada.
  */
 import { VERSOES_DPA } from './documentos-legais-historico-dpa.ts';

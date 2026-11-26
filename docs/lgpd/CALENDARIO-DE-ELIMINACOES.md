@@ -2,7 +2,7 @@
 
 **Estado (03/11/2026): procedimento LOCAL, documental, não publicado.** Responsável: Felipe Menegaz, encarregado da Demerzel Labs. Enquanto as rotinas automáticas não existirem, os textos prometem que os prazos são controlados "por procedimento operacional da Demerzel Labs, com registro das eliminações realizadas" (Aviso, "Armazenamento, segurança e retenção"; Termos, "Depois do teste ou da assinatura"). Este calendário é esse procedimento.
 
-Fonte de verdade: tabela de retenção do Aviso `2026-11-17-privacidade` e prazos dos Termos `2026-11-17-termos` e do DPA `2026-11-17-dpa`, em `lib/cadastro/documentos-legais.ts`. Se este calendário divergir dos textos, valem os textos. Nenhum prazo autoriza guardar todos os dados pelo maior prazo.
+Fonte de verdade: tabela de retenção do Aviso `2026-11-17-privacidade` e prazos dos Termos `2026-11-25-termos` e do DPA `2026-11-17-dpa`, em `lib/cadastro/documentos-legais.ts`. Se este calendário divergir dos textos, valem os textos. Nenhum prazo autoriza guardar todos os dados pelo maior prazo.
 
 Índice: [INDICE.md](INDICE.md). Toda eliminação vai para `Registro de copias e eliminacoes LGPD`, sem dados pessoais.
 

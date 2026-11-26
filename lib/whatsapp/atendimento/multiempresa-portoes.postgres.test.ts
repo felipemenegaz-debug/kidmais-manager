@@ -6,7 +6,7 @@ import { MENSAGEM_ENCAMINHAMENTO, type Interpretacao } from "./core.ts";
 import * as configuracaoReal from "./configuracao.ts";
 import * as multiempresa from "./multiempresa.ts";
 import { adiado, noPrazo } from "./harness-postgres.ts";
-import { barreira, carregarMultiempresa, cod, comGancho, falhaUmaVez, fixturesMultiempresa, flags, semGanchos, SENHA, type Origem } from "./harness-multiempresa.ts";
+import { aplicar135, barreira, carregarMultiempresa, cod, comGancho, falhaUmaVez, fixturesMultiempresa, flags, semGanchos, SENHA, type Origem } from "./harness-multiempresa.ts";
 import type { AlvoEnvio, DependenciasWorker } from "./worker.ts";
 
 /**
@@ -62,6 +62,7 @@ test("E-ME1 r2: portões nos pontos do worker, transitórios, status e escopos",
   const q = (sql: string, v: unknown[] = []) => c.query(sql, v);
   try {
     assert.equal((await q("SELECT to_regclass('public.whatsapp_atendimento_rodizio') AS r")).rows[0].r, null, "modelo sem a 117");
+    await aplicar135(q);
     const criarUsuario = async (papel: string) => (await q(`INSERT INTO usuarios_administrativos (email, nome, senha_hash, papel, ativo) VALUES ($1, 'Harness portões', $2, $3, true) RETURNING id`, [`${cod("u")}@example.test`, SENHA, papel])).rows[0].id as string;
     const f = fixturesMultiempresa(q, criarUsuario);
     const A = await f.empresa("A piloto"), B = await f.empresa("B");

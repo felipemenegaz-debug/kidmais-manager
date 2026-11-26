@@ -17,7 +17,7 @@ import { consumoDoMes, reservarConsumo, tetoDoMes } from "./teto-mensal.ts";
  * simulado (nenhuma rede). Teto
  * padrão 1.000 (o consumo é posto em 999 etc. direto na linha agregada, para não gerar 1.000 mensagens).
  *
- *  T0 sem a 135: sem teto, nada gravado; a 135 aplica com pre/post e a carga inicial conta só as saídas válidas do mês;
+ *  T0 sem a 135 (Termos 2026-11-25): o Wall-e não responde, a conversa vai à equipe (LIMITE_MENSAL), nada gravado; a 135 aplica com pre/post e a carga inicial conta só as saídas válidas do mês;
  *     pausa (Astra r3, P1): uma gravação aberta durante a 135 faz a migration esperar (LOCK) e entra na carga;
  *     portão de deploy (Astra r4, P1): sem `SET kidmais.portao_135` a 135 recusa sem efeito; postcheck recusa CHECK
  *     enfraquecida (regex do mês sem o grupo; usadas >= 1) (Astra r4, P3);
@@ -36,7 +36,7 @@ import { consumoDoMes, reservarConsumo, tetoDoMes } from "./teto-mensal.ts";
  *  T11 retry com a saída já gravada (Astra r3, P2): o INSERT não grava nada e a reserva é 0 (pelo RETURNING);
  *  T12 revogação no atalho ATINGIDO (Astra r3, P2): empresa revogada entre a leitura e a trava ⇒ entrada CANCELADA, sem
  *     passar à equipe;
- *  T8 down da 135: a tabela some e o Wall-e volta a responder sem teto.
+ *  T8a com a 135 uma saída automática já enfileirada sai sem nova reserva; T8 depois do down da 135 uma entrada nova passa à equipe (consumo não apurável) T8b um grupo de 2 saídas automáticas em conversa IA é cancelado sem chamar o transporte e vai à equipe, e T8c uma saída obsoleta (versão mudou) é cancelada sem encaminhar nem mudar a versão.
  */
 const ler = (f: string) => readFileSync(f, "utf8");
 const MIGRATIONS = [
@@ -108,9 +108,12 @@ test("3b r5: teto mensal do Wall-e pela Meta com reserva atômica pelo gravado e
     // Conta só os envios para o contato (uma resposta da equipe ainda na fila pode sair no mesmo lote).
     const respondeu = async (contato: string, texto?: string) => { await receber(contato, texto); await processar(); return envios.filter((x) => x === contato).length; };
 
-    // T0 — sem a 135: o Wall-e responde sem teto e nada é gravado; depois a 135 aplica com a carga inicial do mês.
+    // T0 — sem a 135 (Termos 2026-11-25): o Wall-e não responde, a conversa vai à equipe e nada é gravado; depois a 135
+    // aplica com a carga inicial do mês.
     const c0 = novoContato();
-    assert.equal(await respondeu(c0), 1, "T0: sem a 135 o Wall-e responde");
+    assert.equal(await respondeu(c0), 0, "T0: sem a 135 o Wall-e não responde");
+    assert.equal((await conversa(c0)).estado, "AGUARDANDO_HUMANO", "T0: sem a 135 a conversa vai à equipe");
+    assert.equal((await conversa(c0)).passagem?.motivos?.includes("LIMITE_MENSAL"), true, "T0: motivo LIMITE_MENSAL");
     assert.equal(await usadas(), null, "T0: sem a 135 não há consumo");
     const cv0 = await conversa(c0);
     await q(`INSERT INTO whatsapp_atendimento_mensagens (conversa_id, empresa_id, ambiente, direcao, texto, estado, autor_usuario_id, versao_conversa, criada_em)
@@ -152,7 +155,7 @@ test("3b r5: teto mensal do Wall-e pela Meta com reserva atômica pelo gravado e
     }
     await q(POST_135);
     await assert.rejects(q(PRE_135), /135 já presente/, "T0: o precheck recusa reaplicar");
-    assert.equal(await usadas(), 3, "T0: carga inicial = Wall-e + equipe + a gravada durante a 135; FALHOU, CANCELADA e mês anterior fora");
+    assert.equal(await usadas(), 2, "T0: carga inicial = equipe + a gravada durante a 135 (sem a 135 o Wall-e não respondeu); FALHOU, CANCELADA e mês anterior fora");
     assert.equal(await usadas(B), 0, "T0: B sem saídas, sem linha");
 
     // T1 — isolamento por empresa e ambiente: 3 para A, 0 para B, 0 no outro ambiente de A.
@@ -306,10 +309,68 @@ test("3b r5: teto mensal do Wall-e pela Meta com reserva atômica pelo gravado e
     assert.deepEqual(chamadas, antes12, "T12: nem Wall-e nem fase B");
     assert.equal(await saidasDe(c12), 0, "T12: nada sai");
 
-    // T8 — down da 135: a tabela some e o Wall-e volta a responder sem teto.
+    // Saída automática já enfileirada (Astra r2 dos Termos, P1). Com a 135: sai, sem nova reserva (a reserva é da gravação).
+    const enfileirar = async (contato: string) => {
+      const cv = await conversa(contato);
+      return id(`INSERT INTO whatsapp_atendimento_mensagens (conversa_id, empresa_id, ambiente, direcao, texto, estado, versao_conversa)
+        VALUES ($1, $2, 'staging', 'SAIDA', 'sintética enfileirada sem reserva', 'PENDENTE', $3) RETURNING id`, [cv.id, A, cv.versao]);
+    };
+    const estadoDe = async (m: string) => (await q("SELECT estado FROM whatsapp_atendimento_mensagens WHERE id = $1", [m])).rows[0].estado as string;
+    const motivoDe = async (m: string) => (await q("SELECT to_jsonb(m)->>'motivo_cancelamento' AS motivo FROM whatsapp_atendimento_mensagens m WHERE id = $1", [m])).rows[0].motivo as string | null;
+    await fixar(500);
+    const s8a = await enfileirar(c0);
+    const envios8a = envios.filter((x) => x === c0).length;
+    await processar();
+    assert.equal(envios.filter((x) => x === c0).length, envios8a + 1, "T8a: com a 135 a saída enfileirada sai");
+    assert.notEqual(await estadoDe(s8a), "CANCELADA", "T8a: não cancelada");
+    assert.equal(await usadas(), 500, "T8a: o envio não reserva de novo");
+
+    // T8 — down da 135: a tabela some; o Wall-e não responde e nenhuma saída automática vai ao provedor.
     await q(DOWN_135);
     assert.equal((await q("SELECT to_regclass('public.whatsapp_atendimento_consumo_mensal') IS NULL AS ausente")).rows[0].ausente, true, "T8: tabela removida");
-    assert.equal(await respondeu(novoContato()), 1, "T8: sem a 135, sem teto");
+    const c8 = novoContato();
+    assert.equal(await respondeu(c8), 0, "T8: sem a 135 o Wall-e não responde");
+    assert.equal((await conversa(c8)).estado, "AGUARDANDO_HUMANO", "T8: sem a 135 a conversa vai à equipe");
+    // T8b — saída automática enfileirada sem a 135 (Astra r2/r3 dos Termos): conversa em IA com um grupo de 2 saídas da
+    // mesma entrada; as duas são canceladas, zero chamadas ao transporte e a conversa termina com a equipe.
+    const grupoDe = async (contato: string, base: number, texto = "sintética do grupo sem reserva") => {
+      const cv = await conversa(contato);
+      // Entrada sintética já PROCESSADA, própria deste grupo: grupos de casos diferentes nunca se misturam (o caminho M2 de
+      // grupo incompleto olha as irmãs da mesma origem).
+      const origem = await id(`INSERT INTO whatsapp_atendimento_mensagens (conversa_id, empresa_id, ambiente, direcao, texto, estado, versao_conversa, externa_id)
+        VALUES ($1, $2, 'staging', 'ENTRADA', 'origem sintética do grupo', 'PROCESSADA', $3, gen_random_uuid()::text) RETURNING id`, [cv.id, A, cv.versao]);
+      const parte = (ordem: number) => id(`INSERT INTO whatsapp_atendimento_mensagens (conversa_id, empresa_id, ambiente, direcao, texto, estado, versao_conversa, origem_grupo_id, ordem)
+        VALUES ($1, $2, 'staging', 'SAIDA', $6, 'PENDENTE', $3, $4, $5) RETURNING id`, [cv.id, A, cv.versao, origem, ordem, texto]);
+      return [await parte(base + 1), await parte(base + 2)];
+    };
+    await q("UPDATE whatsapp_atendimento_conversas SET estado = 'IA' WHERE empresa_id = $1 AND contato = $2", [A, c0]);
+    const g8b = await grupoDe(c0, 0);
+    const envios8b = envios.length;
+    await processar();
+    assert.equal(envios.length, envios8b, "T8b: sem a 135 nenhuma chamada ao transporte");
+    assert.deepEqual([await estadoDe(g8b[0]), await estadoDe(g8b[1])], ["CANCELADA", "CANCELADA"], "T8b: as duas saídas do grupo canceladas");
+    // Astra r4 (P3): a irmã é cancelada pelo tratamento do grupo, não pela reserva seguinte (que não grava motivo).
+    assert.equal(await motivoDe(g8b[1]), "GRUPO_INCOMPLETO", "T8b: irmã cancelada pelo grupo");
+    assert.equal((await conversa(c0)).estado, "AGUARDANDO_HUMANO", "T8b: a conversa passa à equipe");
+    assert.equal(await usadas(), null, "T8b: sem a 135 não há consumo");
+    // T8c — corrida da Astra r3 (P2): uma entrada nova muda a versão da conversa DEPOIS da reserva da saída (PENDENTE →
+    // PROCESSANDO) e ANTES do envio. Um gatilho temporário faz a mudança na própria reserva, o que só deixa a corrida
+    // determinística. Na trava sem a 135 a saída e a irmã são canceladas, mas a conversa não é encaminhada nem tem a versão
+    // incrementada (a entrada nova segue o próprio caminho).
+    await q("UPDATE whatsapp_atendimento_conversas SET estado = 'IA' WHERE empresa_id = $1 AND contato = $2", [A, c0]);
+    await q(`CREATE FUNCTION public.t8c_versao() RETURNS trigger LANGUAGE plpgsql AS $f$ BEGIN
+      UPDATE whatsapp_atendimento_conversas SET versao = versao + 1 WHERE id = NEW.conversa_id; RETURN NEW; END $f$`);
+    await q(`CREATE TRIGGER t8c_versao AFTER UPDATE OF estado ON whatsapp_atendimento_mensagens FOR EACH ROW
+      WHEN (OLD.estado = 'PENDENTE' AND NEW.estado = 'PROCESSANDO' AND NEW.texto = 't8c obsoleta') EXECUTE FUNCTION public.t8c_versao()`);
+    const g8c = await grupoDe(c0, 0, "t8c obsoleta");
+    const versao8c = Number((await conversa(c0)).versao);
+    const envios8c = envios.length;
+    try { await processar(); } finally { await q("DROP TRIGGER t8c_versao ON whatsapp_atendimento_mensagens"); await q("DROP FUNCTION public.t8c_versao()"); }
+    assert.equal(envios.length, envios8c, "T8c: nada vai ao transporte");
+    assert.deepEqual([await estadoDe(g8c[0]), await estadoDe(g8c[1])], ["CANCELADA", "CANCELADA"], "T8c: saída obsoleta e irmã canceladas");
+    assert.equal(await motivoDe(g8c[1]), "GRUPO_INCOMPLETO", "T8c: irmã cancelada pelo grupo");
+    assert.equal((await conversa(c0)).estado, "IA", "T8c: saída obsoleta não encaminha a conversa");
+    assert.equal(Number((await conversa(c0)).versao), versao8c + 1, "T8c: só a mudança da entrada nova (+1); a trava não incrementa");
   } finally {
     if (envAntes.teto === undefined) delete process.env.WHATSAPP_TETO_MENSAL_RESPOSTAS; else process.env.WHATSAPP_TETO_MENSAL_RESPOSTAS = envAntes.teto;
     if (envAntes.canal === undefined) delete process.env.WHATSAPP_ATENDIMENTO_CANAL_ENVIO; else process.env.WHATSAPP_ATENDIMENTO_CANAL_ENVIO = envAntes.canal;

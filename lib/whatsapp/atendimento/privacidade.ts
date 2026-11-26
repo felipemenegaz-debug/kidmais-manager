@@ -7,6 +7,7 @@ import { ambienteAtendimento } from './configuracao.ts';
 import { JANELA_REENTREGA_DIAS, semAutomatico } from './core.ts';
 import { ARQUIVO_DISPONIVEL_SQL, caminhoPublicoArquivo } from './arquivos.ts';
 import { anonimizarOportunidadesDaConversa } from './walle/oportunidade.ts';
+import { marcaNaFila } from './aviso-equipe.ts';
 
 /**
  * Privacidade do atendimento (D2 e D3), revisada em 12/10/2026. Tudo grava em whatsapp_atendimento_privacidade (082), sem
@@ -308,7 +309,7 @@ async function cancelarFilaDoArquivo(tx: DbExecutor, arquivoId: string, empresa:
     if (!(await tx.query('SELECT id FROM whatsapp_atendimento_conversas WHERE id=$1 FOR UPDATE SKIP LOCKED', [conversaId])).rows.length) continue;
     if (c.prontas.length) await tx.query(`UPDATE whatsapp_atendimento_conversas SET contexto=jsonb_set(contexto,'{enviados}',COALESCE((SELECT jsonb_agg(e) FROM jsonb_array_elements(contexto->'enviados') e
       WHERE NOT (e->>'prontaId' = ANY($2::text[]))),'[]'::jsonb)) WHERE id=$1 AND jsonb_typeof(contexto->'enviados')='array'`, [conversaId, c.prontas]);
-    if (c.automatica) await tx.query("UPDATE whatsapp_atendimento_conversas SET estado='AGUARDANDO_HUMANO',versao=versao+1,atualizada_em=clock_timestamp() WHERE id=$1 AND estado='IA'", [conversaId]);
+    if (c.automatica) await tx.query(`UPDATE whatsapp_atendimento_conversas SET estado='AGUARDANDO_HUMANO'${marcaNaFila(true)},versao=versao+1,atualizada_em=clock_timestamp() WHERE id=$1 AND estado='IA'`, [conversaId]);
   }
   return linhas.length;
 }
