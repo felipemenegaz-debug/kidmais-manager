@@ -194,16 +194,21 @@ const MARCADOR_OMITIDO = /\[[^\]\n]{0,40}omitid[ao][^\]\n]{0,40}\]/iu;
  * apagar o resto da frase), e o fim do nome é sempre ambíguo ("me chamo [nome omitido] silva" deixa o sobrenome).
  * Onde o texto vai ser publicado não há exceção: com o gatilho seguido de qualquer palavra ou marcador, a mensagem
  * inteira não vira sugestão e a pergunta é recusada no salvar. Conservador de propósito: "meu filho vai fazer 5 anos"
- * também sai da lista (é pergunta pessoal, não pergunta geral para uma resposta aprovada).
+ * também sai da lista (é pergunta pessoal, não pergunta geral para uma resposta aprovada). Parentes adultos também
+ * ("minha irmã ana", Astra r3). Depois do gatilho, espaço obrigatório (Astra r3, P2: "sou obrigado" não é apresentação).
  * "O pai do aniversariante paga?" (papel, sem "sou" nem "meu/minha") continua valendo.
  */
-const PARENTESCO = '(?:filho|filha|neto|neta|sobrinho|sobrinha|enteado|enteada|afilhado|afilhada|bebe|menino|menina)s?';
+const PARENTESCO = '(?:filho|filha|neto|neta|sobrinho|sobrinha|enteado|enteada|afilhado|afilhada|bebe|menino|menina'
+  + '|irma|irmao|mae|pai|avo|tio|tia|primo|prima|esposa|esposo|marido)s?';
 const APRESENTACAO = new RegExp('(?<![\\p{L}])(?:meu nome e|me chamo|eu chamo|chamo|se chama|chama se|aqui e (?:a|o)|sou (?:a|o)'
   + '|sou (?:mae|pai|avo|tia|tio|madrinha|padrinho|irma|irmao) d[ao]|nome d(?:ele|ela|o|a|os|as)(?: \\p{L}+){0,3} e'
-  + '|(?:o|a) aniversariante (?:e|se chama)|(?:meu|minha|meus|minhas) ' + PARENTESCO + ')\\s*(?:\\[|\\p{L})', 'u');
-/** Texto uniforme para as checagens de privacidade da fatia: normalizado, sem acento, minúsculo, pontuação e espaços únicos. */
-function uniforme(texto: string) {
-  return semAcentoMinusculo(normalizarParaPrivacidade(texto)).replace(/[^\p{L}\p{N}\s[\]]/gu, ' ').replace(/\s+/gu, ' ').trim();
+  + '|(?:o|a) aniversariante (?:e|se chama)|(?:meu|minha|meus|minhas) ' + PARENTESCO + ')\\s+(?:\\[|\\p{L})', 'u');
+/**
+ * Texto uniforme para as checagens de privacidade da fatia: normalizado, sem acento, minúsculo, pontuação e espaços
+ * únicos. Com `colchetes` false, os colchetes também viram separador (saúde: "pressão[alta]", Astra r3).
+ */
+function uniforme(texto: string, colchetes = true) {
+  return semAcentoMinusculo(normalizarParaPrivacidade(texto)).replace(colchetes ? /[^\p{L}\p{N}\s[\]]/gu : /[^\p{L}\p{N}\s]/gu, ' ').replace(/\s+/gu, ' ').trim();
 }
 export function apresentacaoComNome(texto: string) {
   return APRESENTACAO.test(uniforme(texto));
@@ -214,7 +219,7 @@ export function apresentacaoComNome(texto: string) {
  */
 export function sensivelParaPublicar(texto: string) {
   const n = normalizarParaPrivacidade(texto);
-  return dadoSensivel(n) || dadoSensivel(n.replace(/\s+/gu, ' ')) || dadoSensivel(uniforme(n));
+  return dadoSensivel(n) || dadoSensivel(n.replace(/\s+/gu, ' ')) || dadoSensivel(uniforme(n)) || dadoSensivel(uniforme(n, false));
 }
 /**
  * Fatia 7 — validação do texto que será publicado como pergunta aprovada (Onda 2): recusa marcador de dado omitido

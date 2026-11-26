@@ -43,7 +43,7 @@ const SEM_LINK: Record<Extract<LinkPublico, { ok: false }>['motivo'], string> = 
  * limites e opções avançadas. Separada da conversa: nada aqui fica entre o histórico e a resposta.
  */
 export default function ConfiguracaoAtendimento() {
-  const [dados, setDados] = useState<Dados | null>(null), [config, setConfig] = useState<Configuracao | null>(null), [erro, setErro] = useState(''), [aviso, setAviso] = useState(''), [ocupado, setOcupado] = useState(false), [bloqueio, setBloqueio] = useState<BloqueioAtendimento | null>(null), [emailsTexto, setEmailsTexto] = useState<string | null>(null);
+  const [dados, setDados] = useState<Dados | null>(null), [config, setConfig] = useState<Configuracao | null>(null), [erro, setErro] = useState(''), [aviso, setAviso] = useState(''), [ocupado, setOcupado] = useState(false), [bloqueio, setBloqueio] = useState<BloqueioAtendimento | null>(null), [emailsTexto, setEmailsTexto] = useState<string | null>(null), [vinculos, setVinculos] = useState<Record<string, string>>({});
   const carregar = useCallback(async () => {
     try {
       const r = await adminFetch('/api/admin/atendimento'); const json = await r.json();
@@ -61,13 +61,19 @@ export default function ConfiguracaoAtendimento() {
     try { const r = await adminFetch('/api/admin/atendimento', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ acao: 'configurar', configuracao: enviar }) }); const json = await r.json(); if (!r.ok || !json.ok) throw Error(json.erro || 'Confira os campos da configuração.'); setAviso('Configuração salva.'); await carregar(); }
     catch (e) { setErro(e instanceof Error ? e.message : 'Falha ao salvar.'); } finally { setOcupado(false); }
   }
-  /** Fatia 7: nova resposta aprovada já com a pergunta mascarada; a pessoa escreve a resposta (foco no campo). */
-  function criarResposta(pergunta = '') {
+  /**
+   * Nova resposta aprovada, sempre com a pergunta VAZIA. Vinda da lista de perguntas sem fonte (fatia 7), fica ligada ao
+   * grupo só na memória da tela (o texto do cliente nunca é copiado) e o foco vai para a pergunta, que a pessoa escreve.
+   */
+  function criarResposta(grupoId?: string) {
     if (!config || config.perguntas.length >= LIMITE_PERGUNTAS_APROVADAS) return;
     const id = 'faq_' + crypto.randomUUID().slice(0, 8);
-    setConfig({ ...config, perguntas: [...config.perguntas, { id, pergunta, resposta: '' }] });
-    if (pergunta) window.setTimeout(() => document.getElementById('resposta-' + id)?.focus(), 0);
+    setConfig({ ...config, perguntas: [...config.perguntas, { id, pergunta: '', resposta: '' }] });
+    if (grupoId) { setVinculos(v => ({ ...v, [id]: grupoId })); window.setTimeout(() => document.getElementById('pergunta-' + id)?.focus(), 0); }
   }
+  /** Pergunta salva com o mesmo id e o mesmo texto: o servidor aceita (exceção das antigas); a tela só aponta as novas ou alteradas. */
+  const salvasPorId = new Map((dados?.configuracao?.perguntas ?? []).map(p => [p.id, p.pergunta]));
+  const perguntaInvalida = (p: { id: string; pergunta: string }) => salvasPorId.get(p.id) !== p.pergunta && perguntaComDadoPessoal(p.pergunta);
   const esgotado = (config?.perguntas.length ?? 0) >= LIMITE_PERGUNTAS_APROVADAS;
   const link = dados?.wallE?.linkPublico;
   const nome = config?.nome.trim() || 'sua empresa';
@@ -97,10 +103,10 @@ export default function ConfiguracaoAtendimento() {
         </> : <p className={styles.nota}>{link ? SEM_LINK[link.motivo] : 'Disponível depois da atualização deste ambiente.'}</p>}
         <h3>Respostas aprovadas</h3>
         <p className={styles.nota}>Perguntas frequentes com a resposta exata da empresa. São usadas como estão; nada de preço, desconto, disponibilidade ou condição é criado.</p>
-        {config.perguntas.map((p, index) => <fieldset key={p.id}><legend>Resposta {index + 1}</legend><label>Pergunta do cliente<input value={p.pergunta} required minLength={3} maxLength={250} aria-invalid={perguntaComDadoPessoal(p.pergunta) || undefined} aria-describedby={perguntaComDadoPessoal(p.pergunta) ? 'pergunta-dado-' + p.id : undefined} onChange={e => setConfig({ ...config, perguntas: config.perguntas.map((x, i) => i === index ? { ...x, pergunta: e.target.value } : x) })} /></label>{perguntaComDadoPessoal(p.pergunta) && <p id={'pergunta-dado-' + p.id} className={styles.erro}>Esta pergunta tem dado pessoal ou um trecho omitido. Reescreva de forma geral, sem dados do cliente.</p>}<label>Resposta aprovada<textarea id={'resposta-' + p.id} value={p.resposta} required minLength={3} maxLength={1500} onChange={e => setConfig({ ...config, perguntas: config.perguntas.map((x, i) => i === index ? { ...x, resposta: e.target.value } : x) })} /></label><button type="button" onClick={() => setConfig({ ...config, perguntas: config.perguntas.filter((_, i) => i !== index) })}>Remover resposta<span className={styles.oculto}> {index + 1}</span></button></fieldset>)}
+        {config.perguntas.map((p, index) => <fieldset key={p.id}><legend>Resposta {index + 1}</legend><label>Pergunta do cliente<input id={'pergunta-' + p.id} value={p.pergunta} placeholder="Escreva de forma geral, sem nome nem contato" required minLength={3} maxLength={250} aria-invalid={perguntaInvalida(p) || undefined} aria-describedby={perguntaInvalida(p) ? 'pergunta-dado-' + p.id : undefined} onChange={e => setConfig({ ...config, perguntas: config.perguntas.map((x, i) => i === index ? { ...x, pergunta: e.target.value } : x) })} /></label>{perguntaInvalida(p) && <p id={'pergunta-dado-' + p.id} className={styles.erro}>Esta pergunta tem dado pessoal ou um trecho omitido. Reescreva de forma geral, sem dados do cliente.</p>}<label>Resposta aprovada<textarea id={'resposta-' + p.id} value={p.resposta} required minLength={3} maxLength={1500} onChange={e => setConfig({ ...config, perguntas: config.perguntas.map((x, i) => i === index ? { ...x, resposta: e.target.value } : x) })} /></label><button type="button" onClick={() => setConfig({ ...config, perguntas: config.perguntas.filter((_, i) => i !== index) })}>Remover resposta<span className={styles.oculto}> {index + 1}</span></button></fieldset>)}
         <button type="button" disabled={esgotado} onClick={() => criarResposta()}>Adicionar resposta</button>
         {esgotado && <p className={styles.limiteEsgotado} role="status">Limite de {LIMITE_PERGUNTAS_APROVADAS} respostas aprovadas atingido: remova uma resposta para criar outra.</p>}
-        {dados.wallE?.disponivel && <PerguntasSemFonte perguntasPublicadas={(dados.configuracao?.perguntas ?? []).map(p => p.pergunta)} perguntasNoFormulario={config.perguntas.map(p => p.pergunta)} limite={LIMITE_PERGUNTAS_APROVADAS} onCriar={criarResposta} />}
+        {dados.wallE?.disponivel && <PerguntasSemFonte salvas={dados.configuracao?.perguntas ?? []} formulario={config.perguntas} vinculos={vinculos} limite={LIMITE_PERGUNTAS_APROVADAS} onCriar={criarResposta} />}
       </section>
       <section className={styles.painel} aria-labelledby="config-equipe"><h2 id="config-equipe">Horário da equipe e avisos</h2>
         <p className={styles.nota}>Fora deste horário (de Brasília), quando o Wall-e passa a conversa para a equipe, ele avisa o cliente quando a equipe responde, com uma frase fixa. Sem horário marcado, nada muda.</p>

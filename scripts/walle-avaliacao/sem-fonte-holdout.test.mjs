@@ -1,6 +1,7 @@
 // Fatia 7 (Wall-e): a pergunta que nenhuma fonte respondeu (passagem INFORMACAO_INDISPONIVEL) vira resposta aprovada pelo
-// caminho da tela: o texto gravado na passagem (trechoParaRegistro) → perguntaSugerida (máscara de novo) → a pessoa
-// escreve a resposta → configuração salva. Depois disso, a mesma pergunta e variações (holdout sintético escrito para
+// caminho da tela: o texto gravado na passagem (trechoParaRegistro) → perguntaSugerida (máscara de novo, só leitura na
+// lista) → a pessoa escreve a pergunta com as palavras dela e a resposta → configuração salva (r4, desenho novo: nada é
+// copiado da lista para o formulário). Depois disso, a mesma pergunta e variações (holdout sintético escrito para
 // esta fatia, que não entra em nenhum ajuste das regras) são respondidas com a resposta aprovada, sem passagem.
 // Caminho real da conversa simulado sem banco e sem rede, como em regressao-holdouts.test.mjs.
 //   node --experimental-strip-types --test scripts/walle-avaliacao/sem-fonte-holdout.test.mjs
@@ -50,17 +51,17 @@ test('fatia 7: pergunta sem fonte passa para a equipe, vira resposta aprovada ma
     const sugerida = texto.perguntaSugerida(r.passagem.ultimaMensagem);
     assert.ok(sugerida, caso.id);
     assert.ok(!/1198765|fulana@|exemplo\.com/i.test(sugerida), `${caso.id}: dado à mostra: ${sugerida}`);
-    assert.equal(texto.perguntaComDadoPessoal(sugerida), true, `${caso.id}: a pessoa precisa revisar o texto com marcador`);
-    // 2) A mensagem só com a pergunta: o pré-preenchimento sai limpo e é aceito como está.
+    assert.equal(texto.perguntaComDadoPessoal(sugerida), true, `${caso.id}: texto com marcador seria recusado se alguém o digitasse`);
+    // 2) A mensagem só com a pergunta: a lista mostra o texto limpo.
     const [antes] = await simularSequencia(m, [item(`${caso.id}-antes`, caso.pergunta)], { catalogos: CATALOGOS, config: CONFIG, fontes: FONTES, agora: AGORA, entender: entender(CATALOGOS) });
     assert.equal(antes.decisao, 'EQUIPE', `${caso.id}: ${antes.decisao} ${antes.motivos}`);
     assert.ok(antes.motivos.includes('INFORMACAO_INDISPONIVEL'), `${caso.id}: ${antes.motivos}`);
     const r2 = await res.resolverWallE({ texto: caso.pergunta, entendimento: ent.entenderPorRegras(caso.pergunta, CATALOGOS, {}), contexto: {}, config: CONFIG, catalogos: CATALOGOS, agora: AGORA }, FONTES);
-    const prefill = texto.perguntaSugerida(r2.passagem.ultimaMensagem);
-    assert.equal(prefill, caso.pergunta);
-    assert.equal(texto.perguntaComDadoPessoal(prefill), false);
-    // 3) A pessoa escreve a resposta e salva (mesmo schema da configuração, limite de 30).
-    const nova = { id: `faq_${caso.id}`, pergunta: prefill, resposta: caso.resposta };
+    const mostrada = texto.perguntaSugerida(r2.passagem.ultimaMensagem);
+    assert.equal(mostrada, caso.pergunta);
+    // 3) A pessoa escreve a pergunta (aqui, a mesma que leu) e a resposta, e salva (mesmo schema da configuração, limite de 30).
+    assert.equal(texto.perguntaComDadoPessoal(caso.pergunta), false);
+    const nova = { id: `faq_${caso.id}`, pergunta: caso.pergunta, resposta: caso.resposta };
     const config = core.configuracaoSchema.parse({ ...CONFIG, perguntas: [...CONFIG.perguntas, nova] });
     const catalogos = { ...CATALOGOS, perguntas: config.perguntas };
     // 4) Depois: a pergunta e as variações são respondidas com a resposta aprovada, sem passar para a equipe.

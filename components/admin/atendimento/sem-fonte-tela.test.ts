@@ -6,13 +6,13 @@ import * as horario from '../../../lib/whatsapp/atendimento/horario.ts';
 import * as semFonteTexto from '../../../lib/whatsapp/atendimento/sem-fonte-texto.ts';
 import { achar, carregarComponente, cssFalso, elementos, texto, tique, type Elemento } from '../teste-componente.ts';
 
-// Fatia 7 (Astra r2, P3): o selo da lista acompanha a tela de configuração SEM remontar: rascunho logo depois de
-// "Criar resposta", "Já tem resposta aprovada" depois de salvar (a configuração é recarregada da API) e o botão de volta
-// depois de remover e salvar. Tela renderizada sem DOM, com a API simulada (o servidor guarda o que o POST mandou).
+// Fatia 7 (desenho novo, Astra r2/r3 P3): pela tela, SEM remontar: o botão "Criar resposta" da lista abre uma pergunta
+// VAZIA (o texto do cliente nunca é copiado), a pessoa escreve pergunta e resposta, salva ("Já tem resposta aprovada")
+// e o botão volta depois de remover e salvar. Tela renderizada sem DOM, com a API simulada (o servidor guarda o que o POST mandou).
 const GRUPO = { id: 'g1', texto: 'Tem fraldário?', ocorrencias: 2, ultimaEm: '2027-01-19T10:00:00.000Z', jaPublicada: false, precisaRevisar: false };
 
-function montar() {
-  let salva: { perguntas: { id: string; pergunta: string; resposta: string }[] } & Record<string, unknown> = { ativo: false, nome: 'Empresa sintética', perguntas: [], limites: { respostasPor24h: 20 }, wallE: { ativo: false } };
+function montar(perguntasIniciais: { id: string; pergunta: string; resposta: string }[] = []) {
+  let salva: { perguntas: { id: string; pergunta: string; resposta: string }[] } & Record<string, unknown> = { ativo: false, nome: 'Empresa sintética', perguntas: perguntasIniciais, limites: { respostasPor24h: 20 }, wallE: { ativo: false } };
   const gets: string[] = [];
   const adminFetch = async (url: string, init?: { method?: string; body?: unknown }) => {
     if (init?.method === 'POST') salva = JSON.parse(String(init.body)).configuracao;
@@ -40,47 +40,62 @@ function montar() {
 const propsDaLista = (t: unknown, Lista: unknown) => elementos(t).find((e) => e.type === Lista)!.props;
 const submeter = async (t: unknown) => { (achar(t, 'form').props.onSubmit as (e: unknown) => void)({ preventDefault() {} }); await new Promise((r) => setTimeout(r, 5)); await tique(); await tique(); };
 
-test('sem fonte na tela: rascunho, publicada depois de salvar e o botão de volta depois de remover e salvar', async () => {
+const inputsPergunta = (t: unknown) => elementos(t).filter((e) => e.type === 'input' && String(e.props.id ?? '').startsWith('pergunta-')) as Elemento[];
+const digitar = (el: Elemento, valor: string) => (el.props.onChange as (ev: unknown) => void)({ target: { value: valor } });
+
+test('sem fonte na tela: botão da lista abre pergunta vazia, a pessoa escreve, salva e o botão volta depois de remover', async () => {
   const m = montar();
   let t = await m.render();
   let props = propsDaLista(t, m.Lista);
   let l = await m.renderLista(props);
-  assert.ok(achar(l, 'button', /Criar resposta/));
 
-  // 1) Criar resposta: só no formulário → rascunho (nunca "Já tem resposta aprovada" antes de salvar).
-  (props.onCriar as (x: string) => void)(GRUPO.texto);
+  // 1) Clique no botão "Criar resposta" da lista renderizada: pergunta VAZIA no formulário, ligada ao grupo → rascunho.
+  (achar(l, 'button', /Criar resposta/).props.onClick as () => void)();
   t = await m.render();
+  const [campo] = inputsPergunta(t);
+  assert.ok(campo, 'o formulário ganhou uma pergunta');
+  assert.equal(campo.props.value, '', 'o texto do cliente não é copiado para o formulário');
   props = propsDaLista(t, m.Lista);
-  assert.deepEqual([props.perguntasPublicadas, props.perguntasNoFormulario], [[], [GRUPO.texto]]);
+  assert.deepEqual(Object.values(props.vinculos as Record<string, string>), [GRUPO.id]);
   l = await m.renderLista(props);
   assert.match(texto(l), /Resposta em edição no formulário/);
   assert.doesNotMatch(texto(l), /Já tem resposta aprovada/);
 
-  // 2) Escreve a resposta e salva: a tela recarrega a configuração da API e o selo vira "Já tem resposta aprovada".
+  // 2) A pessoa escreve a pergunta (com as palavras dela) e a resposta; salva: a configuração é recarregada da API.
+  digitar(campo, 'O salão tem trocador para bebê?');
+  t = await m.render();
   const resposta = elementos(t).find((e) => e.type === 'textarea' && String(e.props.id).startsWith('resposta-')) as Elemento;
-  (resposta.props.onChange as (ev: unknown) => void)({ target: { value: 'Temos fraldário nos dois banheiros.' } });
+  digitar(resposta, 'Temos fraldário nos dois banheiros.');
   t = await m.render();
   await submeter(t);
-  assert.deepEqual(m.salva().perguntas.map((p) => p.pergunta), [GRUPO.texto]);
+  assert.deepEqual(m.salva().perguntas.map((p) => p.pergunta), ['O salão tem trocador para bebê?']);
   t = await m.render();
   props = propsDaLista(t, m.Lista);
-  assert.deepEqual([props.perguntasPublicadas, props.perguntasNoFormulario], [[GRUPO.texto], [GRUPO.texto]]);
   l = await m.renderLista(props);
   assert.match(texto(l), /Já tem resposta aprovada/);
 
   // 3) Remove e salva: a configuração recarregada não tem a pergunta e o botão volta (sem remontar a tela).
   (achar(t, 'button', /Remover resposta/).props.onClick as () => void)();
   t = await m.render();
-  props = propsDaLista(t, m.Lista);
-  l = await m.renderLista(props);
+  l = await m.renderLista(propsDaLista(t, m.Lista));
   assert.ok(achar(l, 'button', /Criar resposta/), 'removida do formulário: botão antes de salvar');
   await submeter(t);
   assert.deepEqual(m.salva().perguntas, []);
   t = await m.render();
-  props = propsDaLista(t, m.Lista);
-  assert.deepEqual([props.perguntasPublicadas, props.perguntasNoFormulario], [[], []]);
-  l = await m.renderLista(props);
+  l = await m.renderLista(propsDaLista(t, m.Lista));
   assert.ok(achar(l, 'button', /Criar resposta/));
   assert.doesNotMatch(texto(l), /Já tem resposta aprovada|Resposta em edição/);
   assert.equal(m.gets.filter((g) => g === '/api/admin/atendimento').length >= 3, true, 'recarregou depois de cada salvar');
+});
+
+test('sem fonte na tela: pergunta antiga salva com dado pessoal não é marcada (o servidor aceita igual); nova ou alterada é (Astra r3, P3)', async () => {
+  const antiga = { id: 'faq_antiga', pergunta: 'Tem wi-fi? me liga 11987654321', resposta: 'Sim.' };
+  const m = montar([antiga]);
+  let t = await m.render();
+  let [campo] = inputsPergunta(t);
+  assert.equal(campo.props['aria-invalid'], undefined, 'mesmo id e mesmo texto da configuração salva');
+  digitar(campo, 'Tem wi-fi? me liga 11987654322');
+  t = await m.render();
+  [campo] = inputsPergunta(t);
+  assert.equal(campo.props['aria-invalid'], true, 'alterada: a tela aponta como o servidor');
 });

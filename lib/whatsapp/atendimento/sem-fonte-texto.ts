@@ -3,14 +3,18 @@ import { ENTRADA_SENSIVEL_OMITIDA, REGISTRO_SENSIVEL, apresentacaoComNome, norma
 export { perguntaComDadoPessoal };
 
 /**
- * Fatia 7 (Wall-e): pergunta que nenhuma fonte respondeu vira sugestão de resposta aprovada. Funções puras, sem banco.
+ * Fatia 7 (Wall-e): perguntas que nenhuma fonte respondeu, agrupadas para a pessoa responsável criar a resposta aprovada.
+ * Funções puras, sem banco. Desenho novo (Felipe, depois do Astra r3): o texto do cliente é só para LEITURA na lista e
+ * nunca é copiado para o formulário; a pessoa escreve a pergunta com as próprias palavras.
  *
  * Origem do texto: `passagem.ultimaMensagem` (082), que já é `trechoParaRegistro` (máscara aplicada, ou o marcador de
  * dado sensível). Aqui a máscara é aplicada DE NOVO (nunca se confia no que está gravado) e a mensagem sensível ou com
  * apresentação de nome (em qualquer caixa) é descartada inteira: não vira sugestão nem aparece na lista, só entra na
  * contagem `omitidasSensiveis`. Texto vazio, curto ou sem letras é só descartado (não é dado sensível).
- * Nada desta fatia grava texto do cliente: a pergunta só é guardada quando a pessoa responsável salva a configuração
- * pelo caminho que já existia, depois de revisar o texto (e o servidor recusa marcador ou dado pessoal: `perguntaComDadoPessoal`).
+ * A lista só aparece para REPRESENTANTE_AUTORIZADO da própria empresa, que já recebe a passagem com esse trecho; a
+ * máscara aqui reduz o que fica à mostra, não é a barreira da publicação. Nada desta fatia grava texto do cliente: a
+ * pergunta publicada é a que a pessoa escreveu, e o servidor ainda recusa marcador ou dado pessoal reconhecido
+ * (`perguntaComDadoPessoal`, defesa adicional, não exaustiva).
  */
 export const LIMITE_PERGUNTA = 250;
 /** Identificador estável do grupo (não é segredo nem proteção): FNV-1a de 32 bits, sem node:crypto (a tela também usa este módulo). */
@@ -20,17 +24,16 @@ function idDoGrupo(chave: string) {
   return h.toString(16).padStart(8, '0');
 }
 
-/**
- * Corte em até `limite` caracteres sem partir um marcador ("[telefone omitido]"): recua até o último espaço e, depois do
- * recuo, se sobrar um colchete aberto sem fechar, corta antes dele (Astra r2, P3: o recuo por palavra partia o marcador).
- */
+/** Colchete aberto sem fechar no fim (marcador partido aqui ou já no limite de 500 do registro): corta antes dele (Astra r3, P3). */
+function semMarcadorAberto(texto: string) {
+  const abre = texto.lastIndexOf('[');
+  return (abre >= 0 && texto.indexOf(']', abre) < 0 ? texto.slice(0, abre) : texto).trim();
+}
+/** Corte em até `limite` caracteres, recuando até o último espaço, sem partir um marcador ("[telefone omitido]"). */
 function cortar(texto: string, limite: number) {
-  if (texto.length <= limite) return texto;
+  if (texto.length <= limite) return semMarcadorAberto(texto);
   const espaco = texto.slice(0, limite + 1).lastIndexOf(' ');
-  let r = espaco > limite / 2 ? texto.slice(0, espaco) : texto.slice(0, limite);
-  const abre = r.lastIndexOf('[');
-  if (abre >= 0 && r.indexOf(']', abre) < 0) r = r.slice(0, abre);
-  return r.trim();
+  return semMarcadorAberto(espaco > limite / 2 ? texto.slice(0, espaco) : texto.slice(0, limite));
 }
 
 type Sugestao = { texto: string } | { omitida: 'sensivel' | 'descartada' };
@@ -43,7 +46,7 @@ function classificar(trecho: unknown): Sugestao {
   return texto.length >= 3 && chaveDoGrupo(texto) ? { texto } : { omitida: 'descartada' };
 }
 
-/** Texto para pré-preencher a pergunta: mascarado, uma linha, até 250 caracteres; null quando não pode virar sugestão. */
+/** Texto mostrado na lista (só leitura): mascarado, uma linha, até 250 caracteres; null quando a mensagem fica de fora. */
 export function perguntaSugerida(trecho: string | null | undefined): string | null {
   const s = classificar(trecho);
   return 'texto' in s ? s.texto : null;
@@ -94,13 +97,19 @@ export function agruparSemFonte(passagens: PassagemSemFonte[], perguntasPublicad
   return a.resultado();
 }
 
+export type PerguntaAprovada = { id: string; pergunta: string };
 /**
- * Estado de um grupo na tela (Astra r1, P3): "publicada" só quando a pergunta está na configuração SALVA mais recente e
- * continua no formulário; só no formulário é rascunho (falta escrever a resposta e salvar); fora dos dois, "criar".
+ * Estado de um grupo na tela. Desenho novo (decisão de Felipe depois do Astra r3): "Criar resposta" NÃO copia o texto do
+ * cliente; abre uma pergunta vazia ligada ao grupo (`vinculos`: id da resposta → id do grupo, só na memória da tela) e a
+ * pessoa escreve a pergunta com as próprias palavras. Ligada e ainda não salva (ou salva com outro texto) → rascunho;
+ * salva com o mesmo id e o mesmo texto e ainda no formulário → publicada. Sem vínculo (tela recarregada), vale a pergunta
+ * salva com o mesmo texto do grupo, como antes. Removida do formulário → volta o botão.
  */
-export function estadoDoGrupo(texto: string, perguntasPublicadas: string[], perguntasNoFormulario: string[]): 'publicada' | 'rascunho' | 'criar' {
-  const chave = chaveDoGrupo(texto);
-  const noFormulario = perguntasNoFormulario.some((p) => chaveDoGrupo(p) === chave);
-  if (!noFormulario) return 'criar';
-  return perguntasPublicadas.some((p) => chaveDoGrupo(p) === chave) ? 'publicada' : 'rascunho';
+export function estadoDoGrupo(grupo: { id: string; texto: string }, salvas: PerguntaAprovada[], formulario: PerguntaAprovada[], vinculos: Record<string, string> = {}): 'publicada' | 'rascunho' | 'criar' {
+  const ligadas = formulario.filter((p) => vinculos[p.id] === grupo.id);
+  if (ligadas.length) return ligadas.some((p) => p.pergunta.trim() && salvas.some((s) => s.id === p.id && s.pergunta === p.pergunta)) ? 'publicada' : 'rascunho';
+  const chave = chaveDoGrupo(grupo.texto);
+  const noFormulario = formulario.filter((p) => chaveDoGrupo(p.pergunta) === chave);
+  if (!noFormulario.length) return 'criar';
+  return noFormulario.some((p) => salvas.some((s) => s.id === p.id && chaveDoGrupo(s.pergunta) === chave)) ? 'publicada' : 'rascunho';
 }

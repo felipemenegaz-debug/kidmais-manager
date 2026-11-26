@@ -143,10 +143,31 @@ test('sem fonte: a janela inteira é agrupada em lotes antes do limite de grupos
 });
 
 test('sem fonte: selo distingue rascunho no formulário de resposta publicada e acompanha o salvar (Astra r1, P3)', () => {
-  // Logo depois de "Criar resposta": só no formulário → rascunho, nunca "já tem resposta".
-  assert.equal(estadoDoGrupo('Tem wi-fi?', [], ['Tem wi-fi?']), 'rascunho');
-  assert.equal(estadoDoGrupo('Tem wi-fi?', ['tem wi fi'], ['Tem wi-fi?']), 'publicada');
+  const g = { id: 'g1', texto: 'Tem wi-fi?' };
+  // Desenho novo: a resposta criada pela lista começa VAZIA e ligada ao grupo → rascunho, nunca "já tem resposta".
+  assert.equal(estadoDoGrupo(g, [], [{ id: 'f1', pergunta: '' }], { f1: 'g1' }), 'rascunho');
+  assert.equal(estadoDoGrupo(g, [], [{ id: 'f1', pergunta: 'Vocês têm internet sem fio?' }], { f1: 'g1' }), 'rascunho');
+  // Salva com o mesmo id e o mesmo texto (que a pessoa escreveu) → publicada; texto alterado depois de salvar → rascunho.
+  assert.equal(estadoDoGrupo(g, [{ id: 'f1', pergunta: 'Vocês têm internet sem fio?' }], [{ id: 'f1', pergunta: 'Vocês têm internet sem fio?' }], { f1: 'g1' }), 'publicada');
+  assert.equal(estadoDoGrupo(g, [{ id: 'f1', pergunta: 'Vocês têm internet sem fio?' }], [{ id: 'f1', pergunta: 'Tem internet?' }], { f1: 'g1' }), 'rascunho');
+  // Sem vínculo (tela recarregada): pergunta salva com o mesmo texto do grupo.
+  assert.equal(estadoDoGrupo(g, [{ id: 'f2', pergunta: 'tem wi fi' }], [{ id: 'f2', pergunta: 'tem wi fi' }]), 'publicada');
+  assert.equal(estadoDoGrupo(g, [], [{ id: 'f2', pergunta: 'Tem wi-fi?' }]), 'rascunho');
   // Removida do formulário (e depois salva): volta o botão.
-  assert.equal(estadoDoGrupo('Tem wi-fi?', ['Tem wi-fi?'], []), 'criar');
-  assert.equal(estadoDoGrupo('Tem wi-fi?', [], []), 'criar');
+  assert.equal(estadoDoGrupo(g, [{ id: 'f1', pergunta: 'Vocês têm internet sem fio?' }], [], { f1: 'g1' }), 'criar');
+  assert.equal(estadoDoGrupo(g, [], []), 'criar');
+});
+
+test('sem fonte: achados do Astra r3 que o desenho novo ainda fecha na regra (P1 saúde/parentes, P2 "sou obrigado", P3 marcador)', () => {
+  for (const t of ['Tem cadeira para pressão[alta]?', 'Minha irmã ana silva quer saber se tem wifi?', 'meu pai pode entrar?']) {
+    assert.equal(perguntaSugerida(t), null, t);
+    assert.equal(perguntaComDadoPessoal(t), true, t);
+  }
+  for (const t of ['Sou obrigado a levar o bolo?', 'O aniversariante paga?']) {
+    assert.equal(perguntaSugerida(t), t, t);
+    assert.equal(perguntaComDadoPessoal(t), false, t);
+  }
+  // Marcador já partido pelo limite de 500 do registro: o texto curto não termina com "[telefone".
+  const registrado = trechoParaRegistro(`Tem wifi?${' '.repeat(481)}3456-7890`);
+  assert.equal(perguntaSugerida(registrado), 'Tem wifi?');
 });
