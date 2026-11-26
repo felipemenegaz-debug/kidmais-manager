@@ -7,7 +7,7 @@ import { carregarComponente } from "../../../components/admin/teste-componente.t
 import * as arquivos from "./arquivos.ts";
 import { MENSAGEM_ENCAMINHAMENTO, type Interpretacao } from "./core.ts";
 import { adiado, noPrazo } from "./harness-postgres.ts";
-import { barreira, carregarMultiempresa, cod, comGancho, db, fixturesMultiempresa, flags, semGanchos, SENHA } from "./harness-multiempresa.ts";
+import { aplicar135, barreira, carregarMultiempresa, cod, comGancho, db, fixturesMultiempresa, flags, semGanchos, SENHA } from "./harness-multiempresa.ts";
 import * as rollback from "./rollback-multiempresa.ts";
 import type { ConteudoSaida } from "./transporte.ts";
 import type { AlvoEnvio, DependenciasWorker } from "./worker.ts";
@@ -59,6 +59,7 @@ test("E-ME1 r2: isolamento (9, 10) e rollback MULTI → PILOTO (11–11e, F3, F9
   const ex = { query: (s: string, v?: readonly unknown[]) => c.query(s, v ? [...v] : []) } as never;
   const linkAntes = { id: process.env.AGENDA_PUBLICA_EMPRESA_ID, origem: process.env.AGENDA_PUBLICA_ORIGEM };
   try {
+    await aplicar135(q);
     await q(UP); await q(POS);
     chave("true");
     const criarUsuario = async (papel: string) => (await q(`INSERT INTO usuarios_administrativos (email, nome, senha_hash, papel, ativo) VALUES ($1, 'Harness rollback', $2, $3, true) RETURNING id`, [`${cod("u")}@example.test`, SENHA, papel])).rows[0].id as string;

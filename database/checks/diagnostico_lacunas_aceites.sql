@@ -19,6 +19,7 @@ WITH conhecidos(documento, versao, hash) AS (VALUES
   ('TERMOS_USO', '2026-10-23-minuta4', '63e8f8f4ada7b764c3960b311668f6e24f32d39c49b5a37d838c8ca1b36ff0e3'),
   ('TERMOS_USO', '2026-11-15-termos', '738588abe9f6177d8db5faa708697b31a69faeefb2ba5a6fcd956383c8b8fb21'),
   ('TERMOS_USO', '2026-11-17-termos', '5d9e561433abfc3ff63620221c9e51d848c9136999df24058c6d2db5bf4df918'),
+  ('TERMOS_USO', '2026-11-25-termos', 'aaf1725fd0475a73bf4717fb551e8d54d271811556105be73cce669fcf1f33bc'),
   ('PRIVACIDADE', '2026-11-17-privacidade', 'a2b4994f3272e88f20ee695c949cae5532dc243ee1d69d4e9da2afae3da20e43'),
   ('DPA', '2026-11-17-dpa', '3b78ffa320658f58ec8277f9385a42908cfeb8618632a00a50a4da9e4e6f5fde')
 ), usados AS (

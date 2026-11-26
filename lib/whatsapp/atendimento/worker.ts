@@ -4,7 +4,7 @@ import { MENSAGEM_ENCAMINHAMENTO, dadoSensivel, entradaFaseB, comandoDireto, pas
 import { configuracao, correlacionarStatus, limparStatusExpirados, recuperarTrabalhosInterrompidos, registroDaPausa, suprimirPesquisasDoContato, tem082, temControlesPrivacidade, tratarSaidaQueFalhou, type Conversa, type Mensagem, type SaidaQueFalhou } from './service.ts';
 import { conteudoDaMensagem, type ConteudoSaida } from './transporte.ts';
 import { motivoSeguro } from './motivo-falha.ts';
-import { contaNoTeto, reservarConsumo, tetoDoMes, tetoMensal } from './teto-mensal.ts';
+import { contaNoTeto, reservarConsumo, tem135, tetoDoMes, tetoMensal } from './teto-mensal.ts';
 import { ARQUIVO_DISPONIVEL_SQL, urlPublicaArquivo } from './arquivos.ts';
 import type { Passagem, ResultadoWallE } from './walle/tipos.ts';
 import { capturarOportunidadesPendentes, qualificaPedidoFesta, SQL_MARCA_PENDENTE, temMarcaPendente } from './walle/oportunidade.ts';
@@ -269,8 +269,12 @@ async function executarTarefa(deps: DependenciasWorker, { mensagem, conversa, co
       // 3b (D-LAN-3): teto mensal de mensagens do número pela Cloud API (equipe + Wall-e) já atingido ⇒ o Wall-e nem é
       // chamado e a conversa vai para a equipe em SILÊNCIO, como no limite diário. Este é só o atalho antes do modelo; a
       // garantia é a reserva atômica na gravação (gravarNoTeto). Leitura pelo portão (Astra r1, P2): falha transitória
-      // devolve a entrada à fila, nada sai.
-      if (pelaMeta && (await lerPortao('LEITURA_TETO_MENSAL', () => tetoDoMes(db(), empresa, ambiente)))?.estado === 'ATINGIDO') return await encaminharPorLimite(mensagem, 'LIMITE_MENSAL', opera);
+      // devolve a entrada à fila, nada sai. Sem a 135 (situação null) o consumo não pode ser apurado: o Wall-e também não é
+      // chamado (Termos 2026-11-25, Astra r1 P1).
+      if (pelaMeta) {
+        const situacaoTeto = await lerPortao('LEITURA_TETO_MENSAL', () => tetoDoMes(db(), empresa, ambiente));
+        if (!situacaoTeto || situacaoTeto.estado === 'ATINGIDO') return await encaminharPorLimite(mensagem, 'LIMITE_MENSAL', opera);
+      }
       // E-ME1 + F5 (revisão): antes de qualquer fonte ou modelo, o portão COMPLETO de novo — C1 (empresa ATIVA), K-PROC,
       // C3 (configuração vigente ligada) e C2 + C4. Revogada no intervalo desde a reserva: a entrada é cancelada, nada é
       // consultado nem enviado. Leitura que falhou: transitória.
@@ -340,6 +344,21 @@ async function executarTarefa(deps: DependenciasWorker, { mensagem, conversa, co
       // grava ENVIANDO (a revogação, que trava a conversa antes do arquivo, espera). Um indisponível (revogado, vencido, empresa inativa) cancela a
       // saída e o resto do grupo com motivo, tira os materiais da memória de envio e passa a conversa à equipe: nunca um
       // "segue o PDF" sem o PDF nem cancelamento silencioso.
+      // Termos 2026-11-25 (Astra r2, P1): saída AUTOMÁTICA de empresa que paga a Meta só sai com a contagem disponível (135).
+      // Sem ela (ex.: saída enfileirada por código anterior, sem reserva), a saída e o resto do grupo são cancelados, nada vai ao
+      // provedor e a conversa passa à equipe. Nada é reservado aqui: a reserva é da gravação (gravarNoTeto), nunca duas vezes.
+      // A equipe (autor_usuario_id) e a piloto não passam por esta trava.
+      if (pelaMeta && !mensagem.autor_usuario_id && !(await lerPortao('LEITURA_TETO_MENSAL', () => tem135(tx)))) {
+        // Astra r3: a validade é lida ANTES de qualquer mudança. Saída obsoleta (uma entrada nova já mudou a versão, janela
+        // fechada, prazo vencido, não contatar) só é cancelada com as irmãs; a conversa não é encaminhada nem tem a versão
+        // incrementada, para não invalidar a entrada nova, que segue o próprio caminho (sem a 135, vai à equipe).
+        const aindaValida = mensagemAindaValida(mensagem, atual);
+        await tx.query("UPDATE whatsapp_atendimento_mensagens SET estado='CANCELADA' WHERE id=$1 AND estado='PROCESSANDO'", [mensagem.id]);
+        if (await temControlesPrivacidade(tx)) await tratarSaidaQueFalhou(tx, saidaDe(doGrupo), { certamenteNaoSaiu: true, encaminhar: aindaValida, versaoEsperada: atual.versao });
+        if (aindaValida) await tx.query("UPDATE whatsapp_atendimento_conversas SET estado='AGUARDANDO_HUMANO',versao=versao+1,atualizada_em=clock_timestamp() WHERE id=$1 AND estado='IA' AND versao=$2", [atual.id, atual.versao]);
+        console.warn('[Atendimento WhatsApp] saída automática cancelada: contagem mensal indisponível (135 ausente).');
+        return null;
+      }
       if (await arquivoDoGrupoIndisponivel(tx, mensagem)) { await cancelarGrupoSemArquivo(tx, mensagem, atual); return null; }
       const autorAtivo = !mensagem.autor_usuario_id || await lerPortao('LEITURA_AUTOR', async () => (await tx.query("SELECT u.id FROM usuarios_administrativos u JOIN memberships m ON m.usuario_id=u.id WHERE u.id=$1 AND u.ativo=true AND m.empresa_id=$2 AND m.status='ATIVA' AND m.papel IN ('ADMINISTRATIVO','REPRESENTANTE_AUTORIZADO')", [mensagem.autor_usuario_id,empresa])).rows.length > 0);
       // Resposta automática gerada antes da última alteração da configuração (resposta publicada removida, corrigida,

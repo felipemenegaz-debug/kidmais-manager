@@ -125,7 +125,11 @@ test("D3: toda suíte PostgreSQL declara um estado da receita; o runner restaura
   assert.match(runner, /for \(const banco of receita\.TRABALHO\) await receita\.removerBanco\(admin, banco\);/, "bancos de trabalho removidos antes de cada suíte");
   assert.match(runner, /receita\.restaurar\(admin, trabalho, estado\.descartavel\)/);
   assert.match(runner, /\["--experimental-strip-types", "--test", arquivo\]/, "uma suíte por processo");
-  assert.match(runner, /timeout: LIMITE_POR_SUITE_MS/, "suíte que não termina falha, não trava o gate");
+  assert.match(runner, /timeout: estado\.limiteMs \?\? LIMITE_POR_SUITE_MS,/, "suíte que não termina falha, não trava o gate");
+  // Limite próprio (D-LAN-4 r2, G-VAZIO): sempre finito e no máximo 60 min; o padrão segue valendo para as demais.
+  for (const [suite, estado] of Object.entries(ESTADO_POSTGRES)) {
+    if ("limiteMs" in estado) assert.ok(Number.isInteger(estado.limiteMs) && estado.limiteMs > 0 && estado.limiteMs <= 60 * 60 * 1000, `${suite}: limiteMs finito`);
+  }
   assert.match(runner, /conexoesDeTrabalho\(admin, receita\.TRABALHO\)/, "suíte que deixa conexão aberta falha");
   assert.equal(runner.includes("--test-force-exit"), false, "sem encerramento forçado");
 });

@@ -12,6 +12,7 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const b5 = require('./conferencia-b5-producao.cjs');
+const ehDocs = sql => sql === b5.SQL_DOCUMENTOS || sql === b5.sqlDocumentos(true);
 const prod = require('./migration-092-094-production.cjs');
 const ret108 = require('./migration-108-retrato.cjs');
 const n114 = require('./migration-114-comum.cjs');
@@ -83,7 +84,9 @@ const PAR_114 = Object.freeze({hash_lock: b5.CORPOS_114_ANTES_DO_E3.lock, hash_r
 
 function clienteFalso({identidade = ID, docs = [], origens = [], concessoes = [], total, instalada = true, falharEm, combinados = [LINHA_AUSENTE],
   linha114 = {}, linha118 = LINHA_118, linhaSatisfacao = LINHA_SATISFACAO, categoria103 = {m103: 'ausente'}, catalogo = catalogoMatriz(), papel = {superusuario: false, ignora_rls: false},
-  contagens = {}, compat = COMPAT, checks091 = checksBase(), origensCat = origensCatalogo(), visib = {}, integra105 = true, estrutura105 = {}, relacao105 = b5.RELACAO_105, versaoPg = 180006} = {}) {
+  contagens = {}, compat = COMPAT, checks091 = checksBase(), origensCat = origensCatalogo(), visib = {}, integra105 = true, estrutura105 = {}, relacao105 = b5.RELACAO_105, versaoPg = 180006, audCat = {}, dep = {}, controleInvisivel = []} = {}) {
+  // Astra r3 de código, P1: as leituras do B-15 trazem uma linha de controle de visibilidade por relação, no mesmo comando.
+  const ctrl = tabs => tabs.map(t => ({origem: b5.ORIGEM_CONTROLE, doc: t, tem_concessao: null, fora_do_teste: null, visivel: !controleInvisivel.includes(t)}));
   const log = []; let ro = false, iso = null;
   const C = class {
     on() {} async connect() {} async end() {}
@@ -100,13 +103,29 @@ function clienteFalso({identidade = ID, docs = [], origens = [], concessoes = []
       if (sql === b5.SQL_ESTADO_118) return {rows: [linha118]};
       if (sql === b5.SQL_ESTADO_SATISFACAO) return {rows: [linhaSatisfacao]};
       if (sql === b5.SQL_COMBINADOS) return {rows: combinados};
+      if (sql === b5.SQL_MATRIZ_CATALOGO && JSON.stringify(params) === JSON.stringify([['auditoria']])) return {rows: [{nome: 'auditoria', presente: true, tipo: 'r', rls: false, rls_forcada: false, ler: true, ...audCat}]};
       if (sql === b5.SQL_MATRIZ_CATALOGO) { assert.deepEqual(params, [b5.MATRIZ.map(m => m[0])]); return {rows: catalogo}; }
+      if (sql === b5.SQL_DEPENDENCIAS_RECORTE) return {rows: [{...Object.fromEntries([...Object.keys(b5.DEPENDENCIAS_RECORTE), 'auditoria_jsonb'].map(k => [k, true])), ...dep}]};
       if (sql === b5.SQL_MATRIZ_PAPEL) return {rows: [papel]};
-      const cont = /^SELECT count\(\*\)::text AS linhas.* FROM public\.([a-z_]+)$/.exec(sql);
-      if (cont) return {rows: [{linhas: '0', ...extrasZero(cont[1]), ...(contagens[cont[1]] ?? {})}]};
-      if (sql === b5.SQL_DOCUMENTOS) return {rows: docs};
+      const cont = /^SELECT count\(\*\)::text AS linhas[^]* FROM public\.([a-z_]+) r$/.exec(sql);
+      if (cont) {
+        const extras = {...extrasZero(cont[1]), ...(contagens[cont[1]] ?? {})};
+        // Linha de assinatura sem dizer o contrário é linha fora do teste autorizado (o caso antigo).
+        if (cont[1] === 'empresa_assinaturas' && contagens.empresa_assinaturas?.fora_do_teste === undefined) extras.fora_do_teste = extras.linhas ?? '0';
+        // Só devolve a coluna que a consulta pediu: recorte não pronto não tem fora_do_teste.
+        if (!sql.includes('AS fora_do_teste')) delete extras.fora_do_teste;
+        return {rows: [{linhas: '0', ...extras}]};
+      }
+      // Astra r1 de código, P1: com recorte pronto, o inventário traz fora_do_teste por linha, no mesmo comando. As N primeiras linhas de
+      // empresa_assinaturas são fora do teste, N = contagens.empresa_assinaturas.fora_do_teste (sem dizer, todas: o caso antigo).
+      if (ehDocs(sql)) {
+        if (sql === b5.SQL_DOCUMENTOS) return {rows: [...docs, ...ctrl(b5.LEGADO_091)]};
+        const nFora = contagens.empresa_assinaturas?.fora_do_teste === undefined ? Infinity : Number(contagens.empresa_assinaturas.fora_do_teste);
+        let i = 0;
+        return {rows: [...docs.map(d => ({...d, fora_do_teste: d.origem === 'empresa_assinaturas' ? (i++ < nFora) : null})), ...ctrl(b5.LEGADO_091)]};
+      }
       if (sql === b5.SQL_COMPATIBILIDADE_091) return {rows: [compat]};
-      if (sql === b5.SQL_ORIGENS_091) return {rows: origens};
+      if (sql === b5.SQL_ORIGENS_091) return {rows: [...origens, ...ctrl(b5.ORIGENS_091)]};
       if (sql === b5.SQL_CHECKS_091) { assert.deepEqual(params, [b5.CHECKS_091]); return {rows: checks091}; }
       if (sql === b5.SQL_ORIGENS_CATALOGO) {
         if (JSON.stringify(params) === JSON.stringify([b5.ORIGENS_091])) return {rows: origensCat};
@@ -125,7 +144,7 @@ function clienteFalso({identidade = ID, docs = [], origens = [], concessoes = []
   C.log = log;
   return C;
 }
-const extrasZero = t => ({empresa_excecoes_comerciais: {vigentes_revogaveis: '0'}, empresa_documento_continuidades: {nao_concluidas: '0'},
+const extrasZero = t => ({empresa_assinaturas: {fora_do_teste: '0'}, empresa_excecoes_comerciais: {vigentes_revogaveis: '0', extensoes_sem_vinculo: '0'}, empresa_documento_continuidades: {nao_concluidas: '0'},
   cadastros_publicos: {pendentes: '0', confirmados: '0', substituidos: '0', pendentes_nao_expirados: '0'},
   ia_credito_lotes: {origem_compra: '0', origem_franquia: '0', origem_cortesia: '0', origem_legado: '0', com_pedido: '0'}})[t] ?? {};
 const foraDeLeitura = log => log.filter(x => !x.ro && !/^(BEGIN .*READ ONLY|ROLLBACK)$/.test(x.sql));
@@ -218,7 +237,7 @@ test('estados 089–100: parcial, ilegível e 100 divergente param (código 3); 
   const ok = await rodar(['--conferir-b5-estado']);
   assert.equal(ok.codigo, 0, JSON.stringify(ok.saida)); assert.deepEqual(ok.saida.presentes, ['099:completa']);
   assert.equal(ok.saida.b15, undefined); assert.equal(ok.saida.fundador, undefined); assert.equal(ok.saida.provedor, undefined);
-  assert.ok(!ok.log.some(x => [b5.SQL_DOCUMENTOS, b5.SQL_ORIGENS_091, b5.SQL_TOTAL_CONFIRMADAS].includes(x.sql)), 'E2c não lê documentos nem Fundador');
+  assert.ok(!ok.log.some(x => (ehDocs(x.sql) || [b5.SQL_ORIGENS_091, b5.SQL_TOTAL_CONFIRMADAS].includes(x.sql))), 'E2c não lê documentos nem Fundador');
   for (const [estados, motivo] of [[{m091: 'completa'}, /E2C_091_PRESENTE completa/], [{m094: 'completa', m100: 'ausente'}, /E2C_094_PRESENTE completa/]]) {
     const r = await rodar(['--conferir-b5-estado'], {estados});
     assert.equal(r.codigo, 3); assert.match(r.saida.motivos.join(' '), motivo);
@@ -505,8 +524,8 @@ test('B-15 reescopado: legado (DV), rótulo do ramo VAZIO, prova artificial não
   assert.equal(r.codigo, 3); assert.deepEqual(r.saida.motivos, ['B15_091_CHECK_FALHARIA empresa_assinaturas 1']);
   assert.equal(r.saida.decisao, 'DECISAO_D_OP_4_NECESSARIA');
   const b = r.saida.b15;
-  assert.deepEqual(b.legado.empresa_assinaturas, {total: 5, nulos: 1, cpf11: 1, cnpj14: 2, outroFormato: 1, foraDoFormato091: 1, dvInvalido: 3});
-  assert.deepEqual(b.legado.assinatura_fundadores, {total: 2, nulos: 0, cpf11: 0, cnpj14: 2, outroFormato: 0, foraDoFormato091: 0, dvInvalido: 1});
+  assert.deepEqual(b.legado.empresa_assinaturas, {total: 5, nulos: 1, cpf11: 1, cnpj14: 2, outroFormato: 1, foraDoFormato091: 1, dvInvalido: 3, foraDoTeste: 5, recorteLido: 5});
+  assert.deepEqual(b.legado.assinatura_fundadores, {total: 2, nulos: 0, cpf11: 0, cnpj14: 2, outroFormato: 0, foraDoFormato091: 0, dvInvalido: 1, foraDoTeste: null, recorteLido: 0});
   assert.equal(b.legado.empresasSemConcessaoComDvInvalido, 2); assert.equal(b.legado.dvInvalidoTotal, 4);
   assert.equal(b.inventarioLegado, 'COM_LINHAS'); assert.match(b.provaArtificialDocumentoLegado, /^EXIGIDA/);
   assert.deepEqual(b.compatibilidade091, {tabelas: '6/6', checks: '5/5', objetos091Presentes: false, precheckEstrutural: 'PASSARIA', checksDaBasePorRelacao: 'CONFORME', versaoPg: 180006});
@@ -730,7 +749,7 @@ test('P3 da revisão: erros só com códigos conhecidos — e-mail, URL, id e us
   const C = clienteFalso();
   const D = class extends C {
     async query(sql, p) {
-      if (sql === b5.SQL_DOCUMENTOS) throw Object.assign(new Error('password authentication failed for user "fulano@exemplo.com" pay_1 https://api.asaas.com/v3/x'), {code: '28P01'});
+      if (ehDocs(sql)) throw Object.assign(new Error('password authentication failed for user "fulano@exemplo.com" pay_1 https://api.asaas.com/v3/x'), {code: '28P01'});
       return super.query(sql, p);
     }
   };
@@ -747,7 +766,7 @@ test('P3 da re-revisão: só a lista fechada de códigos sai; texto externo com 
   for (const mensagem of ['FALHA pay_SONDA_SINTETICA', 'ERRO 12345678901', 'CODIGO_INVENTADO', 'BANCO_DIVERGENTE pay_1', 'FORA_DO_RENDER ', ' FORA_DO_RENDER',
     'ESTADO_ILEGIVEL 095', 'ASAAS_HTTP_404', 'ASAAS_CHAVE_RECUSADA', 'MATRIZ_ILEGIVEL x', 'TLS_OBRIGATORIO\nfulano@exemplo.com']) {
     const C0 = clienteFalso();
-    const C = class extends C0 { async query(sql, p) { if (sql === b5.SQL_DOCUMENTOS) throw new Error(mensagem); return super.query(sql, p); } };
+    const C = class extends C0 { async query(sql, p) { if (ehDocs(sql)) throw new Error(mensagem); return super.query(sql, p); } };
     C.log = C0.log;
     const r = await rodar(['--conferir-b5'], {cliente: C});
     assert.equal(r.codigo, 2, mensagem); assert.equal(r.saida.mensagem, 'ERRO_INESPERADO', JSON.stringify(mensagem));
@@ -842,12 +861,13 @@ test('revisão Astra r2, F: RLS sem bypass não conta (matriz INDETERMINADA) nem
   const cat = catalogoMatriz({empresa_assinaturas: {rls: true}});
   const r = await rodar(['--conferir-b5'], {cliente: clienteFalso({catalogo: cat, visib: {empresa_assinaturas: {rls: true}}})});
   assert.equal(r.codigo, 3);
-  assert.deepEqual(r.saida.motivos, ['MATRIZ_RLS_PODE_INDUZIR_ZERO empresa_assinaturas', 'B15_LEGADO_RLS_PODE_INDUZIR_ZERO empresa_assinaturas',
+  // D-LAN-4: o recorte do teste autorizado também depende da leitura de empresa_assinaturas: parada nomeada antes da matriz.
+  assert.deepEqual(r.saida.motivos, ['MATRIZ_RECORTE_TESTE_INDETERMINADO leitura:empresa_assinaturas', 'MATRIZ_RLS_PODE_INDUZIR_ZERO empresa_assinaturas', 'B15_LEGADO_RLS_PODE_INDUZIR_ZERO empresa_assinaturas',
     'FUNDADOR_RLS_PODE_INDUZIR_ZERO empresa_assinaturas']);
   const o = r.saida.matriz.objetos.empresa_assinaturas;
   assert.equal(o.linhas, null); assert.equal(o.contagem, 'INDETERMINADA_RLS');
   assert.ok(!r.log.some(x => x.sql === b5.sqlContagem('empresa_assinaturas')), 'sem count(*) sob RLS');
-  assert.ok(!r.log.some(x => x.sql === b5.SQL_DOCUMENTOS), 'sem leitura de documentos');
+  assert.ok(!r.log.some(x => ehDocs(x.sql)), 'sem leitura de documentos');
   assert.ok(!r.log.some(x => x.sql === b5.SQL_TOTAL_CONFIRMADAS), 'sem leitura do Fundador');
   assert.equal(r.saida.b15.legado, null); assert.equal(r.saida.b15.inventarioLegado, 'INDETERMINADO'); assert.match(r.saida.b15.provaArtificialDocumentoLegado, /^INDETERMINADA/);
   assert.match(r.saida.fundador.ramo, /^INDETERMINADO/); assert.equal(r.saida.fundador.confirmadas, null);
@@ -908,7 +928,7 @@ test('revisão Astra r3, C: a sentinela da 103 só é lida com tipo, privilégio
 });
 
 test('revisão Astra r3, F: Fundador lê só relações de public (nada sem esquema) e as guardas exigem tabela; rótulo diz o que foi lido', async () => {
-  for (const sql of [b5.SQL_TOTAL_CONFIRMADAS, b5.sqlConcessoes(true), b5.sqlConcessoes(false), b5.SQL_DOCUMENTOS, b5.SQL_ORIGENS_091]) {
+  for (const sql of [b5.SQL_TOTAL_CONFIRMADAS, b5.sqlConcessoes(true), b5.sqlConcessoes(false), b5.SQL_DOCUMENTOS, b5.sqlDocumentos(true), b5.SQL_ORIGENS_091]) {
     const semEsquema = sql.match(/\b(FROM|JOIN)\s+(?!public\.|unnest\b)[a-z_]+/g);
     assert.equal(semEsquema, null, sql.slice(0, 60));
   }
@@ -1184,7 +1204,7 @@ test('B-29 (c): E5b depois do E3 = CONFERIDO; READ ONLY; não lê documentos, Fu
   assert.deepEqual(r.saida.presentes, ['089:completa', '092:completa', '093:completa', '099:completa']);
   assert.match(r.saida.prefixoEsperado, /^POS_E3 /); assert.equal(r.saida.ampliados['118'], 'ausente');
   assert.equal(r.saida.b15, undefined); assert.equal(r.saida.fundador, undefined); assert.equal(r.saida.provedor, undefined);
-  assert.ok(!r.log.some(x => [b5.SQL_DOCUMENTOS, b5.SQL_ORIGENS_091, b5.SQL_TOTAL_CONFIRMADAS].includes(x.sql)));
+  assert.ok(!r.log.some(x => (ehDocs(x.sql) || [b5.SQL_ORIGENS_091, b5.SQL_TOTAL_CONFIRMADAS].includes(x.sql))));
   // Não exige o ramo do provedor (como a E2c).
   const semRamo = await rodar(['--conferir-b5-estado-pos-e3'], {estados: POS_E3, env: {...ENV, KIDMAIS_B5_RAMO_PROVEDOR: undefined}});
   assert.equal(semRamo.codigo, 0);
@@ -1248,4 +1268,170 @@ test('B-29 (c): E5b para com E3 incompleto ou com qualquer coisa além dele (091
   }
   const falha = await rodar(['--conferir-b5-estado-pos-e3'], {estados: POS_E3, cliente: clienteFalso({falharEm: 'ESTADO 089'})});
   assert.equal(falha.codigo, 2); assert.equal(falha.saida.resultado, 'FALHA'); assert.ok(!JSON.stringify(falha.saida).includes('SENHA_FALSA'));
+});
+
+// ---------- D-LAN-4: teste autorizado (plano r2 + correções Astra r2) ----------
+const cgv = require('./conferidor-g-vazio.cjs');
+
+test('D-LAN-4: predicado do teste autorizado tem o mesmo texto do G-VAZIO', () => {
+  for (const a of ['r', 'txa']) {
+    assert.equal(b5.testeAutorizado(a), cgv.testeAutorizado(a));
+    assert.equal(b5.extensaoAutorizada(a), cgv.extensaoAutorizada(a));
+  }
+  // O G-VAZIO acrescenta só a coluna auditoria_lida (Astra r1 de código, P2: colunas da contagem por ação); o resto é o mesmo texto.
+  const lida = `, ((SELECT count(*) FROM pg_attribute WHERE attrelid=to_regclass('public.auditoria') AND NOT attisdropped AND attname = ANY(ARRAY['id', 'acao', 'origem', 'criado_em']::name[]))=4) AS auditoria_lida`;
+  assert.ok(cgv.SQL_DEPENDENCIAS_RECORTE.includes(lida));
+  assert.equal(cgv.SQL_DEPENDENCIAS_RECORTE.replace(lida, ''), b5.SQL_DEPENDENCIAS_RECORTE);
+  assert.deepEqual(b5.DEPENDENCIAS_RECORTE, cgv.DEPENDENCIAS_RECORTE);
+  assert.ok(b5.sqlContagem('empresa_assinaturas', true).includes('AS fora_do_teste'));
+  assert.ok(!b5.sqlContagem('empresa_assinaturas', false).includes('fora_do_teste'), 'sem recorte pronto, toda linha conta');
+});
+
+test('D-LAN-4: recorte não pronto (coluna ausente ou auditoria ilegível) para nomeado e não usa fora_do_teste', async () => {
+  for (const [opc, falta] of [[{dep: {auditoria_jsonb: false}}, null], [{audCat: {ler: false}}, 'leitura:auditoria']]) {
+    const r = await rodar(['--conferir-b5'], {cliente: clienteFalso(opc)});
+    assert.equal(r.codigo, 3);
+    const m = r.saida.motivos.find(x => x.startsWith('MATRIZ_RECORTE_TESTE_INDETERMINADO '));
+    assert.ok(m, JSON.stringify(r.saida.motivos)); if (falta) assert.ok(m.includes(falta), m);
+    assert.equal(r.saida.matriz.recorteTeste.pronto, false);
+    // O inventário B-15 traz a coluna fora_do_teste sempre (NULL sem recorte); o que não pode aparecer é o predicado.
+    assert.ok(!r.log.some(x => x.sql.includes('COMERCIAL_TESTE_INICIADO')));
+    assert.equal(r.saida.matriz.objetos.empresa_assinaturas.recorteTeste.situacao, 'INDETERMINADO');
+  }
+});
+
+test('D-LAN-4: só linhas de teste autorizado passam; linha fora do teste exige a prova; extensão sem vínculo para', async () => {
+  const docs = [{origem: 'empresa_assinaturas', doc: '11222333000181', tem_concessao: false}, {origem: 'empresa_assinaturas', doc: '11444777000161', tem_concessao: false}];
+  const so = await rodar(['--conferir-b5'], {cliente: clienteFalso({docs, contagens: {empresa_assinaturas: {linhas: '2', fora_do_teste: '0'}}})});
+  assert.ok(!so.saida.motivos.some(m => m.startsWith('MATRIZ_')), JSON.stringify(so.saida.motivos));
+  assert.deepEqual(so.saida.matriz.objetos.empresa_assinaturas.recorteTeste, {situacao: 'APLICADO', autorizadas: 2});
+  assert.equal(so.saida.b15.inventarioLegado, 'SO_TESTE_AUTORIZADO');
+  assert.match(so.saida.b15.provaArtificialDocumentoLegado, /^NAO_APLICAVEL_TESTE_AUTORIZADO .*G-VAZIO/);
+  const fora = await rodar(['--conferir-b5'], {cliente: clienteFalso({docs, contagens: {empresa_assinaturas: {linhas: '2', fora_do_teste: '1'}}})});
+  assert.equal(fora.codigo, 3); assert.ok(fora.saida.motivos.some(m => m.startsWith('MATRIZ_VAZIA_COM_LINHAS') && m.includes('empresa_assinaturas')), JSON.stringify(fora.saida.motivos));
+  assert.equal(fora.saida.b15.inventarioLegado, 'COM_LINHAS'); assert.doesNotMatch(fora.saida.b15.provaArtificialDocumentoLegado, /^NAO_APLICAVEL_TESTE/);
+  const ext = await rodar(['--conferir-b5'], {cliente: clienteFalso({contagens: {empresa_excecoes_comerciais: {extensoes_sem_vinculo: '1'}}})});
+  assert.equal(ext.codigo, 3); assert.ok(ext.saida.motivos.includes('MATRIZ_EXTENSAO_TESTE_VIGENTE_SEM_VINCULO 1'), JSON.stringify(ext.saida.motivos));
+});
+
+test('D-LAN-4 (mutantes): NULL do critério conta como fora; sem recorte pronto, linha conta inteira e extensão não se apoia no critério', async () => {
+  assert.ok(b5.sqlContagem('empresa_assinaturas', true).includes(`(${b5.testeAutorizado('r')}) IS NOT TRUE)::text AS fora_do_teste`));
+  assert.ok(b5.sqlContagem('empresa_excecoes_comerciais', true).includes(`AND (${b5.extensaoAutorizada('r')}) IS NOT TRUE`));
+  assert.ok(!b5.sqlContagem('empresa_excecoes_comerciais', false).includes(b5.extensaoAutorizada('r')), 'sem recorte pronto toda extensão vigente conta');
+  const r = await rodar(['--conferir-b5'], {cliente: clienteFalso({dep: {auditoria_jsonb: false}, contagens: {empresa_assinaturas: {linhas: '1'}}})});
+  assert.ok(r.saida.motivos.some(m => m.startsWith('MATRIZ_VAZIA_COM_LINHAS') && m.includes('empresa_assinaturas')), JSON.stringify(r.saida.motivos));
+  const docs = [{origem: 'empresa_assinaturas', doc: '11222333000181', tem_concessao: false}];
+  for (const fora of ['2', '3']) {
+    const f = await rodar(['--conferir-b5'], {cliente: clienteFalso({docs, contagens: {empresa_assinaturas: {linhas: '3', fora_do_teste: fora}}})});
+    assert.equal(f.saida.b15.inventarioLegado, 'COM_LINHAS', fora); assert.match(f.saida.b15.provaArtificialDocumentoLegado, /^(EXIGIDA|INDETERMINADA)/, fora);
+  }
+});
+
+// ---------- Astra r1 de código (D-LAN-4 r2) ----------
+test('r2 B-15: recorte do teste e inventário saem do mesmo comando; divergência com a matriz usa o inventário; linha sem recorte é INDETERMINADA', async () => {
+  const docs = [{origem: 'empresa_assinaturas', doc: '11222333000181', tem_concessao: false}, {origem: 'empresa_assinaturas', doc: '11444777000161', tem_concessao: false}];
+  // A matriz viu 0 fora do teste; a linha do inventário (mesmo comando do B-15) diz que uma está fora: vale o inventário (COM_LINHAS).
+  const comLinhaFora = (foras) => {
+    const Base = clienteFalso({docs, contagens: {empresa_assinaturas: {linhas: '2', fora_do_teste: '0'}}});
+    const C = class extends Base {
+      async query(sql, params) {
+        if (sql === b5.sqlDocumentos(true)) { Base.log.push({sql, params}); return {rows: [...docs.map((d, i) => ({...d, fora_do_teste: foras[i]})), ...b5.LEGADO_091.map(t => ({origem: b5.ORIGEM_CONTROLE, doc: t, visivel: true}))]}; }
+        return super.query(sql, params);
+      }
+    };
+    C.log = Base.log; return C;
+  };
+  const fora = await rodar(['--conferir-b5'], {cliente: comLinhaFora([false, true])});
+  assert.ok(fora.log.some(x => x.sql === b5.sqlDocumentos(true)), 'B-15 leu o inventário com o recorte');
+  assert.equal(fora.saida.b15.inventarioLegado, 'COM_LINHAS');
+  assert.match(fora.saida.b15.provaArtificialDocumentoLegado, /^EXIGIDA/);
+  // Duas ou mais fora do teste também abrem o ramo COM-DADOS (o critério é "nenhuma fora", não "uma fora").
+  const duas = await rodar(['--conferir-b5'], {cliente: comLinhaFora([true, true])});
+  assert.equal(duas.saida.b15.inventarioLegado, 'COM_LINHAS');
+  assert.match(duas.saida.b15.provaArtificialDocumentoLegado, /^EXIGIDA/);
+  const nulo =await rodar(['--conferir-b5'], {cliente: comLinhaFora([false, null])});
+  assert.match(nulo.saida.b15.provaArtificialDocumentoLegado, /^INDETERMINADA \(assinaturas com linha e recorte/);
+  // r3 (Astra r2, P2): cobertura parcial não publica 0 nem contagem parcial; publica nulo.
+  assert.equal(nulo.saida.b15.legado.empresa_assinaturas.foraDoTeste, null);
+  assert.equal(nulo.saida.b15.legado.empresa_assinaturas.recorteLido, 1);
+  // r3 (Astra r2, P1): relação do predicado invisível no comando = todas as linhas NULL = INDETERMINADA, nunca "fora" nem "só teste".
+  const invisivel = await rodar(['--conferir-b5'], {cliente: comLinhaFora([null, null])});
+  assert.match(invisivel.saida.b15.provaArtificialDocumentoLegado, /^INDETERMINADA/);
+  assert.notEqual(invisivel.saida.b15.inventarioLegado, 'SO_TESTE_AUTORIZADO');
+  assert.equal(invisivel.saida.b15.legado.empresa_assinaturas.foraDoTeste, null);
+  const so = await rodar(['--conferir-b5'], {cliente: comLinhaFora([false, false])});
+  assert.equal(so.saida.b15.inventarioLegado, 'SO_TESTE_AUTORIZADO');
+  // Sem recorte pronto, o B-15 nem pede o predicado.
+  const sem = await rodar(['--conferir-b5'], {cliente: clienteFalso({docs, dep: {auditoria_jsonb: false}})});
+  assert.ok(!sem.log.some(x => x.sql === b5.sqlDocumentos(true)));
+  assert.match(sem.saida.b15.provaArtificialDocumentoLegado, /^INDETERMINADA/);
+});
+
+test('r3 B-15: o recorte confere privilégio e RLS das relações do predicado no MESMO comando; sem isso a linha é NULL', () => {
+  const sql = b5.sqlDocumentos(true);
+  assert.deepEqual([...b5.RELACOES_PREDICADO_B15], ['empresa_assinaturas', 'empresa_excecoes_comerciais', 'auditoria']);
+  const m = /CASE WHEN ([\s\S]*?) THEN \(/.exec(sql);
+  assert.ok(m, 'o predicado vem guardado por CASE WHEN');
+  for (const t of b5.RELACOES_PREDICADO_B15) {
+    assert.ok(m[1].includes(`COALESCE(has_table_privilege(to_regclass('public.${t}'), 'SELECT'), false)`), t);
+    assert.ok(m[1].includes(`COALESCE(NOT row_security_active(to_regclass('public.${t}')), false)`), t);
+  }
+  assert.ok(/IS NOT TRUE END AS fora_do_teste/.test(sql), 'sem ELSE: invisível dá NULL');
+  assert.ok(!/;/.test(sql), 'um comando só');
+});
+
+test('r2 matriz: exceções sem as colunas do recorte contam só o total e relatam MATRIZ_EXCECOES_INDETERMINADAS', async () => {
+  const r = await rodar(['--conferir-b5'], {cliente: clienteFalso({dep: {empresa_excecoes_comerciais: false}})});
+  assert.equal(r.codigo, 3);
+  assert.ok(r.saida.motivos.includes('MATRIZ_EXCECOES_INDETERMINADAS colunas:empresa_excecoes_comerciais'), JSON.stringify(r.saida.motivos));
+  const sqlEx = r.log.map(x => x.sql).filter(s => /FROM public\.empresa_excecoes_comerciais r$/.test(s));
+  assert.deepEqual(sqlEx, [b5.sqlContagem('empresa_excecoes_comerciais', false, false)]);
+  assert.ok(!sqlEx[0].includes('revogada_em') && !sqlEx[0].includes('tipo'));
+  assert.equal(b5.sqlContagem('empresa_excecoes_comerciais', true, false), 'SELECT count(*)::text AS linhas FROM public.empresa_excecoes_comerciais r');
+});
+
+test('r2 predicado B5: testeFim inicial obrigatório e veto à extensão revogada (mesmo texto do G-VAZIO)', () => {
+  const p = b5.testeAutorizado('r');
+  assert.ok(p.includes("tvr.revogada_em IS NOT NULL"));
+  assert.ok(p.includes(`${cgv.dataAud('tai', 'testeFim')} IS NOT NULL`));
+});
+
+// ---------- Astra r3 de código (D-LAN-4 r4) ----------
+test('r4 B-15: visibilidade do legado e das origens sai do MESMO comando; RLS que surge depois da conferência prévia nunca vira VAZIO', async () => {
+  for (const [sql, tabs] of [[b5.SQL_DOCUMENTOS, b5.LEGADO_091], [b5.sqlDocumentos(true), b5.LEGADO_091], [b5.SQL_ORIGENS_091, b5.ORIGENS_091]]) {
+    assert.ok(!/;/.test(sql), 'um comando só');
+    for (const t of tabs) {
+      const linha = "SELECT '" + b5.ORIGEM_CONTROLE + "', '" + t + "', NULL::boolean, NULL::boolean, (COALESCE(has_table_privilege(to_regclass('public." + t + "'), 'SELECT'), false) AND COALESCE(NOT row_security_active(to_regclass('public." + t + "')), false))";
+      assert.ok(sql.includes('UNION ALL ' + linha), t);
+    }
+  }
+  // Legado vazio, mas o comando diz que uma relação ficou invisível: INDETERMINADO, nunca VAZIO.
+  for (const t of b5.LEGADO_091) {
+    const r = await rodar(['--conferir-b5'], {cliente: clienteFalso({controleInvisivel: [t]})});
+    assert.equal(r.saida.b15.inventarioLegado, 'INDETERMINADO', t);
+    assert.equal(r.saida.b15.legado, null);
+    assert.match(r.saida.b15.provaArtificialDocumentoLegado, /^INDETERMINADA/);
+    assert.ok(r.saida.motivos.includes('B15_LEGADO_SEM_VISIBILIDADE_NO_COMANDO ' + t), JSON.stringify(r.saida.motivos));
+    assert.notEqual(r.codigo, 0);
+  }
+  const ok = await rodar(['--conferir-b5'], {cliente: clienteFalso()});
+  assert.equal(ok.saida.b15.inventarioLegado, 'VAZIO');
+  // Origens: linha escondida no comando = origens nulas e parada nomeada (não "sem documento fora do formato").
+  for (const t of b5.ORIGENS_091) {
+    const r = await rodar(['--conferir-b5'], {cliente: clienteFalso({controleInvisivel: [t], origens: [{origem: 'cadastros_empresas', doc: '1234'}]})});
+    assert.equal(r.saida.b15.origensFuturas, null, t);
+    assert.ok(r.saida.motivos.includes('B15_ORIGEM_SEM_VISIBILIDADE_NO_COMANDO ' + t), JSON.stringify(r.saida.motivos));
+  }
+});
+
+test('r4 B-15: separarControle exige exatamente uma linha verdadeira por relação; ausente, repetida, falsa, nula ou estranha = sem visibilidade', () => {
+  const c = (doc, visivel) => ({origem: b5.ORIGEM_CONTROLE, doc, visivel});
+  const tabs = ['a', 'b'];
+  assert.deepEqual(b5.separarControle([c('a', true), c('b', true), {origem: 'x'}], tabs), {dados: [{origem: 'x'}], invisiveis: []});
+  assert.deepEqual(b5.separarControle([c('a', true)], tabs).invisiveis, ['b']);
+  assert.deepEqual(b5.separarControle([c('a', true), c('a', true), c('b', true)], tabs).invisiveis, ['a']);
+  assert.deepEqual(b5.separarControle([c('a', false), c('b', true)], tabs).invisiveis, ['a']);
+  assert.deepEqual(b5.separarControle([c('a', null), c('b', 'true')], tabs).invisiveis, ['a', 'b']);
+  assert.deepEqual(b5.separarControle([c('a', true), c('b', true), c('z', true)], tabs).invisiveis, ['z']);
+  assert.throws(() => b5.separarControle(null, tabs), /B15_CATALOGO_ILEGIVEL/);
 });

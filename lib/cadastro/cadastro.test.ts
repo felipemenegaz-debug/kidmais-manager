@@ -52,7 +52,7 @@ test('documentos legais: versão no formato do banco, hash SHA-256 estável do t
 });
 
 test('documentos legais 17/11 (R-5 sobre o staging com contratante PF/PJ e guarda dos clientes do buffet): versões novas, responsável Demerzel Labs, DPA incorporado aos Termos e controles descritos', () => {
-    assert.equal(DOCUMENTOS.TERMOS_USO.versao, '2026-11-17-termos');
+    assert.equal(DOCUMENTOS.TERMOS_USO.versao, '2026-11-25-termos');
     assert.equal(DOCUMENTOS.PRIVACIDADE.versao, '2026-11-17-privacidade');
     assert.equal(DOCUMENTOS.DPA.versao, '2026-11-17-dpa');
     for (const d of Object.values(DOCUMENTOS)) {
@@ -342,7 +342,7 @@ test('manifesto versão → hash (R-5): conteúdo novo exige versão nova, DPA n
     assert.deepEqual(conferirManifesto(DOCUMENTOS, manifesto, ler), []);
     for (const [documento, versao] of [['TERMOS_USO', '2026-10-20-minuta'], ['PRIVACIDADE', '2026-10-21-minuta5a']])
         assert.ok(manifesto.some((e) => e.documento === documento && e.versao === versao), `versão publicada em production guardada: ${documento}@${versao}`);
-    for (const [documento, versao] of [['TERMOS_USO', '2026-11-15-termos'], ['PRIVACIDADE', '2026-11-15-privacidade'], ['DPA', '2026-11-15-dpa']])
+    for (const [documento, versao] of [['TERMOS_USO', '2026-11-15-termos'], ['PRIVACIDADE', '2026-11-15-privacidade'], ['DPA', '2026-11-15-dpa'], ['TERMOS_USO', '2026-11-17-termos']])
         assert.ok(manifesto.some((e) => e.documento === documento && e.versao === versao), `versão publicada em staging guardada: ${documento}@${versao}`);
     // Controle negativo 1: obrigação do DPA alterada mantendo a versão (a mutação da revisão do Astra de 03/11).
     const trocar = (d: TextoLegal, de: string, para: string) => ({ ...d, secoes: d.secoes.map((s) => ({ ...s, paragrafos: s.paragrafos.map((p) => p.replace(de, para)) })) });
@@ -376,4 +376,29 @@ test('R-5 r5.2: a Gupshup deixou de ser usada (decisão de Felipe, só Meta) e n
         assert.doesNotMatch(textoCanonico(d), /Gupshup/i, d.documento);
     const meta = DOCUMENTOS.PRIVACIDADE.secoes.find((s) => s.id === 'prestadores')?.tabela?.linhas.find((l) => l[0] === 'Meta/WhatsApp');
     assert.match(meta?.[2] ?? '', /códigos de verificação/, 'os códigos de verificação passam a sair só pela Meta');
+});
+
+test('Termos 25/11 (r2): tarifas da Meta na conta do WhatsApp Business do Contratante (número próprio), contagem por empresa, teto de no máximo 1.000 com aviso em 80%, número da Demerzel Labs fora, DPA inalterado', () => {
+    const t = textoCanonico(DOCUMENTOS.TERMOS_USO);
+    assert.equal(DOCUMENTOS.TERMOS_USO.versao, '2026-11-25-termos');
+    assert.equal(DOCUMENTOS.DPA.versao, '2026-11-17-dpa');
+    assert.ok(!t.includes('estão incluídas no plano'), 'não promete mais tarifas da Meta incluídas no plano');
+    for (const trecho of [
+        'sem cobrança adicional da Demerzel Labs',
+        'eventuais tarifas da Meta são cobradas pela Meta diretamente nessa conta',
+        'a Demerzel Labs não paga nem repassa essas tarifas',
+        'Quando o atendimento usa um número do próprio Contratante, conectado à conta do WhatsApp Business dele',
+        'por empresa e por mês do calendário de São Paulo',
+        'mesmo que depois falhem ou sejam canceladas e mesmo que o número mude no mês',
+        'mensagens enviadas pelo número fora do sistema não entram nessa contagem',
+        'limite mensal, de no máximo 1.000 mensagens, com aviso no painel a partir de 80% desse limite (800, no limite de 1.000)',
+        'a partir daí só a equipe responde, as mensagens dela continuam contando',
+        'Se a contagem não puder ser feita, as respostas automáticas também param',
+        'as mensagens da equipe não entram na contagem nem geram aviso no painel',
+        'que não falharam nem foram canceladas',
+        'Quando o atendimento usa um número fornecido pela Demerzel Labs, as tarifas da Meta desse número ficam com a Demerzel Labs',
+        'A faixa sem tarifa e os valores são definidos pela Meta e podem mudar.',
+        'Os códigos de verificação enviados pela Demerzel Labs não são cobrados do Contratante.',
+        'Quaisquer franquias ou pacotes futuros serão informados na página de planos antes da contratação.',
+    ]) assert.ok(t.includes(trecho), trecho);
 });
