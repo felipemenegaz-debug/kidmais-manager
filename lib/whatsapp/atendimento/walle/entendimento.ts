@@ -1258,7 +1258,8 @@ const PROBLEMA_PREVENTIVO = /\b(?:tem|teria|tera|haveria|ha|vai ter|vai dar|da|d
 const PROBLEMA_ACONTECIDO = /\b(?:deu|deram|teve|tive|tivemos|tiveram|houve|aconteceu|rolou|foi um|tivemos um|tive um) (?:um |uns |algum |muito |varios )?problemas?\b|\bproblemas? (?:na|com a|durante a|no dia da) festa\b/;
 /** Palavras significativas de uma pergunta frequente (sem as genéricas). */
 const GENERICAS = new Set(['qual', 'quais', 'voces', 'tem', 'tens', 'como', 'onde', 'quando', 'quanto', 'quanta', 'para', 'pela', 'pelo', 'sobre', 'esse', 'essa', 'isso', 'este', 'esta', 'aqui', 'voce', 'seria', 'sera', 'mais', 'muito', 'tambem', 'entao', 'favor', 'existe', 'possui', 'algum', 'alguma']);
-const significativas = (t: string) => limpo(t).split(' ').filter((p) => p.length >= 4 && !GENERICAS.has(p));
+// Fatia 7: palavra com hífen conta como uma só ("wi-fi" e "wifi"; "pula-pula"), na mensagem e na pergunta cadastrada.
+const significativas = (t: string) => limpo(semAcento(t).replace(/([a-z0-9])-(?=[a-z0-9])/g, '$1')).split(' ').filter((p) => p.length >= 4 && !GENERICAS.has(p));
 /**
  * FAQ por regras: pergunta cadastrada com duas palavras em comum (mesmo radical de 4 letras: "atendem"/"atendimento",
  * "horas"/"horário") ou uma palavra longa e específica ("estacionamento"). Devolve todas, na ordem da mensagem.
@@ -1510,17 +1511,26 @@ function perguntasDaMensagem(texto: string) {
  * não são.
  */
 const SEM_FONTE_CONHECIDO = /\b(?:vai chover|chover|previsao do tempo|vai fazer (?:sol|frio|calor)|casamentos?|noivados?|bodas|batizados?|chas? (?:de bebe|de fralda|de panela|de cozinha|revelacao)|(?:festa|festas|aniversario|niver|comemoracao)\s+(?:de\s+|dos\s+|das\s+)?(?:1[5-9]|[2-9]\d)\s+anos|(?:faz|fara|vai fazer|completa|vai completar|fazendo|completando)\s+(?:1[5-9]|[2-9]\d)\s+anos|debut\w*|bar mitzvah|bat mitzvah|formaturas?|despedida de solteir\w*|(?:festas?|aniversario|niver) (?:de )?(?:adult\w*|pra adultos|para adultos)|(?:eventos?|festas?|confraterniza\w*|comemorac\w*)\s+(?:corporativ\w*|empresaria\w*|d[ae] fim de ano|(?:d[ae]|na|pra|para a) (?:minha |nossa |sua )?(?:empresa|firma))|confraterniza\w*|happy hour|acessibilidade|cadeirantes?|cadeira de rodas|mobilidade reduzida|rampas?|elevador\w*|banheiro adaptado|pcd|terreo|escadas?|degraus?|cadeirao|cadeirinha de bebe|(?:tem|teria|possui|ha) (?:um |uma |algum |alguma )?seguranca|sinal de (?:celular|internet)|pet friendly|animais de estimacao|animal de estimacao|(?:levar|trazer|entrar(?: com)?|aceita\w*|permite\w*)\s+(?:o |a |os |as |meu |minha |meus |minhas |nosso |nossa |seu |sua )?(?:cachorr\w*|cadel\w*|gat[oa]s?|gatinh\w*|cao|caes|animal|animais|bichinhos?|pets?)(?![\s-]+quente)|wi[ -]?fi|internet|manobristas?|valet|fumar|fumante\w*|fumodromo|narguile|vape|climatizad\w*|ar[ -]condicionado|fraldario|trocador|amamentar|amamentacao|hospedagem|(?:hotel|hoteis|pousadas?) (?:perto|proxim\w*|na regiao|ai perto|aqui perto))\b/;
+/**
+ * Fatia 7: a pergunta frequente publicada cobre o assunto mesmo com outra separação das palavras ("wifi", "wi-fi", "wi fi";
+ * "ar condicionado" e "ar-condicionado"): compara sem espaços, hífens e pontuação.
+ */
+const juntas = (t: string) => limpo(t).replace(/ /g, '');
+function assuntoNaPerguntaFrequente(catalogos: Catalogos, assunto: string) {
+  const a = juntas(assunto);
+  return !!a && catalogos.perguntas.some((p) => juntas(`${p.pergunta} ${p.resposta}`).includes(a));
+}
 /** Assunto sabidamente sem fonte citado fora de pergunta: entra como parte sem fonte (salvo pergunta frequente publicada). */
 function comSemFonteDeclarado(texto: string, catalogos: Catalogos, lista: string[]) {
   if (lista.length) return lista;
   const assunto = SEM_FONTE_CONHECIDO.exec(semAcento(texto))?.[0];
-  return assunto && !catalogos.perguntas.some((p) => limpo(`${p.pergunta} ${p.resposta}`).includes(limpo(assunto))) ? [texto.trim().slice(0, 120)] : lista;
+  return assunto && !assuntoNaPerguntaFrequente(catalogos, assunto) ? [texto.trim().slice(0, 120)] : lista;
 }
 /** Atributo pedido de um pacote ou unidade (horas, o que inclui, o que vem, capacidade, quanto, qual). */
 const ATRIBUTO_PERGUNTADO = /\b(horas?|dura\w*|inclui\w*|inclus\w*|incluid\w*|vem|vao|tem|cabe\w*|comporta\w*|serve\w*|quantos?|quantas?|qual|quais|como e|e de|e com|tamanho|metros?|andar|terreo)\b/;
 /** A pergunta é atendida por alguma regra (assunto, FAQ, dado da festa, pessoa, alergia ou sinal de cuidado)? */
 function coberta(segmento: string, catalogos: Catalogos, mensagem = segmento) {
-  const semFonte = SEM_FONTE_CONHECIDO.exec(semAcento(segmento))?.[0]; if (semFonte && !catalogos.perguntas.some((p) => limpo(`${p.pergunta} ${p.resposta}`).includes(limpo(semFonte)))) return false; // [fora-escopo] "fazem casamento?", "tem manobrista?": sem fonte, salvo pergunta frequente publicada sobre o assunto
+  const semFonte = SEM_FONTE_CONHECIDO.exec(semAcento(segmento))?.[0]; if (semFonte && !assuntoNaPerguntaFrequente(catalogos, semFonte)) return false; // [fora-escopo] "fazem casamento?", "tem manobrista?": sem fonte, salvo pergunta frequente publicada sobre o assunto
   if (ITEM_DETALHE.test(semAcento(segmento))) return false; // [fora-escopo] "o kibe é frito ou assado?": o item está no buffet, o detalhe não
   const t = semAcento(segmento);
   const c = limpo(segmento);

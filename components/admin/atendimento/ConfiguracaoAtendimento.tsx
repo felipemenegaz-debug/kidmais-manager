@@ -2,7 +2,9 @@
 import { useCallback, useEffect, useState } from 'react';
 import Link from 'next/link';
 import { adminFetch } from '@/lib/http/admin-fetch';
-import type { ConfiguracaoAtendimento as Configuracao } from '@/lib/whatsapp/atendimento/core';
+import { LIMITE_PERGUNTAS_APROVADAS, type ConfiguracaoAtendimento as Configuracao } from '@/lib/whatsapp/atendimento/core';
+import { perguntaComDadoPessoal } from '@/lib/whatsapp/atendimento/sem-fonte-texto';
+import PerguntasSemFonte from './PerguntasSemFonte';
 import { bloqueioDoCodigo, type BloqueioAtendimento } from '@/lib/whatsapp/atendimento/acesso-tela';
 import { DIAS_SEMANA, LIMITE_EMAILS_AVISO, NOME_DIA, type DiaSemana, type HorarioEquipe } from '@/lib/whatsapp/atendimento/horario';
 import styles from './atendimento.module.css';
@@ -59,6 +61,14 @@ export default function ConfiguracaoAtendimento() {
     try { const r = await adminFetch('/api/admin/atendimento', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ acao: 'configurar', configuracao: enviar }) }); const json = await r.json(); if (!r.ok || !json.ok) throw Error(json.erro || 'Confira os campos da configuração.'); setAviso('Configuração salva.'); await carregar(); }
     catch (e) { setErro(e instanceof Error ? e.message : 'Falha ao salvar.'); } finally { setOcupado(false); }
   }
+  /** Fatia 7: nova resposta aprovada já com a pergunta mascarada; a pessoa escreve a resposta (foco no campo). */
+  function criarResposta(pergunta = '') {
+    if (!config || config.perguntas.length >= LIMITE_PERGUNTAS_APROVADAS) return;
+    const id = 'faq_' + crypto.randomUUID().slice(0, 8);
+    setConfig({ ...config, perguntas: [...config.perguntas, { id, pergunta, resposta: '' }] });
+    if (pergunta) window.setTimeout(() => document.getElementById('resposta-' + id)?.focus(), 0);
+  }
+  const esgotado = (config?.perguntas.length ?? 0) >= LIMITE_PERGUNTAS_APROVADAS;
   const link = dados?.wallE?.linkPublico;
   const nome = config?.nome.trim() || 'sua empresa';
   return <main className={styles.pagina}>
@@ -87,8 +97,10 @@ export default function ConfiguracaoAtendimento() {
         </> : <p className={styles.nota}>{link ? SEM_LINK[link.motivo] : 'Disponível depois da atualização deste ambiente.'}</p>}
         <h3>Respostas aprovadas</h3>
         <p className={styles.nota}>Perguntas frequentes com a resposta exata da empresa. São usadas como estão; nada de preço, desconto, disponibilidade ou condição é criado.</p>
-        {config.perguntas.map((p, index) => <fieldset key={p.id}><legend>Resposta {index + 1}</legend><label>Pergunta do cliente<input value={p.pergunta} required minLength={3} maxLength={250} onChange={e => setConfig({ ...config, perguntas: config.perguntas.map((x, i) => i === index ? { ...x, pergunta: e.target.value } : x) })} /></label><label>Resposta aprovada<textarea value={p.resposta} required minLength={3} maxLength={1500} onChange={e => setConfig({ ...config, perguntas: config.perguntas.map((x, i) => i === index ? { ...x, resposta: e.target.value } : x) })} /></label><button type="button" onClick={() => setConfig({ ...config, perguntas: config.perguntas.filter((_, i) => i !== index) })}>Remover resposta<span className={styles.oculto}> {index + 1}</span></button></fieldset>)}
-        <button type="button" disabled={config.perguntas.length >= 30} onClick={() => setConfig({ ...config, perguntas: [...config.perguntas, { id: 'faq_' + crypto.randomUUID().slice(0, 8), pergunta: '', resposta: '' }] })}>Adicionar resposta</button>
+        {config.perguntas.map((p, index) => <fieldset key={p.id}><legend>Resposta {index + 1}</legend><label>Pergunta do cliente<input value={p.pergunta} required minLength={3} maxLength={250} aria-invalid={perguntaComDadoPessoal(p.pergunta) || undefined} aria-describedby={perguntaComDadoPessoal(p.pergunta) ? 'pergunta-dado-' + p.id : undefined} onChange={e => setConfig({ ...config, perguntas: config.perguntas.map((x, i) => i === index ? { ...x, pergunta: e.target.value } : x) })} /></label>{perguntaComDadoPessoal(p.pergunta) && <p id={'pergunta-dado-' + p.id} className={styles.erro}>Esta pergunta tem dado pessoal ou um trecho omitido. Reescreva de forma geral, sem dados do cliente.</p>}<label>Resposta aprovada<textarea id={'resposta-' + p.id} value={p.resposta} required minLength={3} maxLength={1500} onChange={e => setConfig({ ...config, perguntas: config.perguntas.map((x, i) => i === index ? { ...x, resposta: e.target.value } : x) })} /></label><button type="button" onClick={() => setConfig({ ...config, perguntas: config.perguntas.filter((_, i) => i !== index) })}>Remover resposta<span className={styles.oculto}> {index + 1}</span></button></fieldset>)}
+        <button type="button" disabled={esgotado} onClick={() => criarResposta()}>Adicionar resposta</button>
+        {esgotado && <p className={styles.limiteEsgotado} role="status">Limite de {LIMITE_PERGUNTAS_APROVADAS} respostas aprovadas atingido: remova uma resposta para criar outra.</p>}
+        {dados.wallE?.disponivel && <PerguntasSemFonte perguntasNoFormulario={config.perguntas.map(p => p.pergunta)} limite={LIMITE_PERGUNTAS_APROVADAS} onCriar={criarResposta} />}
       </section>
       <section className={styles.painel} aria-labelledby="config-equipe"><h2 id="config-equipe">Horário da equipe e avisos</h2>
         <p className={styles.nota}>Fora deste horário (de Brasília), quando o Wall-e passa a conversa para a equipe, ele avisa o cliente quando a equipe responde, com uma frase fixa. Sem horário marcado, nada muda.</p>

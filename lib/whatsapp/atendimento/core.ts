@@ -5,9 +5,11 @@ import type { Passagem } from './walle/tipos.ts';
 import { ALERGIA } from './walle/alergia.ts';
 
 export const LIMITE_PADRAO_RESPOSTAS = 20;
+/** Respostas aprovadas (perguntas frequentes) por empresa e ambiente. A fatia 7 mostra quando o limite está esgotado. */
+export const LIMITE_PERGUNTAS_APROVADAS = 30;
 export const configuracaoSchema = z.object({
   ativo: z.boolean(), nome: z.string().trim().min(2).max(100),
-  perguntas: z.array(z.object({ id: z.string().regex(/^[a-z0-9_-]{1,40}$/), pergunta: z.string().trim().min(3).max(250), resposta: z.string().trim().min(3).max(1500) }).strict()).max(30),
+  perguntas: z.array(z.object({ id: z.string().regex(/^[a-z0-9_-]{1,40}$/), pergunta: z.string().trim().min(3).max(250), resposta: z.string().trim().min(3).max(1500) }).strict()).max(LIMITE_PERGUNTAS_APROVADAS),
   // Respostas automáticas por conversa em 24 h; atingido o limite, a conversa vai para a equipe sem chamar o modelo.
   // O teto de tokens/custo continua no orçamento da capacidade `whatsapp_atendimento`, definido no servidor.
   limites: z.object({ respostasPor24h: z.number().int().min(1).max(100) }).strict().default({ respostasPor24h: LIMITE_PADRAO_RESPOSTAS }),
@@ -184,6 +186,16 @@ export function entradaFaseB(historico: string[], atual: string, interesseAnteri
 export const REGISTRO_SENSIVEL = '[mensagem com dado sensível: ver o histórico]';
 export function trechoParaRegistro(texto: string | null | undefined, limite = 500) {
   return dadoSensivel(texto) ? REGISTRO_SENSIVEL : ocultarDadosPessoais(String(texto ?? '')).slice(0, limite);
+}
+const MARCADOR_OMITIDO = /\[[^\]\n]{0,40}omitid[ao][^\]\n]{0,40}\]/iu;
+/**
+ * Fatia 7 — validação do texto que será publicado como pergunta aprovada (Onda 2): recusa marcador de dado omitido
+ * ("[telefone omitido]") e qualquer trecho que a máscara mudaria (telefone, e-mail, CPF/CNPJ, CEP, endereço, nome,
+ * data de nascimento). A pessoa reescreve de forma geral antes de salvar.
+ */
+export function perguntaComDadoPessoal(pergunta: string) {
+  const normal = normalizarParaPrivacidade(pergunta);
+  return MARCADOR_OMITIDO.test(normal) || ocultarDadosPessoais(normal) !== normal;
 }
 /** D1/B2 — texto livre que o modelo devolveu (tema): só se não for sensível; normalizado e minimizado. */
 export function textoDoModeloSeguro(valor: string | null | undefined) {

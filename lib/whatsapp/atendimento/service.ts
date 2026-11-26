@@ -3,7 +3,7 @@ import type { DbExecutor } from '../../db/contracts.ts';
 import { withTenantTransaction, type SessaoParaTenant, type TenantComprovado } from '../../saas/provar-tenant.ts';
 import { atendimentoAtivo, ambienteAtendimento, contatoPermitido, empresaPiloto, recepcaoAtiva, receptorDoNumero } from './configuracao.ts';
 import { contaNoTeto, reservarConsumo } from './teto-mensal.ts';
-import { APP_META, JANELA_REENTREGA_DIAS, configuracaoSchema, comandoDireto, passagemSemRespostaAutomatica, pausaPedidaNaRecepcao, semAutomatico, janelaAberta, nomePerfilSeguro, situacaoCadastro, type CadastroContato, type Entrada } from './core.ts';
+import { APP_META, JANELA_REENTREGA_DIAS, configuracaoSchema, comandoDireto, perguntaComDadoPessoal, passagemSemRespostaAutomatica, pausaPedidaNaRecepcao, semAutomatico, janelaAberta, nomePerfilSeguro, situacaoCadastro, type CadastroContato, type Entrada } from './core.ts';
 import { ARQUIVO_DISPONIVEL_SQL, caminhoPublicoArquivo } from './arquivos.ts';
 import { contextoNaFila, destinatariosAutorizados, limparAvisoEquipe, marcaNaFila } from './aviso-equipe.ts';
 import { registroDaPausa, registroDoBloqueio } from './walle/entendimento.ts';
@@ -478,6 +478,10 @@ export async function salvarConfiguracao(sessao: SessaoParaTenant, valor: unknow
     // C2 + C4. Configurar desligado antes de conectar continua possível no MULTI.
     await exigirEscritaAtendimento(tx, tenant.empresaComprovada);
     const config = configuracaoSchema.parse(valor);
+    // Fatia 7 (Onda 2): pergunta nova ou alterada é o texto que será publicado (e vai ao modelo): sem marcador de dado
+    // omitido nem dado pessoal que a máscara pegaria. As já salvas e sem alteração continuam valendo como estavam.
+    const salvas = new Set((await configuracao(tx, tenant.empresaComprovada))?.perguntas.map((p) => p.pergunta) ?? []);
+    if (config.perguntas.some((p) => !salvas.has(p.pergunta) && perguntaComDadoPessoal(p.pergunta))) throw new Error('ATENDIMENTO_PERGUNTA_DADO_PESSOAL');
     // Fatia 8: só pessoas autorizadas da empresa recebem o aviso (de novo conferido a cada envio, aviso-equipe.ts).
     const emails = config.avisoEquipe?.emails ?? [];
     // Astra r2 (P2): sem a 082 não há onde gravar a marca do aviso; e-mails cadastrados nunca receberiam nada.
