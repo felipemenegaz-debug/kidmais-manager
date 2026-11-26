@@ -41,7 +41,7 @@ const MENSAGEM: Record<string, string> = {
   ATENDIMENTO_CONTATO_INVALIDO: 'Informe o número completo, só com dígitos (DDI, DDD e número).',
   ATENDIMENTO_AVISO_SEM_082: 'O aviso por e-mail ainda não está disponível neste ambiente (migration 082 não aplicada). Deixe a lista de e-mails vazia para salvar.',
   ATENDIMENTO_AVISO_DESTINATARIO: 'Os e-mails de aviso precisam ser de pessoas com acesso ao Atendimento desta empresa (Gestão ou Administrativo), com o acesso ativo.',
-  ATENDIMENTO_PERGUNTA_DADO_PESSOAL: 'Uma pergunta aprovada tem dado pessoal ou um marcador de dado omitido (como [telefone omitido]). Reescreva a pergunta de forma geral, sem dados do cliente, e salve de novo.',
+  ATENDIMENTO_PERGUNTA_DADO_PESSOAL: 'Uma pergunta aprovada tem dado pessoal (nome, telefone, e-mail, documento), um marcador de dado omitido (como [telefone omitido]) ou um assunto de saúde, alergia, deficiência ou crença, que o Wall-e sempre passa para a equipe. Reescreva a pergunta de forma geral, sem dados do cliente, e salve de novo.',
   ATENDIMENTO_PRONTA_MIDIA_ALTERADA: 'A foto ou o vídeo desta mensagem pronta mudou ou foi removido depois da prévia. Nada foi enviado: remova o anexo e abra a prévia de novo para revisar.',
 };
 // Regra de negócio não é indisponibilidade: só falha inesperada (banco, configuração) devolve 503.

@@ -78,3 +78,37 @@ test('fatia 7: a resposta aprovada nova não captura perguntas de outros assunto
     for (const c of CASOS) assert.ok(!l.resposta.includes(c.resposta), `"${t}" respondeu com ${c.id}: ${l.resposta}`);
   }
 });
+
+// Astra r1 (P2): a resposta aprovada só é escolhida por correspondência integral depois das grafias reconhecidas
+// (wi-fi/wifi/wi fi). Nenhum acerto parcial novo: palavras juntas ou compostos com o mesmo começo não casam.
+async function decidir(perguntas, t) {
+  const { m, ent, core } = await modulos();
+  const config = core.configuracaoSchema.parse({ ...CONFIG, perguntas: [...CONFIG.perguntas, ...perguntas] });
+  const catalogos = { ...CATALOGOS, perguntas: config.perguntas };
+  const [l] = await simularSequencia(m, [item('r2', t)], { catalogos, config, fontes: FONTES, agora: AGORA, entender: (x, c) => ent.entenderPorRegras(x, catalogos, c) });
+  return l;
+}
+
+test('fatia 7 r2: "Tem wi-fi?" publicada responde "Tem wi-fi?" e "Tem wifi?" (holdout positivo)', { timeout: 120_000 }, async () => {
+  const faq = { id: 'faq_wifi_curta', pergunta: 'Tem wi-fi?', resposta: 'Resposta aprovada sintética: sim, a senha fica na recepção.' };
+  for (const t of ['Tem wi-fi?', 'Tem wifi?', 'tem wi fi?', 'Vocês têm wifi?']) {
+    const l = await decidir([faq], t);
+    assert.equal(l.decisao, 'RESPONDER', `"${t}": ${l.decisao} ${l.motivos} ${l.resposta}`);
+    assert.ok(l.resposta.includes(faq.resposta), `"${t}": ${l.resposta}`);
+  }
+});
+
+test('fatia 7 r2: sem acerto parcial novo (holdout negativo valet × vale transporte, guarda-roupa × guarda-volumes)', { timeout: 120_000 }, async () => {
+  const casos = [
+    { faq: { id: 'faq_vale', pergunta: 'Tem estacionamento?', resposta: 'Resposta aprovada sintética: aceitamos vale transporte.' }, textos: ['Tem valet?', 'Vocês têm valet?'] },
+    { faq: { id: 'faq_vt', pergunta: 'Aceitam vale transporte?', resposta: 'Resposta aprovada sintética: sim, vale transporte.' }, textos: ['Tem valet?'] },
+    { faq: { id: 'faq_volumes', pergunta: 'Tem guarda-volumes?', resposta: 'Resposta aprovada sintética: o guarda-volumes fica na entrada.' }, textos: ['Tem guarda-roupa?', 'tem guarda roupa?'] },
+  ];
+  for (const { faq, textos } of casos) for (const t of textos) {
+    const l = await decidir([faq], t);
+    // Igual à base (staging 44989ffe): passa para a equipe por falta de fonte, nunca RESPONDER pela resposta aprovada.
+    // (Na FAQ de estacionamento, "valet" já era sinônimo antes desta fatia; o trecho dela na passagem é da base.)
+    assert.equal(l.decisao, 'EQUIPE', `"${t}": ${l.decisao} ${l.motivos} ${l.resposta}`);
+    assert.ok(l.motivos.includes('INFORMACAO_INDISPONIVEL'), `"${t}": ${l.motivos}`);
+  }
+});

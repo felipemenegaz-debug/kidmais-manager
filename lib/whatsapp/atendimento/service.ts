@@ -479,9 +479,14 @@ export async function salvarConfiguracao(sessao: SessaoParaTenant, valor: unknow
     await exigirEscritaAtendimento(tx, tenant.empresaComprovada);
     const config = configuracaoSchema.parse(valor);
     // Fatia 7 (Onda 2): pergunta nova ou alterada é o texto que será publicado (e vai ao modelo): sem marcador de dado
-    // omitido nem dado pessoal que a máscara pegaria. As já salvas e sem alteração continuam valendo como estavam.
-    const salvas = new Set((await configuracao(tx, tenant.empresaComprovada))?.perguntas.map((p) => p.pergunta) ?? []);
-    if (config.perguntas.some((p) => !salvas.has(p.pergunta) && perguntaComDadoPessoal(p.pergunta))) throw new Error('ATENDIMENTO_PERGUNTA_DADO_PESSOAL');
+    // omitido nem dado pessoal que a máscara pegaria. Só a MESMA pergunta já salva (mesmo id e mesmo texto) continua
+    // valendo como estava, e cada uma vale uma vez: copiar o texto antigo para outro id ou repetir o id não escapa.
+    const salvas = new Map(((await configuracao(tx, tenant.empresaComprovada))?.perguntas ?? []).map((p) => [p.id, p.pergunta]));
+    for (const p of config.perguntas) {
+      const inalterada = salvas.get(p.id) === p.pergunta;
+      salvas.delete(p.id);
+      if (!inalterada && perguntaComDadoPessoal(p.pergunta)) throw new Error('ATENDIMENTO_PERGUNTA_DADO_PESSOAL');
+    }
     // Fatia 8: só pessoas autorizadas da empresa recebem o aviso (de novo conferido a cada envio, aviso-equipe.ts).
     const emails = config.avisoEquipe?.emails ?? [];
     // Astra r2 (P2): sem a 082 não há onde gravar a marca do aviso; e-mails cadastrados nunca receberiam nada.

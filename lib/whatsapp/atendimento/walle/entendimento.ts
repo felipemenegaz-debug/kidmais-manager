@@ -1258,8 +1258,14 @@ const PROBLEMA_PREVENTIVO = /\b(?:tem|teria|tera|haveria|ha|vai ter|vai dar|da|d
 const PROBLEMA_ACONTECIDO = /\b(?:deu|deram|teve|tive|tivemos|tiveram|houve|aconteceu|rolou|foi um|tivemos um|tive um) (?:um |uns |algum |muito |varios )?problemas?\b|\bproblemas? (?:na|com a|durante a|no dia da) festa\b/;
 /** Palavras significativas de uma pergunta frequente (sem as genéricas). */
 const GENERICAS = new Set(['qual', 'quais', 'voces', 'tem', 'tens', 'como', 'onde', 'quando', 'quanto', 'quanta', 'para', 'pela', 'pelo', 'sobre', 'esse', 'essa', 'isso', 'este', 'esta', 'aqui', 'voce', 'seria', 'sera', 'mais', 'muito', 'tambem', 'entao', 'favor', 'existe', 'possui', 'algum', 'alguma']);
-// Fatia 7: palavra com hífen conta como uma só ("wi-fi" e "wifi"; "pula-pula"), na mensagem e na pergunta cadastrada.
-const significativas = (t: string) => limpo(semAcento(t).replace(/([a-z0-9])-(?=[a-z0-9])/g, '$1')).split(' ').filter((p) => p.length >= 4 && !GENERICAS.has(p));
+/**
+ * Fatia 7: grafias reconhecidas do MESMO termo viram uma só ("wi-fi", "wi fi", "wifi" → "wifi"). Lista fechada: nada de
+ * juntar palavras em geral nem de hífen genérico ("guarda-roupa" × "guarda-volumes" e "valet" × "vale transporte").
+ */
+const grafias = (t: string) => limpo(t).replace(/\bwi fi\b/g, 'wifi');
+const significativas = (t: string) => grafias(t).split(' ').filter((p) => p.length >= 4 && !GENERICAS.has(p));
+/** Pergunta inteira sem as palavras genéricas, com as grafias reconhecidas: "Tem wifi?" e "Tem wi-fi?" são a mesma. */
+const perguntaIntegral = (t: string) => grafias(t).split(' ').filter((p) => p && !GENERICAS.has(p)).join(' ');
 /**
  * FAQ por regras: pergunta cadastrada com duas palavras em comum (mesmo radical de 4 letras: "atendem"/"atendimento",
  * "horas"/"horário") ou uma palavra longa e específica ("estacionamento"). Devolve todas, na ordem da mensagem.
@@ -1286,6 +1292,10 @@ function perguntasPorRegras(texto: string, perguntas: Catalogos['perguntas']) {
     const daResposta = p.resposta ? significativas(p.resposta).filter((x) => x.length >= 6 && msg.some((w) => w.slice(0, 5) === x.slice(0, 5))).length >= 2 : false;
     const sinonimo = SINONIMOS_FAQ.find(([assunto, vocabulario]) => assunto.test(semAcento(p.pergunta)) && vocabulario.test(t));
     if (sinonimo) { achadas.push({ id: p.id, pos: Math.max(0, msg.length - 1) }); continue; }
+    // Fatia 7: a mensagem É a pergunta publicada (só muda a grafia reconhecida ou as palavras genéricas): "Tem wifi?" depois
+    // de publicar "Tem wi-fi?". Correspondência integral, nunca parcial.
+    const integral = perguntaIntegral(p.pergunta);
+    if (integral && integral === perguntaIntegral(semReferencia)) { achadas.push({ id: p.id, pos: 0 }); continue; }
     // Uma só palavra longa em comum ("atendimento") vale quando a mensagem pergunta algo (rodada 18): "o atendimento de
     // vcs é uma vergonha" não é pergunta do horário de atendimento.
     const pergunta = /\?|\b(qual|quais|quando|que horas|ate que horas|como|onde|tem|teria|existe|funciona\w*|abre|abrem|queria saber|gostaria de saber)\b/.test(t);
@@ -1512,13 +1522,12 @@ function perguntasDaMensagem(texto: string) {
  */
 const SEM_FONTE_CONHECIDO = /\b(?:vai chover|chover|previsao do tempo|vai fazer (?:sol|frio|calor)|casamentos?|noivados?|bodas|batizados?|chas? (?:de bebe|de fralda|de panela|de cozinha|revelacao)|(?:festa|festas|aniversario|niver|comemoracao)\s+(?:de\s+|dos\s+|das\s+)?(?:1[5-9]|[2-9]\d)\s+anos|(?:faz|fara|vai fazer|completa|vai completar|fazendo|completando)\s+(?:1[5-9]|[2-9]\d)\s+anos|debut\w*|bar mitzvah|bat mitzvah|formaturas?|despedida de solteir\w*|(?:festas?|aniversario|niver) (?:de )?(?:adult\w*|pra adultos|para adultos)|(?:eventos?|festas?|confraterniza\w*|comemorac\w*)\s+(?:corporativ\w*|empresaria\w*|d[ae] fim de ano|(?:d[ae]|na|pra|para a) (?:minha |nossa |sua )?(?:empresa|firma))|confraterniza\w*|happy hour|acessibilidade|cadeirantes?|cadeira de rodas|mobilidade reduzida|rampas?|elevador\w*|banheiro adaptado|pcd|terreo|escadas?|degraus?|cadeirao|cadeirinha de bebe|(?:tem|teria|possui|ha) (?:um |uma |algum |alguma )?seguranca|sinal de (?:celular|internet)|pet friendly|animais de estimacao|animal de estimacao|(?:levar|trazer|entrar(?: com)?|aceita\w*|permite\w*)\s+(?:o |a |os |as |meu |minha |meus |minhas |nosso |nossa |seu |sua )?(?:cachorr\w*|cadel\w*|gat[oa]s?|gatinh\w*|cao|caes|animal|animais|bichinhos?|pets?)(?![\s-]+quente)|wi[ -]?fi|internet|manobristas?|valet|fumar|fumante\w*|fumodromo|narguile|vape|climatizad\w*|ar[ -]condicionado|fraldario|trocador|amamentar|amamentacao|hospedagem|(?:hotel|hoteis|pousadas?) (?:perto|proxim\w*|na regiao|ai perto|aqui perto))\b/;
 /**
- * Fatia 7: a pergunta frequente publicada cobre o assunto mesmo com outra separação das palavras ("wifi", "wi-fi", "wi fi";
- * "ar condicionado" e "ar-condicionado"): compara sem espaços, hífens e pontuação.
+ * Fatia 7: a pergunta frequente publicada cobre o assunto também com outra grafia reconhecida ("wifi", "wi-fi", "wi fi");
+ * fora disso, a mesma comparação de antes.
  */
-const juntas = (t: string) => limpo(t).replace(/ /g, '');
 function assuntoNaPerguntaFrequente(catalogos: Catalogos, assunto: string) {
-  const a = juntas(assunto);
-  return !!a && catalogos.perguntas.some((p) => juntas(`${p.pergunta} ${p.resposta}`).includes(a));
+  const a = grafias(assunto);
+  return !!a && catalogos.perguntas.some((p) => grafias(`${p.pergunta} ${p.resposta}`).includes(a));
 }
 /** Assunto sabidamente sem fonte citado fora de pergunta: entra como parte sem fonte (salvo pergunta frequente publicada). */
 function comSemFonteDeclarado(texto: string, catalogos: Catalogos, lista: string[]) {

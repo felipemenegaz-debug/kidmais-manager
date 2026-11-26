@@ -69,9 +69,10 @@ test('sem fonte: escopo por empresa e ambiente, papel pela rota e texto publicad
       './configuracao.ts': configuracao, './core.ts': core, './service.ts': servico, './sem-fonte-texto.ts': semFonteTexto,
     }).modulo as typeof import('./sem-fonte.ts');
 
-    async function passagem(empresa: string, ambiente: string, ultimaMensagem: string, dias: number, extra: { motivo?: string; naoContatar?: boolean; soMotivoAntigo?: boolean } = {}) {
+    async function passagem(empresa: string, ambiente: string, ultimaMensagem: string, dias: number, extra: { motivo?: string; naoContatar?: boolean; soMotivoAntigo?: boolean; em?: string } = {}) {
       const motivo = extra.motivo ?? 'INFORMACAO_INDISPONIVEL';
-      const p = extra.soMotivoAntigo ? { motivo, em: emDias(dias), ultimaMensagem } : { motivo, motivos: [motivo], em: emDias(dias), ultimaMensagem };
+      const em = extra.em ?? emDias(dias);
+      const p = extra.soMotivoAntigo ? { motivo, em, ultimaMensagem } : { motivo, motivos: [motivo], em, ultimaMensagem };
       await c.query(`INSERT INTO whatsapp_atendimento_conversas (empresa_id, ambiente, contato, passagem, nao_contatar)
         VALUES ($1, $2, $3, $4::jsonb, $5)`, [empresa, ambiente, `55619${String(Math.floor(Math.random() * 1e8)).padStart(8, '0')}`, JSON.stringify(p), extra.naoContatar ?? false]);
     }
@@ -88,6 +89,14 @@ test('sem fonte: escopo por empresa e ambiente, papel pela rota e texto publicad
     await passagem(A, 'staging', 'Cliente pediu para não contatar?', 1, { naoContatar: true });
     await passagem(A, 'staging', 'Quero falar com uma pessoa', 1, { motivo: 'PEDIU_HUMANO' });
     await passagem(A, 'staging', 'Pergunta antiga de dois meses?', 31);
+    // Extremos da janela (Astra r1, P3): exatamente 30 dias entra; 1 s antes disso e qualquer data futura ficam de fora.
+    await passagem(A, 'staging', 'Tem cama elástica?', 0, { em: emDias(30) });
+    await passagem(A, 'staging', 'Pergunta de trinta dias e um segundo?', 0, { em: new Date(AGORA.getTime() - 30 * DIA - 1000).toISOString() });
+    await passagem(A, 'staging', 'Pergunta do futuro?', 0, { em: new Date(AGORA.getTime() + 60_000).toISOString() });
+    await passagem(A, 'staging', 'Tem cama elástica?', 0, { em: AGORA.toISOString() });
+    // Contagem (Astra r1, P3/P1): apresentação com nome em minúsculas é omitida e contada; texto curto é só descartado.
+    await passagem(A, 'staging', 'me chamo ana silva, tem wifi?', 2);
+    await passagem(A, 'staging', 'ok', 2);
     // A pergunta já publicada fica por último e marcada.
     await c.query(`INSERT INTO whatsapp_atendimento_config (empresa_id, ambiente, configuracao) VALUES ($1, 'staging', $2::jsonb)`,
       [A, JSON.stringify({ ativo: false, nome: 'Empresa sintética', perguntas: [{ id: 'faq_estac', pergunta: 'Tem estacionamento coberto?', resposta: 'Sim, para 20 carros.' }] })]);
@@ -97,16 +106,21 @@ test('sem fonte: escopo por empresa e ambiente, papel pela rota e texto publicad
     assert.equal(r.dias, 30);
     assert.equal(r.limite, 30);
     assert.equal(r.publicadas, 1);
-    assert.equal(r.omitidasSensiveis, 1, 'sensível só contado');
-    assert.deepEqual(r.grupos.map(g => [g.texto, g.ocorrencias, g.jaPublicada, g.precisaRevisar]), [
+    assert.equal(r.omitidasSensiveis, 2, 'sensível e apresentação com nome só contados; "ok" não');
+    const esperado = [
+      ['Tem cama elástica?', 2, false, false],
       ['Vocês têm fraldário no salão?', 2, false, false],
       // 11 dígitos soltos: a máscara existente marca como documento; o que importa é o número não aparecer.
       ['Tem wi-fi? me chama no [documento omitido]', 1, false, true],
       ['Pode levar pula-pula próprio?', 1, false, false],
       ['Tem estacionamento coberto?', 1, true, false],
-    ]);
+    ];
+    assert.deepEqual(r.grupos.map(g => [g.texto, g.ocorrencias, g.jaPublicada, g.precisaRevisar]), esperado);
+    // A janela inteira é lida em lotes (Astra r1, P2): lote de 2 dá o mesmo resultado que o lote padrão.
+    assert.deepEqual(await semFonte.perguntasSemFonte(rep, AGORA, 2), r);
+    assert.deepEqual(await semFonte.perguntasSemFonte(rep, AGORA, 1), r);
     const tudo = JSON.stringify(r);
-    for (const proibido of ['11987654321', 'production', 'outra empresa', 'não contatar', 'falar com uma pessoa', 'dois meses']) {
+    for (const proibido of ['11987654321', 'production', 'outra empresa', 'não contatar', 'falar com uma pessoa', 'dois meses', 'um segundo', 'futuro', 'ana silva']) {
       assert.ok(!tudo.includes(proibido), `fora do recorte: ${proibido}`);
     }
     assert.deepEqual((await semFonte.perguntasSemFonte(outra, AGORA)).grupos.map(g => g.texto), ['Pergunta da outra empresa?']);
@@ -124,7 +138,8 @@ test('sem fonte: escopo por empresa e ambiente, papel pela rota e texto publicad
         '@/lib/comercial/pacotes-admin': { PacoteAdminError: class extends Error {} },
         '@/lib/http/admin-crm-api': { exigirApiAdminCrmDisponivel: async () => { if (!sessao) throw new ErroAuth('Entre de novo.', 401); return sessao; } },
         '@/lib/whatsapp/atendimento/erros': erros,
-        '@/lib/whatsapp/atendimento/sem-fonte': semFonte,
+        // Relógio fixo também pela rota (Astra r1, P3): o resultado não muda com a data em que o teste roda.
+        '@/lib/whatsapp/atendimento/sem-fonte': { perguntasSemFonte: (s: SessaoParaTenant) => semFonte.perguntasSemFonte(s, AGORA) },
       }).modulo as { GET: (r: unknown) => Promise<Response> };
     }
     const pedido = { method: 'GET', headers: { get: () => null }, cookies: { get: () => undefined } };
@@ -133,7 +148,7 @@ test('sem fonte: escopo por empresa e ambiente, papel pela rota e texto publicad
     assert.equal(okRep.status, 200);
     assert.equal(okRep.cache, 'no-store');
     assert.equal(okRep.json.ok, true);
-    assert.ok(Number(okRep.json.data?.grupos.length) >= 4);
+    assert.deepEqual((okRep.json.data as unknown as typeof r), JSON.parse(JSON.stringify(r)));
     const negAdm = await chamar(adm);
     assert.deepEqual([negAdm.status, negAdm.json.ok, negAdm.json.codigo], [403, false, 'ATENDIMENTO_ACESSO_NEGADO']);
     const negOutra = await chamar({ ...outra, empresa_ativa_id: A });
@@ -147,6 +162,18 @@ test('sem fonte: escopo por empresa e ambiente, papel pela rota e texto publicad
     const estac = { id: 'faq_estac', pergunta: 'Tem estacionamento coberto?', resposta: 'Sim, para 20 carros.' };
     await assert.rejects(salvar([estac, { id: 'faq_wifi', pergunta: 'Tem wi-fi? me chama no [telefone omitido]', resposta: 'Sim.' }]), /ATENDIMENTO_PERGUNTA_DADO_PESSOAL/);
     await assert.rejects(salvar([estac, { id: 'faq_wifi', pergunta: 'Tem wi-fi? me chama no 11987654321', resposta: 'Sim.' }]), /ATENDIMENTO_PERGUNTA_DADO_PESSOAL/);
+    for (const pergunta of ['Meu filho tem diabetes, tem wifi?', core.REGISTRO_SENSIVEL, core.ENTRADA_SENSIVEL_OMITIDA, 'me chamo ana silva, tem wifi?']) {
+      await assert.rejects(salvar([estac, { id: 'faq_wifi', pergunta, resposta: 'Sim.' }]), /ATENDIMENTO_PERGUNTA_DADO_PESSOAL/, pergunta);
+    }
+    // Exceção das perguntas antigas (Astra r1, P2): só a MESMA pergunta (mesmo id e texto), uma vez.
+    const legada = { id: 'faq_legada', pergunta: 'Tem wi-fi? me liga 11987654321', resposta: 'Sim.' };
+    await c.query(`INSERT INTO whatsapp_atendimento_config(empresa_id, ambiente, configuracao) VALUES ($1, 'staging', $2::jsonb) ON CONFLICT (empresa_id, ambiente) DO UPDATE SET configuracao = EXCLUDED.configuracao`,
+      [A, JSON.stringify({ ativo: false, nome: 'Empresa sintética', perguntas: [estac, legada] })]);
+    await salvar([estac, legada]);
+    await assert.rejects(salvar([estac, legada, { ...legada, id: 'faq_copia' }]), /ATENDIMENTO_PERGUNTA_DADO_PESSOAL/, 'cópia com outro id');
+    await assert.rejects(salvar([{ ...estac, pergunta: legada.pergunta }, legada]), /ATENDIMENTO_PERGUNTA_DADO_PESSOAL/, 'outra FAQ trocada para o texto antigo');
+    // Id repetido já é recusado antes, pelo schema (Identificadores repetidos).
+    await assert.rejects(salvar([estac, legada, { ...legada }]), /Identificadores repetidos/, 'mesmo id repetido');
     await salvar([estac, { id: 'faq_wifi', pergunta: 'Tem wi-fi no salão?', resposta: 'Sim, a senha fica na recepção.' }]);
     const depois = await semFonte.perguntasSemFonte(rep, AGORA);
     assert.equal(depois.publicadas, 2);

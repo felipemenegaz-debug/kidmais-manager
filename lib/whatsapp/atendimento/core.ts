@@ -189,13 +189,27 @@ export function trechoParaRegistro(texto: string | null | undefined, limite = 50
 }
 const MARCADOR_OMITIDO = /\[[^\]\n]{0,40}omitid[ao][^\]\n]{0,40}\]/iu;
 /**
+ * Fatia 7 (Astra r1, P1): apresentação com gatilho explícito seguida de uma palavra, EM QUALQUER CAIXA ("me chamo ana
+ * silva", "sou a mãe do pedro"). A máscara geral só reconhece o nome com inicial maiúscula (para não apagar o resto da
+ * frase); aqui, onde o texto vai ser publicado, o fim do nome é ambíguo: a mensagem inteira não vira sugestão e a
+ * pergunta com esse trecho é recusada no salvar. O marcador "[nome omitido]" logo depois do gatilho não é nome.
+ */
+// Sobre o texto sem acento e em minúsculas. "pai do aniversariante" sem "sou" é papel, não apresentação.
+const APRESENTACAO = new RegExp(String.raw`(?<![\p{L}])(?:meu nome e|me chamo|eu chamo|aqui e (?:a|o)|sou (?:a|o)|sou (?:mae|pai|avo|tia|tio|madrinha|padrinho|irma|irmao) d[ao]|o nome (?:dele|dela) e|nome d[ao] (?:crianca|aniversariante) e)\s+(?!\[)\p{L}`, 'u');
+export function apresentacaoComNome(texto: string) {
+  return APRESENTACAO.test(semAcentoMinusculo(normalizarParaPrivacidade(texto)).replace(/[^\p{L}\p{N}\s[\]]/gu, ' ').replace(/\s+/gu, ' '));
+}
+/**
  * Fatia 7 — validação do texto que será publicado como pergunta aprovada (Onda 2): recusa marcador de dado omitido
- * ("[telefone omitido]") e qualquer trecho que a máscara mudaria (telefone, e-mail, CPF/CNPJ, CEP, endereço, nome,
- * data de nascimento). A pessoa reescreve de forma geral antes de salvar.
+ * ("[telefone omitido]"), os marcadores de mensagem sensível (REGISTRO_SENSIVEL, ENTRADA_SENSIVEL_OMITIDA), qualquer
+ * trecho que a máscara mudaria (telefone, e-mail, CPF/CNPJ, CEP, endereço, nome, data de nascimento), apresentação com
+ * nome em qualquer caixa e dado sensível (saúde, alergia, deficiência, crença: o Wall-e passa essas mensagens para a
+ * equipe, então não viram resposta automática). A pessoa reescreve de forma geral antes de salvar.
  */
 export function perguntaComDadoPessoal(pergunta: string) {
   const normal = normalizarParaPrivacidade(pergunta);
-  return MARCADOR_OMITIDO.test(normal) || ocultarDadosPessoais(normal) !== normal;
+  return MARCADOR_OMITIDO.test(normal) || normal.includes(REGISTRO_SENSIVEL) || normal.includes(ENTRADA_SENSIVEL_OMITIDA)
+    || ocultarDadosPessoais(normal) !== normal || apresentacaoComNome(normal) || dadoSensivel(normal);
 }
 /** D1/B2 — texto livre que o modelo devolveu (tema): só se não for sensível; normalizado e minimizado. */
 export function textoDoModeloSeguro(valor: string | null | undefined) {

@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { REGISTRO_SENSIVEL, ENTRADA_SENSIVEL_OMITIDA, trechoParaRegistro } from './core.ts';
-import { LIMITE_PERGUNTA, agruparSemFonte, chaveDoGrupo, perguntaComDadoPessoal, perguntaSugerida } from './sem-fonte-texto.ts';
+import { LIMITE_PERGUNTA, agrupadorSemFonte, agruparSemFonte, chaveDoGrupo, estadoDoGrupo, perguntaComDadoPessoal, perguntaSugerida } from './sem-fonte-texto.ts';
 
 // Dados sintéticos. Nenhum é de pessoa real.
 const TELEFONES = ['11987654321', '(11) 98765-4321', '+55 11 98765 4321', '98765-4321', '3456-7890'];
@@ -43,6 +43,10 @@ test('sem fonte: uma linha, até 250 caracteres, corte em palavra e máscara dep
   // Um telefone no limite do corte não pode sobrar pela metade.
   const naBorda = `${'a'.repeat(236)} 11987654321 fim`;
   assert.ok(!/\d{4}/.test(perguntaSugerida(naBorda)!), perguntaSugerida(naBorda)!);
+  // Astra r1 (P3): o marcador é indivisível; o corte recua para antes do colchete (nunca termina em "[telefone").
+  assert.equal(perguntaSugerida(`${'a'.repeat(236)} [telefone omitido] fim`), 'a'.repeat(236));
+  assert.equal(perguntaSugerida(`${'a'.repeat(236)} 11987654321 fim`), 'a'.repeat(236));
+  assert.equal(perguntaSugerida(`${'a b '.repeat(60)}[e-mail omitido] fim`), 'a b '.repeat(60).trim());
 });
 
 test('sem fonte: validação do texto publicado (Onda 2)', () => {
@@ -67,7 +71,8 @@ test('sem fonte: agrupamento por texto normalizado, publicadas por último, sens
     { ultimaMensagem: 'Tem opção sem lactose?', em: '2027-01-15T09:00:00.000Z' },
     { ultimaMensagem: 42, em: '2027-01-14T10:00:00.000Z' },
   ], ['Tem estacionamento?']);
-  assert.equal(r.omitidasSensiveis, 3);
+  // Astra r1 (P3): só o que tem dado sensível (o marcador e a lactose) é contado; o número 42 é descarte, não sensível.
+  assert.equal(r.omitidasSensiveis, 2);
   assert.deepEqual(r.grupos.map((g) => [g.texto, g.ocorrencias, g.jaPublicada]), [
     ['Vocês têm WI-FI?', 2, false], ['Pode levar pula-pula?', 1, false], ['Tem estacionamento?', 1, true],
   ]);
@@ -76,4 +81,42 @@ test('sem fonte: agrupamento por texto normalizado, publicadas por último, sens
   assert.notEqual(r.grupos[0].id, r.grupos[1].id);
   assert.equal(chaveDoGrupo('  Vocês   têm, WI-FI?! '), 'voces tem wi fi');
   assert.equal(agruparSemFonte(Array.from({ length: 30 }, (_, i) => ({ ultimaMensagem: `Pergunta número ${i}?`, em: '2027-01-01T00:00:00.000Z' })), [], 20).grupos.length, 20);
+});
+
+test('sem fonte: apresentação com nome em qualquer caixa não vira sugestão e é recusada no salvar (Astra r1, P1)', () => {
+  for (const t of ['me chamo ana silva, tem wifi?', 'Oi, meu nome é joão pedro. Tem fraldário?', 'sou a mãe do pedro, tem estacionamento?', 'aqui é o carlos, tem wi-fi?', 'Sou pai da maria, pode levar bolo?', 'o nome dela é bia, tem pula-pula?']) {
+    assert.equal(perguntaSugerida(t), null, t);
+    assert.equal(perguntaComDadoPessoal(t), true, t);
+  }
+  // Papel sem apresentação continua válido; o marcador logo depois do gatilho já está mascarado (só pede revisão).
+  for (const t of ['O pai do aniversariante paga?', 'A mãe da criança pode ficar no salão?', 'Tem wi-fi no salão?']) assert.equal(perguntaComDadoPessoal(t), false, t);
+  assert.equal(perguntaSugerida('Me chamo [nome omitido], tem wifi?'), 'Me chamo [nome omitido], tem wifi?');
+  const r = agruparSemFonte([{ ultimaMensagem: 'me chamo ana silva, tem wifi?', em: '2027-01-19T10:00:00.000Z' }], []);
+  assert.deepEqual([r.grupos.length, r.omitidasSensiveis], [0, 1]);
+});
+
+test('sem fonte: dado sensível e marcadores sensíveis são recusados no texto publicado (Astra r1, P1)', () => {
+  for (const t of ['Meu filho tem diabetes, tem wifi?', 'Tem cardápio sem glúten?', 'Vocês recebem criança autista?', REGISTRO_SENSIVEL, ENTRADA_SENSIVEL_OMITIDA, `Tem wi-fi? ${REGISTRO_SENSIVEL}`]) {
+    assert.equal(perguntaComDadoPessoal(t), true, t);
+  }
+});
+
+test('sem fonte: a janela inteira é agrupada em lotes antes do limite de grupos (Astra r1, P2)', () => {
+  const a = agrupadorSemFonte([], 2);
+  const lote = (n: number, texto: string, dia: number) => Array.from({ length: n }, (_, i) => ({ ultimaMensagem: texto, em: `2027-01-${String(dia).padStart(2, '0')}T10:${String(Math.floor(i / 60) % 60).padStart(2, '0')}:${String(i % 60).padStart(2, '0')}.000Z` }));
+  a.adicionar(lote(500, 'Tem fraldário?', 19));
+  a.adicionar([...lote(1, 'Tem fraldário?', 18), ...lote(3, 'Tem pula-pula?', 2), ...lote(2, REGISTRO_SENSIVEL, 1)]);
+  a.adicionar(lote(2, 'Tem cama elástica?', 1));
+  const r = a.resultado();
+  assert.deepEqual(r.grupos.map((g) => [g.texto, g.ocorrencias]), [['Tem fraldário?', 501], ['Tem pula-pula?', 3]]);
+  assert.equal(r.omitidasSensiveis, 2);
+});
+
+test('sem fonte: selo distingue rascunho no formulário de resposta publicada e acompanha o salvar (Astra r1, P3)', () => {
+  // Logo depois de "Criar resposta": só no formulário → rascunho, nunca "já tem resposta".
+  assert.equal(estadoDoGrupo('Tem wi-fi?', [], ['Tem wi-fi?']), 'rascunho');
+  assert.equal(estadoDoGrupo('Tem wi-fi?', ['tem wi fi'], ['Tem wi-fi?']), 'publicada');
+  // Removida do formulário (e depois salva): volta o botão.
+  assert.equal(estadoDoGrupo('Tem wi-fi?', ['Tem wi-fi?'], []), 'criar');
+  assert.equal(estadoDoGrupo('Tem wi-fi?', [], []), 'criar');
 });
