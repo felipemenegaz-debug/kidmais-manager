@@ -5,6 +5,7 @@ import { atendimentoAtivo, ambienteAtendimento, contatoPermitido, empresaPiloto,
 import { contaNoTeto, reservarConsumo } from './teto-mensal.ts';
 import { APP_META, JANELA_REENTREGA_DIAS, configuracaoSchema, comandoDireto, passagemSemRespostaAutomatica, pausaPedidaNaRecepcao, semAutomatico, janelaAberta, nomePerfilSeguro, situacaoCadastro, type CadastroContato, type Entrada } from './core.ts';
 import { ARQUIVO_DISPONIVEL_SQL, caminhoPublicoArquivo } from './arquivos.ts';
+import { contextoNaFila, destinatariosAutorizados, limparAvisoEquipe, marcaNaFila } from './aviso-equipe.ts';
 import { registroDaPausa, registroDoBloqueio } from './walle/entendimento.ts';
 import { clientesDoNumero, pesquisaInstalada, suprimirPesquisas } from '../../satisfacao/supressao.ts';
 import { elegivelParaMensagem } from '../../marketing/automacoes/preferencias.ts';
@@ -146,7 +147,7 @@ export async function receberEntrada(entrada: Entrada, opcoes: { automacaoGlobal
       const c = (await tx.query<{ nao_contatar: boolean; sem_automatico: boolean; com_equipe: boolean }>('DELETE FROM whatsapp_atendimento_controles_contato WHERE empresa_id=$1 AND ambiente=$2 AND contato=$3 RETURNING nao_contatar,sem_automatico,com_equipe', [empresa, ambiente, entrada.source])).rows[0];
       if (c) conversa = (await tx.query<Conversa & { criada: boolean }>(`UPDATE whatsapp_atendimento_conversas SET nao_contatar=$2,
           estado=CASE WHEN $2 THEN 'ENCERRADA' WHEN $3 OR $4 THEN 'AGUARDANDO_HUMANO' ELSE estado END,
-          contexto=CASE WHEN $3 THEN COALESCE(contexto,'{}'::jsonb)||jsonb_build_object('semAutomatico',$5::jsonb) ELSE contexto END
+          contexto=${contextoNaFila("CASE WHEN $3 THEN COALESCE(contexto,'{}'::jsonb)||jsonb_build_object('semAutomatico',$5::jsonb) ELSE contexto END", "CASE WHEN $2 THEN 'ENCERRADA' WHEN $3 OR $4 THEN 'AGUARDANDO_HUMANO' ELSE estado END")}
         WHERE id=$1 RETURNING *,true AS criada`, [conversa.id, c.nao_contatar, c.sem_automatico, c.com_equipe, JSON.stringify({ motivo: 'PARAR_A_CONFIRMAR', em, origem: 'EXCLUSAO' })])).rows[0];
     }
     // Nome de perfil (não verificado): o mais recente vence; replay antigo não sobrescreve. Não muda versão nem estado.
@@ -163,21 +164,25 @@ export async function receberEntrada(entrada: Entrada, opcoes: { automacaoGlobal
     const pausa = !!entrada.texto && !conversa.nao_contatar && pausaPedidaNaRecepcao(entrada.texto);
     const automatico = automacaoGlobal && atendimentoAtivo() && !!config?.ativo && !conversa.nao_contatar && !semAutomatico(conversa) && estadoAtual === 'IA' && entrada.texto !== null && !pausa;
     await tx.query(`INSERT INTO whatsapp_atendimento_mensagens(conversa_id,empresa_id,ambiente,externa_id,direcao,texto,estado,versao_conversa,criada_em) VALUES($1,$2,$3,$4,'ENTRADA',$5,$6,$7,$8)`, [conversa.id, empresa, ambiente, entrada.id, entrada.texto, automatico ? 'PENDENTE' : 'PROCESSADA', conversa.versao, em]);
-    if (reaberta) await tx.query('UPDATE whatsapp_atendimento_conversas SET estado=$2,responsavel_id=NULL WHERE id=$1', [conversa.id, automatico ? 'IA' : 'AGUARDANDO_HUMANO']);
-    else if (estadoAtual === 'IA' && !automatico) await tx.query("UPDATE whatsapp_atendimento_conversas SET estado='AGUARDANDO_HUMANO' WHERE id=$1", [conversa.id]);
+    if (reaberta) await tx.query(`UPDATE whatsapp_atendimento_conversas SET estado=$2${marcaNaFila(await tem082(tx), '$2::text')},responsavel_id=NULL WHERE id=$1`, [conversa.id, automatico ? 'IA' : 'AGUARDANDO_HUMANO']);
+    else if (estadoAtual === 'IA' && !automatico) await tx.query(`UPDATE whatsapp_atendimento_conversas SET estado='AGUARDANDO_HUMANO'${marcaNaFila(await tem082(tx))} WHERE id=$1`, [conversa.id]);
     const parar = !!entrada.texto && comandoDireto(entrada.texto)?.intencao === 'PARAR';
     // Proteção final: com a automação global desligada, a equipe vê POR QUE a mensagem ficou sem resposta automática (o
     // mesmo resumo do processador). PARAR tem o próprio registro abaixo; a marca de pausa também é gravada abaixo.
     if (!automacaoGlobal && estadoAtual === 'IA' && !conversa.nao_contatar && !parar && await tem082(tx)) {
       const pausa = !semAutomatico(conversa) && pausaPedidaNaRecepcao(entrada.texto);
-      await tx.query('UPDATE whatsapp_atendimento_conversas SET passagem=$2::jsonb WHERE id=$1', [conversa.id, JSON.stringify(passagemSemRespostaAutomatica(conversa.contexto, em, pausa))]);
+      await tx.query(`UPDATE whatsapp_atendimento_conversas SET passagem=$2::jsonb${marcaNaFila(true, 'estado', '$2::jsonb')} WHERE id=$1`, [conversa.id, JSON.stringify(passagemSemRespostaAutomatica(conversa.contexto, em, pausa))]);
     }
     if (parar && entrada.texto) {
       // Rodada 18: com reclamação junto ("não quero mais propaganda… a festa foi péssima"), o mesmo bloqueio, e a reclamação
       // fica na fila da equipe (AGUARDANDO_HUMANO + passagem, só com a 082), sem reabrir o contato.
       const registro = (await tem082(tx)) ? registroDoBloqueio(entrada.texto, em) : null;
-      if (registro) await tx.query("UPDATE whatsapp_atendimento_conversas SET estado='AGUARDANDO_HUMANO',nao_contatar=true,passagem=$2::jsonb,versao=versao+1 WHERE id=$1", [conversa.id, JSON.stringify(registro)]);
-      else await tx.query("UPDATE whatsapp_atendimento_conversas SET estado='ENCERRADA',nao_contatar=true,versao=versao+1 WHERE id=$1", [conversa.id]);
+      if (registro) await tx.query(`UPDATE whatsapp_atendimento_conversas SET estado='AGUARDANDO_HUMANO'${marcaNaFila(true, "'AGUARDANDO_HUMANO'", '$2::jsonb')},nao_contatar=true,passagem=$2::jsonb,versao=versao+1 WHERE id=$1`, [conversa.id, JSON.stringify(registro)]);
+      else {
+        await tx.query("UPDATE whatsapp_atendimento_conversas SET estado='ENCERRADA',nao_contatar=true,versao=versao+1 WHERE id=$1", [conversa.id]);
+        // Fatia 8: a conversa saiu da fila da equipe; uma passagem futura terá o próprio aviso.
+        if (await tem082(tx)) await limparAvisoEquipe(tx, conversa.id);
+      }
       // Saídas ainda na fila não saem mais. SKIP LOCKED (como no encerramento): a que o worker segura neste instante é
       // cancelada por ele mesmo ao revalidar sob a trava da conversa (nao_contatar).
       await tx.query(`UPDATE whatsapp_atendimento_mensagens SET estado='CANCELADA' WHERE id IN (SELECT id FROM whatsapp_atendimento_mensagens
@@ -193,7 +198,9 @@ export async function receberEntrada(entrada: Entrada, opcoes: { automacaoGlobal
       // Conversa que saiu da IA por causa deste pedido: o resumo para a equipe é o da pausa (o mesmo do resolvedor). Com a
       // automação global desligada o resumo já foi gravado acima (inclui a pausa); conversa já com a equipe: só a marca.
       const resumo = estadoAtual === 'IA' && automacaoGlobal ? JSON.stringify(registroDaPausa(entrada.texto, em, conversa.contexto)) : null;
-      await tx.query("UPDATE whatsapp_atendimento_conversas SET contexto=COALESCE(contexto,'{}'::jsonb)||jsonb_build_object('semAutomatico',$2::jsonb),passagem=COALESCE($3::jsonb,passagem),versao=versao+1 WHERE id=$1",
+      // Astra r3 (P2): a conversa entrou na fila acima com a marca PENDENTE ainda sem motivo; o resumo da pausa leva os
+      // motivos para a marca no mesmo UPDATE (contextoNaFila: só enquanto a marca está PENDENTE).
+      await tx.query(`UPDATE whatsapp_atendimento_conversas SET contexto=${contextoNaFila("COALESCE(contexto,'{}'::jsonb)||jsonb_build_object('semAutomatico',$2::jsonb)", 'estado', '$3::jsonb')},passagem=COALESCE($3::jsonb,passagem),versao=versao+1 WHERE id=$1`,
         [conversa.id, JSON.stringify({ motivo: 'PARAR_A_CONFIRMAR', em, origem: 'RECEPCAO' }), resumo]);
     }
   });
@@ -304,7 +311,7 @@ export async function tratarSaidaQueFalhou(tx: DbExecutor, saida: SaidaQueFalhou
   // Termos 2026-11-25 (Astra r3): quem chama pode pedir para só cancelar (encaminhar=false), quando a saída já não vale para
   // a versão atual da conversa; o padrão (encaminhar ausente) mantém o comportamento de antes. Astra r4 (P3): com
   // versaoEsperada, o encaminhamento só acontece se a conversa ainda estiver nessa versão (sem ela, nenhuma condição nova).
-  if (!saida.autor_usuario_id && opcoes.encaminhar !== false) await tx.query("UPDATE whatsapp_atendimento_conversas SET estado='AGUARDANDO_HUMANO',versao=versao+1,atualizada_em=clock_timestamp() WHERE id=$1 AND empresa_id=$2 AND ambiente=$3 AND estado='IA' AND ($4::bigint IS NULL OR versao=$4::bigint)", [saida.conversa_id, ...escopo, opcoes.versaoEsperada ?? null]);
+  if (!saida.autor_usuario_id && opcoes.encaminhar !== false) await tx.query(`UPDATE whatsapp_atendimento_conversas SET estado='AGUARDANDO_HUMANO'${marcaNaFila(await tem082(tx))},versao=versao+1,atualizada_em=clock_timestamp() WHERE id=$1 AND empresa_id=$2 AND ambiente=$3 AND estado='IA' AND ($4::bigint IS NULL OR versao=$4::bigint)`, [saida.conversa_id, ...escopo, opcoes.versaoEsperada ?? null]);
   return { irmasCanceladas: irmas.length };
 }
 /**
@@ -457,6 +464,8 @@ export async function controlarAtendimento(sessao: SessaoParaTenant, pedido: { a
     // Rodada 22: o cliente pediu para parar (sem bloqueio definitivo): só a equipe responde, o Wall-e não volta.
     if (pedido.acao === 'retomar' && semAutomatico(conversa)) throw new Error('ATENDIMENTO_PAUSA_PEDIDA');
     await tx.query('UPDATE whatsapp_atendimento_conversas SET estado=$2,responsavel_id=$3,versao=versao+1,atualizada_em=clock_timestamp() WHERE id=$1', [conversa.id, estado, estado === 'HUMANO' ? sessao.usuario_id : null]);
+    // Fatia 8: assumida, devolvida ao Wall-e ou encerrada, a conversa saiu da fila: a próxima passagem gera novo aviso.
+    if (await tem082(tx)) await limparAvisoEquipe(tx, conversa.id);
     await tx.query('INSERT INTO whatsapp_atendimento_auditoria(empresa_id,ambiente,usuario_id,acao,conversa_id) VALUES($1,$2,$3,$4,$5)', [empresa, ambiente, sessao.usuario_id, pedido.acao, conversa.id]);
     return { canceladas };
   });
@@ -469,6 +478,14 @@ export async function salvarConfiguracao(sessao: SessaoParaTenant, valor: unknow
     // C2 + C4. Configurar desligado antes de conectar continua possível no MULTI.
     await exigirEscritaAtendimento(tx, tenant.empresaComprovada);
     const config = configuracaoSchema.parse(valor);
+    // Fatia 8: só pessoas autorizadas da empresa recebem o aviso (de novo conferido a cada envio, aviso-equipe.ts).
+    const emails = config.avisoEquipe?.emails ?? [];
+    // Astra r2 (P2): sem a 082 não há onde gravar a marca do aviso; e-mails cadastrados nunca receberiam nada.
+    if (emails.length && !(await tem082(tx))) throw new Error('ATENDIMENTO_AVISO_SEM_082');
+    if (emails.length) {
+      const autorizados = new Set(await destinatariosAutorizados(tx, tenant.empresaComprovada, emails));
+      if (emails.some((e) => !autorizados.has(e))) throw new Error('ATENDIMENTO_AVISO_DESTINATARIO');
+    }
     if (config.ativo && !atendimentoAtivo()) throw new Error('ATENDIMENTO_AUTOMACAO_DESLIGADA');
     if (config.ativo) await exigirOperacao(tx, tenant.empresaComprovada, ambienteAtendimento());
     await tx.query(`INSERT INTO whatsapp_atendimento_config(empresa_id,ambiente,configuracao) VALUES($1,$2,$3::jsonb) ON CONFLICT(empresa_id,ambiente) DO UPDATE SET configuracao=EXCLUDED.configuracao,atualizada_em=clock_timestamp()`, [tenant.empresaComprovada, ambienteAtendimento(), JSON.stringify(config)]);
@@ -486,5 +503,7 @@ export async function limparStatusExpirados() {
 }
 export async function recuperarTrabalhosInterrompidos() {
   // Estado incerto nunca é reenviado automaticamente após reinício.
-  await db().query(`WITH interrompidas AS (UPDATE whatsapp_atendimento_mensagens SET estado=CASE WHEN estado='ENVIANDO' THEN 'INCERTO' ELSE 'FALHOU' END WHERE ambiente=$1 AND estado IN ('PROCESSANDO','ENVIANDO') AND iniciada_em < clock_timestamp()-interval '10 minutes' RETURNING conversa_id) UPDATE whatsapp_atendimento_conversas SET estado='AGUARDANDO_HUMANO',versao=versao+1 WHERE id IN(SELECT conversa_id FROM interrompidas) AND estado='IA'`, [ambienteAtendimento()]);
+  // Fatia 8 (Astra r2, P2): a conversa que vai para a equipe aqui também recebe a marca do aviso e a hora da transição.
+  const com082 = await tem082(db());
+  await db().query(`WITH interrompidas AS (UPDATE whatsapp_atendimento_mensagens SET estado=CASE WHEN estado='ENVIANDO' THEN 'INCERTO' ELSE 'FALHOU' END WHERE ambiente=$1 AND estado IN ('PROCESSANDO','ENVIANDO') AND iniciada_em < clock_timestamp()-interval '10 minutes' RETURNING conversa_id) UPDATE whatsapp_atendimento_conversas SET estado='AGUARDANDO_HUMANO'${marcaNaFila(com082)},versao=versao+1,atualizada_em=clock_timestamp() WHERE id IN(SELECT conversa_id FROM interrompidas) AND estado='IA'`, [ambienteAtendimento()]);
 }

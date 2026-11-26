@@ -4,13 +4,29 @@ import Link from 'next/link';
 import { adminFetch } from '@/lib/http/admin-fetch';
 import type { ConfiguracaoAtendimento as Configuracao } from '@/lib/whatsapp/atendimento/core';
 import { bloqueioDoCodigo, type BloqueioAtendimento } from '@/lib/whatsapp/atendimento/acesso-tela';
+import { DIAS_SEMANA, LIMITE_EMAILS_AVISO, NOME_DIA, type DiaSemana, type HorarioEquipe } from '@/lib/whatsapp/atendimento/horario';
 import styles from './atendimento.module.css';
 
 type LinkPublico = { ok: true; link: string } | { ok: false; motivo: 'OUTRA_EMPRESA' | 'NAO_CONFIGURADO' | 'ORIGEM_NAO_SEGURA' | 'PAGINA_INDISPONIVEL' };
 type Dados = { configuracao: Configuracao | null; automacaoDisponivel: boolean; podeConfigurar: boolean; wallE?: { disponivel: boolean; linkPublico?: LinkPublico } };
 const nova = (): Configuracao => ({ ativo: false, nome: '', perguntas: [], limites: { respostasPor24h: 20 }, wallE: { ativo: false } });
 /** Sem a 082 o Wall-e não existe neste ambiente: a chave não é gravada (o atendimento da fase B segue igual). */
-function semWallE(c: Configuracao): Configuracao { const copia = { ...c }; delete copia.wallE; return copia; }
+/** Sem a 082 (Wall-e indisponível): nem o Wall-e nem os e-mails de aviso vão (a marca do aviso mora na 082; Astra r2, P2). */
+function semWallE(c: Configuracao): Configuracao { const copia = { ...c }; delete copia.wallE; delete copia.avisoEquipe; return copia; }
+/** Ordem da tela: a semana começa na segunda. */
+const DIAS_TELA: DiaSemana[] = [...DIAS_SEMANA.slice(1), DIAS_SEMANA[0]];
+const FAIXA_PADRAO = { inicio: '09:00', fim: '18:00' };
+/** E-mails digitados (um por linha, vírgula ou ponto e vírgula) → lista sem repetição, em minúsculas. */
+function emailsDoTexto(texto: string) { return [...new Set(texto.split(/[\s,;]+/).map(e => e.trim().toLowerCase()).filter(Boolean))]; }
+/** Campos opcionais da fatia 8 só vão gravados quando preenchidos: configuração sem eles fica exatamente como era. */
+function comEquipe(c: Configuracao, emailsTexto: string): Configuracao {
+  const copia = { ...c };
+  const horario = Object.fromEntries(DIAS_SEMANA.filter(d => c.horarioEquipe?.[d]).map(d => [d, c.horarioEquipe![d]])) as HorarioEquipe;
+  if (Object.keys(horario).length) copia.horarioEquipe = horario; else delete copia.horarioEquipe;
+  const emails = emailsDoTexto(emailsTexto);
+  if (emails.length) copia.avisoEquipe = { emails }; else delete copia.avisoEquipe;
+  return copia;
+}
 /** Por que o link público não sai, em linguagem de atendimento (o detalhe técnico fica com quem configura o servidor). */
 const SEM_LINK: Record<Extract<LinkPublico, { ok: false }>['motivo'], string> = {
   NAO_CONFIGURADO: 'A página pública de disponibilidade ainda não está ligada neste servidor. Enquanto isso, o Wall-e consulta a agenda e a equipe conduz a contratação.',
@@ -25,20 +41,21 @@ const SEM_LINK: Record<Extract<LinkPublico, { ok: false }>['motivo'], string> = 
  * limites e opções avançadas. Separada da conversa: nada aqui fica entre o histórico e a resposta.
  */
 export default function ConfiguracaoAtendimento() {
-  const [dados, setDados] = useState<Dados | null>(null), [config, setConfig] = useState<Configuracao | null>(null), [erro, setErro] = useState(''), [aviso, setAviso] = useState(''), [ocupado, setOcupado] = useState(false), [bloqueio, setBloqueio] = useState<BloqueioAtendimento | null>(null);
+  const [dados, setDados] = useState<Dados | null>(null), [config, setConfig] = useState<Configuracao | null>(null), [erro, setErro] = useState(''), [aviso, setAviso] = useState(''), [ocupado, setOcupado] = useState(false), [bloqueio, setBloqueio] = useState<BloqueioAtendimento | null>(null), [emailsTexto, setEmailsTexto] = useState<string | null>(null);
   const carregar = useCallback(async () => {
     try {
       const r = await adminFetch('/api/admin/atendimento'); const json = await r.json();
       const recusa = r.ok ? null : bloqueioDoCodigo(json?.codigo);
       if (recusa) { setDados(null); setBloqueio(recusa); return; }
       if (!r.ok || !json.ok) throw Error(json.erro || 'Não foi possível carregar a configuração.');
-      setDados(json.data); setConfig(c => c ?? { ...nova(), ...(json.data.configuracao ?? {}) }); setErro(''); setBloqueio(null);
+      setDados(json.data); setConfig(c => c ?? { ...nova(), ...(json.data.configuracao ?? {}) }); setEmailsTexto(t => t ?? (json.data.configuracao?.avisoEquipe?.emails ?? []).join('\n')); setErro(''); setBloqueio(null);
     } catch (e) { setErro(e instanceof Error ? e.message : 'Não foi possível carregar a configuração.'); }
   }, []);
   useEffect(() => { const t = window.setTimeout(() => void carregar(), 0); return () => window.clearTimeout(t); }, [carregar]);
   async function salvar() {
     if (!config || ocupado) return; setOcupado(true); setErro(''); setAviso('');
-    const enviar = dados?.wallE?.disponivel ? config : semWallE(config);
+    const completa = comEquipe(config, emailsTexto ?? '');
+    const enviar = dados?.wallE?.disponivel ? completa : semWallE(completa);
     try { const r = await adminFetch('/api/admin/atendimento', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ acao: 'configurar', configuracao: enviar }) }); const json = await r.json(); if (!r.ok || !json.ok) throw Error(json.erro || 'Confira os campos da configuração.'); setAviso('Configuração salva.'); await carregar(); }
     catch (e) { setErro(e instanceof Error ? e.message : 'Falha ao salvar.'); } finally { setOcupado(false); }
   }
@@ -72,6 +89,17 @@ export default function ConfiguracaoAtendimento() {
         <p className={styles.nota}>Perguntas frequentes com a resposta exata da empresa. São usadas como estão; nada de preço, desconto, disponibilidade ou condição é criado.</p>
         {config.perguntas.map((p, index) => <fieldset key={p.id}><legend>Resposta {index + 1}</legend><label>Pergunta do cliente<input value={p.pergunta} required minLength={3} maxLength={250} onChange={e => setConfig({ ...config, perguntas: config.perguntas.map((x, i) => i === index ? { ...x, pergunta: e.target.value } : x) })} /></label><label>Resposta aprovada<textarea value={p.resposta} required minLength={3} maxLength={1500} onChange={e => setConfig({ ...config, perguntas: config.perguntas.map((x, i) => i === index ? { ...x, resposta: e.target.value } : x) })} /></label><button type="button" onClick={() => setConfig({ ...config, perguntas: config.perguntas.filter((_, i) => i !== index) })}>Remover resposta<span className={styles.oculto}> {index + 1}</span></button></fieldset>)}
         <button type="button" disabled={config.perguntas.length >= 30} onClick={() => setConfig({ ...config, perguntas: [...config.perguntas, { id: 'faq_' + crypto.randomUUID().slice(0, 8), pergunta: '', resposta: '' }] })}>Adicionar resposta</button>
+      </section>
+      <section className={styles.painel} aria-labelledby="config-equipe"><h2 id="config-equipe">Horário da equipe e avisos</h2>
+        <p className={styles.nota}>Fora deste horário (de Brasília), quando o Wall-e passa a conversa para a equipe, ele avisa o cliente quando a equipe responde, com uma frase fixa. Sem horário marcado, nada muda.</p>
+        {DIAS_TELA.map(dia => { const f = config.horarioEquipe?.[dia] ?? null; const mudar = (nova: { inicio: string; fim: string } | null) => setConfig({ ...config, horarioEquipe: { ...config.horarioEquipe, [dia]: nova } });
+          return <fieldset key={dia} className={styles.diaHorario}><legend>{NOME_DIA[dia]}</legend>
+            <label className={styles.opcao}><input type="checkbox" checked={!!f} onChange={e => mudar(e.target.checked ? FAIXA_PADRAO : null)} />Atende<span className={styles.oculto}> {NOME_DIA[dia]}</span></label>
+            {f && <><label>Das<input type="time" required value={f.inicio} onChange={e => mudar({ ...f, inicio: e.target.value })} /></label><label>às<input type="time" required value={f.fim} onChange={e => mudar({ ...f, fim: e.target.value })} /></label></>}
+          </fieldset>; })}
+        <label>E-mails que recebem o aviso de conversa passada para a equipe (até {LIMITE_EMAILS_AVISO}, um por linha)<textarea value={dados.wallE?.disponivel ? emailsTexto ?? '' : ''} rows={3} disabled={!dados.wallE?.disponivel} onChange={e => setEmailsTexto(e.target.value)} aria-describedby="aviso-ajuda" /></label>
+        {!dados.wallE?.disponivel && <p className={styles.nota} role="note">O aviso por e-mail ainda não está disponível neste ambiente: depende da mesma atualização do servidor que traz o Wall-e. Enquanto isso, acompanhe a fila pelo selo do Atendimento no menu.</p>}
+        <p id="aviso-ajuda" className={styles.nota}>Só e-mails de pessoas com acesso ao Atendimento desta empresa (Gestão ou Administrativo). O aviso traz o motivo e o link da conversa, que pede login; nunca as mensagens do cliente. Um aviso por conversa passada; deixe vazio para não avisar.</p>
       </section>
       <details className={`${styles.painel} ${styles.maisOpcoes}`}><summary>Limites e opções avançadas</summary>
         <label>Respostas automáticas por conversa em 24 horas<input type="number" inputMode="numeric" required min={1} max={100} value={config.limites.respostasPor24h} onChange={e => setConfig({ ...config, limites: { respostasPor24h: Number(e.target.value) } })} aria-describedby="limite-ajuda" /></label>

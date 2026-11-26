@@ -148,3 +148,14 @@ test('PS-4: grupo Satisfação só com recursos.satisfacao do servidor; Resultad
     assert.match(shell, /'Marketing', 'Satisfação', 'Financeiro'/, 'o shell renderiza o grupo');
     assert.match(shell, /satisfacao: menuSatisfacaoDe\(b\.data\.recursos\?\.satisfacao\)/, 'o shell lê recursos.satisfacao com validação de formato');
 });
+
+test('fatia 8: Atendimento mostra o número de conversas aguardando a equipe com rótulo próprio', () => {
+    const base = { gestaoEmpresa: false, plataforma: false };
+    const atendimento = (p: Parameters<typeof itensNavegacao>[0]) => itensNavegacao(p).find((i) => i.href === '/admin/atendimento');
+    assert.equal(atendimento({ ...base, atendimentoAguardando: 4 })?.contador, 4);
+    assert.equal(atendimento({ ...base, atendimentoAguardando: 4 })?.rotuloContador, 'aguardando');
+    assert.equal(atendimento(base)?.contador, 0, 'sem o número do servidor: sem selo');
+    const shell = readFileSync('components/admin/AdminShell.tsx', 'utf8');
+    assert.match(shell, /item\.rotuloContador \?\? 'abertos'/);
+    assert.match(shell, /atendimentoAguardando/);
+});
