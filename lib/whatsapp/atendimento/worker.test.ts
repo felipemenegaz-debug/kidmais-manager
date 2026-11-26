@@ -743,3 +743,24 @@ test('P-F9-3: data da festa e previsão no mesmo instante da tarefa (deps.agora 
     assert.equal(leituras,1,'um único instante por tarefa');
   }
 });
+// Fatia 9 r3 (Astra r2, P-F9-4): o despacho lê o relógio DEPOIS das travas. A tarefa começa segunda 08h59 (fora do horário,
+// abertura às 9h) e a trava da configuração (FOR SHARE) só é obtida às 09h01: a contingência sai SEM previsão.
+test('P-F9-4: despacho que espera a trava de 08h59 a 09h01 não promete a abertura (relógio lido depois das travas)',async()=>{
+  const comandos:{sql:string;args?:unknown[]}[]=[]; const enviados:unknown[]=[];
+  const composta=core.mensagemEncaminhamento(horarioSeg('09:00'),new Date('2026-11-30T08:58:00-03:00'));
+  assert.match(composta,/a partir das 9h\.$/);
+  let hora='2026-11-30T08:59:00-03:00'; let travas=0;
+  const m={...mensagem,texto:composta,fonte:{origem:'ENCAMINHAMENTO_FIXO'}};
+  const worker=carregar(async(sql,args)=>{
+    comandos.push({sql,args});
+    if(sql.includes("SELECT id FROM empresas")) return {rows:[{id:'e'}]};
+    if(sql.includes('SELECT m.*')) return {rows:[m]};
+    if(sql.includes('SELECT * FROM whatsapp_atendimento_conversas')) return {rows:[{...conversa,estado:'AGUARDANDO_HUMANO' as const}]};
+    return {rows:[]};
+  },true,true,20,(travar)=>{ if(travar){ travas++; hora='2026-11-30T09:01:00-03:00'; } return cfgComHorario('09:00')(); });
+  const deps={interpretar:async()=>{throw Error('IA proibida');},enviar:async(_c:string,conteudo:unknown)=>{enviados.push(conteudo);return 'id';},agora:()=>new Date(hora)} as unknown as DepsComRelogio;
+  assert.equal(await worker.processarAtendimento(deps),'SUBMETIDA');
+  assert.ok(travas>=1,'a trava da configuração foi obtida no despacho');
+  assert.equal((enviados[0] as {texto?:string}).texto,core.MENSAGEM_ENCAMINHAMENTO,'o provedor recebe o texto sem previsão');
+  assert.deepEqual(comandos.find(c=>c.sql.includes('SET texto=$2'))?.args,['m',core.MENSAGEM_ENCAMINHAMENTO],'o texto gravado acompanha o enviado');
+});

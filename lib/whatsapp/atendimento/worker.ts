@@ -277,12 +277,13 @@ async function executarTarefa(deps: DependenciasWorker, { mensagem, conversa, co
   // C2 + C4 de novo antes do modelo, na gravação e antes de ENVIANDO (a piloto não tem esses portões: true sem consulta).
   // F7: leitura que falha antes de ENVIANDO é transitória (a tarefa volta para a fila).
   const opera = (tx: DbExecutor) => lerPortao('LEITURA_HABILITACAO', () => empresaOperaAtendimento(tx, empresa, { piloto, ambiente }));
-  // Fatia 9 r2 (Astra r1, P-F9-3): UM instante por tarefa. A data da festa (hoje), a previsão de retorno e o Wall-e leem o
-  // mesmo relógio; a tarefa de despacho é outra tarefa e captura o próprio instante.
-  const instante = (deps.agora ?? (() => new Date()))();
-  const agoraFrase = () => instante;
+  const relogio = deps.agora ?? (() => new Date());
   try {
     if (mensagem.direcao === 'ENTRADA') {
+      // Fatia 9 r2 (Astra r1, P-F9-3): UM instante por tarefa de entrada, capturado no início. A data da festa (hoje), a
+      // previsão de retorno e o Wall-e leem o mesmo relógio. O despacho é outra tarefa (ver P-F9-4 abaixo).
+      const instante = relogio();
+      const agoraFrase = () => instante;
       // Ordem lógica: as entradas seguem o horário do evento, não a ordem de chegada. A tarefa válida é a da versão
       // atual (a última a chegar), mas a resposta considera a entrada mais recente e as anteriores, em ordem.
       // Entrada antiga que chegou atrasada (ex.: retry do provedor) depois de uma mais recente já tratada: vira só
@@ -424,7 +425,10 @@ async function executarTarefa(deps: DependenciasWorker, { mensagem, conversa, co
       // Fatia 9 (Astra r4 da fatia 8, P-F8-3): a contingência fica isenta da revogação, mas o texto é RECOMPOSTO aqui com a
       // configuração vigente e o relógio do despacho (horário corrigido depois do enfileiramento vale; aberta agora, sai o
       // texto sem previsão). O texto gravado acompanha o que vai ao provedor.
-      const recomposto = ok && vigente && ehEncaminhamentoFixo(mensagem) ? mensagemEncaminhamento(vigente.horarioEquipe, agoraFrase()) : null;
+      // Fatia 9 r3 (Astra r2, P-F9-4): o relógio do despacho é lido AQUI, uma vez, depois das travas (conversa, mensagem,
+      // configuração FOR SHARE) e das validações, logo antes de recompor e marcar ENVIANDO: uma espera pela trava que
+      // atravessa a abertura da equipe não promete previsão com a equipe já atendendo.
+      const recomposto = ok && vigente && ehEncaminhamentoFixo(mensagem) ? mensagemEncaminhamento(vigente.horarioEquipe, relogio()) : null;
       if (recomposto !== null) await tx.query("UPDATE whatsapp_atendimento_mensagens SET texto=$2 WHERE id=$1 AND estado='PROCESSANDO'", [mensagem.id, recomposto]);
       await tx.query("UPDATE whatsapp_atendimento_mensagens SET estado=$2,iniciada_em=clock_timestamp() WHERE id=$1 AND estado='PROCESSANDO'", [mensagem.id, ok ? 'ENVIANDO' : 'CANCELADA']);
       // Revogada quando ainda seria enviada, com a IA conduzindo: o cliente ficaria sem resposta, então a conversa vai
