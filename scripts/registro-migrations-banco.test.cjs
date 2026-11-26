@@ -213,6 +213,8 @@ test('135: portão de deploy obrigatório no argumento (sem ele recusa antes de 
   assert.deepEqual(r.modo(['--ambiente', 'production', '--aplicar-135-autorizado', ...B, '--portao-135', P]), {ambiente: 'production', modo: 'aplicar', id: '135', backup: B[1], portao: P});
   assert.equal(r.modo(['--ambiente', 'staging', '--aplicar-134-autorizado', ...B]).portao, undefined);
   assert.equal(r.ANTECESSORA['135'], '134');
+  // A 136 também segue a 134 (independente da 135, como 132 e 133 em relação à 131) e não tem portão.
+  assert.equal(r.ANTECESSORA['136'], '134'); assert.equal(r.PORTOES['136'], undefined); assert.deepEqual(Object.keys(r.PORTOES), ['135']);
   // Astra r1 P1: validador único. Só espaços, só pontuação, controle no meio ou nas pontas e não-string são recusados; espaços das pontas saem.
   for (const ruim of [' '.repeat(20), ' '.repeat(200), '-'.repeat(25), '.;,:() /#+_'.repeat(3), P + '\n', '\t' + P, P.slice(0, 10) + '\n' + P.slice(10), 'x'.repeat(201), '  ' + 'x'.repeat(19) + '  ']) {
     assert.equal(r.validarPortao(ruim), null, JSON.stringify(ruim));

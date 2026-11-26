@@ -9,6 +9,7 @@ import { TELEFONE_ANONIMIZADO } from '../../../lib/whatsapp/atendimento/walle/op
 // r5 (P3): o detalhe filho é renderizado e a requisição dele precisa ser a do UUID pedido. r5 (P2): cartão anonimizado
 // mostra os registros a conferir e nenhum controle de edição.
 const K = '44444444-4444-4444-8444-444444444444';
+function OrigemPainelFalso() { return null; }
 
 function carregar(urls: string[], respostaDetalhe: unknown = null) {
   const useMarketing = (url: string) => {
@@ -23,7 +24,7 @@ function carregar(urls: string[], respostaDetalhe: unknown = null) {
     '@/lib/marketing/apresentacao': { clientesDaBusca: () => [], dataBr: () => '', dataHoraBr: (v: string) => v, ROTULO_STATUS_CONTATO: {} },
     '../AdminPrimaryButton': { AdminPrimaryButton: () => null }, './AtribuicaoExplicada': { AtribuicaoExplicada: () => null },
     './comum': { CabecalhoMarketing: () => null, EstadoCarga: () => null, enviarMarketing: async () => ({}), novaChave: () => 'k', useMarketing },
-    './marketing.module.css': cssFalso,
+    './marketing.module.css': cssFalso, './OrigemPainel': { default: OrigemPainelFalso },
   }) };
 }
 
@@ -106,4 +107,34 @@ test('r6 (P3-1): cartão anonimizado nunca oferece "Chamar" (linkChamar real, te
   const controle = chamar({ ...base, anonimizado: false, nome: 'Ana', telefone: '5561999990000' });
   assert.equal(controle.length, 1);
   assert.match(String(controle[0].props.href), /^https:\/\/wa\.me\/5561999990000\?text=/);
+});
+
+// 24/11/2026: pedido sem referência automática (telefone, indicação, conversa atendida): a equipe informa ou corrige a origem
+// do contato pelo mesmo painel do cliente e da negociação, só enquanto ele não está vinculado a uma negociação (depois vale
+// a origem da negociação, com painel próprio). Leitor e cartão anonimizado continuam só com a leitura.
+test('detalhe do contato: painel de origem (alvo CONTATO) só para quem edita, sem negociação e sem anonimização', () => {
+  const contato = {
+    id: K, nome: 'Fulana', canal: 'TELEFONE', recebidoEm: '2026-11-24T10:00:00Z', status: 'EM_ATENDIMENTO', clienteId: null, clienteNome: null,
+    telefone: '11999990000', email: null, dataDesejada: null, convidados: null, mensagem: null, fechamentoId: null as string | null, origemCodigo: 'DESCONHECIDA',
+    metodo: 'DESCONHECIDO', campanhaNome: null, atribuicoes: [], origemCliente: null, vinculoCliente: 'SEM_CLIENTE', fechamentosDoCliente: [], anonimizado: false, registrosParaRevisar: [],
+  };
+  const detalhe = (c: typeof contato, podeEditar: boolean) => {
+    const { h } = carregar([], { contato: c, origens: [] });
+    return h.render('DetalheDialogo', { id: K, podeEditar, aoFechar: () => undefined });
+  };
+  const painel = (arvore: unknown) => elementos(arvore).filter((e) => e.type === OrigemPainelFalso);
+  const leitura = (arvore: unknown) => elementos(arvore).some((e) => e.type === 'h3' && texto(e) === 'Origem');
+
+  const editavel = detalhe(contato, true);
+  assert.deepEqual(painel(editavel).map((e) => [e.props.alvoTipo, e.props.alvoId]), [['CONTATO', K]]);
+  assert.equal(leitura(editavel), false, 'o painel substitui a linha só de leitura');
+  for (const [cenario, arvore] of [
+    ['leitor', detalhe(contato, false)],
+    ['vinculado a negociação', detalhe({ ...contato, fechamentoId: '55555555-5555-4555-8555-555555555555' }, true)],
+    ['anonimizado', detalhe({ ...contato, anonimizado: true }, true)],
+  ] as const) {
+    assert.equal(painel(arvore).length, 0, cenario);
+    assert.ok(leitura(arvore), `${cenario}: origem só para leitura`);
+    assert.match(texto(arvore), /Desconhecida/, cenario);
+  }
 });

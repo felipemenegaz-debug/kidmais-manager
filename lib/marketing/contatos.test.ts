@@ -117,3 +117,29 @@ test('formulário público: exige nome e telefone ou e-mail; chave de idempotên
   assert.equal(mod.esquemaFormularioPublico.safeParse({ ...ok, chave: 'curta' }).success, false);
   assert.equal(mod.esquemaFormularioPublico.safeParse({ ...ok, telefone: '123' }).success, false);
 });
+
+// 24/11/2026: Novo contato do Funil (pedido por telefone ou conversa atendida por pessoa) usa a mesma ação `registrar` da
+// tela Pedidos e contatos: origem informada vira INFORMADO com a campanha, em qualquer canal; campanha de outra empresa e
+// origem fora da lista são recusadas pela própria função de domínio (a rota do Funil não tem validação paralela).
+test('registrar (Funil): canal TELEFONE com origem e campanha da empresa grava INFORMADO; outra empresa e origem inválida recusadas', async () => {
+  const registrar = (mod as unknown as { executarAcaoContato(tx: unknown, e: string, u: string | null, a: unknown): Promise<{ id: string }> }).executarAcaoContato;
+  const comCampanha = () => {
+    const b = banco();
+    const query = b.tx.query.bind(b.tx);
+    b.tx.query = async (sql: string, p: unknown[] = []) => /SELECT id::text FROM marketing_campanhas WHERE id = \$1::uuid AND empresa_id = \$2::uuid/.test(sql)
+      ? (p[0] === CAMPANHA_A && p[1] === EMPRESA_A ? { rows: [{ id: CAMPANHA_A }], rowCount: 1 } : { rows: [], rowCount: 0 }) : query(sql, p);
+    return b;
+  };
+  const acao = { acao: 'registrar', nome: 'Fulana', telefone: '11999990000', canal: 'TELEFONE', mensagem: 'Ligou pedindo orçamento', chave: 'chave-funil-aaaaaaaaaa', origemCodigo: 'INDICACAO', campanhaId: CAMPANHA_A };
+  const b = comCampanha();
+  await registrar(b.tx, EMPRESA_A, 'u-1', acao);
+  assert.deepEqual(b.atribuicoes.map((a) => [a.alvoTipo, a.origem, a.metodo, a.campanha]), [['CONTATO', 'INDICACAO', 'INFORMADO', CAMPANHA_A]]);
+  const b2 = comCampanha();
+  await assert.rejects(registrar(b2.tx, EMPRESA_B, 'u-1', acao), { code: 'MARKETING_CAMPANHA_INVALIDA', httpStatus: 404 });
+  assert.equal(b2.atribuicoes.length, 0, 'nada gravado com campanha de outra empresa');
+  await assert.rejects(registrar(comCampanha().tx, EMPRESA_A, 'u-1', { ...acao, origemCodigo: 'DESCONHECIDA' }), { code: 'MARKETING_ORIGEM_INVALIDA' });
+  // Sem origem (Não sei / não perguntado): desconhecida, como sempre.
+  const b3 = comCampanha();
+  await registrar(b3.tx, EMPRESA_A, 'u-1', { ...acao, origemCodigo: undefined, campanhaId: undefined });
+  assert.deepEqual(b3.atribuicoes.map((a) => [a.origem, a.metodo]), [['DESCONHECIDA', 'DESCONHECIDO']]);
+});

@@ -7,7 +7,7 @@ import { motivoSeguro } from './motivo-falha.ts';
 import { contaNoTeto, reservarConsumo, tem135, tetoDoMes, tetoMensal } from './teto-mensal.ts';
 import { ARQUIVO_DISPONIVEL_SQL, urlPublicaArquivo } from './arquivos.ts';
 import type { Passagem, ResultadoWallE } from './walle/tipos.ts';
-import { capturarOportunidadesPendentes, qualificaPedidoFesta, SQL_MARCA_PENDENTE, temMarcaPendente } from './walle/oportunidade.ts';
+import { campanhaDaMensagemSite, capturarOportunidadesPendentes, qualificaPedidoFesta, SQL_MARCA_PENDENTE, temMarcaPendente } from './walle/oportunidade.ts';
 import type { DbExecutor } from '../../db/contracts.ts';
 import { CHAVE_RODIZIO, eTransitorio, ehPilotoDe, empresaOperaAtendimento, empresasNaOrdemDoRodizio, lerPortao, modoEfetivo, pilotoOpcional, registrarVezDoRodizio, travarProvedor } from './multiempresa.ts';
 import { avisarPassagensPendentes, contextoNaFila, marcaNaFila } from './aviso-equipe.ts';
@@ -193,6 +193,8 @@ async function capturarOportunidadesDoLote() {
   try {
     const r = await capturarOportunidadesPendentes(withTransaction, ambienteAtendimento());
     for (const codigo of r.falhas) console.warn('[Atendimento WhatsApp] cartão do funil não gravado (%s); tenta no próximo lote.', codigo);
+    // r3 (P3): o cartão foi gravado; só a campanha do site não foi atribuída (sem nova tentativa, a equipe atribui à mão).
+    if (r.atribuicoesFalhas) console.warn('[Atendimento WhatsApp] campanha do site não atribuída em %d cartão(ões) do funil; atribuir à mão.', r.atribuicoesFalhas);
   } catch (erro) {
     console.warn('[Atendimento WhatsApp] cartão do funil não gravado (%s); tenta no próximo lote.', motivoSeguro(erro));
   }
@@ -725,14 +727,22 @@ async function responderWallE(porta: PortaWallE, mensagem: Mensagem, conversa: C
     // recebe em silêncio (LIMITE_MENSAL). Duas conversas ao mesmo tempo serializam na linha do consumo: nenhuma passa do teto.
     const coube = await gravarNoTeto(tx, mensagem, async () => {
     // Memória sem o último entendimento (trechos do texto do cliente): só os dados da festa, enviados e correções.
-    const contexto = { ...resultado.contexto };
+    const contexto: typeof resultado.contexto & { campanhaSitePendente?: string } = { ...resultado.contexto };
+    delete contexto.campanhaSitePendente;
+    const marca = await temMarcaPendente(tx);
+    if (marca) {
+      // A referência pertence ao pedido pendente e vem da mensagem recebida, fora da interpretação do modelo.
+      const anterior = atual.contexto?.campanhaSitePendente;
+      const referencia = typeof anterior === 'string' && atual.oportunidade_pendente_em
+        ? anterior : qualificaPedidoFesta(resultado) ? campanhaDaMensagemSite(empresa, mensagem.texto) : null;
+      if (referencia) contexto.campanhaSitePendente = referencia;
+    }
     delete contexto.ultimoEntendimento;
     const interesse = { data: dataDeInteresse(contexto.data ?? null, hoje), convidados: contexto.convidados ?? null };
     // A marca de "sem automático" (rodada 22) nunca é apagada pela memória nova do Wall-e.
     // Wall-e 1a (r2): pedido de festa nova MARCA a conversa nesta mesma instrução (com a 132): a marca só se perde se a
     // resposta inteira for desfeita. O cartão é gravado ao fim do lote, fora desta transação.
     const memoria = [atual.id, JSON.stringify(interesse), JSON.stringify(contexto), resultado.passagem ? JSON.stringify(resultado.passagem) : null, resultado.passagem ? 'AGUARDANDO_HUMANO' : 'IA'];
-    const marca = await temMarcaPendente(tx);
     await tx.query(marca ? memoriaDaConversa(SQL_MARCA_PENDENTE) : memoriaDaConversa(''), marca ? [...memoria, qualificaPedidoFesta(resultado)] : memoria);
     await tx.query("UPDATE whatsapp_atendimento_mensagens SET estado='PROCESSADA' WHERE id=$1", [mensagem.id]);
     const base = (await tx.query<{ t: string }>('SELECT clock_timestamp()::text AS t')).rows[0].t;

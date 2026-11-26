@@ -88,6 +88,7 @@ const ORDEM = Object.freeze([
   pelRegistro('133', `ocupações da agenda por empresa (função nova; o código funciona sem ela); exige a 131; aplicar só por ${REGISTRO} --ambiente production --aplicar-133-autorizado --backup "<registro-do-backup>" (o genérico recusa)`),
   pelRegistro('134', `marca Cliente/Interna da contratante (tabela nova; o código funciona sem ela); exige a 133; aplicar só por ${REGISTRO} --ambiente production --aplicar-134-autorizado --backup "<registro-do-backup>" (o genérico recusa)`),
   pelRegistro('135', `consumo mensal do Wall-e pela Meta (tabela nova + carga do mês sob LOCK); exige a 060; PORTÃO DE DEPLOY: código novo LIVE no web e no worker, nenhum gravador antigo vivo (procedimento do vault; sem a declaração a 135 recusa); exige a 134 no registro; aplicar só por ${REGISTRO} --ambiente production --aplicar-135-autorizado --backup "<registro-do-backup>" --portao-135 "<registro da conferência do deploy>" (o registro faz o SET LOCAL kidmais.portao_135 na transação do corpo; o genérico recusa)`),
+  pelRegistro('136', `campanha com destino no site externo (coluna nova com padrão falso; o código funciona sem ela); exige a 085 e, no registro, a 134; aplicar só por ${REGISTRO} --ambiente production --aplicar-136-autorizado --backup "<registro-do-backup>" (o genérico recusa)`),
 ].map(congelar));
 
 /** Só os passos que rodam (sem a 098 excluída nem a 099/105 já aplicadas). */

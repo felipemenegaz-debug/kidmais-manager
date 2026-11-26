@@ -14,7 +14,7 @@ import { chaveMultiempresa, empresaOperaAtendimento, escritaPermitida, identific
 export { registroDaPausa };
 
 /** `contexto` e `passagem` (082): memória do Wall-e e resumo para a equipe (ausentes sem a 082). */
-export type Conversa = { id: string; empresa_id: string; ambiente: string; contato: string; estado: 'IA' | 'HUMANO' | 'AGUARDANDO_HUMANO' | 'ENCERRADA'; responsavel_id: string | null; nao_contatar: boolean; versao: number; ultima_entrada_em: string; atualizada_em?: string; interesse: { data: string | null; convidados: number | null }; contexto?: Record<string, unknown>; passagem?: Record<string, unknown> | null };
+export type Conversa = { oportunidade_pendente_em?: string | null; id: string; empresa_id: string; ambiente: string; contato: string; estado: 'IA' | 'HUMANO' | 'AGUARDANDO_HUMANO' | 'ENCERRADA'; responsavel_id: string | null; nao_contatar: boolean; versao: number; ultima_entrada_em: string; atualizada_em?: string; interesse: { data: string | null; convidados: number | null }; contexto?: Record<string, unknown>; passagem?: Record<string, unknown> | null };
 export type Mensagem = { id: string; conversa_id: string; empresa_id: string; ambiente: string; origem_id: string | null; autor_usuario_id: string | null; texto: string | null; direcao: string; estado: string; versao_conversa: number; criada_em: string; midia_tipo?: 'IMAGEM' | 'VIDEO' | 'DOCUMENTO' | null; midia_url?: string | null; midia_arquivo_id?: string | null; midia_nome?: string | null; origem_grupo_id?: string | null; ordem?: number; fonte?: Record<string, unknown> | null };
 /**
  * Linha da tela de Atendimento (só para quem passa por acessoAtendimento: ADMINISTRATIVO ou REPRESENTANTE da empresa

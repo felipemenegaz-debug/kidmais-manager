@@ -3,6 +3,7 @@ import type { DbExecutor } from "../db/contracts.ts";
 import { MarketingError, conflito, naoEncontrado } from "./erros.ts";
 import { CODIGO_ORIGEM } from "./origens.ts";
 import { CODIGO_CAMPANHA, UTM_VALOR } from "./utm.ts";
+import { empresaDoSiteKidmais } from "./site-kidmais.ts";
 
 export const CANAIS_CAMPANHA = ["GOOGLE", "INSTAGRAM", "FACEBOOK", "WHATSAPP", "EMAIL", "INDICACAO", "OFFLINE", "OUTRO"] as const;
 export type CanalCampanha = (typeof CANAIS_CAMPANHA)[number];
@@ -36,6 +37,8 @@ const camposEditaveis = {
   utmMedium: z.string().trim().toLowerCase().regex(UTM_VALOR, "Use letras minúsculas, números, ponto, hífen ou sublinhado."),
   unidadeId: uuid.nullable().optional(),
   siteId: uuid.nullable().optional(),
+  /** 136: link no site externo da empresa da integração. Ausente na criação = falso; na edição = mantém. */
+  destinoExterno: z.boolean().optional(),
 };
 export const esquemaCriarCampanha = z.object({
   acao: z.literal("criar"),
@@ -52,23 +55,31 @@ export type AcaoCampanha = z.infer<typeof esquemaAcaoCampanha>;
 export type Campanha = {
   id: string; codigo: string; nome: string; canal: CanalCampanha; origemCodigo: string; objetivo: string | null;
   inicio: string; fim: string | null; orcamentoCentavos: number | null; utmSource: string; utmMedium: string;
-  status: "ATIVA" | "PAUSADA" | "ARQUIVADA"; unidadeId: string | null; siteId: string | null; versao: number;
+  status: "ATIVA" | "PAUSADA" | "ARQUIVADA"; unidadeId: string | null; siteId: string | null; destinoExterno: boolean; versao: number;
   criadaEm: string; atualizadaEm: string;
 };
 
 type Linha = {
   id: string; codigo: string; nome: string; canal: CanalCampanha; origem_codigo: string; objetivo: string | null; inicio: string; fim: string | null;
   orcamento_centavos: string | null; utm_source: string; utm_medium: string; status: Campanha["status"]; estabelecimento_id: string | null;
-  site_id: string | null; versao: number; criada_em: string; atualizada_em: string;
+  site_id: string | null; destino_externo: boolean; versao: number; criada_em: string; atualizada_em: string;
 };
-const COLUNAS = `id::text, codigo, nome, canal, origem_codigo, objetivo, inicio::text, fim::text, orcamento_centavos::text, utm_source, utm_medium,
+const COLUNAS_BASE = `id::text, codigo, nome, canal, origem_codigo, objetivo, inicio::text, fim::text, orcamento_centavos::text, utm_source, utm_medium,
   status, estabelecimento_id::text, site_id::text, versao, criada_em::text, atualizada_em::text`;
+/** Sem a 136 (ou depois do down) nenhuma campanha é externa. */
+const colunas = (comDestino: boolean) => `${COLUNAS_BASE}, ${comDestino ? "destino_externo" : "false AS destino_externo"}`;
+
+/** r2 (P2 do Astra r1): a coluna da 136 é conferida no catálogo a cada uso (o código roda com e sem ela). */
+export async function temDestinoExterno(tx: DbExecutor) {
+  return !!(await tx.query<{ ok: boolean }>(`SELECT EXISTS(SELECT 1 FROM pg_attribute WHERE attrelid=to_regclass('public.marketing_campanhas')
+    AND attname='destino_externo' AND NOT attisdropped) AS ok`)).rows[0]?.ok;
+}
 
 function mapear(l: Linha): Campanha {
   return {
     id: l.id, codigo: l.codigo, nome: l.nome, canal: l.canal, origemCodigo: l.origem_codigo, objetivo: l.objetivo, inicio: l.inicio, fim: l.fim,
     orcamentoCentavos: l.orcamento_centavos === null ? null : Number(l.orcamento_centavos), utmSource: l.utm_source, utmMedium: l.utm_medium,
-    status: l.status, unidadeId: l.estabelecimento_id, siteId: l.site_id, versao: l.versao, criadaEm: l.criada_em, atualizadaEm: l.atualizada_em,
+    status: l.status, unidadeId: l.estabelecimento_id, siteId: l.site_id, destinoExterno: l.destino_externo === true, versao: l.versao, criadaEm: l.criada_em, atualizadaEm: l.atualizada_em,
   };
 }
 
@@ -96,7 +107,7 @@ function validarPeriodo(inicio: string, fim: string | null | undefined) {
 
 export async function listarCampanhas(tx: DbExecutor, empresaId: string, filtros: { incluirArquivadas?: boolean; unidadeId?: string | null } = {}) {
   const r = await tx.query<Linha>(
-    `SELECT ${COLUNAS} FROM marketing_campanhas
+    `SELECT ${colunas(await temDestinoExterno(tx))} FROM marketing_campanhas
       WHERE empresa_id = $1::uuid AND ($2::boolean OR status <> 'ARQUIVADA')
         AND ($3::uuid IS NULL OR estabelecimento_id IS NULL OR estabelecimento_id = $3::uuid)
       ORDER BY (status = 'ARQUIVADA'), inicio DESC, nome, id`,
@@ -106,7 +117,7 @@ export async function listarCampanhas(tx: DbExecutor, empresaId: string, filtros
 }
 
 export async function lerCampanha(tx: DbExecutor, empresaId: string, id: string) {
-  const r = await tx.query<Linha>(`SELECT ${COLUNAS} FROM marketing_campanhas WHERE id = $1::uuid AND empresa_id = $2::uuid`, [id, empresaId]);
+  const r = await tx.query<Linha>(`SELECT ${colunas(await temDestinoExterno(tx))} FROM marketing_campanhas WHERE id = $1::uuid AND empresa_id = $2::uuid`, [id, empresaId]);
   return r.rows[0] ? mapear(r.rows[0]) : null;
 }
 
@@ -116,27 +127,42 @@ export async function lerCampanha(tx: DbExecutor, empresaId: string, id: string)
  */
 export async function campanhaPorCodigo(tx: DbExecutor, empresaId: string, codigo: string) {
   const r = await tx.query<Linha>(
-    `SELECT ${COLUNAS} FROM marketing_campanhas WHERE empresa_id = $1::uuid AND codigo = $2 AND status <> 'ARQUIVADA'`,
+    `SELECT ${colunas(await temDestinoExterno(tx))} FROM marketing_campanhas WHERE empresa_id = $1::uuid AND codigo = $2 AND status <> 'ARQUIVADA'`,
     [empresaId, codigo],
   );
   return r.rows[0] ? mapear(r.rows[0]) : null;
 }
 
+/**
+ * r2 (P2 do Astra r1, decisão de Felipe em 24/11/2026): destino externo só na empresa da integração
+ * (MARKETING_SITE_KIDMAIS_EMPRESA_ID) e com a 136 aplicada; campanha externa não tem site do iA.Fest. Os dois tipos convivem.
+ */
+function exigirDestinoExterno(empresaId: string, destinoExterno: boolean | undefined, site: string | null, comDestino: boolean) {
+  if (destinoExterno !== true) return;
+  if (!comDestino || empresaId !== empresaDoSiteKidmais()) {
+    throw new MarketingError("MARKETING_DESTINO_EXTERNO_INDISPONIVEL", "O site externo não está disponível como destino nesta empresa.", 400);
+  }
+  if (site) throw new MarketingError("MARKETING_DESTINO_EXTERNO_COM_SITE", "Campanha no site externo não usa site do iA.Fest. Escolha um dos dois.", 400);
+}
+
 export async function executarAcaoCampanha(tx: DbExecutor, empresaId: string, usuarioId: string, acao: AcaoCampanha): Promise<Campanha> {
+  const comDestino = await temDestinoExterno(tx);
+  const COLUNAS = colunas(comDestino);
   if (acao.acao === "criar" || acao.acao === "editar") {
     validarPeriodo(acao.inicio, acao.fim);
     const unidade = await exigirUnidadeDaEmpresa(tx, empresaId, acao.unidadeId);
     const site = await exigirSiteDaEmpresa(tx, empresaId, acao.siteId);
+    exigirDestinoExterno(empresaId, acao.destinoExterno, site, comDestino);
     const valores = [acao.nome, acao.canal, acao.origemCodigo, acao.objetivo || null, acao.inicio, acao.fim ?? null,
       acao.orcamentoCentavos ?? null, acao.utmSource, acao.utmMedium, unidade, site, usuarioId];
     if (acao.acao === "criar") {
       try {
         const r = await tx.query<Linha>(
           `INSERT INTO marketing_campanhas (empresa_id, codigo, nome, canal, origem_codigo, objetivo, inicio, fim, orcamento_centavos,
-             utm_source, utm_medium, estabelecimento_id, site_id, criada_por, atualizada_por)
-           VALUES ($1::uuid, $2, $3, $4, $5, $6, $7::date, $8::date, $9, $10, $11, $12::uuid, $13::uuid, $14::uuid, $14::uuid)
+             utm_source, utm_medium, estabelecimento_id, site_id, criada_por, atualizada_por${comDestino ? ", destino_externo" : ""})
+           VALUES ($1::uuid, $2, $3, $4, $5, $6, $7::date, $8::date, $9, $10, $11, $12::uuid, $13::uuid, $14::uuid, $14::uuid${comDestino ? ", $15::boolean" : ""})
            RETURNING ${COLUNAS}`,
-          [empresaId, acao.codigo, ...valores],
+          [empresaId, acao.codigo, ...valores, ...(comDestino ? [acao.destinoExterno === true] : [])],
         );
         return mapear(r.rows[0]);
       } catch (error) {
@@ -149,10 +175,12 @@ export async function executarAcaoCampanha(tx: DbExecutor, empresaId: string, us
     const r = await tx.query<Linha>(
       `UPDATE marketing_campanhas SET nome = $3, canal = $4, origem_codigo = $5, objetivo = $6, inicio = $7::date, fim = $8::date,
          orcamento_centavos = $9, utm_source = $10, utm_medium = $11, estabelecimento_id = $12::uuid, site_id = $13::uuid,
-         atualizada_por = $14::uuid, atualizada_em = clock_timestamp(), versao = versao + 1
+         atualizada_por = $14::uuid, atualizada_em = clock_timestamp(), versao = versao + 1${comDestino
+           // Edição sem o campo (cliente antigo) mantém a escolha; com site do iA.Fest a campanha deixa de ser externa.
+           ? ", destino_externo = CASE WHEN $13::uuid IS NOT NULL THEN false ELSE COALESCE($16::boolean, destino_externo) END" : ""}
        WHERE id = $1::uuid AND empresa_id = $2::uuid AND versao = $15 AND status <> 'ARQUIVADA'
        RETURNING ${COLUNAS}`,
-      [acao.id, empresaId, ...valores, acao.versao],
+      [acao.id, empresaId, ...valores, acao.versao, ...(comDestino ? [acao.destinoExterno ?? null] : [])],
     );
     if (r.rows.length !== 1) await distinguirFalha(tx, empresaId, acao.id);
     return mapear(r.rows[0]);

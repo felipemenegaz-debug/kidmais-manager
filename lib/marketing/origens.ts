@@ -38,7 +38,7 @@ export const METODOS = ["CAPTURADO", "INFORMADO", "HERDADO", "DESCONHECIDO"] as 
 export type MetodoAtribuicao = (typeof METODOS)[number];
 export const ROTULO_METODO: Record<MetodoAtribuicao, string> = {
   CAPTURADO: "Capturado pelo link",
-  INFORMADO: "Informado pela equipe",
+  INFORMADO: "Informado",
   HERDADO: "Herdado do contato",
   DESCONHECIDO: "Sem evidência",
 };

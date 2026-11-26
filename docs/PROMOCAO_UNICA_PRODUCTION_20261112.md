@@ -56,6 +56,7 @@ Situação do COMMIT numa FALHA: `NAO_COMMITADA` (o COMMIT nunca foi enviado: na
 | 133 | PELO_REGISTRO | ocupações da agenda por empresa (função nova; o código funciona sem ela); exige a 131; aplicar só por scripts/registro-migrations-banco.cjs --ambiente production --aplicar-133-autorizado --backup "<registro-do-backup>" (o genérico recusa) |
 | 134 | PELO_REGISTRO | marca Cliente/Interna da contratante (tabela nova; o código funciona sem ela); exige a 133; aplicar só por scripts/registro-migrations-banco.cjs --ambiente production --aplicar-134-autorizado --backup "<registro-do-backup>" (o genérico recusa) |
 | 135 | PELO_REGISTRO | consumo mensal do Wall-e pela Meta (tabela nova + carga do mês sob LOCK); exige a 060; PORTÃO DE DEPLOY: código novo LIVE no web e no worker, nenhum gravador antigo vivo (procedimento do vault; sem a declaração a 135 recusa); exige a 134 no registro; aplicar só por scripts/registro-migrations-banco.cjs --ambiente production --aplicar-135-autorizado --backup "<registro-do-backup>" --portao-135 "<registro da conferência do deploy>" (o registro faz o SET LOCAL kidmais.portao_135 na transação do corpo; o genérico recusa) |
+| 136 | PELO_REGISTRO | campanha com destino no site externo (coluna nova com padrão falso; o código funciona sem ela); exige a 085 e, no registro, a 134; aplicar só por scripts/registro-migrations-banco.cjs --ambiente production --aplicar-136-autorizado --backup "<registro-do-backup>" (o genérico recusa) |
 
 ## Ordem e comandos
 
