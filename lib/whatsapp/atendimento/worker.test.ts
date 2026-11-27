@@ -565,7 +565,9 @@ test('modo regras é conferido a cada uso: o worker lê a variável do canal (n�
   const raiz=readFileSync('app/api/admin/inteligencia/whatsapp/modelo.ts','utf8');
   assert.match(raiz,/interpretar: comModelo \? interpretarMensagem : null, entender: comModelo \? entenderComModelo : null/);
   // E-ME1: o envio leva a empresa dona da saída (alvo) para enviarPelaEmpresa.
-  assert.match(raiz,/processarLote\(\{interpretar:portas\.interpretar,enviar:\(contato, conteudo, alvo\) => enviarPelaEmpresa\(contato, conteudo, \{ alvo \}\),wallE:criarPortaWallE\(portas\.entender, \{ sinais: sinaisJev, direitoModelo: direitoModeloAtendimento \}\),direitoModelo:direitoModeloAtendimento,/);
+  assert.match(raiz,/processarLote\(\{interpretar:portas\.interpretar,enviar:\(contato, conteudo, alvo\) => enviarPelaEmpresa\(contato, conteudo, \{ alvo \}\),wallE:portaWallE\(portas\.entender\),direitoModelo:direitoModeloAtendimento,/);
+  // Fatia 10a: a fila e a caixa "Testar o Wall-e" usam a mesma composição; só a caixa liga o modo sem efeito.
+  assert.match(raiz,/function portaWallE\(entender: [^,]+, semEfeito = false\) \{\n\s*return criarPortaWallE\(entender, \{ sinais: sinaisJev, direitoModelo: direitoModeloAtendimento, \.\.\.\(semEfeito \? \{ semEfeito: true \} : \{\}\) \}\);/);
   // Fatia 8: a porta do aviso vem da rota do processador (fora da pasta da IA) e só existe com o e-mail configurado.
   assert.match(raiz,/direitoModelo:direitoModeloAtendimento,avisoEquipe\}/);
   const rotaProcessar=readFileSync('app/api/integracoes/gupshup/atendimento/processar/route.ts','utf8');

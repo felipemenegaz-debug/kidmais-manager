@@ -5,6 +5,7 @@ import { adminFetch } from '@/lib/http/admin-fetch';
 import { LIMITE_PERGUNTAS_APROVADAS, type ConfiguracaoAtendimento as Configuracao } from '@/lib/whatsapp/atendimento/core';
 import { perguntaComDadoPessoal } from '@/lib/whatsapp/atendimento/sem-fonte-texto';
 import PerguntasSemFonte from './PerguntasSemFonte';
+import TestarWallE from './TestarWallE';
 import { bloqueioDoCodigo, type BloqueioAtendimento } from '@/lib/whatsapp/atendimento/acesso-tela';
 import { DIAS_SEMANA, LIMITE_EMAILS_AVISO, NOME_DIA, type DiaSemana, type HorarioEquipe } from '@/lib/whatsapp/atendimento/horario';
 import styles from './atendimento.module.css';
@@ -126,5 +127,6 @@ export default function ConfiguracaoAtendimento() {
       </details>
       <div className={styles.acoes}><button type="submit" className={styles.primario} aria-disabled={ocupado || undefined}>Salvar configuração</button></div>
     </form>}
+    {dados?.wallE?.disponivel && <TestarWallE />}
   </main>;
 }

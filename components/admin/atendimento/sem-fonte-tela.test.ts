@@ -26,7 +26,7 @@ function montar(perguntasIniciais: { id: string; pergunta: string; resposta: str
   function Lista(props: Record<string, unknown>) { return props; }
   const deps = { '@/lib/http/admin-fetch': { adminFetch }, '@/lib/whatsapp/atendimento/core': core, '@/lib/whatsapp/atendimento/sem-fonte-texto': semFonteTexto, './atendimento.module.css': cssFalso };
   const tela = carregarComponente('components/admin/atendimento/ConfiguracaoAtendimento.tsx', {
-    ...deps, 'next/link': { default: (p: { children?: unknown }) => p.children }, './PerguntasSemFonte': { default: Lista },
+    ...deps, 'next/link': { default: (p: { children?: unknown }) => p.children }, './PerguntasSemFonte': { default: Lista }, './TestarWallE': { default: () => null },
     '@/lib/whatsapp/atendimento/acesso-tela': acessoTela, '@/lib/whatsapp/atendimento/horario': horario,
   });
   const lista = carregarComponente('components/admin/atendimento/PerguntasSemFonte.tsx', deps);

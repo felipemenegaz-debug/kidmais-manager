@@ -5,9 +5,10 @@ import { isClienteServiceError } from '@/lib/clientes/services/errors';
 import { PacoteAdminError } from '@/lib/comercial/pacotes-admin';
 import { listarAtendimento, controlarAtendimento, salvarConfiguracao } from '@/lib/whatsapp/atendimento/service';
 import { respostaDeErroAtendimento } from '@/lib/whatsapp/atendimento/erros';
-import { estadoIaAtendimento } from '@/app/api/admin/inteligencia/whatsapp/modelo';
+import { estadoIaAtendimento, portaTesteWallE } from '@/app/api/admin/inteligencia/whatsapp/modelo';
 import { estadoWallE } from '@/lib/whatsapp/atendimento/walle/resumo';
 import { sugerirResposta } from '@/lib/whatsapp/atendimento/walle/sugestao';
+import { LIMITE_TEXTO_TESTE, testarWallE } from '@/lib/whatsapp/atendimento/walle/teste';
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 // prontaMidiaId + prontaVersao: foto/vídeo de uma mensagem pronta na versão vista na prévia (só "enviar"; os dois
@@ -32,6 +33,10 @@ export async function POST(request: NextRequest) {
     // Sugestão do Wall-e para o atendente: só leitura, nada é gravado nem enviado.
     const sugerir = z.object({ acao: z.literal('sugerir'), conversaId: z.uuid() }).strict().safeParse(json);
     if (sugerir.success) return resposta({ ok: true, data: await sugerirResposta(sessao, sugerir.data.conversaId) });
+    // Fatia 10a: o dono testa o Wall-e como se fosse o cliente. Mesma porta da fila em modo sem efeito: nada é enviado
+    // nem gravado (só o registro contábil do modelo, quando usado).
+    const testar = z.object({ acao: z.literal('testar'), texto: z.string().trim().min(1).max(LIMITE_TEXTO_TESTE) }).strict().safeParse(json);
+    if (testar.success) return resposta({ ok: true, data: await testarWallE(sessao, testar.data.texto, portaTesteWallE()) });
     const pedido = controle.safeParse(json); if (!pedido.success) return resposta({ ok: false, erro: 'Confira os campos.' }, 400);
     if ((pedido.data.acao === 'enviar' || pedido.data.acao === 'retomar') && !estadoIaAtendimento().ia) throw new Error('ATENDIMENTO_IA_DESLIGADA');
     // Encerrar devolve quantas respostas pendentes foram canceladas na mesma transação (a tela informa).

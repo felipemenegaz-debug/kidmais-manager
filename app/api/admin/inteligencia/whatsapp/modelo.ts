@@ -50,8 +50,22 @@ export async function processarFilaAtendimento(avisoEquipe?: Parameters<typeof p
   // equipe sem resposta e saídas automáticas na fila são canceladas; nada é enviado nem interpretado.
   const portas = portasDeModeloAtendimento(process.env);
   // E-ME1: o envio recebe a empresa dona da saída (não piloto: só a conexão Meta dela).
-  return processarLote({interpretar:portas.interpretar,enviar:(contato, conteudo, alvo) => enviarPelaEmpresa(contato, conteudo, { alvo }),wallE:criarPortaWallE(portas.entender, { sinais: sinaisJev, direitoModelo: direitoModeloAtendimento }),direitoModelo:direitoModeloAtendimento,avisoEquipe},
+  return processarLote({interpretar:portas.interpretar,enviar:(contato, conteudo, alvo) => enviarPelaEmpresa(contato, conteudo, { alvo }),wallE:portaWallE(portas.entender),direitoModelo:direitoModeloAtendimento,avisoEquipe},
     { semAutomacao: !inteligenciaAtiva(process.env) });
+}
+
+/** A porta do Wall-e montada num lugar só: a fila e a caixa de teste (fatia 10a) usam exatamente a mesma composição. */
+function portaWallE(entender: ReturnType<typeof portasDeModeloAtendimento>['entender'], semEfeito = false) {
+  return criarPortaWallE(entender, { sinais: sinaisJev, direitoModelo: direitoModeloAtendimento, ...(semEfeito ? { semEfeito: true } : {}) });
+}
+
+/**
+ * Fatia 10a ("Testar o Wall-e"): a porta da fila em modo sem efeito. O modelo entra nas mesmas condições da fila (modo
+ * modelo, chave-mestra da IA ligada, direito da empresa conferido pela porta, orçamento e teto por empresa no roteador),
+ * e o uso fica registrado como qualquer chamada. Chave-mestra desligada: só regras, como o modo regras.
+ */
+export function portaTesteWallE(env: NodeJS.ProcessEnv = process.env) {
+  return portaWallE(inteligenciaAtiva(env) ? portasDeModeloAtendimento(env).entender : null, true);
 }
 
 /**
