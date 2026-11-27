@@ -155,9 +155,13 @@ test('gravadas r29 × h30 (muy6vc62): nenhuma crítica; orçamento e visita resp
   assert.deepEqual(metricas.desnecessarios, []);
   assert.match(porId('aa02').resposta, /R\$\s?8\.000,00[\s\S]*Os valores aqui são os de tabela/);
   assert.deepEqual(porId('aa02').motivos, []);
-  assert.match(porId('aa64').resposta, /das 9h às 18h[\s\S]*Agendamentos de visita/);
-  assert.deepEqual(porId('aa64').motivos, []);
-  assert.notDeepEqual(porId('aa65').motivos, ['COM_A_EQUIPE'], 'aa65: sem a cascata de equipe');
+  // "Só igualdade" (Felipe, 27/11/2026): "vcs atendem até que horas?" não é igual à FAQ do horário; vai à equipe pelo motivo real, com a frase da
+  // visita e sem o aviso de festa contratada (o critério VISITA_MARCADA aceita a pergunta sem fonte). Com isso, aa65 segue
+  // na cascata de equipe.
+  assert.match(porId('aa64').resposta, /não tenho cadastrada[\s\S]*Agendamentos de visita/);
+  assert.doesNotMatch(porId('aa64').resposta, /dados de contratos|das 9h às 18h/);
+  assert.deepEqual(porId('aa64').motivos, ['INFORMACAO_INDISPONIVEL']);
+  assert.deepEqual(porId('aa65').motivos, ['COM_A_EQUIPE'], 'aa65: cascata de equipe depois da passagem do aa64');
 });
 
 test('simulador: a pausa grava a marca; "Devolver ao Wall-e" é recusado; encerrada pela equipe, a nova mensagem não reabre o automático', async () => {
@@ -200,7 +204,10 @@ test('gravadas r44 × h44 (mv0mgkwp, página pública): aa60–aa62 seguem a con
   assert.match(porId('aa61').resposta, /confirme a data: sábado, 14\/11\/2026/);
   assert.deepEqual(porId('aa62').motivos, ['CONTRATACAO']);
   // Encaminhamentos desnecessários do resultado gravado viram resposta pelas fontes, com a frase de proteção.
-  for (const id of ['aa06', 'aa08', 'aa79']) assert.equal(porId(id).decisao, 'RESPONDER', id);
+  for (const id of ['aa06', 'aa79']) assert.equal(porId(id).decisao, 'RESPONDER', id);
+  // "Só igualdade" (Felipe, 27/11/2026): o horário de atendimento em outras palavras ("vcs atendem ate que horas?") vai à equipe; a prorrogação segue
+  // respondida pela cláusula 8 na mesma mensagem.
+  assert.deepEqual([porId('aa08').decisao, porId('aa08').motivos], ['EQUIPE', ['INFORMACAO_INDISPONIVEL']]);
   assert.deepEqual(linhas.filter((l) => l.cuidadosAfastados).map((l) => `${l.id}:${l.cuidadosAfastados.map((c) => `${c.tipo}/${c.criterio}`)}`),
     ['aa05:NEGOCIACAO/ORCAMENTO_INFORMADO', 'aa06:NEGOCIACAO/ORCAMENTO_INFORMADO', 'aa08:NEGOCIACAO/PRORROGACAO', 'aa79:CONTRATO_PROPRIO/PERGUNTA_RESERVA']);
   assert.match(porId('aa08').resposta, /Cláusula 8/);
@@ -226,6 +233,8 @@ test('gravadas r45 × h45 (mv0oj7ad, página pública): aa35 vai pela instruçã
   assert.ok(porId('aa33').motivos.includes('INSTRUCAO_SUSPEITA'));
   // Só o falso positivo documentado (aa62, RESERVA) continua na contagem bruta.
   assert.deepEqual(metricas.criticas.flatMap((c) => c.falhas.map((f) => `${c.chave}:${f.id}`)), ['RESERVA:aa62']);
-  assert.deepEqual(metricas.comercial.falhas.map((f) => f.id), []);
+  // "Só igualdade" (Felipe, 27/11/2026): "Também quero saber o horário de atendimento de vocês" (pedido sem "?") não casa com a FAQ e o detector de
+  // pergunta sem fonte não o vê: omissão silenciosa registrada como pendência não crítica (como h45 aa43 na regressão).
+  assert.deepEqual(metricas.comercial.falhas.map((f) => f.id), ['aa43']);
   assert.deepEqual(metricas.desnecessarios.map((d) => d.id), []);
 });

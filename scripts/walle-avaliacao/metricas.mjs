@@ -241,7 +241,9 @@ export function irrelevante(l) {
   if ((fontes.some((f) => prontaDe(f, 'PRECOS')) || /Segue a nossa tabela de pre/.test(textos)) && !pediu('PRECOS', 'PACOTES')) achados.push('tabela de preços');
   if (fontes.some((f) => f.tipo === 'CONFIGURACAO') && !pediu('DUVIDA_FAQ')) achados.push('pergunta frequente');
   if (/Nossos pacotes:/.test(textos) && !pediu('PACOTES', 'PRECOS')) achados.push('lista de pacotes');
-  if (/parte da sua mensagem eu n[aã]o tenho cadastrada|perguntas da sua mensagem eu n[aã]o tenho cadastradas/.test(textos) && !pediu('FORA_DO_ESCOPO')) achados.push('"parte não cadastrada" sem assunto fora do cadastro');
+  // Correspondência da FAQ "só igualdade" (Felipe, 27/11/2026): a paráfrase de uma FAQ publicada não casa e vira parte não
+  // cadastrada — passagem segura, marcada no rótulo revisado (faqParafrase), não conteúdo irrelevante.
+  if (/parte da sua mensagem eu n[aã]o tenho cadastrada|perguntas da sua mensagem eu n[aã]o tenho cadastradas/.test(textos) && !pediu('FORA_DO_ESCOPO') && !l.esperado.revisado?.faqParafrase) achados.push('"parte não cadastrada" sem assunto fora do cadastro');
   // Pendência do holdout 27 (aa30): a frase da cláusula de sinal sem sinal/entrada de pagamento na mensagem.
   if (/cl[aá]usula de sinal/.test(textos) && !SINAL_PEDIDO.test(semAc(l.texto))) achados.push('cláusula de sinal sem sinal pedido');
   // Rodada 37 (IA × h37 aa57, IA × h36 aa49): as cláusulas de convidados (3: aumento e excedente; 4: crianças e cortesia)

@@ -2,7 +2,9 @@
 // caminho da tela: o texto gravado na passagem (trechoParaRegistro) → perguntaSugerida (máscara de novo, só leitura na
 // lista) → a pessoa escreve a pergunta com as palavras dela e a resposta → configuração salva (r4, desenho novo: nada é
 // copiado da lista para o formulário). Depois disso, a mesma pergunta e variações (holdout sintético escrito para
-// esta fatia, que não entra em nenhum ajuste das regras) são respondidas com a resposta aprovada, sem passagem.
+// esta fatia, que não entra em nenhum ajuste das regras) são respondidas com a resposta aprovada, sem passagem. Desde a
+// correspondência "só igualdade" (Felipe, 27/11/2026), variação = mesma pergunta com outra caixa, acento, pontuação ou
+// grafia do wi-fi; paráfrase não casa e continua com a equipe (passagem segura).
 // Caminho real da conversa simulado sem banco e sem rede, como em regressao-holdouts.test.mjs.
 //   node --experimental-strip-types --test scripts/walle-avaliacao/sem-fonte-holdout.test.mjs
 import assert from 'node:assert/strict';
@@ -27,11 +29,15 @@ async function modulos() {
 const item = (id, texto) => ({ id, texto, intencoes: ['DUVIDA'], decisao: 'RESPONDER', entidades: {} });
 
 // Perguntas sem fonte na empresa sintética, cada uma com variações escritas como clientes escrevem.
-// Recorte da r3: o entendimento.ts não muda nesta fatia. Wi-fi fica fora: "wi" e "fi" são curtas para a regra de FAQ, e
-// a pergunta publicada sobre wi-fi continua indo para a equipe, como na base (pendência do entendimento, outra fatia).
+// "Só igualdade" (27/11): `variacoes` são a mesma pergunta (caixa, acento, pontuação, espaço, grafia do wi-fi; saudação em
+// frase própria, separada por "!" ou "."); `parafrases` são outras palavras e continuam com a equipe.
 const CASOS = [
   { id: 'fraldario', pergunta: 'Vocês têm fraldário no salão?', resposta: 'Resposta aprovada sintética: temos fraldário no banheiro feminino e no masculino.',
-    variacoes: ['tem fraldario?', 'O espaço tem fraldário pra trocar o bebê?', 'boa tarde! no salão de vcs tem fraldário?'] },
+    variacoes: ['voces tem fraldario no salao', 'VOCÊS TÊM FRALDÁRIO NO SALÃO??', 'boa tarde! Vocês têm fraldário no salão?'],
+    parafrases: ['tem fraldario?', 'O espaço tem fraldário pra trocar o bebê?', 'boa tarde! no salão de vcs tem fraldário?'] },
+  { id: 'wifi', pergunta: 'Tem wi-fi?', resposta: 'Resposta aprovada sintética: temos wi-fi liberado para os convidados.',
+    variacoes: ['Tem wifi?', 'tem wi fi', 'Boa tarde! Tem wifi?'],
+    parafrases: ['Vocês têm wi fi?', 'Oi, tem wifi?', 'Tem wi/fi?'] },
 ];
 
 test('fatia 7: pergunta sem fonte passa para a equipe, vira resposta aprovada mascarada e depois é respondida pelo Wall-e', { timeout: 120_000 }, async () => {
@@ -71,6 +77,13 @@ test('fatia 7: pergunta sem fonte passa para a equipe, vira resposta aprovada ma
       assert.ok(depois.resposta.includes(caso.resposta), `${caso.id} "${t}": ${depois.resposta}`);
       assert.ok(!depois.motivos.includes('INFORMACAO_INDISPONIVEL'));
     }
+    // 5) Paráfrase da pergunta aprovada: não casa (sem aproximação) e passa para a equipe sem a resposta aprovada.
+    for (const [i, t] of caso.parafrases.entries()) {
+      const [depois] = await simularSequencia(m, [item(`${caso.id}-p${i}`, t)], { catalogos, config, fontes: FONTES, agora: AGORA, entender: entender(catalogos) });
+      assert.equal(depois.decisao, 'EQUIPE', `${caso.id} "${t}": ${depois.decisao} ${depois.motivos} ${depois.resposta}`);
+      assert.ok(depois.motivos.includes('INFORMACAO_INDISPONIVEL'), `${caso.id} "${t}": ${depois.motivos}`);
+      assert.ok(!depois.resposta.includes(caso.resposta), `${caso.id} "${t}": ${depois.resposta}`);
+    }
   }
 });
 
@@ -85,8 +98,7 @@ test('fatia 7: a resposta aprovada nova não captura perguntas de outros assunto
   }
 });
 
-// Astra r1 (P2): a fatia não cria acerto parcial novo (o entendimento.ts é o da base): compostos com o mesmo começo
-// ou palavras parecidas continuam sem resposta aprovada.
+// Astra r1 (P2): sem acerto parcial: compostos com o mesmo começo ou palavras parecidas ficam sem resposta aprovada.
 async function decidir(perguntas, t) {
   const { m, ent, core } = await modulos();
   const config = core.configuracaoSchema.parse({ ...CONFIG, perguntas: [...CONFIG.perguntas, ...perguntas] });
@@ -100,15 +112,17 @@ test('fatia 7 r2: sem acerto parcial novo (holdout negativo valet × vale transp
     { faq: { id: 'faq_vale', pergunta: 'Tem estacionamento?', resposta: 'Resposta aprovada sintética: aceitamos vale transporte.' }, textos: ['Tem valet?', 'Vocês têm valet?'] },
     { faq: { id: 'faq_vt', pergunta: 'Aceitam vale transporte?', resposta: 'Resposta aprovada sintética: sim, vale transporte.' }, textos: ['Tem valet?'] },
     { faq: { id: 'faq_volumes', pergunta: 'Tem guarda-volumes?', resposta: 'Resposta aprovada sintética: o guarda-volumes fica na entrada.' }, textos: ['Tem guarda-roupa?', 'tem guarda roupa?'] },
-    // Astra r2 (P2), fechados pelo recorte: interrogativo descartado, prefixo pela grafia nova e "wifimax" como fonte.
+    // Astra r2 (P2) da fatia 7, que a correspondência "só igualdade" fecha sem caso especial.
     { faq: { id: 'faq_wifi', pergunta: 'Tem wifi?', resposta: 'Sim.' }, textos: ['Onde tem wifi?'] },
     { faq: { id: 'faq_wifi_interno', pergunta: 'Tem wi-fi interno?', resposta: 'Resposta aprovada sintética: wi-fi só no salão.' }, textos: ['Tem wifi internacional?'] },
     { faq: { id: 'faq_estac_max', pergunta: 'Tem estacionamento?', resposta: 'Temos wifimax.' }, textos: ['Tem wi-fi e estacionamento?'] },
+    // A palavra longa em comum ("infantil") não faz a composta errada valer.
+    { faq: { id: 'faq_volumes_inf', pergunta: 'Tem guarda-volumes infantil?', resposta: 'Resposta aprovada sintética: o guarda-volumes infantil fica na entrada.' }, textos: ['Tem guarda-roupa infantil?', 'tem guarda roupa infantil?'] },
+    { faq: { id: 'faq_wifi_onde', pergunta: 'Tem wi-fi?', resposta: 'Sim.' }, textos: ['Onde tem wifi?', 'Qual a senha do wi-fi?'] },
   ];
   for (const { faq, textos } of casos) for (const t of textos) {
     const l = await decidir([faq], t);
-    // Igual à base (staging 44989ffe): passa para a equipe por falta de fonte, nunca RESPONDER pela resposta aprovada.
-    // (Na FAQ de estacionamento, "valet" já era sinônimo antes desta fatia; o trecho dela na passagem é da base.)
+    // Passa para a equipe por falta de fonte, nunca RESPONDER pela resposta aprovada.
     assert.equal(l.decisao, 'EQUIPE', `"${t}": ${l.decisao} ${l.motivos} ${l.resposta}`);
     assert.ok(l.motivos.includes('INFORMACAO_INDISPONIVEL'), `"${t}": ${l.motivos}`);
   }
