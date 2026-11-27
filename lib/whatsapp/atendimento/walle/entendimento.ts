@@ -1260,6 +1260,51 @@ const PROBLEMA_ACONTECIDO = /\b(?:deu|deram|teve|tive|tivemos|tiveram|houve|acon
 const GENERICAS = new Set(['qual', 'quais', 'voces', 'tem', 'tens', 'como', 'onde', 'quando', 'quanto', 'quanta', 'para', 'pela', 'pelo', 'sobre', 'esse', 'essa', 'isso', 'este', 'esta', 'aqui', 'voce', 'seria', 'sera', 'mais', 'muito', 'tambem', 'entao', 'favor', 'existe', 'possui', 'algum', 'alguma']);
 const significativas = (t: string) => limpo(t).split(' ').filter((p) => p.length >= 4 && !GENERICAS.has(p));
 /**
+ * Correspondência da FAQ (fatia própria, 27/11): termos do cadastro para a heurística de prefixos. Palavra solta continua
+ * comparada pelo radical; palavra composta com hífen ("guarda-roupa", "pula-pula", "ar-condicionado") é UM termo e só
+ * conta quando a mensagem tem a mesma composta inteira (com hífen, com espaço ou junta). Vale tantas palavras quantas
+ * partes significativas ela tem, nunca mais do que a base contaria: "guarda-roupa" não casa "guarda-volumes" pelo
+ * "guarda", e "wi-fi" (partes curtas) continua sem peso nenhum aqui, como na base.
+ */
+type TermoFaq = { chave: string; partes: string[]; inicio: string };
+function termosDoCadastro(t: string): TermoFaq[] {
+  const termos: TermoFaq[] = [];
+  for (const bruto of semAcento(t).match(/[a-z0-9]+(?:[-‐‑][a-z0-9]+)*/g) ?? []) {
+    const pedacos = bruto.split(/[-‐‑]/);
+    const partes = pedacos.filter((p) => p.length >= 4 && !GENERICAS.has(p));
+    if (partes.length) termos.push({ chave: pedacos.join(''), partes, inicio: pedacos[0] });
+  }
+  return termos;
+}
+/** Formas da mensagem que uma composta do cadastro pode ter: palavras, pares vizinhos juntos e compostas com hífen. */
+function chavesCompostas(texto: string) {
+  const palavras = limpo(texto).split(' ').filter(Boolean);
+  const chaves = new Set(palavras);
+  for (let i = 0; i + 1 < palavras.length; i++) chaves.add(palavras[i] + palavras[i + 1]);
+  for (const c of semAcento(texto).match(/[a-z0-9]+(?:[-‐‑][a-z0-9]+)+/g) ?? []) chaves.add(c.replace(/[-‐‑]/g, ''));
+  return chaves;
+}
+/**
+ * Grafias reconhecidas do MESMO termo ("wi-fi", "wi fi", "wifi" → "wifi"). Lista fechada, usada só na comparação
+ * integral da pergunta e na cobertura do assunto sem fonte; nunca alimenta a heurística de prefixos.
+ */
+const grafias = (t: string) => limpo(t).replace(/\bwi fi\b/g, 'wifi');
+/** Só o tratamento sai da comparação integral; interrogativos ("onde", "qual", "quando"…) ficam e diferenciam. */
+const TRATAMENTO = new Set(['voces', 'vcs', 'vc', 'voce']);
+const SAUDACAO_INICIAL = /^(?:(?:oi|ola|opa|bom dia|boa tarde|boa noite|tudo bem|td bem)\s+)+/;
+const perguntaIntegral = (t: string) => grafias(t).replace(SAUDACAO_INICIAL, '').split(' ').filter((p) => p && !TRATAMENTO.has(p)).join(' ');
+/** A pergunta integral só vale com alguma palavra de conteúdo ("Tem?" sozinho nunca é a pergunta "Tem?" cadastrada). */
+const integralComConteudo = (t: string) => t.split(' ').some((p) => p.length >= 3 && !GENERICAS.has(p));
+/**
+ * O assunto sem fonte aparece no texto da pergunta frequente como palavra inteira (plural aceito), com as grafias
+ * reconhecidas: "wifi" está em "Tem wi-fi?", mas não em "Temos wifimax."; "elevador" está em "Tem elevadores?".
+ */
+function assuntoNoTexto(texto: string, assunto: string) {
+  const a = grafias(assunto);
+  return !!a && new RegExp(`(?:^| )${a}(?:s|es)?(?= |$)`).test(grafias(texto));
+}
+const assuntoNaPerguntaFrequente = (catalogos: Catalogos, assunto: string) => catalogos.perguntas.some((p) => assuntoNoTexto(`${p.pergunta} ${p.resposta ?? ''}`, assunto));
+/**
  * FAQ por regras: pergunta cadastrada com duas palavras em comum (mesmo radical de 4 letras: "atendem"/"atendimento",
  * "horas"/"horário") ou uma palavra longa e específica ("estacionamento"). Devolve todas, na ordem da mensagem.
  */
@@ -1277,19 +1322,41 @@ function perguntasPorRegras(texto: string, perguntas: Catalogos['perguntas']) {
   const semReferencia = semAcento(texto).replace(REFERENCIA_FUNCIONARIO, ' ');
   const msg = significativas(semReferencia);
   const t = semReferencia;
+  const chaves = chavesCompostas(semReferencia);
+  // Composta da mensagem que começa igual a uma do cadastro e é OUTRA ("guarda-roupa" × "guarda-volumes"): a mensagem
+  // fala de outra coisa, e nenhuma outra palavra em comum ("infantil") faz a pergunta cadastrada valer.
+  const palavras = limpo(semReferencia).split(' ').filter(Boolean);
+  const compostasDaMensagem = [
+    ...(semReferencia.match(/[a-z0-9]+(?:[-‐‑][a-z0-9]+)+/g) ?? []).map((c) => ({ inicio: c.split(/[-‐‑]/)[0], chave: c.replace(/[-‐‑]/g, '') })),
+    ...palavras.slice(0, -1).map((w, i) => ({ inicio: w, chave: w + palavras[i + 1], segunda: palavras[i + 1] })).filter((c) => c.segunda.length >= 4 && !GENERICAS.has(c.segunda)),
+  ];
+  const rival = (ausentes: TermoFaq[]) => ausentes.some((x) => compostasDaMensagem.some((c) => c.inicio === x.inicio && c.chave !== x.chave));
+  // Trechos da mensagem para a comparação integral ("Boa tarde! Tem wifi?" → "Tem wifi").
+  const trechos = semReferencia.split(/[.!?\n]+/).map((s) => ({ s, integral: perguntaIntegral(s) })).filter((x) => x.integral);
   const achadas: { id: string; pos: number }[] = [];
   for (const p of perguntas) {
-    const doCadastro = significativas(p.pergunta);
-    const comuns = doCadastro.filter((x) => msg.some((w) => w.slice(0, 4) === x.slice(0, 4)));
-    const longa = doCadastro.some((x) => x.length >= 8 && msg.some((w) => w.length >= 8 && w.slice(0, 6) === x.slice(0, 6)));
-    const daResposta = p.resposta ? significativas(p.resposta).filter((x) => x.length >= 6 && msg.some((w) => w.slice(0, 5) === x.slice(0, 5))).length >= 2 : false;
+    const doCadastro = termosDoCadastro(p.pergunta);
+    const simples = doCadastro.filter((x) => x.partes.length === 1 && x.chave === x.partes[0]).map((x) => x.chave);
+    const compostas = doCadastro.filter((x) => !(x.partes.length === 1 && x.chave === x.partes[0]));
+    const compostasIguais = compostas.filter((x) => chaves.has(x.chave));
+    const comuns = simples.filter((x) => msg.some((w) => w.slice(0, 4) === x.slice(0, 4))).length + compostasIguais.reduce((n, x) => n + x.partes.length, 0);
+    const longa = simples.some((x) => x.length >= 8 && msg.some((w) => w.length >= 8 && w.slice(0, 6) === x.slice(0, 6))) || compostasIguais.some((x) => x.partes.some((q) => q.length >= 8));
+    const daResposta = p.resposta ? termosDoCadastro(p.resposta).reduce((n, x) => {
+      if (x.partes.length === 1 && x.chave === x.partes[0]) return n + (x.chave.length >= 6 && msg.some((w) => w.slice(0, 5) === x.chave.slice(0, 5)) ? 1 : 0);
+      return n + (chaves.has(x.chave) ? x.partes.filter((q) => q.length >= 6).length : 0);
+    }, 0) >= 2 : false;
     const sinonimo = SINONIMOS_FAQ.find(([assunto, vocabulario]) => assunto.test(semAcento(p.pergunta)) && vocabulario.test(t));
     if (sinonimo) { achadas.push({ id: p.id, pos: Math.max(0, msg.length - 1) }); continue; }
+    // A mensagem (ou um trecho dela) É a pergunta publicada, mudando só a grafia reconhecida, o tratamento ou a saudação:
+    // "Tem wifi?" depois de publicar "Tem wi-fi?". Interrogativos contam: "Onde tem wifi?" não é "Tem wifi?".
+    const integral = perguntaIntegral(p.pergunta);
+    const igual = integralComConteudo(integral) ? trechos.find((x) => x.integral === integral) : undefined;
+    if (igual) { achadas.push({ id: p.id, pos: significativas(semReferencia.slice(0, semReferencia.indexOf(igual.s))).length }); continue; }
     // Uma só palavra longa em comum ("atendimento") vale quando a mensagem pergunta algo (rodada 18): "o atendimento de
     // vcs é uma vergonha" não é pergunta do horário de atendimento.
     const pergunta = /\?|\b(qual|quais|quando|que horas|ate que horas|como|onde|tem|teria|existe|funciona\w*|abre|abrem|queria saber|gostaria de saber)\b/.test(t);
-    if (comuns.length >= 2 || (longa && pergunta) || daResposta) {
-      const pos = Math.min(...doCadastro.map((x) => msg.findIndex((w) => w.slice(0, 4) === x.slice(0, 4))).filter((i) => i >= 0));
+    if (!rival(compostas.filter((x) => !chaves.has(x.chave))) && (comuns >= 2 || (longa && pergunta) || daResposta)) {
+      const pos = Math.min(...doCadastro.flatMap((x) => x.partes).map((x) => msg.findIndex((w) => w.slice(0, 4) === x.slice(0, 4))).filter((i) => i >= 0));
       achadas.push({ id: p.id, pos });
     }
   }
@@ -1514,13 +1581,13 @@ const SEM_FONTE_CONHECIDO = /\b(?:vai chover|chover|previsao do tempo|vai fazer 
 function comSemFonteDeclarado(texto: string, catalogos: Catalogos, lista: string[]) {
   if (lista.length) return lista;
   const assunto = SEM_FONTE_CONHECIDO.exec(semAcento(texto))?.[0];
-  return assunto && !catalogos.perguntas.some((p) => limpo(`${p.pergunta} ${p.resposta}`).includes(limpo(assunto))) ? [texto.trim().slice(0, 120)] : lista;
+  return assunto && !assuntoNaPerguntaFrequente(catalogos, assunto) ? [texto.trim().slice(0, 120)] : lista;
 }
 /** Atributo pedido de um pacote ou unidade (horas, o que inclui, o que vem, capacidade, quanto, qual). */
 const ATRIBUTO_PERGUNTADO = /\b(horas?|dura\w*|inclui\w*|inclus\w*|incluid\w*|vem|vao|tem|cabe\w*|comporta\w*|serve\w*|quantos?|quantas?|qual|quais|como e|e de|e com|tamanho|metros?|andar|terreo)\b/;
 /** A pergunta é atendida por alguma regra (assunto, FAQ, dado da festa, pessoa, alergia ou sinal de cuidado)? */
 function coberta(segmento: string, catalogos: Catalogos, mensagem = segmento) {
-  const semFonte = SEM_FONTE_CONHECIDO.exec(semAcento(segmento))?.[0]; if (semFonte && !catalogos.perguntas.some((p) => limpo(`${p.pergunta} ${p.resposta}`).includes(limpo(semFonte)))) return false; // [fora-escopo] "fazem casamento?", "tem manobrista?": sem fonte, salvo pergunta frequente publicada sobre o assunto
+  const semFonte = SEM_FONTE_CONHECIDO.exec(semAcento(segmento))?.[0]; if (semFonte && !assuntoNaPerguntaFrequente(catalogos, semFonte)) return false; // [fora-escopo] "fazem casamento?", "tem manobrista?": sem fonte, salvo pergunta frequente publicada sobre o assunto
   if (ITEM_DETALHE.test(semAcento(segmento))) return false; // [fora-escopo] "o kibe é frito ou assado?": o item está no buffet, o detalhe não
   const t = semAcento(segmento);
   const c = limpo(segmento);
