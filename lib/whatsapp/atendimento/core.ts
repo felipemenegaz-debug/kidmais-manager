@@ -5,9 +5,11 @@ import type { Passagem } from './walle/tipos.ts';
 import { ALERGIA } from './walle/alergia.ts';
 
 export const LIMITE_PADRAO_RESPOSTAS = 20;
+/** Respostas aprovadas (perguntas frequentes) por empresa e ambiente. A fatia 7 mostra quando o limite está esgotado. */
+export const LIMITE_PERGUNTAS_APROVADAS = 30;
 export const configuracaoSchema = z.object({
   ativo: z.boolean(), nome: z.string().trim().min(2).max(100),
-  perguntas: z.array(z.object({ id: z.string().regex(/^[a-z0-9_-]{1,40}$/), pergunta: z.string().trim().min(3).max(250), resposta: z.string().trim().min(3).max(1500) }).strict()).max(30),
+  perguntas: z.array(z.object({ id: z.string().regex(/^[a-z0-9_-]{1,40}$/), pergunta: z.string().trim().min(3).max(250), resposta: z.string().trim().min(3).max(1500) }).strict()).max(LIMITE_PERGUNTAS_APROVADAS),
   // Respostas automáticas por conversa em 24 h; atingido o limite, a conversa vai para a equipe sem chamar o modelo.
   // O teto de tokens/custo continua no orçamento da capacidade `whatsapp_atendimento`, definido no servidor.
   limites: z.object({ respostasPor24h: z.number().int().min(1).max(100) }).strict().default({ respostasPor24h: LIMITE_PADRAO_RESPOSTAS }),
@@ -184,6 +186,56 @@ export function entradaFaseB(historico: string[], atual: string, interesseAnteri
 export const REGISTRO_SENSIVEL = '[mensagem com dado sensível: ver o histórico]';
 export function trechoParaRegistro(texto: string | null | undefined, limite = 500) {
   return dadoSensivel(texto) ? REGISTRO_SENSIVEL : ocultarDadosPessoais(String(texto ?? '')).slice(0, limite);
+}
+const MARCADOR_OMITIDO = /\[[^\]\n]{0,40}omitid[ao][^\]\n]{0,40}\]/iu;
+/**
+ * Fatia 7 (Astra r1 e r2, P1): apresentação de alguém, EM QUALQUER CAIXA ("me chamo ana silva", "sou a mãe do pedro",
+ * "meu filho se chama pedro", "meu filho pedro"). A máscara geral só reconhece o nome com inicial maiúscula (para não
+ * apagar o resto da frase), e o fim do nome é sempre ambíguo ("me chamo [nome omitido] silva" deixa o sobrenome).
+ * Onde o texto vai ser publicado não há exceção: com o gatilho seguido de qualquer palavra ou marcador, a mensagem
+ * inteira não vira sugestão e a pergunta é recusada no salvar. Conservador de propósito: "meu filho vai fazer 5 anos"
+ * também sai da lista (é pergunta pessoal, não pergunta geral para uma resposta aprovada). Parentes adultos também
+ * ("minha irmã ana", Astra r3). Depois do gatilho, espaço obrigatório (Astra r3, P2: "sou obrigado" não é apresentação).
+ * "O pai do aniversariante paga?" (papel, sem "sou" nem "meu/minha") continua valendo.
+ * "Chamar" só é apresentação com sujeito pessoal (Astra r4, P2): "me chamo", "ele/ela se chama", "[parente] se chama"
+ * (com ou sem meu/minha: "O pai se chama pedro", Astra r5) ou "chamo"/"chama-se" abrindo a mensagem (depois de um cumprimento). "Como se chama o
+ * salão?" e "Como chamo a equipe durante a festa?" são perguntas gerais e continuam valendo.
+ */
+const PARENTESCO = '(?:filho|filha|neto|neta|sobrinho|sobrinha|enteado|enteada|afilhado|afilhada|bebe|menino|menina'
+  + '|irma|irmao|mae|pai|avo|tio|tia|primo|prima|esposa|esposo|marido)s?';
+const APRESENTACAO = new RegExp('(?<![\\p{L}])(?:meu nome e|me chamo|(?:ele|ela) se chama'
+  + '|^(?:(?:oi|ola|bom dia|boa tarde|boa noite) )?(?:eu chamo|chamo|chama se)|aqui e (?:a|o)|sou (?:a|o)'
+  + '|sou (?:mae|pai|avo|tia|tio|madrinha|padrinho|irma|irmao) d[ao]|nome d(?:ele|ela|o|a|os|as)(?: \\p{L}+){0,3} e'
+  + '|(?:o|a) aniversariante (?:e|se chama)|(?:(?:o|a|os|as) )?' + PARENTESCO + ' se chama|(?:meu|minha|meus|minhas) ' + PARENTESCO + ')\\s+(?:\\[|\\p{L})', 'u');
+/**
+ * Texto uniforme para as checagens de privacidade da fatia: normalizado, sem acento, minúsculo, pontuação e espaços
+ * únicos. Com `colchetes` false, os colchetes também viram separador (saúde: "pressão[alta]", Astra r3).
+ */
+function uniforme(texto: string, colchetes = true) {
+  return semAcentoMinusculo(normalizarParaPrivacidade(texto)).replace(colchetes ? /[^\p{L}\p{N}\s[\]]/gu : /[^\p{L}\p{N}\s]/gu, ' ').replace(/\s+/gu, ' ').trim();
+}
+export function apresentacaoComNome(texto: string) {
+  return APRESENTACAO.test(uniforme(texto));
+}
+/**
+ * Fatia 7 (Astra r2, P1): dado sensível também com espaços, quebras de linha ou pontuação no meio ("pressão  alta",
+ * "pressão\nalta"): a lista de termos usa um espaço só. Testa o texto original e o uniforme (mais omissões, nunca menos).
+ */
+export function sensivelParaPublicar(texto: string) {
+  const n = normalizarParaPrivacidade(texto);
+  return dadoSensivel(n) || dadoSensivel(n.replace(/\s+/gu, ' ')) || dadoSensivel(uniforme(n)) || dadoSensivel(uniforme(n, false));
+}
+/**
+ * Fatia 7 — validação do texto que será publicado como pergunta aprovada (Onda 2): recusa marcador de dado omitido
+ * ("[telefone omitido]"), os marcadores de mensagem sensível (REGISTRO_SENSIVEL, ENTRADA_SENSIVEL_OMITIDA), qualquer
+ * trecho que a máscara mudaria (telefone, e-mail, CPF/CNPJ, CEP, endereço, nome, data de nascimento), apresentação com
+ * nome em qualquer caixa e dado sensível (saúde, alergia, deficiência, crença: o Wall-e passa essas mensagens para a
+ * equipe, então não viram resposta automática). A pessoa reescreve de forma geral antes de salvar.
+ */
+export function perguntaComDadoPessoal(pergunta: string) {
+  const normal = normalizarParaPrivacidade(pergunta);
+  return MARCADOR_OMITIDO.test(normal) || normal.includes(REGISTRO_SENSIVEL) || normal.includes(ENTRADA_SENSIVEL_OMITIDA)
+    || ocultarDadosPessoais(normal) !== normal || apresentacaoComNome(normal) || sensivelParaPublicar(normal);
 }
 /** D1/B2 — texto livre que o modelo devolveu (tema): só se não for sensível; normalizado e minimizado. */
 export function textoDoModeloSeguro(valor: string | null | undefined) {

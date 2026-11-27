@@ -190,6 +190,8 @@ const ESTADO_POSTGRES = {
   "lib/whatsapp/atendimento/privacidade.postgres.test.ts": { descartavel: "082" },
   // Modelo 082: o "atual" não tem as tabelas do atendimento nem ia_uso_modelo (055a).
   "lib/whatsapp/atendimento/resultado.postgres.test.ts": { descartavel: "082" },
+  // Fatia 7 do Wall-e: perguntas sem fonte agrupadas (empresa, ambiente, papel, sensíveis, janela de 30 dias) e a rota.
+  "lib/whatsapp/atendimento/sem-fonte.postgres.test.ts": { descartavel: "082" },
   // 12/10: correções da revisão independente de 69dc301 (H2, M1, M5, M3, B2, M4, B1).
   "lib/whatsapp/atendimento/revisao-correcoes.postgres.test.ts": { descartavel: "082" },
   // 12/10: correções da revisão independente de 5699dfc (A1 configuração vigente, M1 posse da retenção, M2 callbacks).
@@ -591,6 +593,8 @@ function arquivosDoCheckEstatico(raiz) {
     path.join(raiz, "scripts", "walle-avaliacao", "regressao-holdouts.test.mjs"),
     // Livro único de uso de IA do Wall-e: teto do dia entre processos (arquivo temporário próprio; sem rede nem banco).
     path.join(raiz, "scripts", "walle-avaliacao", "livro-uso-ia.test.mjs"),
+    // Fatia 7: pergunta sem fonte → resposta aprovada mascarada → o Wall-e responde (holdout sintético; sem rede nem banco).
+    path.join(raiz, "scripts", "walle-avaliacao", "sem-fonte-holdout.test.mjs"),
   ];
 }
 
