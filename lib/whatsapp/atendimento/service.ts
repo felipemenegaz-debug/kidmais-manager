@@ -247,8 +247,9 @@ export type DecisaoEco = 'MENSAGEM' | 'SO_HASH' | 'NADA';
  * Guardas iguais às de receberEntrada (chave própria desligada, contato fora da lista, empresa suspensa ou sem o recurso:
  * confirma sem gravar) e exige a 082 (fonte, hashes e corte): sem ela, confirma sem gravar nada (R3-4).
  *
- * Travas: empresa (FOR KEY SHARE, R1-3: a mesma ordem da exclusão e da retenção; sem ela, a chave estrangeira do INSERT
- * esperaria a empresa travada pela exclusão a pedido, que espera a conversa: deadlock) → conexão do número (FOR SHARE,
+ * Travas: empresa (FOR SHARE, R1-3 e R2-2: a mesma ordem da exclusão e da retenção; sem ela, a chave estrangeira do INSERT
+ * esperaria a empresa travada pela exclusão a pedido, que espera a conversa: deadlock; FOR SHARE, e não FOR KEY SHARE,
+ * para que uma suspensão (UPDATE comum de status) espere o eco terminar e o ATIVA lido valha até o commit) → conexão do número (FOR SHARE,
  * R1-1: o número precisa ser da empresa, CONFIGURADO, no instante da gravação; uma desconexão em curso termina antes e o
  * eco é descartado) → provedor (R5-2) → contato → conversa FOR UPDATE. Depois delas, UMA instrução com CTEs MATERIALIZED
  * que leem clock_timestamp() uma vez e decidem (requisito 1 da Astra r6):
@@ -272,16 +273,18 @@ export async function receberEco(eco: Eco, opcoes: { empresa?: string; numero?: 
   const ambiente = ambienteAtendimento();
   return withTransaction(async (tx): Promise<DecisaoEco> => {
     if (!(await temControlesPrivacidade(tx))) return 'NADA';
-    if (!(await tx.query("SELECT id FROM empresas WHERE id=$1 AND status='ATIVA' FOR KEY SHARE", [empresa])).rows.length) return 'NADA';
+    if (!(await tx.query("SELECT id FROM empresas WHERE id=$1 AND status='ATIVA' FOR SHARE", [empresa])).rows.length) return 'NADA';
     if (!(await empresaOperaAtendimento(tx, empresa, { piloto: pilotoOpcional(empresaPiloto), ambiente }))) return 'NADA';
     if (!(await tx.query("SELECT 1 FROM whatsapp_conexoes WHERE ambiente=$1 AND empresa_id=$2::uuid AND phone_number_id=$3 AND waba_id=$4 AND status='CONFIGURADA' FOR SHARE",
       [ambiente === 'production' ? 'PRODUCTION' : 'STAGING', empresa, numero.phoneNumberId, numero.wabaId])).rows.length) return 'NADA';
     await travarProvedor(tx, ambiente, eco.id);
     await tx.query('SELECT pg_advisory_xact_lock(hashtextextended($1,0))', [`wa:${ambiente}:${empresa}:${eco.contato}`]);
-    if ((await saidasDoIdentificador(tx, ambiente, eco.id)).length) { await marcarEcoComIdDeSaida(tx, ambiente, eco.id); return 'NADA'; }
+    // R2-1: a colisão com uma saída da API só é marcada se o eco estiver DENTRO da janela (decidida na CTE abaixo); um eco
+    // fora dela (atrasado ou adiantado) não pode bloquear o status legítimo dessa saída.
+    const colide = (await saidasDoIdentificador(tx, ambiente, eco.id)).length > 0;
     const conversa = (await tx.query<{ id: string; versao: string }>('SELECT id,versao FROM whatsapp_atendimento_conversas WHERE empresa_id=$1 AND ambiente=$2 AND contato=$3 FOR UPDATE',
       [empresa, ambiente, eco.contato])).rows[0] ?? null;
-    const r = (await tx.query<{ decisao: DecisaoEco; mensagens: number; hashes: number }>(`WITH relogio AS MATERIALIZED (
+    const r = (await tx.query<{ decisao: DecisaoEco | 'COLISAO'; mensagens: number; hashes: number }>(`WITH relogio AS MATERIALIZED (
         SELECT clock_timestamp() AS agora, to_timestamp($5::bigint / 1000.0) AS t),
       d AS MATERIALIZED (
         SELECT r.agora, r.t,
@@ -293,7 +296,7 @@ export async function receberEco(eco: Eco, opcoes: { empresa?: string; numero?: 
             AND m.fonte->>'tipo'='APP_WHATSAPP' AND m.fonte->>'id'=$4)) AS duplicado
         FROM relogio r),
       decisao AS MATERIALIZED (
-        SELECT d.*, CASE WHEN NOT d.dentro_da_janela OR d.hash_existente OR d.duplicado THEN 'NADA'
+        SELECT d.*, CASE WHEN NOT d.dentro_da_janela THEN 'NADA' WHEN $13::boolean THEN 'COLISAO' WHEN d.hash_existente OR d.duplicado THEN 'NADA'
           WHEN $3::uuid IS NOT NULL AND NOT d.cortado THEN 'MENSAGEM' ELSE 'SO_HASH' END AS decisao FROM d),
       mensagem AS (
         INSERT INTO whatsapp_atendimento_mensagens(conversa_id,empresa_id,ambiente,direcao,texto,estado,versao_conversa,criada_em,fonte)
@@ -303,7 +306,8 @@ export async function receberEco(eco: Eco, opcoes: { empresa?: string; numero?: 
         INSERT INTO whatsapp_atendimento_eventos_excluidos(empresa_id,ambiente,provedor,evento_sha256)
         SELECT $1,$2,'GUPSHUP',$7 FROM decisao WHERE decisao.decisao='SO_HASH' ON CONFLICT DO NOTHING RETURNING 1)
       SELECT decisao.decisao, (SELECT count(*)::int FROM mensagem) AS mensagens, (SELECT count(*)::int FROM hash) AS hashes FROM decisao`,
-      [empresa, ambiente, conversa?.id ?? null, eco.id, eco.timestamp, eco.texto, hashEco(eco.id), hashCorte(eco.contato), JANELA_ECO_DIAS, MARGEM_CORTE_MS, conversa?.versao ?? 0, DESVIO_FUTURO_MS])).rows[0];
+      [empresa, ambiente, conversa?.id ?? null, eco.id, eco.timestamp, eco.texto, hashEco(eco.id), hashCorte(eco.contato), JANELA_ECO_DIAS, MARGEM_CORTE_MS, conversa?.versao ?? 0, DESVIO_FUTURO_MS, colide])).rows[0];
+    if (r.decisao === 'COLISAO') { await marcarEcoComIdDeSaida(tx, ambiente, eco.id); return 'NADA'; }
     return r.decisao;
   });
 }

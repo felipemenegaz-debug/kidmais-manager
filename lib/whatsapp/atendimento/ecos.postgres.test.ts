@@ -173,6 +173,26 @@ test("ecos do app WhatsApp Business: histórico sem mudar estado, corte, janela,
     const temConsumo = (await q("SELECT to_regclass('public.whatsapp_atendimento_consumo_mensal') IS NOT NULL AS e")).rows[0].e as boolean;
     const consumo = async () => temConsumo ? Number((await q("SELECT coalesce(sum(usadas),0)::int AS n FROM whatsapp_atendimento_consumo_mensal WHERE empresa_id = ANY($1::uuid[])", [[A.e, B.e]])).rows[0].n) : 0;
     const consumo0 = await consumo();
+    // Relógio fixo da decisão (R1-5 e R2-3): a transação do serviço troca o clock_timestamp() da CTE por instanteFixo.
+    let instanteFixo = 0, trocasRelogio = 0;
+    const relogioFixo = {
+      db,
+      withTransaction: <R,>(fn: Parameters<typeof withTransaction<R>>[0]) => withTransaction<R>((tx) => fn(new Proxy(tx, {
+        get(alvo, k) {
+          if (k === "query") return (sql: unknown, v?: unknown[]) => {
+            let s = sql;
+            if (typeof s === "string" && s.includes("SELECT clock_timestamp() AS agora, to_timestamp($5")) {
+              trocasRelogio += 1;
+              s = s.replace("SELECT clock_timestamp() AS agora", () => "SELECT '" + new Date(instanteFixo).toISOString() + "'::timestamptz AS agora");
+            }
+            return (alvo.query as (a: unknown, b?: unknown[]) => unknown).call(alvo, s, v);
+          };
+          const val = (alvo as unknown as Record<string | symbol, unknown>)[k];
+          return typeof val === "function" ? (val as (...a: unknown[]) => unknown).bind(alvo) : val;
+        },
+      }))),
+    } as unknown as Parameters<typeof carregarAtendimento>[4];
+    const F = carregarAtendimento(A.e, "staging", {}, tetoMensal, relogioFixo);
 
     // E1 — eco com conversa existente.
     const n1 = "5561900006201";
@@ -195,11 +215,17 @@ test("ecos do app WhatsApp Business: histórico sem mudar estado, corte, janela,
     assert.equal(await eco(A, n1, w1, t1), "NADA", "E1: reentrega não duplica");
     // Eco do futuro (R1-2): adiantado dentro de DESVIO_FUTURO_MS entra com criada_em no relógio do banco (LEAST);
     // adiantado além disso (2 min) é descartado: nem mensagem, nem hash.
-    const wF = cod("wamid.E1F-"), tF = Date.now() + 1500;
-    assert.equal(await eco(A, n1, wF, tF), "MENSAGEM", "E1: 1,5 s adiantado (dentro do desvio) entra");
+    // R2-3: com o relógio da CTE fixo, criada_em é exatamente o instante da decisão.
+    const fixoF = seg(Date.now()) - 10_000 + 123, trocasF = trocasRelogio;
+    instanteFixo = fixoF;
+    const ecoF = (wamid: string, t: number) => F.servico.receberEco({ id: wamid, contato: n1, texto: "Resposta sintética pelo app", timestamp: t }, { empresa: A.e, numero: { phoneNumberId: A.numero, wabaId: A.waba }, env: LIGADA });
+    const wF = cod("wamid.E1F-");
+    assert.equal(await ecoF(wF, fixoF + 1500), "MENSAGEM", "E1: 1,5 s adiantado (dentro do desvio) entra");
+    assert.ok(trocasRelogio > trocasF, "E1: o relógio da CTE foi de fato fixado");
     const criadaF = new Date((await q("SELECT criada_em FROM whatsapp_atendimento_mensagens WHERE fonte->>'id' = $1", [wF])).rows[0].criada_em).getTime();
-    assert.ok(criadaF < tF && criadaF <= Date.now(), "E1: LEAST(t, agora)");
+    assert.equal(criadaF, fixoF, "E1: LEAST(t, agora) = instante da decisão");
     const wF2 = cod("wamid.E1F2-"), eventosF = await nEventos(A.e), mensagensF = await nMensagens(A.e);
+    assert.equal(await ecoF(cod("wamid.E1F3-"), fixoF + 2001), "NADA", "E1: desvio + 1 ms (relógio fixo): descartado");
     assert.equal(await eco(A, n1, wF2, seg(Date.now() + 120_000)), "NADA", "E1: 2 min adiantado: descartado");
     assert.equal(await nMensagens(A.e), mensagensF, "E1: adiantado: zero mensagens"); assert.equal(await nEventos(A.e), eventosF, "E1: adiantado: zero hashes");
     // Corrida: 6 recepções do mesmo eco ao mesmo tempo → uma mensagem.
@@ -339,25 +365,7 @@ test("ecos do app WhatsApp Business: histórico sem mudar estado, corte, janela,
     // R1-5: 29 d exatos com o relógio da decisão FIXO (a transação do serviço troca o clock_timestamp() da CTE por um
     // instante conhecido, com milissegundos): t = agora − 29 d → NADA, zero mensagens e zero hashes; t + 1 ms entra.
     const fixo = seg(Date.now()) - 10_000 + 123;
-    let trocasRelogio = 0;
-    const relogioFixo = {
-      db,
-      withTransaction: <R,>(fn: Parameters<typeof withTransaction<R>>[0]) => withTransaction<R>((tx) => fn(new Proxy(tx, {
-        get(alvo, k) {
-          if (k === "query") return (sql: unknown, v?: unknown[]) => {
-            let s = sql;
-            if (typeof s === "string" && s.includes("SELECT clock_timestamp() AS agora, to_timestamp($5")) {
-              trocasRelogio += 1;
-              s = s.replace("SELECT clock_timestamp() AS agora", () => "SELECT '" + new Date(fixo).toISOString() + "'::timestamptz AS agora");
-            }
-            return (alvo.query as (a: unknown, b?: unknown[]) => unknown).call(alvo, s, v);
-          };
-          const val = (alvo as unknown as Record<string | symbol, unknown>)[k];
-          return typeof val === "function" ? (val as (...a: unknown[]) => unknown).bind(alvo) : val;
-        },
-      }))),
-    } as unknown as Parameters<typeof carregarAtendimento>[4];
-    const F = carregarAtendimento(A.e, "staging", {}, tetoMensal, relogioFixo);
+    instanteFixo = fixo;
     const ecoFixo = (wamid: string, t: number) => F.servico.receberEco({ id: wamid, contato: n9, texto: "x", timestamp: t }, { empresa: A.e, numero: { phoneNumberId: A.numero, wabaId: A.waba }, env: LIGADA });
     assert.equal(await ecoFixo(cod("wamid.E9c-"), fixo - 29 * DIA), "NADA", "E9 (R1-5): t = agora − 29 d exatos (relógio fixo): nada");
     assert.ok(trocasRelogio >= 1, "E9 (R1-5): o relógio da CTE foi de fato fixado");
@@ -396,6 +404,22 @@ test("ecos do app WhatsApp Business: histórico sem mudar estado, corte, janela,
       await A.servico.registrarStatus(A.e, api.provedor_id, "FALHOU");
       assert.equal((await q("SELECT estado FROM whatsapp_atendimento_mensagens WHERE id = $1", [api.id])).rows[0].estado, api.estado, "E10: com a marca, failed posterior não muda a saída");
     }
+    // R2-1: eco FORA da janela (adiantado ou atrasado) com o id de uma saída da API não marca colisão nem conta anomalia;
+    // o failed posterior atualiza a saída.
+    cv10 = await conversa(A.e, n10);
+    await A.servico.controlarAtendimento(A.gestao as never, { acao: "enviar", conversaId: cv10.id, versao: Number(cv10.versao), texto: "Segunda resposta sintética pela API" });
+    await A.worker.processarLote({ interpretar: async () => { throw new Error("sem modelo"); }, enviar: async () => { const g = cod("wamid.API2-"); enviosA.push(g); return g; } }, { maxTarefas: 30 });
+    const api2 = (await q("SELECT id, provedor_id, estado FROM whatsapp_atendimento_mensagens WHERE conversa_id = $1 AND provedor_id IS NOT NULL AND id <> $2", [cv10.id, api.id])).rows[0];
+    assert.ok(api2?.provedor_id, "R2-1: segunda saída da API com provedor_id");
+    assert.notEqual(api2.estado, "FALHOU");
+    const anomalias2 = contadorAnomaliasStatus(), eventos2 = await nEventos(A.e);
+    assert.equal(await eco(A, n10, api2.provedor_id, seg(Date.now() + 120_000)), "NADA", "R2-1: adiantado além do desvio: nada");
+    assert.equal(await eco(A, n10, api2.provedor_id, seg(Date.now() - 29 * DIA - 60_000)), "NADA", "R2-1: atrasado além da janela: nada");
+    assert.equal(contadorAnomaliasStatus(), anomalias2, "R2-1: fora da janela: sem anomalia de colisão");
+    assert.equal(await nEventos(A.e), eventos2, "R2-1: zero hashes");
+    if (tem117) assert.equal(Number((await q("SELECT count(*)::int AS n FROM whatsapp_atendimento_status_colisoes WHERE ambiente = 'staging' AND provedor_id = $1", [api2.provedor_id])).rows[0].n), 0, "R2-1: sem marca de colisão");
+    await A.servico.registrarStatus(A.e, api2.provedor_id, "FALHOU");
+    assert.equal((await q("SELECT estado FROM whatsapp_atendimento_mensagens WHERE id = $1", [api2.id])).rows[0].estado, "FALHOU", "R2-1: o failed posterior atualiza a saída");
 
     // E11 — status antes e depois do eco não mexem no eco.
     const n11 = "5561900006212", w11 = cod("wamid.E11-");
@@ -455,7 +479,7 @@ test("ecos do app WhatsApp Business: histórico sem mudar estado, corte, janela,
       assert.equal(await nMensagens(C.e), mensagensC, "R1-1: zero mensagens"); assert.equal(await nEventos(C.e), eventosC, "R1-1: zero hashes");
     }
 
-    // R1-3 — sem deadlock com quem trava a empresa (FOR UPDATE) e depois a conversa: o eco pega FOR KEY SHARE na empresa
+    // R1-3 — sem deadlock com quem trava a empresa (FOR UPDATE) e depois a conversa: o eco pega FOR SHARE na empresa
     // ANTES da conversa, então espera na empresa e não segura a conversa.
     {
       const D = await empresa("trava");
@@ -470,7 +494,8 @@ test("ecos do app WhatsApp Business: histórico sem mudar estado, corte, janela,
         const p = eco(D, nD, cod("wamid.R13-"));
         p.catch(() => {});
         for (let i = 0; ; i++) {
-          const n = Number((await q("SELECT count(*)::int AS n FROM pg_stat_activity WHERE datname = current_database() AND wait_event_type = 'Lock' AND pid <> $1", [pidX])).rows[0].n);
+          // R2-4: só a consulta do eco na empresa, bloqueada pela transação x.
+          const n = Number((await q("SELECT count(*)::int AS n FROM pg_stat_activity WHERE datname = current_database() AND wait_event_type = 'Lock' AND query LIKE '%FROM empresas WHERE id=$1 AND status=''ATIVA'' FOR SHARE%' AND $1::int = ANY(pg_blocking_pids(pid))", [pidX])).rows[0].n);
           if (n > 0) break;
           if (i > 200) throw new Error("R1-3: o eco não esperou a trava da empresa");
           await esperar(25);
@@ -479,6 +504,45 @@ test("ecos do app WhatsApp Business: histórico sem mudar estado, corte, janela,
         await x.query("COMMIT");
         assert.equal(await p, "MENSAGEM", "R1-3: sem 40P01, o eco grava depois do COMMIT");
       } finally { await x.query("ROLLBACK").catch(() => {}); await x.end(); }
+    }
+
+    // R2-2 — a empresa fica em FOR SHARE até o commit do eco: um UPDATE comum de status (suspensão) espera o eco terminar,
+    // então o ATIVA lido vale até a gravação. Com FOR KEY SHARE a suspensão passaria enquanto o eco espera a conexão.
+    if (temConexoes) {
+      const S = await empresa("suspensão");
+      const nS = "5561900006223";
+      await receber(S, nS, "Oi S");
+      const y = await conectarDescartavel({ travar: false }), z = await conectarDescartavel({ travar: false });
+      try {
+        await y.query("BEGIN");
+        const pidY = Number((await y.query("SELECT pg_backend_pid() AS pid")).rows[0].pid);
+        await y.query("SELECT 1 FROM whatsapp_conexoes WHERE empresa_id = $1::uuid FOR UPDATE", [S.e]);
+        const p = eco(S, nS, cod("wamid.R22-"));
+        p.catch(() => {});
+        for (let i = 0; ; i++) {
+          const n = Number((await q("SELECT count(*)::int AS n FROM pg_stat_activity WHERE datname = current_database() AND wait_event_type = 'Lock' AND query LIKE '%whatsapp_conexoes%FOR SHARE%' AND $1::int = ANY(pg_blocking_pids(pid))", [pidY])).rows[0].n);
+          if (n > 0) break;
+          if (i > 200) throw new Error("R2-2: o eco não esperou a trava da conexão");
+          await esperar(25);
+        }
+        await z.query("BEGIN");
+        const pidZ = Number((await z.query("SELECT pg_backend_pid() AS pid")).rows[0].pid);
+        const suspensao = z.query("UPDATE empresas SET status = 'SUSPENSA' WHERE id = $1", [S.e]);
+        suspensao.catch(() => {});
+        for (let i = 0; ; i++) {
+          const n = Number((await q("SELECT count(*)::int AS n FROM pg_stat_activity WHERE pid = $1 AND wait_event_type = 'Lock'", [pidZ])).rows[0].n);
+          if (n > 0) break;
+          if (i > 200) throw new Error("R2-2: a suspensão não esperou o eco (empresa sem FOR SHARE)");
+          await esperar(25);
+        }
+        await y.query("COMMIT");
+        assert.equal(await p, "MENSAGEM", "R2-2: o eco grava com a empresa ainda ATIVA");
+        await noPrazo(suspensao, 5000, "R2-2: a suspensão segue depois do commit do eco");
+        await z.query("ROLLBACK");
+      } finally {
+        await y.query("ROLLBACK").catch(() => {}); await y.end();
+        await z.query("ROLLBACK").catch(() => {}); await z.end();
+      }
     }
 
     // R1-2 — conversa recriada depois da exclusão: eco 2 min no futuro não fura o corte (nada, nem hash).
