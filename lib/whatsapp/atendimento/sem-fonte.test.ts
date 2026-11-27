@@ -199,3 +199,11 @@ test('sem fonte: achados do Astra r4', () => {
   const [ga, gb] = r1.grupos;
   assert.equal(estadoDoGrupo(gb, [], [{ id: 'faq_a', pergunta: '' }], { faq_a: ga.id }), 'criar');
 });
+
+test('sem fonte: parente sem possessivo + "se chama" é apresentação (Astra r5, P2)', () => {
+  for (const t of ['O pai se chama pedro silva, tem fraldário?', trechoParaRegistro('O pai se chama pedro silva, tem fraldário?'), 'a mãe se chama Ana', 'Tia se chama Bia, pode entrar?', 'os filhos se chamam? não: o filho se chama joão']) {
+    assert.equal(perguntaSugerida(t), null, t);
+    assert.equal(perguntaComDadoPessoal(t), true, t);
+  }
+  for (const t of ['Como se chama o salão?', 'O pai do aniversariante paga?', 'Qual salão se chama Jardim?']) assert.equal(perguntaComDadoPessoal(t), false, t);
+});

@@ -165,7 +165,7 @@ test('sem fonte: escopo por empresa e ambiente, papel pela rota e texto publicad
     const estac = { id: 'faq_estac', pergunta: 'Tem estacionamento coberto?', resposta: 'Sim, para 20 carros.' };
     await assert.rejects(salvar([estac, { id: 'faq_wifi', pergunta: 'Tem wi-fi? me chama no [telefone omitido]', resposta: 'Sim.' }]), /ATENDIMENTO_PERGUNTA_DADO_PESSOAL/);
     await assert.rejects(salvar([estac, { id: 'faq_wifi', pergunta: 'Tem wi-fi? me chama no 11987654321', resposta: 'Sim.' }]), /ATENDIMENTO_PERGUNTA_DADO_PESSOAL/);
-    for (const pergunta of ['Meu filho tem diabetes, tem wifi?', 'Tem cadeira para pressão  alta?', 'Tem cardápio sem\nglúten?', core.REGISTRO_SENSIVEL, core.ENTRADA_SENSIVEL_OMITIDA, 'me chamo ana silva, tem wifi?']) {
+    for (const pergunta of ['Meu filho tem diabetes, tem wifi?', 'Tem cadeira para pressão  alta?', 'Tem cardápio sem\nglúten?', core.REGISTRO_SENSIVEL, core.ENTRADA_SENSIVEL_OMITIDA, 'me chamo ana silva, tem wifi?', 'O pai se chama pedro silva, tem fraldário?']) {
       await assert.rejects(salvar([estac, { id: 'faq_wifi', pergunta, resposta: 'Sim.' }]), /ATENDIMENTO_PERGUNTA_DADO_PESSOAL/, pergunta);
     }
     // Exceção das perguntas antigas (Astra r1, P2): só a MESMA pergunta (mesmo id e texto), uma vez.
