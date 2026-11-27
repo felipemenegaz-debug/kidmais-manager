@@ -81,7 +81,14 @@ async function lerCorpoLimitado(request: Request): Promise<Uint8Array> {
 export type EntradaMeta = { phoneNumberId: string; wabaId: string; id: string; contato: string; texto: string | null; timestamp: number; nomePerfil: unknown };
 /** Status de uma mensagem enviada pelo número conectado. `sent` não muda nada no atendimento e não é devolvido. */
 export type StatusMeta = { phoneNumberId: string; wabaId: string; id: string; tipo: 'delivered' | 'read' | 'failed' };
-export type EventosMeta = { entradas: EntradaMeta[]; status: StatusMeta[] };
+/**
+ * Eco de uma mensagem que a EQUIPE enviou pelo app WhatsApp Business do número conectado (coexistência com a Cloud API,
+ * campo `smb_message_echoes`). O contato é o DESTINATÁRIO (`to`), nunca o remetente (`from` é o próprio número).
+ * `texto` null = conteúdo sem texto (mídia, figurinha, localização…). Só histórico: não abre conversa nem muda estado.
+ */
+export type EcoMeta = { phoneNumberId: string; wabaId: string; id: string; contato: string; texto: string | null; timestamp: number };
+/** `ecos` só vem do parser (chamadas internas antigas passam só entradas e status). */
+export type EventosMeta = { entradas: EntradaMeta[]; status: StatusMeta[]; ecos?: EcoMeta[] };
 
 const idMeta = z.string().regex(/^[0-9]{1,32}$/);
 const segundos = z.string().regex(/^[0-9]{1,12}$/);
@@ -94,6 +101,20 @@ const valorMensagens = z.object({
 });
 const mensagem = z.object({ from: z.string().regex(/^\d{8,15}$/), id: z.string().min(1).max(512), timestamp: segundos, type: z.string().max(64), text: z.object({ body: z.unknown() }).optional().catch(undefined) });
 const status = z.object({ id: z.string().min(1).max(512), status: z.string().max(32) });
+const valorEcos = z.object({
+  messaging_product: z.literal('whatsapp'),
+  metadata: z.object({ phone_number_id: idMeta }),
+  message_echoes: z.array(z.unknown()).max(100).optional(),
+});
+// R1-4 (Astra, código r1): U+0000 não cabe num parâmetro de texto do PostgreSQL. Um eco com ele no id é descartado e, no
+// corpo, vira conteúdo sem texto; sem isso o lote inteiro falharia (503) e a Meta repetiria o mesmo item para sempre.
+const semNulo = (s: string) => !s.includes('\u0000');
+const eco = z.object({ from: z.string().regex(/^\d{8,15}$/).optional().catch(undefined), to: z.string().regex(/^\d{8,15}$/), id: z.string().min(1).max(512).refine(semNulo), timestamp: segundos, type: z.string().max(64), text: z.object({ body: z.unknown() }).optional().catch(undefined) });
+const textoEco = (tipo: string, corpo: unknown) => (typeof corpo === 'string' && !semNulo(corpo) ? null : textoOuNulo(tipo, corpo));
+const textoOuNulo = (tipo: string, corpo: unknown) => {
+  const t = tipo === 'text' && typeof corpo === 'string' ? corpo.trim() : '';
+  return t.length >= 1 && t.length <= 4000 ? t : null;
+};
 const envelope = z.object({
   object: z.literal('whatsapp_business_account'),
   entry: z.array(z.object({ id: idMeta, changes: z.array(z.object({ field: z.string(), value: z.unknown() })).max(100) })).min(1).max(100),
@@ -104,11 +125,22 @@ const envelope = z.object({
  * itens fora do formato são ignorados um a um: um item malformado não derruba os outros nem faz a Meta repetir o lote.
  * Texto vazio ou acima de 4000 caracteres vira conteúdo sem texto (vai para a equipe, como no Gupshup).
  */
-export function eventosMeta(valor: unknown): EventosMeta | null {
+export function eventosMeta(valor: unknown): Required<EventosMeta> | null {
   const lido = envelope.safeParse(valor);
   if (!lido.success) return null;
-  const eventos: EventosMeta = { entradas: [], status: [] };
+  const eventos: Required<EventosMeta> = { entradas: [], status: [], ecos: [] };
   for (const entry of lido.data.entry) for (const change of entry.changes) {
+    if (change.field === 'smb_message_echoes') {
+      const v = valorEcos.safeParse(change.value);
+      if (!v.success) continue;
+      const phoneNumberId = v.data.metadata.phone_number_id, wabaId = entry.id;
+      for (const item of v.data.message_echoes ?? []) {
+        const e = eco.safeParse(item);
+        if (!e.success) continue;
+        eventos.ecos.push({ phoneNumberId, wabaId, id: e.data.id, contato: e.data.to, texto: textoEco(e.data.type, e.data.text?.body), timestamp: Number(e.data.timestamp) * 1000 });
+      }
+      continue;
+    }
     if (change.field !== 'messages') continue;
     const v = valorMensagens.safeParse(change.value);
     if (!v.success) continue;
@@ -129,7 +161,7 @@ export function eventosMeta(valor: unknown): EventosMeta | null {
 }
 
 /** Projeção sem conteúdo, contato nem identificadores para o log depois da resposta. */
-export type ResumoMeta = { entradas: number; status: number };
+export type ResumoMeta = { entradas: number; status: number; ecos: number };
 
 /** POST: assinatura → corpo → eventos → persistência (opcional, só com a recepção ligada). Sem cookies nem sessão. */
 export async function receberWebhookMeta(
@@ -147,12 +179,12 @@ export async function receberWebhookMeta(
   let corpo: Uint8Array;
   try { corpo = await lerCorpoLimitado(request); } catch (error) { return response(error instanceof BodyError ? error.status : 400); }
   if (!assinaturaConfere(corpo, request.headers.get(SIGNATURE_HEADER), env.META_APP_SECRET)) return response(401);
-  let eventos: EventosMeta | null;
+  let eventos: Required<EventosMeta> | null;
   try { eventos = eventosMeta(JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(corpo))); } catch { return response(400); }
   if (!eventos) return response(400);
-  if (persistir && (eventos.entradas.length || eventos.status.length)) {
+  if (persistir && (eventos.entradas.length || eventos.status.length || eventos.ecos.length)) {
     try { await persistir(eventos); } catch { return response(503); }
   }
-  registrarLog({ entradas: eventos.entradas.length, status: eventos.status.length });
+  registrarLog({ entradas: eventos.entradas.length, status: eventos.status.length, ecos: eventos.ecos.length });
   return response(200);
 }

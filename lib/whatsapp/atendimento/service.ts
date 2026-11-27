@@ -1,7 +1,8 @@
+import { createHash } from 'node:crypto';
 import { withTransaction, db } from '../../db/postgres.ts';
 import type { DbExecutor } from '../../db/contracts.ts';
 import { withTenantTransaction, type SessaoParaTenant, type TenantComprovado } from '../../saas/provar-tenant.ts';
-import { atendimentoAtivo, ambienteAtendimento, contatoPermitido, empresaPiloto, recepcaoAtiva, receptorDoNumero } from './configuracao.ts';
+import { atendimentoAtivo, ambienteAtendimento, contatoPermitido, ecosMetaAtivos, empresaPiloto, recepcaoAtiva, receptorDoNumero } from './configuracao.ts';
 import { contaNoTeto, reservarConsumo } from './teto-mensal.ts';
 import { APP_META, JANELA_REENTREGA_DIAS, configuracaoSchema, comandoDireto, perguntaComDadoPessoal, passagemSemRespostaAutomatica, pausaPedidaNaRecepcao, semAutomatico, janelaAberta, nomePerfilSeguro, situacaoCadastro, type CadastroContato, type Entrada } from './core.ts';
 import { ARQUIVO_DISPONIVEL_SQL, caminhoPublicoArquivo } from './arquivos.ts';
@@ -9,7 +10,7 @@ import { contextoNaFila, destinatariosAutorizados, limparAvisoEquipe, marcaNaFil
 import { registroDaPausa, registroDoBloqueio } from './walle/entendimento.ts';
 import { clientesDoNumero, pesquisaInstalada, suprimirPesquisas } from '../../satisfacao/supressao.ts';
 import { elegivelParaMensagem } from '../../marketing/automacoes/preferencias.ts';
-import { chaveMultiempresa, empresaOperaAtendimento, escritaPermitida, identificadorUnico, limparColisoesExpiradas, pilotoOpcional, saidasDoIdentificador, travarProvedor } from './multiempresa.ts';
+import { chaveMultiempresa, empresaOperaAtendimento, escritaPermitida, identificadorUnico, limparColisoesExpiradas, marcarEcoComIdDeSaida, pilotoOpcional, saidasDoIdentificador, travarProvedor } from './multiempresa.ts';
 // O worker usa o mesmo resumo de pausa (sem importar o entendimento do Wall-e).
 export { registroDaPausa };
 
@@ -85,7 +86,9 @@ export async function midiaDaPronta(tx: DbExecutor, empresa: string, ambiente: s
 }
 export const LIMITE_LEGENDA_ENVIO = 1024;
 /** `midia_nome` e `midia_caminho` (082): nome do arquivo próprio e o caminho público para conferir na tela. */
-export type MensagemLista = Pick<Mensagem, 'id' | 'conversa_id' | 'direcao' | 'texto' | 'estado' | 'criada_em'> & { humana: boolean; midia_tipo: 'IMAGEM' | 'VIDEO' | 'DOCUMENTO' | null; midia_url: string | null; midia_nome?: string | null; midia_caminho?: string | null; ordem?: number; motivo_cancelamento?: 'ARQUIVO_INDISPONIVEL' | 'ARQUIVO_REVOGADO' | 'GRUPO_INCOMPLETO' | null };
+export type MensagemLista = Pick<Mensagem, 'id' | 'conversa_id' | 'direcao' | 'texto' | 'estado' | 'criada_em'> & { humana: boolean; midia_tipo: 'IMAGEM' | 'VIDEO' | 'DOCUMENTO' | null; midia_url: string | null; midia_nome?: string | null; midia_caminho?: string | null; ordem?: number; motivo_cancelamento?: 'ARQUIVO_INDISPONIVEL' | 'ARQUIVO_REVOGADO' | 'GRUPO_INCOMPLETO' | null;
+  /** Ecos (F1): 'APP_WHATSAPP' = resposta da equipe enviada pelo app WhatsApp Business ("Equipe · Enviada pelo app"). Null sem a 082. */
+  origem?: 'APP_WHATSAPP' | null };
 /** Situação do canal neste ambiente, em partes separadas: receber, responder e a configuração da empresa. */
 export type EstadoCanal = { ambiente: string; receptor: boolean; recepcao: boolean; envio: boolean };
 /**
@@ -203,6 +206,109 @@ export async function receberEntrada(entrada: Entrada, opcoes: { automacaoGlobal
       await tx.query(`UPDATE whatsapp_atendimento_conversas SET contexto=${contextoNaFila("COALESCE(contexto,'{}'::jsonb)||jsonb_build_object('semAutomatico',$2::jsonb)", 'estado', '$3::jsonb')},passagem=COALESCE($3::jsonb,passagem),versao=versao+1 WHERE id=$1`,
         [conversa.id, JSON.stringify({ motivo: 'PARAR_A_CONFIRMAR', em, origem: 'RECEPCAO' }), resumo]);
     }
+  });
+}
+
+// ——— Ecos do app WhatsApp Business (F1: só histórico) ———
+
+/**
+ * Janela do eco: um dia MENOR que a retenção dos hashes (RETENCAO_DEDUP_DIAS = JANELA_REENTREGA_DIAS, privacidade.ts).
+ * Se o eco é aceito no instante E, o corte que o bloquearia tem excluido_em >= t_eco - MARGEM_CORTE_MS > E - 29 d - 2 s, e
+ * a purga em P <= E só apaga linhas com excluido_em < P - 30 d: o corte relevante nunca foi apagado (R6-1).
+ */
+export const JANELA_ECO_DIAS = JANELA_REENTREGA_DIAS - 1;
+/**
+ * Margem do corte por contato (R5-1): cobre o segundo truncado do timestamp da Meta mais 1 s de diferença de relógio. O
+ * custo real é de até cerca de 3 s: um eco enviado até ~3 s depois de uma exclusão é descartado (só o hash). Aceito.
+ */
+export const MARGEM_CORTE_MS = 2000;
+/**
+ * Desvio futuro admissível do horário do eco (R1-2, Astra código r1): eco com t > agora + DESVIO_FUTURO_MS é descartado
+ * (NADA, nem hash) antes da decisão. Igual à margem do corte: um eco aceito com relógio adiantado em até isso e enviado
+ * antes de uma exclusão tem t <= excluido_em + MARGEM_CORTE_MS e é cortado. Premissa: o timestamp é do servidor da Meta;
+ * um adiantamento maior só não é visto se a entrega atrasar mais que o próprio adiantamento.
+ */
+export const DESVIO_FUTURO_MS = MARGEM_CORTE_MS;
+/** Hash do id do eco (R4-2): o MESMO valor que a exclusão calcula em SQL (encode(sha256(convert_to('eco:' || id,'UTF8')),'hex')). */
+export const hashEco = (id: string) => createHash('sha256').update('eco:' + id, 'utf8').digest('hex');
+/** Corte por contato gravado na exclusão (R5-1): só o hash e a hora, nunca o contato. */
+export const hashCorte = (contato: string) => createHash('sha256').update('corte:' + contato, 'utf8').digest('hex');
+
+/** Eco no formato do atendimento: `contato` é o DESTINATÁRIO da mensagem que a equipe mandou pelo app; horário em ms. */
+export type Eco = { id: string; contato: string; texto: string | null; timestamp: number };
+export type DecisaoEco = 'MENSAGEM' | 'SO_HASH' | 'NADA';
+
+/**
+ * Eco de mensagem que a equipe enviou pelo app WhatsApp Business do número conectado (F1, só histórico). Entra no histórico
+ * da conversa como saída ENTREGUE, sem autor, com fonte {"tipo":"APP_WHATSAPP","id":<wamid>}; na tela, "Equipe · Enviada
+ * pelo app". NUNCA cria nem reabre conversa, nem muda estado, versão, datas, contexto, passagem ou controles. Fica fora do
+ * teto mensal (nunca chama reservarConsumo), do limite diário do Wall-e e do Resultado (os dois filtram APP_WHATSAPP).
+ *
+ * Guardas iguais às de receberEntrada (chave própria desligada, contato fora da lista, empresa suspensa ou sem o recurso:
+ * confirma sem gravar) e exige a 082 (fonte, hashes e corte): sem ela, confirma sem gravar nada (R3-4).
+ *
+ * Travas: empresa (FOR SHARE, R1-3 e R2-2: a mesma ordem da exclusão e da retenção; sem ela, a chave estrangeira do INSERT
+ * esperaria a empresa travada pela exclusão a pedido, que espera a conversa: deadlock; FOR SHARE, e não FOR KEY SHARE,
+ * para que uma suspensão (UPDATE comum de status) espere o eco terminar e o ATIVA lido valha até o commit) → conexão do número (FOR SHARE,
+ * R1-1: o número precisa ser da empresa, CONFIGURADO, no instante da gravação; uma desconexão em curso termina antes e o
+ * eco é descartado) → provedor (R5-2) → contato → conversa FOR UPDATE. Depois delas, UMA instrução com CTEs MATERIALIZED
+ * que leem clock_timestamp() uma vez e decidem (requisito 1 da Astra r6):
+ *  - fora da janela de JANELA_ECO_DIAS (igualdade exata incluída), adiantado além de DESVIO_FUTURO_MS (R1-2) ou já visto
+ *    (hash eco: ou mensagem da conversa): NADA;
+ *  - conversa existente e sem corte posterior ao eco (excluido_em >= t_eco - MARGEM_CORTE_MS): MENSAGEM;
+ *  - sem conversa, ou com corte: SO_HASH (o hash eco: impede que um retry entre numa conversa recriada, R3-2/R5-1).
+ * Premissa declarada (R5-2): o id da Meta é único por mensagem. Defesa: id que já é de uma saída da API não grava nada.
+ */
+export async function receberEco(eco: Eco, opcoes: { empresa?: string; numero?: { phoneNumberId: string; wabaId: string }; env?: NodeJS.ProcessEnv } = {}): Promise<DecisaoEco> {
+  if (!ecosMetaAtivos(opcoes.env)) return 'NADA';
+  const empresa = opcoes.empresa, numero = opcoes.numero;
+  if (!empresa || !numero || !/^[0-9]{1,32}$/.test(numero.phoneNumberId) || !/^[0-9]{1,32}$/.test(numero.wabaId)) return 'NADA';
+  if (typeof eco.id !== 'string' || !eco.id.length || eco.id.length > 512 || eco.id.includes('\u0000')) return 'NADA';
+  if (!/^\d{8,15}$/.test(eco.contato) || !contatoPermitido(eco.contato)) return 'NADA';
+  if (eco.texto !== null && (typeof eco.texto !== 'string' || eco.texto.length > 4000)) return 'NADA';
+  // R1-4: defesa além do parser. U+0000 no corpo = conteúdo sem texto (o PostgreSQL recusaria o parâmetro).
+  if (eco.texto?.includes('\u0000')) eco = { ...eco, texto: null };
+  // Atalho só para não abrir a transação: a decisão que vale é a do banco, depois das travas (JANELA_ECO_DIAS).
+  if (!Number.isSafeInteger(eco.timestamp) || eco.timestamp < 0 || eco.timestamp < Date.now() - JANELA_REENTREGA_DIAS * 86_400_000) return 'NADA';
+  const ambiente = ambienteAtendimento();
+  return withTransaction(async (tx): Promise<DecisaoEco> => {
+    if (!(await temControlesPrivacidade(tx))) return 'NADA';
+    if (!(await tx.query("SELECT id FROM empresas WHERE id=$1 AND status='ATIVA' FOR SHARE", [empresa])).rows.length) return 'NADA';
+    if (!(await empresaOperaAtendimento(tx, empresa, { piloto: pilotoOpcional(empresaPiloto), ambiente }))) return 'NADA';
+    if (!(await tx.query("SELECT 1 FROM whatsapp_conexoes WHERE ambiente=$1 AND empresa_id=$2::uuid AND phone_number_id=$3 AND waba_id=$4 AND status='CONFIGURADA' FOR SHARE",
+      [ambiente === 'production' ? 'PRODUCTION' : 'STAGING', empresa, numero.phoneNumberId, numero.wabaId])).rows.length) return 'NADA';
+    await travarProvedor(tx, ambiente, eco.id);
+    await tx.query('SELECT pg_advisory_xact_lock(hashtextextended($1,0))', [`wa:${ambiente}:${empresa}:${eco.contato}`]);
+    // R2-1: a colisão com uma saída da API só é marcada se o eco estiver DENTRO da janela (decidida na CTE abaixo); um eco
+    // fora dela (atrasado ou adiantado) não pode bloquear o status legítimo dessa saída.
+    const colide = (await saidasDoIdentificador(tx, ambiente, eco.id)).length > 0;
+    const conversa = (await tx.query<{ id: string; versao: string }>('SELECT id,versao FROM whatsapp_atendimento_conversas WHERE empresa_id=$1 AND ambiente=$2 AND contato=$3 FOR UPDATE',
+      [empresa, ambiente, eco.contato])).rows[0] ?? null;
+    const r = (await tx.query<{ decisao: DecisaoEco | 'COLISAO'; mensagens: number; hashes: number }>(`WITH relogio AS MATERIALIZED (
+        SELECT clock_timestamp() AS agora, to_timestamp($5::bigint / 1000.0) AS t),
+      d AS MATERIALIZED (
+        SELECT r.agora, r.t,
+          (r.t > r.agora - make_interval(days => $9::int) AND r.t <= r.agora + make_interval(secs => $12::double precision / 1000.0)) AS dentro_da_janela,
+          EXISTS (SELECT 1 FROM whatsapp_atendimento_eventos_excluidos x WHERE x.empresa_id=$1 AND x.ambiente=$2 AND x.provedor='GUPSHUP' AND x.evento_sha256=$8
+            AND x.excluido_em >= r.t - make_interval(secs => $10::double precision / 1000.0)) AS cortado,
+          EXISTS (SELECT 1 FROM whatsapp_atendimento_eventos_excluidos x WHERE x.empresa_id=$1 AND x.ambiente=$2 AND x.provedor='GUPSHUP' AND x.evento_sha256=$7) AS hash_existente,
+          ($3::uuid IS NOT NULL AND EXISTS (SELECT 1 FROM whatsapp_atendimento_mensagens m WHERE m.conversa_id=$3::uuid AND m.empresa_id=$1 AND m.ambiente=$2
+            AND m.fonte->>'tipo'='APP_WHATSAPP' AND m.fonte->>'id'=$4)) AS duplicado
+        FROM relogio r),
+      decisao AS MATERIALIZED (
+        SELECT d.*, CASE WHEN NOT d.dentro_da_janela THEN 'NADA' WHEN $13::boolean THEN 'COLISAO' WHEN d.hash_existente OR d.duplicado THEN 'NADA'
+          WHEN $3::uuid IS NOT NULL AND NOT d.cortado THEN 'MENSAGEM' ELSE 'SO_HASH' END AS decisao FROM d),
+      mensagem AS (
+        INSERT INTO whatsapp_atendimento_mensagens(conversa_id,empresa_id,ambiente,direcao,texto,estado,versao_conversa,criada_em,fonte)
+        SELECT $3::uuid,$1,$2,'SAIDA',$6,'ENTREGUE',$11::bigint,LEAST(decisao.t, decisao.agora),jsonb_build_object('tipo','APP_WHATSAPP','id',$4::text)
+        FROM decisao WHERE decisao.decisao='MENSAGEM' RETURNING 1),
+      hash AS (
+        INSERT INTO whatsapp_atendimento_eventos_excluidos(empresa_id,ambiente,provedor,evento_sha256)
+        SELECT $1,$2,'GUPSHUP',$7 FROM decisao WHERE decisao.decisao='SO_HASH' ON CONFLICT DO NOTHING RETURNING 1)
+      SELECT decisao.decisao, (SELECT count(*)::int FROM mensagem) AS mensagens, (SELECT count(*)::int FROM hash) AS hashes FROM decisao`,
+      [empresa, ambiente, conversa?.id ?? null, eco.id, eco.timestamp, eco.texto, hashEco(eco.id), hashCorte(eco.contato), JANELA_ECO_DIAS, MARGEM_CORTE_MS, conversa?.versao ?? 0, DESVIO_FUTURO_MS, colide])).rows[0];
+    if (r.decisao === 'COLISAO') { await marcarEcoComIdDeSaida(tx, ambiente, eco.id); return 'NADA'; }
+    return r.decisao;
   });
 }
 
@@ -404,8 +510,10 @@ export async function listarAtendimento(sessao: SessaoParaTenant, conversaPedida
       : midia ? 'm.midia_tipo,m.midia_url' : 'NULL::text AS midia_tipo,NULL::text AS midia_url';
     // D3: arquivo revogado/vencido não tem mais caminho (o registro da mensagem fica, sem o link).
     const juntaArquivo = r082 ? ` LEFT JOIN whatsapp_atendimento_arquivos a ON a.id=m.midia_arquivo_id AND a.empresa_id=m.empresa_id AND a.ambiente=m.ambiente AND ${ARQUIVO_DISPONIVEL_SQL}` : '';
+    // Ecos (F1, R3-4): `fonte` só existe com a 082; só a origem do app sai para a tela (as outras fontes não).
+    const colunaOrigem = r082 ? "CASE WHEN m.fonte->>'tipo'='APP_WHATSAPP' THEN 'APP_WHATSAPP' END AS origem" : 'NULL::text AS origem';
     type LinhaMensagem = MensagemLista & { arquivo_id?: string | null; arquivo_token?: string | null };
-    const mensagens = conversaId ? (await tx.query<LinhaMensagem>(`SELECT m.id,m.conversa_id,m.direcao,m.texto,m.estado,m.criada_em,m.autor_usuario_id IS NOT NULL AS humana,${colunasMidia} FROM whatsapp_atendimento_mensagens m${juntaArquivo}
+    const mensagens = conversaId ? (await tx.query<LinhaMensagem>(`SELECT m.id,m.conversa_id,m.direcao,m.texto,m.estado,m.criada_em,m.autor_usuario_id IS NOT NULL AS humana,${colunaOrigem},${colunasMidia} FROM whatsapp_atendimento_mensagens m${juntaArquivo}
       WHERE m.empresa_id=$1 AND m.ambiente=$2 AND m.conversa_id=$3 ORDER BY m.criada_em DESC,${r082 ? 'm.ordem DESC,' : ''}m.id DESC LIMIT 100`, [empresa, ambiente, conversaId])).rows.reverse()
       .map(({ arquivo_id, arquivo_token, ...m }): MensagemLista => (r082 ? { ...m, midia_caminho: arquivo_id && arquivo_token && m.midia_nome ? caminhoPublicoArquivo(arquivo_id, arquivo_token, m.midia_nome) : null } : m)) : [];
     const canal: EstadoCanal = { ambiente, receptor: receptorDoNumero(), recepcao: recepcaoAtiva(), envio: atendimentoAtivo() };

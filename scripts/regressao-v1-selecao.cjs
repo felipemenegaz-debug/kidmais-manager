@@ -188,6 +188,8 @@ const ESTADO_POSTGRES = {
   "lib/whatsapp/atendimento/revogacao-envio.postgres.test.ts": { descartavel: "082" },
   // D2/D3: exclusão (pedido e retenção), PARAR preservado, tarefas pendentes, revogação/troca de link/expiração de arquivos.
   "lib/whatsapp/atendimento/privacidade.postgres.test.ts": { descartavel: "082" },
+  // 26/11 ecos do app WhatsApp Business (F1): 131 (082+117), 112 (082 sem a 117), 079 (sem a 082: eco não grava); a 135 é aplicada pela suíte no 131.
+  "lib/whatsapp/atendimento/ecos.postgres.test.ts": { descartavel: "131", tambem: ["112", "079"] },
   // Modelo 082: o "atual" não tem as tabelas do atendimento nem ia_uso_modelo (055a).
   "lib/whatsapp/atendimento/resultado.postgres.test.ts": { descartavel: "082" },
   // Fatia 7 do Wall-e: perguntas sem fonte agrupadas (empresa, ambiente, papel, sensíveis, janela de 30 dias) e a rota.

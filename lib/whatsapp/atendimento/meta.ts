@@ -3,9 +3,9 @@ import type { DbExecutor } from '../../db/contracts.ts';
 import type { AmbienteWhatsapp } from '../configuracao.ts';
 import { carregarChaveCredencial, decifrarCredencialWhatsapp } from '../credencial.ts';
 import type { EventosMeta } from '../../integracoes/meta/webhook.ts';
-import { ambienteAtendimento, canalEnvio, empresaPiloto, recepcaoMetaAtiva, recepcaoTecnicaAtiva } from './configuracao.ts';
+import { ambienteAtendimento, canalEnvio, ecosMetaAtivos, empresaPiloto, recepcaoMetaAtiva, recepcaoTecnicaAtiva } from './configuracao.ts';
 import { APP_META, nomePerfilSeguro, type Entrada } from './core.ts';
-import { receberEntrada, registrarStatus } from './service.ts';
+import { receberEco, receberEntrada, registrarStatus } from './service.ts';
 import { chaveMultiempresa, ehPilotoDe, pilotoOpcional } from './multiempresa.ts';
 import type { AlvoEnvio } from './worker.ts';
 import { enviarMensagem, type ConteudoSaida } from './transporte.ts';
@@ -39,6 +39,14 @@ export async function numeroMeta(tx: DbExecutor, phoneNumberId: string, wabaId: 
   return { conhecido: !!linha, dona: linha?.configurada ? linha.empresa_id : null };
 }
 
+/** Ecos: o esquema tem a empresa da conexão (083) e a origem da mensagem (082)? Consulta só ao catálogo, sem citar as colunas. */
+async function esquemaDosEcos() {
+  const r = await db().query<{ ok: boolean }>(`SELECT
+    EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid = to_regclass('public.whatsapp_conexoes') AND attname = 'empresa_id' AND NOT attisdropped)
+    AND EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid = to_regclass('public.whatsapp_atendimento_mensagens') AND attname = 'fonte' AND NOT attisdropped) AS ok`);
+  return r.rows[0]?.ok === true;
+}
+
 /** Entrada da Meta no formato do atendimento: `source` é o wa_id (só dígitos, com DDI) e o horário vem em ms. */
 export function entradaMeta(e: EventosMeta['entradas'][number]): Entrada {
   return { id: e.id, app: APP_META, source: e.contato, texto: e.texto, timestamp: e.timestamp, nomePerfil: nomePerfilSeguro(e.nomePerfil) };
@@ -66,6 +74,20 @@ export async function receberEventosMeta(eventos: EventosMeta, opcoes: { automac
     const empresa = (await numeroDe(e.phoneNumberId, e.wabaId)).dona;
     if (!empresa || (!multi && !ehPiloto(empresa))) continue;
     await receberEntrada(entradaMeta(e), { ...opcoes, empresa: ehPiloto(empresa) ? piloto! : empresa });
+  }
+  // Ecos do app WhatsApp Business (F1, só histórico), DEPOIS das entradas do mesmo lote (uma entrada que cria a conversa
+  // vem antes do eco da resposta). Chave própria desligada: descartados sem consultar o banco. Mesma resolução de empresa
+  // das entradas (número CONFIGURADO; fora do MULTI, só a piloto); receberEco aplica as demais guardas na transação.
+  // R1 (P2, 2º parecer): sem a 083 (empresa da conexão) ou sem a 082 (fonte), os ecos são descartados ANTES de `numeroDe`,
+  // que citaria uma coluna ausente e derrubaria o POST inteiro (503, a Meta repetiria para sempre).
+  if (eventos.ecos?.length && ecosMetaAtivos() && (await esquemaDosEcos())) {
+    for (const e of eventos.ecos) {
+      const empresa = (await numeroDe(e.phoneNumberId, e.wabaId)).dona;
+      if (!empresa || (!multi && !ehPiloto(empresa))) continue;
+      // R1-1: a dona lida aqui (e guardada pelo lote) é só um filtro; receberEco confere de novo, sob trava, que ESTE número
+      // ainda é CONFIGURADO desta empresa antes de gravar.
+      await receberEco({ id: e.id, contato: e.contato, texto: e.texto, timestamp: e.timestamp }, { empresa: ehPiloto(empresa) ? piloto! : empresa, numero: { phoneNumberId: e.phoneNumberId, wabaId: e.wabaId } });
+    }
   }
   // Status: número desconhecido neste ambiente é descartado; conhecido (mesmo DESCONECTADO) procura a saída primeiro.
   for (const s of eventos.status) {

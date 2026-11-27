@@ -70,12 +70,13 @@ export const db = () => ({ query: async (sql: string, v?: unknown[]) => { const 
  * `teto`: módulo do teto mensal para o serviço e o worker (3b r3: a piloto fica fora do teto; a suíte do teto passa um
  * módulo em que a piloto, para o teto, é OUTRA empresa, para exercitar a reserva real no modo piloto do harness).
  */
-export function carregarAtendimento(empresaPiloto: string, ambiente = "staging", trocasWorker: Record<string, unknown> = {}, teto: Record<string, unknown> = tetoMensal) {
-  const configuracao = { entendimentoSoRegras: () => modoRegrasReal(process.env), origemMidia: () => "https://midia.kidmais.example", ambienteAtendimento: () => ambiente, empresaPiloto: () => empresaPiloto, atendimentoAtivo: () => true, recepcaoAtiva: () => true, receptorDoNumero: () => true, contatoPermitido: (contato: string) => contato.startsWith("55619") };
-  const postgres = { withTransaction, db };
+export function carregarAtendimento(empresaPiloto: string, ambiente = "staging", trocasWorker: Record<string, unknown> = {}, teto: Record<string, unknown> = tetoMensal,
+  // Ecos (R1-5): troca opcional da transação (ex.: relógio fixo na decisão do eco). Padrão: a conexão do harness.
+  postgres: { withTransaction: typeof withTransaction; db: typeof db } = { withTransaction, db }) {
+  const configuracao ={ ecosMetaAtivos: (env = process.env) => env.WHATSAPP_ATENDIMENTO_ECOS_META === "true", entendimentoSoRegras: () => modoRegrasReal(process.env), origemMidia: () => "https://midia.kidmais.example", ambienteAtendimento: () => ambiente, empresaPiloto: () => empresaPiloto, atendimentoAtivo: () => true, recepcaoAtiva: () => true, receptorDoNumero: () => true, contatoPermitido: (contato: string) => contato.startsWith("55619") };
   const tenant = { withTenantTransaction: (s: SessaoParaTenant, e: string, w: Parameters<typeof executarNoTenant>[3]) => withTransaction((tx) => executarNoTenant(tx, s, e, w)) };
   const servico = carregarComponente("lib/whatsapp/atendimento/service.ts", {
-    "../../db/postgres.ts": postgres, "../../saas/provar-tenant.ts": tenant, "./configuracao.ts": configuracao, "./core.ts": core, "./arquivos.ts": arquivos, "./walle/entendimento.ts": entendimento, "./multiempresa.ts": multiempresa, "./aviso-equipe.ts": avisoEquipe, "./teto-mensal.ts": teto,
+    "node:crypto": nodeCrypto, "../../db/postgres.ts": postgres, "../../saas/provar-tenant.ts": tenant, "./configuracao.ts": configuracao, "./core.ts": core, "./arquivos.ts": arquivos, "./walle/entendimento.ts": entendimento, "./multiempresa.ts": multiempresa, "./aviso-equipe.ts": avisoEquipe, "./teto-mensal.ts": teto,
     "../../satisfacao/supressao.ts": supressao, "../../marketing/automacoes/preferencias.ts": preferencias,
   }).modulo as typeof import("./service.ts");
   // D2/D3: módulo de privacidade REAL, com a mesma conexão por transação e o serviço do harness.

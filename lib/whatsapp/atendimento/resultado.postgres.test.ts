@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import * as nodeCrypto from 'node:crypto';
 import { randomBytes } from 'node:crypto';
 import test from 'node:test';
 import { carregarComponente } from '../../../components/admin/teste-componente.ts';
@@ -53,7 +54,7 @@ test('resultado: sessões de 24 h, virada, custos e isolamento de empresa e ambi
     const configuracao = { ambienteAtendimento: () => 'staging', canalEnvio: () => 'GUPSHUP' as const, empresaPiloto: () => a.empresa_ativa_id, atendimentoAtivo: () => true, recepcaoAtiva: () => true, receptorDoNumero: () => true, contatoPermitido: () => true, entendimentoSoRegras: () => true, origemMidia: () => 'https://midia.kidmais.example' };
     const tenant = { withTenantTransaction: (s: SessaoParaTenant, e: string, w: Parameters<typeof executarNoTenant>[3]) => withTransaction((tx: DbExecutor) => executarNoTenant(tx, s, e, w)) };
     const servico = carregarComponente('lib/whatsapp/atendimento/service.ts', {
-      '../../db/postgres.ts': { withTransaction, db }, '../../saas/provar-tenant.ts': tenant, './configuracao.ts': configuracao, './core.ts': core, './arquivos.ts': arquivos,
+      'node:crypto': nodeCrypto, '../../db/postgres.ts': { withTransaction, db }, '../../saas/provar-tenant.ts': tenant, './configuracao.ts': configuracao, './core.ts': core, './arquivos.ts': arquivos,
       './walle/entendimento.ts': entendimento, './multiempresa.ts': multiempresa, './aviso-equipe.ts': avisoEquipe, './teto-mensal.ts': tetoMensal, '../../satisfacao/supressao.ts': supressao, '../../marketing/automacoes/preferencias.ts': preferencias,
     }).modulo as typeof import('./service.ts');
     const { resultadoAtendimento } = carregarComponente('lib/whatsapp/atendimento/resultado.ts', {

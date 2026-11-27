@@ -306,7 +306,8 @@ async function executarTarefa(deps: DependenciasWorker, { mensagem, conversa, co
       // o texto da entrada MAIS RECENTE (`atual`): uma pausa numa entrada anterior, seguida de outra mensagem ainda na fila,
       // não é vista aqui (depois da correção a recepção nunca enfileira a pausa).
       if (pausaPedidaNaRecepcao(atual)) return r082 ? await passarEmSilencio(mensagem, registroDaPausa(atual, new Date().toISOString(), conversa.contexto), 'FILA') : await pausarSemMarca(mensagem);
-      const respondidas = Number((await db().query<{ n: string }>(`SELECT count(${r082 ? 'DISTINCT COALESCE(origem_grupo_id,id)' : '*'}) AS n FROM whatsapp_atendimento_mensagens WHERE conversa_id=$1 AND empresa_id=$2 AND direcao='SAIDA' AND autor_usuario_id IS NULL AND estado<>'CANCELADA' AND criada_em > clock_timestamp()-interval '24 hours'`, [conversa.id, empresa])).rows[0]?.n ?? 0);
+      // Ecos do app (F1): resposta da equipe pelo app WhatsApp Business não gasta o limite diário do Wall-e.
+      const respondidas = Number((await db().query<{ n: string }>(`SELECT count(${r082 ? 'DISTINCT COALESCE(origem_grupo_id,id)' : '*'}) AS n FROM whatsapp_atendimento_mensagens WHERE conversa_id=$1 AND empresa_id=$2 AND direcao='SAIDA' AND autor_usuario_id IS NULL${r082 ? " AND (fonte IS NULL OR fonte->>'tipo' IS DISTINCT FROM 'APP_WHATSAPP')" : ''} AND estado<>'CANCELADA' AND criada_em > clock_timestamp()-interval '24 hours'`, [conversa.id, empresa])).rows[0]?.n ?? 0);
       // M1: limite diário esgotado ⇒ equipe em SILÊNCIO (sem modelo, sem Wall-e e sem o texto fixo de encaminhamento), para
       // qualquer mensagem — inclusive uma paráfrase de pausa que só o modelo reconheceria: nada é classificado aqui, então o
       // resumo diz LIMITE_DIARIO (nunca uma pausa) e as marcas já gravadas na conversa ficam como estão.

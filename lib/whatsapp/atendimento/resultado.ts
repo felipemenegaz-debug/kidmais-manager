@@ -1,6 +1,6 @@
 import type { SessaoParaTenant } from '../../saas/provar-tenant.ts';
 import { ambienteAtendimento, empresaPiloto } from './configuracao.ts';
-import { acessoAtendimento } from './service.ts';
+import { acessoAtendimento, tem082 } from './service.ts';
 import { limitesMesesSaoPaulo } from './mes-sao-paulo.ts';
 import { contaNoTeto, tetoDoMes, type SituacaoTeto } from './teto-mensal.ts';
 
@@ -33,6 +33,9 @@ function pilotoAtual() { try { return empresaPiloto(); } catch { return null; } 
 // O índice (conversa_id, criada_em) atende às faixas do relatório e às buscas por uma única entrada na recursão.
 // Uma pausa de pelo menos 24 h garante um novo início, independentemente do que veio antes. Recuar só pelas entradas
 // ligadas por intervalos menores evita impor uma margem fixa incorreta quando a sequência cruza vários dias.
+// Ecos do app WhatsApp Business (F1): respostas que a equipe mandou pelo app ficam fora do Resultado (não passaram pelo
+// iA.Fest). `fonte` só existe com a 082 (R3-4): sem ela, o SQL não cita a coluna.
+export const SEM_ECO_DO_APP = " AND (m.fonte IS NULL OR m.fonte->>'tipo' IS DISTINCT FROM 'APP_WHATSAPP')";
 const MENSAGENS = `
   WITH RECURSIVE periodos(mes, inicio, fim) AS (
     VALUES ($3::text, $5::timestamptz, $6::timestamptz), ($4::text, $6::timestamptz, $7::timestamptz)
@@ -41,7 +44,7 @@ const MENSAGENS = `
   ), mensagens AS (
     SELECT m.conversa_id, m.criada_em, m.direcao, m.estado, m.autor_usuario_id IS NOT NULL AS humana
       FROM conversas c JOIN whatsapp_atendimento_mensagens m ON m.conversa_id = c.id
-     WHERE m.empresa_id = $1 AND m.ambiente = $2 AND m.criada_em >= $5 AND m.criada_em < $7
+     WHERE m.empresa_id = $1 AND m.ambiente = $2 AND m.criada_em >= $5 AND m.criada_em < $7/*SEM_ECO*/
   ), anteriores(conversa_id, criada_em) AS (
     SELECT conversa_id, min(criada_em) FROM mensagens WHERE direcao = 'ENTRADA' GROUP BY conversa_id
     UNION ALL
@@ -76,7 +79,7 @@ const MENSAGENS = `
     SELECT min(primeira.criada_em) AS inicio FROM conversas c
       CROSS JOIN LATERAL (
         SELECT m.criada_em FROM whatsapp_atendimento_mensagens m
-         WHERE m.conversa_id = c.id AND m.empresa_id = $1 AND m.ambiente = $2
+         WHERE m.conversa_id = c.id AND m.empresa_id = $1 AND m.ambiente = $2/*SEM_ECO*/
          ORDER BY m.criada_em LIMIT 1
       ) primeira
   )
@@ -86,6 +89,9 @@ const MENSAGENS = `
          c.inicio AS "primeiraMensagemEm"
     FROM periodos p CROSS JOIN cobertura c
     LEFT JOIN sessoes_por_mes s ON s.mes = p.mes LEFT JOIN entradas_por_mes e ON e.mes = p.mes`;
+const MENSAGENS_COM_082 = MENSAGENS.replaceAll('/*SEM_ECO*/', SEM_ECO_DO_APP);
+const MENSAGENS_SEM_082 = MENSAGENS.replaceAll('/*SEM_ECO*/', '');
+export const mensagensSql = (r082: boolean) => (r082 ? MENSAGENS_COM_082 : MENSAGENS_SEM_082);
 
 // O registro de uso não tem coluna de ambiente. Staging e produção mantêm bancos separados.
 const USO_IA = `
@@ -98,7 +104,7 @@ export async function resultadoAtendimento(sessao: SessaoParaTenant, agora = new
   return acessoAtendimento(sessao, async (tx, empresa) => {
     const ambiente = ambienteAtendimento();
     const [atual, anterior] = limitesMesesSaoPaulo(agora);
-    const mensagens = await tx.query<MensagensNoMes>(MENSAGENS, [empresa, ambiente, anterior.mes, atual.mes, anterior.inicio, atual.inicio, atual.fim]);
+    const mensagens = await tx.query<MensagensNoMes>(mensagensSql(await tem082(tx)), [empresa, ambiente, anterior.mes, atual.mes, anterior.inicio, atual.inicio, atual.fim]);
     const uso = await tx.query<UsoPorMoeda>(USO_IA, [empresa, anterior.mes, atual.mes]);
     const teto = contaNoTeto(empresa, pilotoAtual()) ? await tetoDoMes(tx, empresa, ambiente) : null;
 

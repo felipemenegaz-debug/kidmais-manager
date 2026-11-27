@@ -89,12 +89,15 @@ export async function excluirDadosConversa(tx: DbExecutor, alvo: { empresa: stri
   const conversa = (await tx.query<{ id: string; contato: string; nao_contatar: boolean; estado: string; contexto: Record<string, unknown> }>(
     'SELECT id,contato,nao_contatar,estado,contexto FROM whatsapp_atendimento_conversas WHERE id=$1 AND empresa_id=$2 AND ambiente=$3 FOR UPDATE', [alvo.conversaId, alvo.empresa, alvo.ambiente])).rows[0];
   if (!conversa) return { estado: 'NAO_ENCONTRADA' };
+  // Ecos (F1, R3-3): o eco do app não é atividade (não muda as datas da conversa, que escolhem o lote); a revalidação usa o
+  // mesmo critério. `fonte` existe: a 082 foi conferida no início.
   // H2 (revisão de 69dc301): a retenção escolhe as candidatas sem trava. Sob a trava da conversa, o prazo é conferido de
   // novo: atividade (entrada, atualização ou mensagem) dentro do prazo desde a escolha = conversa ativa, nada é apagado.
   if (alvo.origem === 'RETENCAO' && prazoVigente !== null) {
     const ativa = await tx.query(`SELECT 1 FROM whatsapp_atendimento_conversas c WHERE c.id=$1 AND (c.ultima_entrada_em >= clock_timestamp()-make_interval(days => $2)
       OR c.atualizada_em >= clock_timestamp()-make_interval(days => $2)
-      OR EXISTS (SELECT 1 FROM whatsapp_atendimento_mensagens m WHERE m.conversa_id=c.id AND m.criada_em >= clock_timestamp()-make_interval(days => $2)))`, [conversa.id, prazoVigente]);
+      OR EXISTS (SELECT 1 FROM whatsapp_atendimento_mensagens m WHERE m.conversa_id=c.id AND m.criada_em >= clock_timestamp()-make_interval(days => $2)
+        AND (m.fonte IS NULL OR m.fonte->>'tipo' IS DISTINCT FROM 'APP_WHATSAPP')))`, [conversa.id, prazoVigente]);
     if (ativa.rows.length) return { estado: prazoVigente !== alvo.prazoDias ? 'CONFIG_ALTERADA' : 'RECENTE' };
   }
   // NOWAIT: a linha que o worker segura agora (reserva ou envio) não é esperada nem apagada por baixo dele.
@@ -118,6 +121,19 @@ export async function excluirDadosConversa(tx: DbExecutor, alvo: { empresa: stri
   await tx.query(`INSERT INTO whatsapp_atendimento_eventos_excluidos(empresa_id,ambiente,provedor,evento_sha256)
     SELECT $2,$3,$4,encode(sha256(convert_to(externa_id,'UTF8')),'hex') FROM whatsapp_atendimento_mensagens WHERE conversa_id=$1 AND externa_id IS NOT NULL
     ON CONFLICT DO NOTHING`, [conversa.id, alvo.empresa, alvo.ambiente, PROVEDOR]);
+  // Ecos (F1, R3-2/R4-2): o id de cada eco do app vira o hash `eco:` (a mesma expressão de hashEco, service.ts): um retry da
+  // Meta não recria o eco, nem numa conversa recriada depois.
+  await tx.query(`INSERT INTO whatsapp_atendimento_eventos_excluidos(empresa_id,ambiente,provedor,evento_sha256)
+    SELECT $2,$3,$4,encode(sha256(convert_to('eco:' || (m.fonte->>'id'), 'UTF8')), 'hex') FROM whatsapp_atendimento_mensagens m
+    WHERE m.conversa_id=$1 AND m.fonte->>'tipo'='APP_WHATSAPP' AND m.fonte->>'id' IS NOT NULL
+    ON CONFLICT DO NOTHING`, [conversa.id, alvo.empresa, alvo.ambiente, PROVEDOR]);
+  // Corte por contato (R5-1): só o hash de 'corte:' || contato e a hora da exclusão (nunca o contato). Um eco anterior à
+  // exclusão (com a margem de MARGEM_CORTE_MS) que chegue depois, mesmo com a conversa recriada, não entra no histórico.
+  // Repetida, a exclusão avança a hora (GREATEST): o corte mais recente é o que vale.
+  await tx.query(`INSERT INTO whatsapp_atendimento_eventos_excluidos(empresa_id,ambiente,provedor,evento_sha256)
+    VALUES($1,$2,$3,encode(sha256(convert_to('corte:' || $4::text, 'UTF8')), 'hex'))
+    ON CONFLICT (empresa_id,ambiente,provedor,evento_sha256) DO UPDATE SET excluido_em=GREATEST(whatsapp_atendimento_eventos_excluidos.excluido_em, EXCLUDED.excluido_em)`,
+    [alvo.empresa, alvo.ambiente, PROVEDOR, conversa.contato]);
   const pendentes = Number((await tx.query<{ n: string }>("SELECT count(*) AS n FROM whatsapp_atendimento_mensagens WHERE conversa_id=$1 AND estado='PENDENTE'", [conversa.id])).rows[0]?.n ?? 0);
   await tx.query(`DELETE FROM whatsapp_atendimento_status WHERE empresa_id=$1 AND ambiente=$2 AND provedor_id IN (
     SELECT provedor_id FROM whatsapp_atendimento_mensagens WHERE conversa_id=$3 AND provedor_id IS NOT NULL)`, [alvo.empresa, alvo.ambiente, conversa.id]);

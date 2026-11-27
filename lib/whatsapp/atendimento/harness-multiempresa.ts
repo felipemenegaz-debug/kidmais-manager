@@ -125,7 +125,7 @@ export function carregarMultiempresa() {
   const postgres = { withTransaction, db };
   const tenant = { withTenantTransaction: (s: SessaoParaTenant, e: string, w: Parameters<typeof executarNoTenant>[3]) => withTransaction((tx) => executarNoTenant(tx, s, e, w)) };
   const servico = carregarComponente("lib/whatsapp/atendimento/service.ts", {
-    "../../db/postgres.ts": postgres, "../../saas/provar-tenant.ts": tenant, "./configuracao.ts": configuracao, "./core.ts": core, "./arquivos.ts": arquivos, "./walle/entendimento.ts": entendimento, "./multiempresa.ts": multiempresa, "./aviso-equipe.ts": avisoEquipe, "./teto-mensal.ts": tetoMensal,
+    "node:crypto": nodeCrypto, "../../db/postgres.ts": postgres, "../../saas/provar-tenant.ts": tenant, "./configuracao.ts": configuracao, "./core.ts": core, "./arquivos.ts": arquivos, "./walle/entendimento.ts": entendimento, "./multiempresa.ts": multiempresa, "./aviso-equipe.ts": avisoEquipe, "./teto-mensal.ts": tetoMensal,
     "../../satisfacao/supressao.ts": supressao, "../../marketing/automacoes/preferencias.ts": preferencias,
   }).modulo as typeof import("./service.ts");
   const privacidade = carregarComponente("lib/whatsapp/atendimento/privacidade.ts", {
