@@ -127,3 +127,69 @@ test('FAQ igualdade: várias perguntas — cada uma casa sozinha, na ordem da me
   // Vírgula não separa perguntas.
   assert.deepEqual(ids(cat, 'Tem som, tem wifi?'), []);
 });
+
+/** semFonte final do entendimento (com a frase declarada e as FAQs que ficaram nas intenções). */
+const semFonteFinal = (cat: Catalogos, texto: string) => entenderPorRegras(texto, cat).semFonte ?? [];
+
+test('FAQ igualdade r3 (Astra r2 #1): símbolo de condição conta na igualdade', () => {
+  const menor = comFaq('Aceitam grupos < 50 pessoas?', 'Sim.');
+  casaInteira(menor, 'Aceitam grupos < 50 pessoas?');
+  for (const texto of ['Aceitam grupos > 50 pessoas?', 'Aceitam grupos = 50 pessoas?', 'Aceitam grupos 50 pessoas?']) assert.equal(par(menor, texto).casou, false, texto);
+  // "≠" se decomporia em "=" sem acento; "≤" e "<=" são a mesma condição.
+  assert.equal(par(comFaq('Aceitam grupos = 50 pessoas?'), 'Aceitam grupos ≠ 50 pessoas?').casou, false);
+  casaInteira(comFaq('Aceitam grupos ≤ 50 pessoas?'), 'Aceitam grupos <= 50 pessoas?');
+  assert.equal(par(comFaq('Tem desconto de 10%?'), 'Tem desconto de 10?').casou, false);
+});
+
+test('FAQ igualdade r3 (Astra r2 #2): grafia do wi-fi depois de juntar os espaços', () => {
+  const wifi = comFaq('Tem wifi?', 'Sim.');
+  for (const texto of ['Tem wi\nfi?', 'Tem wi  fi?', 'Tem wi \t fi?', 'Tem wi\r\nfi?']) casaInteira(wifi, texto);
+  vaiParaEquipe(wifi, 'Tem wi/fi?');
+  vaiParaEquipe(wifi, 'Tem wi - fi?');
+});
+
+test('FAQ igualdade r3 (Astra r2 #3 e #4): palavra curta de conteúdo casa; interrogativo flexionado não', () => {
+  casaInteira(comFaq('Tem TV?', 'Sim.'), 'Tem TV?');
+  casaInteira(comFaq('Tem DJ?', 'Sim.'), 'tem dj');
+  assert.equal(par(comFaq('Tem TV?', 'Sim.'), 'Tem tv aí?').casou, false);
+  for (const faq of ['Quantos?', 'Quantas?', 'Quais?', 'Aonde?', 'Cadê?', 'Tá?', 'Só?', 'Tem q?']) assert.equal(par(comFaq(faq, 'Sim.'), faq).casou, false, faq);
+  casaInteira(comFaq('Tem 2 salões?', 'Sim.'), 'Tem 2 salões?');
+  casaInteira(comFaq('Até as 8?', 'Sim.'), 'Até as 8?');
+});
+
+test('FAQ igualdade r3 (Astra r2 #5): FAQ repetida conta uma vez e não tira a vaga da outra', () => {
+  const cat = comFaqs(['Tem wifi?', 'Sim.'], ['Tem som?', 'Sim.']);
+  assert.deepEqual(ids(cat, 'Tem wifi? Tem wifi? Tem wifi? Tem wifi? Tem som?'), ['faq0', 'faq1']);
+  assert.deepEqual(semFonteFinal(cat, 'Tem wifi? Tem wifi? Tem wifi? Tem wifi? Tem som?'), []);
+  // Cinco FAQs diferentes: a que não cabe no limite de intenções não é respondida, então vai à equipe (não some), mesmo
+  // curta ("Tem TV?" seria coberta por ter só 2 palavras).
+  const cinco = comFaqs(['Tem wifi?', 'Sim.'], ['Tem som?', 'Sim.'], ['Tem DJ?', 'Sim.'], ['Tem TV?', 'Sim.'], ['Tem palco?', 'Sim.']);
+  const e = entenderPorRegras('Tem wifi? Tem som? Tem DJ? Tem TV? Tem palco?', cinco);
+  assert.deepEqual(e.intencoes.filter((i) => i.perguntaId).map((i) => i.perguntaId), ['faq0', 'faq1', 'faq2', 'faq3']);
+  assert.deepEqual(e.semFonte, ['Tem palco']);
+  // Outro assunto ocupa uma vaga ("bolo" é cardápio): a FAQ que ficou de fora vai à equipe.
+  const comBolo = comFaqs(['Tem wifi?', 'Sim.'], ['Tem som?', 'Sim.'], ['Tem DJ?', 'Sim.'], ['Tem TV?', 'Sim.']);
+  const b = entenderPorRegras('Tem bolo? Tem wifi? Tem som? Tem DJ? Tem TV?', comBolo);
+  assert.deepEqual(b.intencoes.map((i) => i.perguntaId ?? i.tipo), ['CARDAPIO', 'faq0', 'faq1', 'faq2']);
+  assert.deepEqual(b.semFonte, ['Tem TV']);
+});
+
+test('FAQ igualdade r3 (Astra r2 #6): a pergunta enviada à equipe leva as linhas curtas de antes', () => {
+  assert.deepEqual(semFonteFinal(comFaq('Onde tem wifi?', 'Sim.'), 'Onde\ntem outro wifi?'), ['Onde tem outro wifi']);
+  assert.deepEqual(semFonteFinal(comFaq('Tem som?', 'Sim.'), 'Oi\nboa tarde\ntem manobrista?'), ['Oi boa tarde tem manobrista']);
+  // Linha com 3 palavras ou mais é outra pergunta (a cobertura continua por linha).
+  assert.deepEqual(semFonteFinal(comFaq('Tem som?', 'Sim.'), 'Quero ver o salão\ntem manobrista?'), ['tem manobrista']);
+  // Linha que termina em pontuação não é juntada.
+  assert.deepEqual(semFonteFinal(comFaq('Tem som?', 'Sim.'), 'Oi!\ntem manobrista?'), ['tem manobrista']);
+  assert.deepEqual(semFonteFinal(comFaq('Tem som?', 'Sim.'), 'Oi! \t\ntem manobrista?'), ['tem manobrista']);
+});
+
+test('FAQ igualdade r3 (Astra r2 #7 e #8): frase declarada entra só ela, na ordem, mesmo com outra pergunta sem fonte', () => {
+  const wifi = comFaq('Tem wifi?', 'Sim.');
+  assert.deepEqual(semFonteFinal(wifi, 'Tem wifi? Preciso de manobrista. Tem elevador?'), ['Preciso de manobrista', 'Tem elevador']);
+  assert.deepEqual(semFonteFinal(wifi, 'Tem wifi. Preciso de manobrista.'), ['Preciso de manobrista']);
+  assert.deepEqual(semFonteFinal(wifi, 'Tem elevador? Preciso de manobrista.'), ['Tem elevador', 'Preciso de manobrista']);
+  // A frase que já tem uma pergunta na lista não se repete.
+  assert.deepEqual(semFonteFinal(wifi, 'Tem manobrista?'), ['Tem manobrista']);
+  assert.deepEqual(semFonteFinal(wifi, 'Tem wifi. Obrigado.'), []);
+});

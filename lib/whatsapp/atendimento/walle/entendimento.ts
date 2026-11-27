@@ -1257,9 +1257,11 @@ const PAGAMENTO_PROPRIO = /\b(?:boletos?|parcelas?|sinal|pix|comprovante|paguei|
 const PROBLEMA_PREVENTIVO = /\b(?:tem|teria|tera|haveria|ha|vai ter|vai dar|da|daria|algum|nenhum|sem|e|seria|eh) problemas?\b[^.!]{0,60}\?|\bproblemas? (?:se|caso)\b|\b(?:tem|teria|ha|algum) problema\s*$/;
 const PROBLEMA_ACONTECIDO = /\b(?:deu|deram|teve|tive|tivemos|tiveram|houve|aconteceu|rolou|foi um|tivemos um|tive um) (?:um |uns |algum |muito |varios )?problemas?\b|\bproblemas? (?:na|com a|durante a|no dia da) festa\b/;
 /** Palavras sem conteúdo próprio: uma pergunta feita só delas ("Tem?", "Por que?") nunca casa a FAQ. */
-const GENERICAS = new Set(['qual', 'quais', 'voces', 'tem', 'tens', 'como', 'onde', 'quando', 'quanto', 'quanta', 'para', 'pela', 'pelo', 'sobre', 'esse', 'essa', 'isso', 'este', 'esta', 'aqui', 'voce', 'seria', 'sera', 'mais', 'muito', 'tambem', 'entao', 'favor', 'existe', 'possui', 'algum', 'alguma']);
+const GENERICAS = new Set(['qual', 'quais', 'voces', 'tem', 'tens', 'como', 'onde', 'aonde', 'donde', 'cade', 'quando', 'quanto', 'quanta', 'quantos', 'quantas', 'qto', 'qtos', 'qta', 'qtas', 'qnto', 'qntos', 'qnta', 'qntas', 'qnd', 'qdo', 'qndo', 'oque', 'para', 'pela', 'pelo', 'sobre', 'esse', 'essa', 'isso', 'este', 'esta', 'aqui', 'voce', 'seria', 'sera', 'mais', 'muito', 'tambem', 'entao', 'favor', 'existe', 'possui', 'algum', 'alguma']);
 /** Palavras funcionais e locuções interrogativas: ficam na comparação, mas não são conteúdo ("Por que?"). */
-const FUNCIONAIS = new Set(['por', 'que', 'porque', 'pq', 'pra', 'pro', 'para', 'com', 'sem', 'de', 'do', 'da', 'dos', 'das', 'no', 'na', 'nos', 'nas', 'em', 'um', 'uma', 'uns', 'umas', 'o', 'a', 'os', 'as', 'ao', 'aos', 'e', 'eh', 'ou', 'se', 'ja', 'nao', 'sim', 'mas', 'ai', 'la', 'ate', 'bem', 'me', 'te', 'eu', 'ele', 'ela', 'eles', 'elas', 'vcs', 'vc', 'ha', 'quem', 'ne', 'tb', 'tbm', 'ter', 'ok', 'oi', 'ola', 'opa', 'isso', 'esse', 'essa', 'mesmo', 'mesma']);
+const FUNCIONAIS = new Set(['por', 'que', 'porque', 'pq', 'pra', 'pro', 'para', 'com', 'sem', 'de', 'do', 'da', 'dos', 'das', 'no', 'na', 'nos', 'nas', 'em', 'um', 'uma', 'uns', 'umas', 'o', 'a', 'os', 'as', 'ao', 'aos', 'e', 'eh', 'ou', 'se', 'ja', 'nao', 'sim', 'mas', 'ai', 'la', 'ate', 'bem', 'me', 'te', 'eu', 'ele', 'ela', 'eles', 'elas', 'vcs', 'vc', 'ha', 'quem', 'ne', 'tb', 'tbm', 'ter', 'ok', 'oi', 'ola', 'opa', 'isso', 'esse', 'essa', 'mesmo', 'mesma',
+  // r3: com o mínimo de 2 letras ("TV"), as funcionais curtas e abreviações também não são conteúdo.
+  'q', 'ta', 'to', 'so', 'td', 'tds', 'mt', 'mto', 'pf', 'pfv', 'pls', 'aq', 'vo', 'ce', 'ces', 'nd', 'hj', 'agr']);
 /**
  * Correspondência da FAQ "só igualdade" (decisão de Felipe, 27/11/2026): a pergunta frequente só é escolhida quando a
  * pergunta inteira do cliente é IGUAL à cadastrada depois da normalização — caixa, acentos, pontuação e espaços (quebra de
@@ -1267,9 +1269,15 @@ const FUNCIONAIS = new Set(['por', 'que', 'porque', 'pq', 'pra', 'pro', 'para', 
  * antes de a limpeza trocar a pontuação por espaço ("wi/fi" não entra). Nada de prefixo, sinônimo, plural, composta ou
  * resposta: pergunta parecida que não casa segue o caminho de pergunta sem fonte (passagem segura para a equipe).
  */
-const normalizarPergunta = (t: string) => limpo(semAcento(t).replace(/\bwi(?:[-‐‑]| )?fi\b/g, 'wifi'));
-/** A pergunta só vale com alguma palavra de conteúdo ("Tem?" e "Por que?" nunca casam). */
-const comConteudo = (t: string) => t.split(' ').some((p) => p.length >= 3 && !GENERICAS.has(p) && !FUNCIONAIS.has(p));
+// Astra r2 (r3, 27/11): símbolos com valor de condição viram palavra ANTES de tirar acentos e pontuação ("< 50" ≠ "> 50";
+// o "≠" decomposto viraria "="). A grafia do wi-fi é reconhecida depois de juntar os espaços ("wi\nfi", "wi  fi").
+const SIMBOLOS_DE_CONDICAO: Array<[RegExp, string]> = [[/≠/g, ' diferente de '], [/≤|<=/g, ' menor ou igual a '], [/≥|>=/g, ' maior ou igual a '], [/</g, ' menor que '], [/>/g, ' maior que '], [/=/g, ' igual a '], [/\+/g, ' mais '], [/%/g, ' por cento ']];
+const normalizarPergunta = (t: string) => {
+  const comPalavras = SIMBOLOS_DE_CONDICAO.reduce((s, [de, para]) => s.replace(de, para), String(t ?? ''));
+  return limpo(semAcento(comPalavras).replace(/\s+/g, ' ').replace(/\bwi(?:[-‐‑]| )?fi\b/g, 'wifi'));
+};
+/** A pergunta só vale com alguma palavra de conteúdo ("Tem?", "Por que?", "Quantos?" nunca casam; "Tem TV?" casa). */
+const comConteudo = (t: string) => t.split(' ').some((p) => (p.length >= 2 || /\d/.test(p)) && !GENERICAS.has(p) && !FUNCIONAIS.has(p));
 /** Perguntas da mensagem, separadas por ".", "!" e "?" (a quebra de linha não separa), com a posição no texto original. */
 const perguntasParaFaq = (texto: string) => [...String(texto ?? '').matchAll(/[^.!?]+/g)]
   .map((m) => ({ em: m.index ?? 0, fim: (m.index ?? 0) + m[0].length, normal: normalizarPergunta(m[0]) }))
@@ -1279,8 +1287,9 @@ function faqsPorIgualdade(texto: string, perguntas: Catalogos['perguntas']) {
   const cadastradas = perguntas.map((p) => ({ id: p.id, normal: normalizarPergunta(p.pergunta) })).filter((p) => comConteudo(p.normal));
   return perguntasParaFaq(texto).flatMap((x) => cadastradas.filter((p) => p.normal === x.normal).map((p) => ({ id: p.id, em: x.em, fim: x.fim })));
 }
+/** Uma intenção por FAQ, na ordem da primeira ocorrência (r3: repetir a mesma pergunta não ocupa o limite de intenções). */
 function perguntasPorRegras(texto: string, perguntas: Catalogos['perguntas']) {
-  return faqsPorIgualdade(texto, perguntas).map((a) => a.id);
+  return [...new Set(faqsPorIgualdade(texto, perguntas).map((a) => a.id))];
 }
 
 /**
@@ -1484,9 +1493,28 @@ const EXCLAMACAO = /^(?:e |mas |ah |entao |ai )*que (?!horas|dia|data|pacote|val
 const PEDIDO_DE_INFORMACAO = /\b(gostaria de saber|queria saber|quero saber|preciso saber|gostaria de informac\w*|poderiam? (me )?informar|sabe(m)? (me )?dizer|me (informe|informem|digam))\b/;
 /** Trechos da mensagem que são perguntas (terminam em "?" ou começam como pergunta). */
 function perguntasDaMensagem(texto: string) {
-  const partes = [...String(texto ?? '').matchAll(/[^?.!\n]+[?.!\n]*/g)];
+  const s = String(texto ?? '');
+  const partes = [...s.matchAll(/[^?.!\n]+[?.!\n]*/g)];
   return partes.map((m) => ({ bruto: m[0].replace(/[?.!\n]+$/, '').trim(), interrogacao: /\?/.test(m[0]), em: m.index ?? 0 })).filter((p) => p.bruto.length > 0)
-    .map((p) => ({ ...p, t: semAcento(p.bruto) })).filter((p) => p.interrogacao || (INTERROGATIVO.test(limpo(p.bruto)) && !EXCLAMACAO.test(limpo(p.bruto))) || PEDIDO_DE_INFORMACAO.test(limpo(p.bruto)));
+    .map((p) => ({ ...p, t: semAcento(p.bruto) })).filter((p) => p.interrogacao || (INTERROGATIVO.test(limpo(p.bruto)) && !EXCLAMACAO.test(limpo(p.bruto))) || PEDIDO_DE_INFORMACAO.test(limpo(p.bruto)))
+    .map((p) => ({ ...p, encaminhar: comLinhasAnteriores(s, p.em, p.bruto) }));
+}
+/**
+ * Astra r2 (r3): a quebra de linha continua separando as perguntas para a cobertura (cada linha é conferida sozinha), mas o
+ * texto que vai para a equipe leva junto as linhas curtas (até 2 palavras) que vêm antes, na mesma frase ("Onde" + quebra
+ * de linha + "tem outro wifi?" vai inteiro, sem perder o interrogativo). Linha com 3 palavras ou mais é pergunta própria.
+ */
+function comLinhasAnteriores(texto: string, em: number, bruto: string) {
+  let inicio = em;
+  for (;;) {
+    const antes = texto.slice(0, inicio).replace(/[ \t]+$/, '');
+    if (!antes.endsWith('\n')) break;
+    const linha = /[^\n.!?]*$/.exec(antes.slice(0, -1))?.[0] ?? '';
+    // Linha vazia ou terminada em . ! ? sai vazia (a leitura para na pontuação): fim da frase.
+    if (!linha.trim() || limpo(linha).split(' ').filter(Boolean).length > 2) break;
+    inicio = antes.length - 1 - linha.length;
+  }
+  return inicio === em ? bruto : `${texto.slice(inicio, em).replace(/\s+/g, ' ').trim()} ${bruto}`.trim();
 }
 /**
  * Assuntos sabidamente sem fonte oficial: outros eventos ("fazem casamento?", "festa de 15 anos", "confraternização da
@@ -1502,11 +1530,14 @@ const SEM_FONTE_CONHECIDO = /\b(?:vai chover|chover|previsao do tempo|vai fazer 
  * aparece é IGUAL a uma pergunta frequente publicada ("só igualdade", 27/11): nada de procurar o assunto no texto ou na
  * resposta da FAQ. "Tem wifi e manobrista no estacionamento?" com só "Tem estacionamento?" publicada fica sem fonte.
  */
-function comSemFonteDeclarado(texto: string, catalogos: Catalogos, lista: string[]) {
-  if (lista.length) return lista;
-  const casadas = faqsPorIgualdade(texto, catalogos.perguntas);
-  const algum = perguntasParaFaq(texto).some((x) => SEM_FONTE_CONHECIDO.test(semAcento(texto.slice(x.em, x.fim))) && !casadas.some((c) => c.em === x.em));
-  return algum ? [texto.trim().slice(0, 120)] : lista;
+// r3 (Astra r2): a frase declarada entra mesmo quando já há pergunta sem fonte, só ela (não a mensagem inteira), na ordem
+// da mensagem e sem repetir a frase que já tem uma pergunta na lista.
+function comSemFonteDeclarado(texto: string, catalogos: Catalogos, lista: Array<{ em: number; texto: string }>, faqsAceitas?: Array<string | null | undefined>) {
+  const casadas = faqsPorIgualdade(texto, catalogos.perguntas).filter((c) => !faqsAceitas || faqsAceitas.includes(c.id));
+  const declaradas = perguntasParaFaq(texto)
+    .filter((x) => SEM_FONTE_CONHECIDO.test(semAcento(texto.slice(x.em, x.fim))) && !casadas.some((c) => c.em === x.em) && !lista.some((p) => p.em >= x.em && p.em < x.fim))
+    .map((x) => ({ em: x.em, texto: texto.slice(x.em, x.fim).replace(/\s+/g, ' ').trim().slice(0, 120) }));
+  return [...lista, ...declaradas].sort((a, b) => a.em - b.em).map((p) => p.texto);
 }
 /** Atributo pedido de um pacote ou unidade (horas, o que inclui, o que vem, capacidade, quanto, qual). */
 const ATRIBUTO_PERGUNTADO = /\b(horas?|dura\w*|inclui\w*|inclus\w*|incluid\w*|vem|vao|tem|cabe\w*|comporta\w*|serve\w*|quantos?|quantas?|qual|quais|como e|e de|e com|tamanho|metros?|andar|terreo)\b/;
@@ -1562,17 +1593,29 @@ const HORARIO_DO_CONTRATO = /\b(?:prorrog\w*|estend\w*|estic\w*|prolong\w*|horas
 // Rodada 47 (h46 aa60): o emoji também separa ("…quer Stitch 😅 vcs fazem?").
 const FAZEM_SOLTO = /(?:^|[,.;!?\p{Extended_Pictographic}\u{FE0F}]\s*)(?:e |mas |sera que )?(?:voces|vcs|vc|ces|o buffet)\s+(?:fazem|faz|fariam|faria|conseguem fazer|consegue fazer|fazem esse|fazem essa|fazem isso)\s*(?:\?|$)/u;
 export const cobreFazemSolto = (texto: string, tema: string | null | undefined) => (tema && FAZEM_SOLTO.test(semAcento(texto).trim()) ? [tema] : []);
-export function perguntasSemFonte(texto: string, catalogos: Catalogos, cobertas: string[] = []) {
+export function perguntasSemFonte(texto: string, catalogos: Catalogos, cobertas: string[] = [], faqsAceitas?: Array<string | null | undefined>) {
+  return semFonteComPosicao(texto, catalogos, cobertas, faqsAceitas).map((p) => p.texto);
+}
+/**
+ * `faqsAceitas` (r3): as FAQs que ficaram nas intenções finais (depois do limite e, no modelo, da escolha dele). A pergunta
+ * igual a uma FAQ que NÃO ficou nas intenções não é respondida, então volta a contar como sem fonte em vez de sumir.
+ */
+function semFonteComPosicao(texto: string, catalogos: Catalogos, cobertas: string[] = [], faqsAceitas?: Array<string | null | undefined>) {
   const compacto = (s: string) => limpo(s);
   // "Só igualdade" (27/11): a pergunta que escolheu uma FAQ é respondida por ela, e só ela. Cada pedaço da mensagem fica
   // dentro de uma única pergunta da FAQ (a quebra de linha separa aqui, mas não lá), então a posição decide sem ambiguidade:
   // nenhuma pergunta tem FAQ escolhida e, ao mesmo tempo, fica sem fonte.
-  const casadas = faqsPorIgualdade(texto, catalogos.perguntas);
+  const todas = faqsPorIgualdade(texto, catalogos.perguntas);
+  const casadas = todas.filter((c) => !faqsAceitas || faqsAceitas.includes(c.id));
+  // Pergunta igual a uma FAQ que ficou fora das intenções: é pergunta de verdade e não foi respondida; nenhuma cobertura
+  // genérica ("Tem TV?" tem só 2 palavras) a esconde.
+  const foraDoLimite = todas.filter((c) => !casadas.includes(c));
+  const dentro = (p: { em: number }, lista: typeof todas) => lista.some((c) => p.em >= c.em && p.em < c.fim);
   return perguntasDaMensagem(texto)
-    .filter((p) => !casadas.some((c) => p.em >= c.em && p.em < c.fim))
+    .filter((p) => !dentro(p, casadas))
     // O trecho do modelo cobre a pergunta só quando está DENTRO dela: um trecho que abrange a mensagem inteira não
     // "responde" a pergunta sem fonte que veio junto.
-    .filter((p) => !coberta(p.bruto, catalogos, texto) && !cobertas.some((c) => compacto(c).length >= 3 && compacto(p.bruto).includes(compacto(c))))
+    .filter((p) => dentro(p, foraDoLimite) || (!coberta(p.bruto, catalogos, texto) && !cobertas.some((c) => compacto(c).length >= 3 && compacto(p.bruto).includes(compacto(c)))))
     // Rodada 32: o orçamento informado ("posso gastar até 5 mil", "meu limite é 6 mil") é informação, não pergunta sem
     // fonte — só sem proposta ou pedido de condição na mesma frase (aí é negociação).
     .filter((p) => { const f = comNumeros(semAcento(p.bruto)); return !(ORCAMENTO_INFORMADO.test(f) && !PROPOSTA_DE_DESCONTO.test(f.replace(ORCAMENTO_INFORMADO, ' '))); })
@@ -1580,7 +1623,7 @@ export function perguntasSemFonte(texto: string, catalogos: Catalogos, cobertas:
     .filter((p) => !ENTRADA_CONVIDADOS.test(semAcento(p.bruto)))
     // Rodada 43: o link pedido de novo e "já ficou reservado?" têm resposta (o link público e o aviso de reserva).
     .filter((p) => !PEDE_LINK.test(semAcento(p.bruto)) && !PERGUNTA_RESERVA.test(semAcento(p.bruto)))
-    .map((p) => p.bruto.slice(0, 120));
+    .map((p) => ({ em: p.em, texto: p.encaminhar.slice(0, 120) }));
 }
 
 /**
@@ -1798,10 +1841,13 @@ export function entenderPorRegras(texto: string, catalogos: Catalogos, contexto:
   if (escolhaDoMesmo) intencoes.splice(0, intencoes.length, ...intencoes.filter((i) => i.tipo !== 'PRECOS'));
   if (escolhaDoMesmo && !intencoes.length) intencoes.push({ tipo: 'OUTRO', trecho: texto.trim().slice(0, 300), perguntaId: null });
   const escolha = ESCOLHA_PACOTE.test(t) && entidades.pacotes.length === 1 && !intencoes.some((i) => ['CONTRATAR', 'PRECOS', 'PACOTES', 'NEGOCIACAO'].includes(i.tipo)) ? entidades.pacotes[0] : null;
+  const finais = limitar(combinarIntencoes(semPrecoDeItem((cardapioDispensado(t) && !itens.length && !semCadastro ? intencoes.filter((i) => i.tipo !== 'CARDAPIO') : intencoes).filter((i) => !(i.tipo === 'PRECOS' && !i.continuacao && tabelaDispensada(t))), texto, entidades), texto));
+  const cobertasRegras = [...intencoes.filter((i) => i.continuacao).map((i) => i.trecho), ...(referencia ? [referencia] : []), ...cobreFazemSolto(texto, entidades.tema)];
+  const aceitasRegras = finais.map((i) => i.perguntaId);
   return {
-    intencoes: limitar(combinarIntencoes(semPrecoDeItem((cardapioDispensado(t) && !itens.length && !semCadastro ? intencoes.filter((i) => i.tipo !== 'CARDAPIO') : intencoes).filter((i) => !(i.tipo === 'PRECOS' && !i.continuacao && tabelaDispensada(t))), texto, entidades), texto)), entidades, reenviar: REENVIAR.test(t) && !NAO_REENVIAR.test(t) && !(pedeLink && !/\b(?:tabela|pdf|cardapio|foto|fotos|video|material|arquivo)\b/.test(t)), alergia: ALERGIA.test(t), origem: 'REGRAS',
+    intencoes: finais, entidades, reenviar: REENVIAR.test(t) && !NAO_REENVIAR.test(t) && !(pedeLink && !/\b(?:tabela|pdf|cardapio|foto|fotos|video|material|arquivo)\b/.test(t)), alergia: ALERGIA.test(t), origem: 'REGRAS',
     // A continuação ("e num dia de semana?") é coberta pelo assunto que ela segue.
-    sinais, semFonte: comSemFonteDeclarado(texto, catalogos, perguntasSemFonte(texto, catalogos, [...intencoes.filter((i) => i.continuacao).map((i) => i.trecho), ...(referencia ? [referencia] : []), ...cobreFazemSolto(texto, entidades.tema)])), parar: pedidoDeParar(texto),
+    sinais, semFonte: comSemFonteDeclarado(texto, catalogos, semFonteComPosicao(texto, catalogos, cobertasRegras, aceitasRegras), aceitasRegras), parar: pedidoDeParar(texto),
     itens, comparar: entidades.pacotes.length >= 1 && COMPARA.test(t), semMaterial: SEM_MATERIAL.test(t), comparaPreco, outraData, pratoSemCadastro: semCadastro,
     periodoAmbiguo: periodoAmbiguo(texto, catalogos.turnos),
     temaAmbiguo: extrairTemaDetalhe(texto).ambiguo || indecisao,
@@ -2071,14 +2117,16 @@ export function revalidarEntendimento(bruto: SaidaModelo, texto: string, catalog
   semContratoGeral(intencoes, texto);
   // Pergunta sem fonte: só a que NEM as regras NEM uma intenção específica aceita do modelo cobrem.
   const especificas = intencoes.filter((i) => !['OUTRO', 'SAUDACAO', 'CONFIRMACAO'].includes(i.tipo) && !(i.tipo === 'CONTRATO' && i.tema === 'GERAL')).map((i) => i.trecho);
+  const finais = limitar(combinarIntencoes(semPrecoDeItem(intencoes, texto, { data, turno, pacotes: pacotes.length ? pacotes : regras.entidades.pacotes }), texto));
+  const aceitas = finais.map((i) => i.perguntaId);
   return {
-    intencoes: limitar(combinarIntencoes(semPrecoDeItem(intencoes, texto, { data, turno, pacotes: pacotes.length ? pacotes : regras.entidades.pacotes }), texto)),
+    intencoes: finais,
     entidades: { data, turno, convidados, pacotes: pacotes.length ? [...new Set(pacotes)] : regras.entidades.pacotes, unidade, tema },
     reenviar: ((bruto.reenviar && !NAO_REENVIAR.test(t)) || regras.reenviar) && !(regras.pedeLink && !regras.reenviar),
     alergia: bruto.alergia || regras.alergia,
     origem: 'MODELO',
     sinais: regras.sinais,
-    semFonte: comSemFonteDeclarado(texto, catalogos, perguntasSemFonte(texto, catalogos, [...especificas, ...cobreFazemSolto(texto, tema ?? regras.entidades.tema)])),
+    semFonte: comSemFonteDeclarado(texto, catalogos, semFonteComPosicao(texto, catalogos, [...especificas, ...cobreFazemSolto(texto, tema ?? regras.entidades.tema)], aceitas), aceitas),
     parar: pararPeloModelo(bruto, texto, regras.parar ?? null, intencoes),
     itens: regras.itens, comparar: regras.comparar, semMaterial: regras.semMaterial, comparaPreco: regras.comparaPreco, outraData: !!regras.outraData && !data, ...(regras.pedeLink ? { pedeLink: true } : {}), ...(regras.perguntaReserva && !intencoes.some((i) => ['CONTRATO_PROPRIO', 'PAGAMENTO', 'CONTRATAR'].includes(i.tipo) && i.consultaComum !== 'PERGUNTA_RESERVA') ? { perguntaReserva: true } : {}), ...(regras.escolhaPacote && !intencoes.some((i) => ['CONTRATAR', 'PRECOS', 'PACOTES', 'NEGOCIACAO'].includes(i.tipo)) ? { escolhaPacote: regras.escolhaPacote } : {}), pratoSemCadastro: regras.pratoSemCadastro,
     periodoAmbiguo: !!regras.periodoAmbiguo && !turno,
