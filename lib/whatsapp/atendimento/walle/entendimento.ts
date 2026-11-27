@@ -1256,111 +1256,31 @@ const PESSOA_A_MAIS = /\b(?:pessoa|convidado|crianca|adulto)s? (?:a mais|extras?
 const PAGAMENTO_PROPRIO = /\b(?:boletos?|parcelas?|sinal|pix|comprovante|paguei|pagamos|minha festa|nossa festa|meu contrato|segunda via|mensalidad\w*|fatura|cobranca)\b/;
 const PROBLEMA_PREVENTIVO = /\b(?:tem|teria|tera|haveria|ha|vai ter|vai dar|da|daria|algum|nenhum|sem|e|seria|eh) problemas?\b[^.!]{0,60}\?|\bproblemas? (?:se|caso)\b|\b(?:tem|teria|ha|algum) problema\s*$/;
 const PROBLEMA_ACONTECIDO = /\b(?:deu|deram|teve|tive|tivemos|tiveram|houve|aconteceu|rolou|foi um|tivemos um|tive um) (?:um |uns |algum |muito |varios )?problemas?\b|\bproblemas? (?:na|com a|durante a|no dia da) festa\b/;
-/** Palavras significativas de uma pergunta frequente (sem as genéricas). */
+/** Palavras sem conteúdo próprio: uma pergunta feita só delas ("Tem?", "Por que?") nunca casa a FAQ. */
 const GENERICAS = new Set(['qual', 'quais', 'voces', 'tem', 'tens', 'como', 'onde', 'quando', 'quanto', 'quanta', 'para', 'pela', 'pelo', 'sobre', 'esse', 'essa', 'isso', 'este', 'esta', 'aqui', 'voce', 'seria', 'sera', 'mais', 'muito', 'tambem', 'entao', 'favor', 'existe', 'possui', 'algum', 'alguma']);
-const significativas = (t: string) => limpo(t).split(' ').filter((p) => p.length >= 4 && !GENERICAS.has(p));
+/** Palavras funcionais e locuções interrogativas: ficam na comparação, mas não são conteúdo ("Por que?"). */
+const FUNCIONAIS = new Set(['por', 'que', 'porque', 'pq', 'pra', 'pro', 'para', 'com', 'sem', 'de', 'do', 'da', 'dos', 'das', 'no', 'na', 'nos', 'nas', 'em', 'um', 'uma', 'uns', 'umas', 'o', 'a', 'os', 'as', 'ao', 'aos', 'e', 'eh', 'ou', 'se', 'ja', 'nao', 'sim', 'mas', 'ai', 'la', 'ate', 'bem', 'me', 'te', 'eu', 'ele', 'ela', 'eles', 'elas', 'vcs', 'vc', 'ha', 'quem', 'ne', 'tb', 'tbm', 'ter', 'ok', 'oi', 'ola', 'opa', 'isso', 'esse', 'essa', 'mesmo', 'mesma']);
 /**
- * Correspondência da FAQ (fatia própria, 27/11): termos do cadastro para a heurística de prefixos. Palavra solta continua
- * comparada pelo radical; palavra composta com hífen ("guarda-roupa", "pula-pula", "ar-condicionado") é UM termo e só
- * conta quando a mensagem tem a mesma composta inteira (com hífen, com espaço ou junta). Vale tantas palavras quantas
- * partes significativas ela tem, nunca mais do que a base contaria: "guarda-roupa" não casa "guarda-volumes" pelo
- * "guarda", e "wi-fi" (partes curtas) continua sem peso nenhum aqui, como na base.
+ * Correspondência da FAQ "só igualdade" (decisão de Felipe, 27/11/2026): a pergunta frequente só é escolhida quando a
+ * pergunta inteira do cliente é IGUAL à cadastrada depois da normalização — caixa, acentos, pontuação e espaços (quebra de
+ * linha é espaço). A única equivalência é a lista fechada de grafias do wi-fi ("wi-fi", "wi fi", "wifi"), reconhecida
+ * antes de a limpeza trocar a pontuação por espaço ("wi/fi" não entra). Nada de prefixo, sinônimo, plural, composta ou
+ * resposta: pergunta parecida que não casa segue o caminho de pergunta sem fonte (passagem segura para a equipe).
  */
-type TermoFaq = { chave: string; partes: string[]; inicio: string };
-function termosDoCadastro(t: string): TermoFaq[] {
-  const termos: TermoFaq[] = [];
-  for (const bruto of semAcento(t).match(/[a-z0-9]+(?:[-‐‑][a-z0-9]+)*/g) ?? []) {
-    const pedacos = bruto.split(/[-‐‑]/);
-    const partes = pedacos.filter((p) => p.length >= 4 && !GENERICAS.has(p));
-    if (partes.length) termos.push({ chave: pedacos.join(''), partes, inicio: pedacos[0] });
-  }
-  return termos;
+const normalizarPergunta = (t: string) => limpo(semAcento(t).replace(/\bwi(?:[-‐‑]| )?fi\b/g, 'wifi'));
+/** A pergunta só vale com alguma palavra de conteúdo ("Tem?" e "Por que?" nunca casam). */
+const comConteudo = (t: string) => t.split(' ').some((p) => p.length >= 3 && !GENERICAS.has(p) && !FUNCIONAIS.has(p));
+/** Perguntas da mensagem, separadas por ".", "!" e "?" (a quebra de linha não separa), com a posição no texto original. */
+const perguntasParaFaq = (texto: string) => [...String(texto ?? '').matchAll(/[^.!?]+/g)]
+  .map((m) => ({ em: m.index ?? 0, fim: (m.index ?? 0) + m[0].length, normal: normalizarPergunta(m[0]) }))
+  .filter((x) => x.normal);
+/** Cada pergunta da mensagem igual a uma pergunta cadastrada, com o trecho que ela ocupa, na ordem da mensagem. */
+function faqsPorIgualdade(texto: string, perguntas: Catalogos['perguntas']) {
+  const cadastradas = perguntas.map((p) => ({ id: p.id, normal: normalizarPergunta(p.pergunta) })).filter((p) => comConteudo(p.normal));
+  return perguntasParaFaq(texto).flatMap((x) => cadastradas.filter((p) => p.normal === x.normal).map((p) => ({ id: p.id, em: x.em, fim: x.fim })));
 }
-/** Formas da mensagem que uma composta do cadastro pode ter: palavras, pares vizinhos juntos e compostas com hífen. */
-function chavesCompostas(texto: string) {
-  const palavras = limpo(texto).split(' ').filter(Boolean);
-  const chaves = new Set(palavras);
-  for (let i = 0; i + 1 < palavras.length; i++) chaves.add(palavras[i] + palavras[i + 1]);
-  for (const c of semAcento(texto).match(/[a-z0-9]+(?:[-‐‑][a-z0-9]+)+/g) ?? []) chaves.add(c.replace(/[-‐‑]/g, ''));
-  return chaves;
-}
-/**
- * Grafias reconhecidas do MESMO termo ("wi-fi", "wi fi", "wifi" → "wifi"). Lista fechada, usada só na comparação
- * integral da pergunta e na cobertura do assunto sem fonte; nunca alimenta a heurística de prefixos.
- */
-const grafias = (t: string) => limpo(t).replace(/\bwi fi\b/g, 'wifi');
-/** Só o tratamento sai da comparação integral; interrogativos ("onde", "qual", "quando"…) ficam e diferenciam. */
-const TRATAMENTO = new Set(['voces', 'vcs', 'vc', 'voce']);
-const SAUDACAO_INICIAL = /^(?:(?:oi|ola|opa|bom dia|boa tarde|boa noite|tudo bem|td bem)\s+)+/;
-const perguntaIntegral = (t: string) => grafias(t).replace(SAUDACAO_INICIAL, '').split(' ').filter((p) => p && !TRATAMENTO.has(p)).join(' ');
-/** A pergunta integral só vale com alguma palavra de conteúdo ("Tem?" sozinho nunca é a pergunta "Tem?" cadastrada). */
-const integralComConteudo = (t: string) => t.split(' ').some((p) => p.length >= 3 && !GENERICAS.has(p));
-/**
- * O assunto sem fonte aparece no texto da pergunta frequente como palavra inteira (plural aceito), com as grafias
- * reconhecidas: "wifi" está em "Tem wi-fi?", mas não em "Temos wifimax."; "elevador" está em "Tem elevadores?".
- */
-function assuntoNoTexto(texto: string, assunto: string) {
-  const a = grafias(assunto);
-  return !!a && new RegExp(`(?:^| )${a}(?:s|es)?(?= |$)`).test(grafias(texto));
-}
-const assuntoNaPerguntaFrequente = (catalogos: Catalogos, assunto: string) => catalogos.perguntas.some((p) => assuntoNoTexto(`${p.pergunta} ${p.resposta ?? ''}`, assunto));
-/**
- * FAQ por regras: pergunta cadastrada com duas palavras em comum (mesmo radical de 4 letras: "atendem"/"atendimento",
- * "horas"/"horário") ou uma palavra longa e específica ("estacionamento"). Devolve todas, na ordem da mensagem.
- */
-/** Vocabulário comum de dois assuntos frequentes de buffet: vale para a pergunta cadastrada que trata do assunto. */
-/** [assunto da pergunta cadastrada, como o cliente fala dele, complemento na mesma mensagem ("tem lugar aí perto?")]. */
-const SINONIMOS_FAQ: Array<[RegExp, RegExp, RegExp]> = [
-  [/estacion/, /\b(estacion\w*|parar o carro|parar carro|deixar o carro|deixo o carro|deixar carro|onde (eu )?(paro|estaciono)|vagas? (pro|pra|para|para o|de) carro|manobrista|valet)\b/, /\b(lugar|lugares|vaga|vagas|perto|proximo|rua|gratis|gratuito|pago|paga|coberto|seguro|carro|carros|moto)\b/],
-  // "Vocês atendem em quais dias?" (a ordem invertida); "atendem no sábado dia 14?" fica com a agenda.
-  [/horario de (atendimento|funcionamento)|atendimento/, /\b((voces|vcs|vc|voce) (atendem|atende|abrem|abre|fecham|fecha|funcionam|funciona) (na |no |de |aos? )?(segunda|terca|quarta|quinta|sexta|sabado|domingo|feriado|fim de semana)|(fecham|fecha|abrem|abre|atendem|atende) (q|que|a que|ate que) horas?|(?:abre|abrem)(?= (?:no|na|nos|nas|aos?|de|que|q|quais|qual|quando|todo|toda|domingo|segunda|terca|quarta|quinta|sexta|sabado|feriados?|cedo|hoje|amanha|que horas|a que horas|as \d)\b| *\?| *$)|(?<!\bem )abertos?(?! (?:a|para|pra) )|(?<!\bcomo (?:que )?)funcionam?(?! (?:a|o|as|os|pra|para|com|de|do|da)\b)|funcionamento|expediente|horario de (atendimento|funcionamento)|atende ate|atendem ate|que horas (voces|vcs) (abrem|fecham|atendem)|(que|q|quais) dias (voces |vcs )?(abrem|funcionam|atendem|trabalham)|(atende|atendem|trabalha|trabalham) (em |nos |de )?(que|q|quais|qual) (dias?|horarios?|periodos?)|(qual|quais|que|q) dias? da semana (voces |vcs )?(atende|atendem|abre|abrem|funciona|funcionam|trabalha|trabalham)|dias? de (atendimento|funcionamento))\b/, /\b(dias?|horas?|horario|sabado|domingo|feriados?|segunda|terca|quarta|quinta|sexta|fim de semana|pessoalmente|visita\w*)\b/],
-];
-/** Rodada 34 (h34 aa76): quem informou ("o rapaz do atendimento falou que…", "a moça do comercial disse") é referência ao
- * funcionário, não pergunta sobre o funcionamento; sai do texto antes de procurar a pergunta frequente. */
-const REFERENCIA_FUNCIONARIO = /\b(?:(?:o|a|um|uma)\s+)?(?:rapaz|moca|moco|menina|menino|pessoal|atendente|gerente|funcionari\w*|vendedor\w*|consultor\w*|recepcionista|equipe|senhor|senhora|cara|mulher|homem)\s+(?:d[oa]s?|de)\s+(?:atendimento|comercial|recepcao|vendas|financeiro)(?=(?:\s+\S+){0,2}?\s+(?:falou|disse|comentou|informou|avisou|explicou|passou|confirmou|garantiu|mencionou|tinha|combinou|combinaram|autorizou|autorizaram|liberou|liberaram|aprovou|aprovaram|prometeu|prometeram|ofereceu|deixou|marcou|agendou))|\b(?:que|quem)\s+me\s+atendeu\b/g;
 function perguntasPorRegras(texto: string, perguntas: Catalogos['perguntas']) {
-  const semReferencia = semAcento(texto).replace(REFERENCIA_FUNCIONARIO, ' ');
-  const msg = significativas(semReferencia);
-  const t = semReferencia;
-  const chaves = chavesCompostas(semReferencia);
-  // Composta da mensagem que começa igual a uma do cadastro e é OUTRA ("guarda-roupa" × "guarda-volumes"): a mensagem
-  // fala de outra coisa, e nenhuma outra palavra em comum ("infantil") faz a pergunta cadastrada valer.
-  const palavras = limpo(semReferencia).split(' ').filter(Boolean);
-  const compostasDaMensagem = [
-    ...(semReferencia.match(/[a-z0-9]+(?:[-‐‑][a-z0-9]+)+/g) ?? []).map((c) => ({ inicio: c.split(/[-‐‑]/)[0], chave: c.replace(/[-‐‑]/g, '') })),
-    ...palavras.slice(0, -1).map((w, i) => ({ inicio: w, chave: w + palavras[i + 1], segunda: palavras[i + 1] })).filter((c) => c.segunda.length >= 4 && !GENERICAS.has(c.segunda)),
-  ];
-  const rival = (ausentes: TermoFaq[]) => ausentes.some((x) => compostasDaMensagem.some((c) => c.inicio === x.inicio && c.chave !== x.chave));
-  // Trechos da mensagem para a comparação integral ("Boa tarde! Tem wifi?" → "Tem wifi").
-  const trechos = semReferencia.split(/[.!?\n]+/).map((s) => ({ s, integral: perguntaIntegral(s) })).filter((x) => x.integral);
-  const achadas: { id: string; pos: number }[] = [];
-  for (const p of perguntas) {
-    const doCadastro = termosDoCadastro(p.pergunta);
-    const simples = doCadastro.filter((x) => x.partes.length === 1 && x.chave === x.partes[0]).map((x) => x.chave);
-    const compostas = doCadastro.filter((x) => !(x.partes.length === 1 && x.chave === x.partes[0]));
-    const compostasIguais = compostas.filter((x) => chaves.has(x.chave));
-    const comuns = simples.filter((x) => msg.some((w) => w.slice(0, 4) === x.slice(0, 4))).length + compostasIguais.reduce((n, x) => n + x.partes.length, 0);
-    const longa = simples.some((x) => x.length >= 8 && msg.some((w) => w.length >= 8 && w.slice(0, 6) === x.slice(0, 6))) || compostasIguais.some((x) => x.partes.some((q) => q.length >= 8));
-    const daResposta = p.resposta ? termosDoCadastro(p.resposta).reduce((n, x) => {
-      if (x.partes.length === 1 && x.chave === x.partes[0]) return n + (x.chave.length >= 6 && msg.some((w) => w.slice(0, 5) === x.chave.slice(0, 5)) ? 1 : 0);
-      return n + (chaves.has(x.chave) ? x.partes.filter((q) => q.length >= 6).length : 0);
-    }, 0) >= 2 : false;
-    const sinonimo = SINONIMOS_FAQ.find(([assunto, vocabulario]) => assunto.test(semAcento(p.pergunta)) && vocabulario.test(t));
-    if (sinonimo) { achadas.push({ id: p.id, pos: Math.max(0, msg.length - 1) }); continue; }
-    // A mensagem (ou um trecho dela) É a pergunta publicada, mudando só a grafia reconhecida, o tratamento ou a saudação:
-    // "Tem wifi?" depois de publicar "Tem wi-fi?". Interrogativos contam: "Onde tem wifi?" não é "Tem wifi?".
-    const integral = perguntaIntegral(p.pergunta);
-    const igual = integralComConteudo(integral) ? trechos.find((x) => x.integral === integral) : undefined;
-    if (igual) { achadas.push({ id: p.id, pos: significativas(semReferencia.slice(0, semReferencia.indexOf(igual.s))).length }); continue; }
-    // Uma só palavra longa em comum ("atendimento") vale quando a mensagem pergunta algo (rodada 18): "o atendimento de
-    // vcs é uma vergonha" não é pergunta do horário de atendimento.
-    const pergunta = /\?|\b(qual|quais|quando|que horas|ate que horas|como|onde|tem|teria|existe|funciona\w*|abre|abrem|queria saber|gostaria de saber)\b/.test(t);
-    if (!rival(compostas.filter((x) => !chaves.has(x.chave))) && (comuns >= 2 || (longa && pergunta) || daResposta)) {
-      const pos = Math.min(...doCadastro.flatMap((x) => x.partes).map((x) => msg.findIndex((w) => w.slice(0, 4) === x.slice(0, 4))).filter((i) => i >= 0));
-      achadas.push({ id: p.id, pos });
-    }
-  }
-  return achadas.sort((a, b) => a.pos - b.pos).map((a) => a.id);
+  return faqsPorIgualdade(texto, perguntas).map((a) => a.id);
 }
 
 /**
@@ -1564,8 +1484,8 @@ const EXCLAMACAO = /^(?:e |mas |ah |entao |ai )*que (?!horas|dia|data|pacote|val
 const PEDIDO_DE_INFORMACAO = /\b(gostaria de saber|queria saber|quero saber|preciso saber|gostaria de informac\w*|poderiam? (me )?informar|sabe(m)? (me )?dizer|me (informe|informem|digam))\b/;
 /** Trechos da mensagem que são perguntas (terminam em "?" ou começam como pergunta). */
 function perguntasDaMensagem(texto: string) {
-  const partes = String(texto ?? '').match(/[^?.!\n]+[?.!\n]*/g) ?? [];
-  return partes.map((p) => ({ bruto: p.replace(/[?.!\n]+$/, '').trim(), interrogacao: /\?/.test(p) })).filter((p) => p.bruto.length > 0)
+  const partes = [...String(texto ?? '').matchAll(/[^?.!\n]+[?.!\n]*/g)];
+  return partes.map((m) => ({ bruto: m[0].replace(/[?.!\n]+$/, '').trim(), interrogacao: /\?/.test(m[0]), em: m.index ?? 0 })).filter((p) => p.bruto.length > 0)
     .map((p) => ({ ...p, t: semAcento(p.bruto) })).filter((p) => p.interrogacao || (INTERROGATIVO.test(limpo(p.bruto)) && !EXCLAMACAO.test(limpo(p.bruto))) || PEDIDO_DE_INFORMACAO.test(limpo(p.bruto)));
 }
 /**
@@ -1577,17 +1497,24 @@ function perguntasDaMensagem(texto: string) {
  * não são.
  */
 const SEM_FONTE_CONHECIDO = /\b(?:vai chover|chover|previsao do tempo|vai fazer (?:sol|frio|calor)|casamentos?|noivados?|bodas|batizados?|chas? (?:de bebe|de fralda|de panela|de cozinha|revelacao)|(?:festa|festas|aniversario|niver|comemoracao)\s+(?:de\s+|dos\s+|das\s+)?(?:1[5-9]|[2-9]\d)\s+anos|(?:faz|fara|vai fazer|completa|vai completar|fazendo|completando)\s+(?:1[5-9]|[2-9]\d)\s+anos|debut\w*|bar mitzvah|bat mitzvah|formaturas?|despedida de solteir\w*|(?:festas?|aniversario|niver) (?:de )?(?:adult\w*|pra adultos|para adultos)|(?:eventos?|festas?|confraterniza\w*|comemorac\w*)\s+(?:corporativ\w*|empresaria\w*|d[ae] fim de ano|(?:d[ae]|na|pra|para a) (?:minha |nossa |sua )?(?:empresa|firma))|confraterniza\w*|happy hour|acessibilidade|cadeirantes?|cadeira de rodas|mobilidade reduzida|rampas?|elevador\w*|banheiro adaptado|pcd|terreo|escadas?|degraus?|cadeirao|cadeirinha de bebe|(?:tem|teria|possui|ha) (?:um |uma |algum |alguma )?seguranca|sinal de (?:celular|internet)|pet friendly|animais de estimacao|animal de estimacao|(?:levar|trazer|entrar(?: com)?|aceita\w*|permite\w*)\s+(?:o |a |os |as |meu |minha |meus |minhas |nosso |nossa |seu |sua )?(?:cachorr\w*|cadel\w*|gat[oa]s?|gatinh\w*|cao|caes|animal|animais|bichinhos?|pets?)(?![\s-]+quente)|wi[ -]?fi|internet|manobristas?|valet|fumar|fumante\w*|fumodromo|narguile|vape|climatizad\w*|ar[ -]condicionado|fraldario|trocador|amamentar|amamentacao|hospedagem|(?:hotel|hoteis|pousadas?) (?:perto|proxim\w*|na regiao|ai perto|aqui perto))\b/;
-/** Assunto sabidamente sem fonte citado fora de pergunta: entra como parte sem fonte (salvo pergunta frequente publicada). */
+/**
+ * Assunto sabidamente sem fonte citado fora de pergunta: entra como parte sem fonte, salvo quando a pergunta em que ele
+ * aparece é IGUAL a uma pergunta frequente publicada ("só igualdade", 27/11): nada de procurar o assunto no texto ou na
+ * resposta da FAQ. "Tem wifi e manobrista no estacionamento?" com só "Tem estacionamento?" publicada fica sem fonte.
+ */
 function comSemFonteDeclarado(texto: string, catalogos: Catalogos, lista: string[]) {
   if (lista.length) return lista;
-  const assunto = SEM_FONTE_CONHECIDO.exec(semAcento(texto))?.[0];
-  return assunto && !assuntoNaPerguntaFrequente(catalogos, assunto) ? [texto.trim().slice(0, 120)] : lista;
+  const casadas = faqsPorIgualdade(texto, catalogos.perguntas);
+  const algum = perguntasParaFaq(texto).some((x) => SEM_FONTE_CONHECIDO.test(semAcento(texto.slice(x.em, x.fim))) && !casadas.some((c) => c.em === x.em));
+  return algum ? [texto.trim().slice(0, 120)] : lista;
 }
 /** Atributo pedido de um pacote ou unidade (horas, o que inclui, o que vem, capacidade, quanto, qual). */
 const ATRIBUTO_PERGUNTADO = /\b(horas?|dura\w*|inclui\w*|inclus\w*|incluid\w*|vem|vao|tem|cabe\w*|comporta\w*|serve\w*|quantos?|quantas?|qual|quais|como e|e de|e com|tamanho|metros?|andar|terreo)\b/;
 /** A pergunta é atendida por alguma regra (assunto, FAQ, dado da festa, pessoa, alergia ou sinal de cuidado)? */
 function coberta(segmento: string, catalogos: Catalogos, mensagem = segmento) {
-  const semFonte = SEM_FONTE_CONHECIDO.exec(semAcento(segmento))?.[0]; if (semFonte && !assuntoNaPerguntaFrequente(catalogos, semFonte)) return false; // [fora-escopo] "fazem casamento?", "tem manobrista?": sem fonte, salvo pergunta frequente publicada sobre o assunto
+  // [fora-escopo] "fazem casamento?", "tem manobrista?": sem fonte. A pergunta igual a uma FAQ publicada já saiu antes
+  // (perguntasSemFonte), pela mesma posição na mensagem que escolheu a FAQ.
+  if (SEM_FONTE_CONHECIDO.test(semAcento(segmento))) return false;
   if (ITEM_DETALHE.test(semAcento(segmento))) return false; // [fora-escopo] "o kibe é frito ou assado?": o item está no buffet, o detalhe não
   const t = semAcento(segmento);
   const c = limpo(segmento);
@@ -1600,13 +1527,10 @@ function coberta(segmento: string, catalogos: Catalogos, mensagem = segmento) {
   if ((/^(?:e |mas )?(?:se (?:eu |a gente )?(?:quiser|quisermos|precisar|pedir|colocar|tiver|for|der|passar|ficar) )?(?:mais |uns? |umas? |so |\w+ ){0,3}(?:cobra|cobram|cobrado|tem (?:custo|taxa)|paga|pago|custa|sai mais caro|fica mais caro|e cobrado|e pago)\b/.test(c)
     || (/^(?:e |mas |se )/.test(c) && /\b(?:mais|cobra\w*|custa\w*|paga\w*|taxa|(?:\d+|cinco|dez|quinze|vinte|trinta|meia) ?(?:min\w*|hora\w*))\b/.test(c))) && c.split(' ').length <= 10
     && intencoesPorRegras(semAcento(mensagem)).some((x) => x.i.tipo === 'CONTRATO')) return true;
-  if (intencoesPorRegras(t).length || perguntasPorRegras(segmento, catalogos.perguntas).length) return true;
+  if (intencoesPorRegras(t).length) return true;
   if (/\boutro (horario|turno|periodo)\b/.test(t)) return true; // "e no outro horário?": o outro turno da conversa
   if (new RegExp(FESTA_DE_TEMA).test(t)) return true; // rodada 22: "fazem festa da Frozen?" é decoração
   if (comandoDireto(segmento) || ALERGIA.test(t) || ehSaudacao(c) || ehConfirmacao(c) || MAIS_BARATO.test(t) || itensCitados(segmento, catalogos.itensBuffet).length || !!pratoSemCadastro(segmento, catalogos.itensBuffet)) return true;
-  // Complemento de uma pergunta frequente reconhecida na mesma mensagem ("onde deixo o carro? tem lugar aí perto?").
-  const m = semAcento(mensagem);
-  if (SINONIMOS_FAQ.some(([assunto, vocabulario, complemento]) => catalogos.perguntas.some((p) => assunto.test(semAcento(p.pergunta))) && vocabulario.test(m) && complemento.test(t))) return true;
   const s = sinaisLocais(segmento);
   if (s.instrucao || s.reclamacao || s.pagamentoAcao || REENVIAR.test(t)) return true;
   // Rodada 21: "pode ser à tarde" é o período (ambíguo, confirmado pelo fluxo), não pergunta sem fonte.
@@ -1640,7 +1564,12 @@ const FAZEM_SOLTO = /(?:^|[,.;!?\p{Extended_Pictographic}\u{FE0F}]\s*)(?:e |mas 
 export const cobreFazemSolto = (texto: string, tema: string | null | undefined) => (tema && FAZEM_SOLTO.test(semAcento(texto).trim()) ? [tema] : []);
 export function perguntasSemFonte(texto: string, catalogos: Catalogos, cobertas: string[] = []) {
   const compacto = (s: string) => limpo(s);
+  // "Só igualdade" (27/11): a pergunta que escolheu uma FAQ é respondida por ela, e só ela. Cada pedaço da mensagem fica
+  // dentro de uma única pergunta da FAQ (a quebra de linha separa aqui, mas não lá), então a posição decide sem ambiguidade:
+  // nenhuma pergunta tem FAQ escolhida e, ao mesmo tempo, fica sem fonte.
+  const casadas = faqsPorIgualdade(texto, catalogos.perguntas);
   return perguntasDaMensagem(texto)
+    .filter((p) => !casadas.some((c) => p.em >= c.em && p.em < c.fim))
     // O trecho do modelo cobre a pergunta só quando está DENTRO dela: um trecho que abrange a mensagem inteira não
     // "responde" a pergunta sem fonte que veio junto.
     .filter((p) => !coberta(p.bruto, catalogos, texto) && !cobertas.some((c) => compacto(c).length >= 3 && compacto(p.bruto).includes(compacto(c))))
@@ -2009,7 +1938,9 @@ export function criterioConsultaComum(texto: string, tipo: TipoIntencao, regras:
     && !EXCECAO_DE_HORARIO.test(t) && !NEGOCIACAO_RE.test(t) && !APERTO.test(t) && !ORCAMENTO_INFORMADO.test(t)) return 'PRORROGACAO';
   if (tipo !== 'CONTRATO_PROPRIO') return null;
   if (regras.perguntaReserva && !FESTA_CONTRATADA.test(t.replace(new RegExp(PERGUNTA_RESERVA.source, 'g'), ' '))) return 'PERGUNTA_RESERVA';
-  if (VISITA_MARCADA.test(t) && !FESTA_CONTRATADA.test(t) && regras.intencoes.some((r) => COMERCIAIS.includes(r.tipo))) return 'VISITA_MARCADA';
+  // Correspondência da FAQ "só igualdade" (27/11): a pergunta da visita que não casa com a FAQ ("vcs atendem até que horas?")
+  // fica sem fonte e vai à equipe pelo motivo real (INFORMACAO_INDISPONIVEL), sem o aviso de festa contratada.
+  if (VISITA_MARCADA.test(t) && !FESTA_CONTRATADA.test(t) && (regras.intencoes.some((r) => COMERCIAIS.includes(r.tipo)) || !!regras.semFonte?.length)) return 'VISITA_MARCADA';
   if (DISPONIBILIDADE_ATRIBUIDA.every((re) => re.test(t)) && !ALTERAR_CONDICAO.test(t) && !FESTA_CONTRATADA.test(t)
     && !!regras.entidades.data && regras.intencoes.some((r) => r.tipo === 'DISPONIBILIDADE')) return 'DISPONIBILIDADE_ATRIBUIDA';
   if (RESERVA_FINANCEIRA.test(t) && !FESTA_CONTRATADA.test(t.replace(RESERVA_FINANCEIRA, ' ')) && !PROPOSTA_DE_DESCONTO.test(t.replace(RESERVA_FINANCEIRA, ' '))

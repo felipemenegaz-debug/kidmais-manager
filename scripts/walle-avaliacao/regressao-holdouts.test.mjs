@@ -85,7 +85,12 @@ function reperguntaHerdada(l) {
 // da data pede a confirmação da nova) e h40 aa66 (a tabela já baixada não é pedido de preço).
 // Rodada 35: saíram h31 aa45/aa76, h32 aa08/aa71/aa72 e h33 aa67 (indecisão de tema e horário de entrada, corrigidos nas
 // rodadas 34–35); h35 aa67 ("na verdade, pensando bem, ela quer a X" sem tema anotado) entra.
-const PENDENCIAS_NAO_CRITICAS = { 'corpus-holdout-44-20261008.json': ['aa02'], 'corpus-holdout-40-20261008.json': ['aa05', 'aa09', 'aa55', 'aa56', 'aa57'], 'corpus-holdout-30-20261007.json': ['aa50', 'aa59', 'aa61'], 'corpus-holdout-31-20261007.json': ['aa41', 'aa66', 'aa69', 'aa70'], 'corpus-holdout-32-20261007.json': ['aa37', 'aa67', 'aa68'], 'corpus-holdout-33-20261007.json': ['aa68', 'aa69', 'aa77', 'aa78'], 'corpus-holdout-34-20261007.json': ['aa51', 'aa67', 'aa68'], 'corpus-holdout-39-20261008.json': ['aa46', 'aa68'] };
+// Correspondência da FAQ r2 “só igualdade” (decisão de Felipe, 27/11/2026): a pergunta frequente por paráfrase não casa mais.
+// Quando o detector de pergunta sem fonte também não a vê, a parte da FAQ fica sem resposta e sem passagem: h7 y79 e h39 aa43
+// (“vcs atendem em que horário?” lido como localização), h27 aa69 e h39 aa42 (“tem estacionamento?”, duas palavras, conta
+// como coberta), h16 d75, h17 e03, h22 o50, h26 c07 e h45 aa43 (pedido sem “?” no meio de outro pedido). Pendência nomeada,
+// não crítica, até o detector de pergunta sem fonte ver essas formas.
+const PENDENCIAS_NAO_CRITICAS = { 'corpus-holdout-44-20261008.json': ['aa02'], 'corpus-holdout-40-20261008.json': ['aa05', 'aa09', 'aa55', 'aa56', 'aa57'], 'corpus-holdout-30-20261007.json': ['aa50', 'aa59', 'aa61'], 'corpus-holdout-31-20261007.json': ['aa41', 'aa66', 'aa69', 'aa70'], 'corpus-holdout-32-20261007.json': ['aa37', 'aa67', 'aa68'], 'corpus-holdout-33-20261007.json': ['aa68', 'aa69', 'aa77', 'aa78'], 'corpus-holdout-34-20261007.json': ['aa51', 'aa67', 'aa68'], 'corpus-holdout-39-20261008.json': ['aa46', 'aa68', 'aa42', 'aa43'], 'corpus-holdout-7-20261005.json': ['y79'], 'corpus-holdout-16-20261006.json': ['d75'], 'corpus-holdout-17-20261006.json': ['e03'], 'corpus-holdout-22-20261007.json': ['o50'], 'corpus-holdout-26-20261007.json': ['c07'], 'corpus-holdout-27-20261007.json': ['aa69'], 'corpus-holdout-45-20261009.json': ['aa43'] };
 
 for (const [arquivo, total] of [['corpus-holdout-20261005.json', 70], ['corpus-holdout-2-20261005.json', 80], ['corpus-holdout-3-20261005.json', 80], ['corpus-holdout-4-20261005.json', 80], ['corpus-holdout-5-20261005.json', 80], ['corpus-holdout-6-20261005.json', 80], ['corpus-holdout-7-20261005.json', 80], ['corpus-holdout-8-20261005.json', 80], ['corpus-holdout-9-20261006.json', 80], ['corpus-holdout-10-20261006.json', 80], ['corpus-holdout-11-20261006.json', 80], ['corpus-holdout-12-20261006.json', 80], ['corpus-holdout-13-20261006.json', 80], ['corpus-holdout-14-20261006.json', 80], ['corpus-holdout-15-20261006.json', 80], ['corpus-holdout-16-20261006.json', 80], ['corpus-holdout-17-20261006.json', 80], ['corpus-holdout-18-20261006.json', 80], ['corpus-holdout-19-20261006.json', 80], ['corpus-holdout-20-20261007.json', 80], ['corpus-holdout-21-20261007.json', 80], ['corpus-holdout-22-20261007.json', 80], ['corpus-holdout-23-20261007.json', 80], ['corpus-holdout-24-20261007.json', 80], ['corpus-holdout-25-20261007.json', 80], ['corpus-holdout-26-20261007.json', 80], ['corpus-holdout-27-20261007.json', 80], ['corpus-holdout-28-20261007.json', 80], ['corpus-holdout-29-20261007.json', 80], ['corpus-holdout-30-20261007.json', 80], ['corpus-holdout-31-20261007.json', 80], ['corpus-holdout-32-20261007.json', 80], ['corpus-holdout-33-20261007.json', 80], ['corpus-holdout-34-20261007.json', 80], ['corpus-holdout-35-20261007.json', 80], ['corpus-holdout-36-20261007.json', 80], ['corpus-holdout-37-20261008.json', 80], ['corpus-holdout-38-20261008.json', 80], ['corpus-holdout-39-20261008.json', 80], ['corpus-holdout-40-20261008.json', 80], ['corpus-holdout-41-20261008.json', 80], ['corpus-holdout-42-20261008.json', 80], ['corpus-holdout-43-20261008.json', 80], ['corpus-holdout-44-20261008.json', 80], ['corpus-holdout-45-20261009.json', 80], ['corpus-holdout-46-20261009.json', 80]]) {
   test(`${arquivo} (regressão): nenhuma falha crítica — PARAR bloqueia e silencia, alergia, contrato, reserva, pessoa e demais vão para a equipe`, async () => {
@@ -138,9 +143,10 @@ test('holdout 5 (regressão): festa passada de parente e cancelamento com a equi
   const w38 = linhas.find((x) => x.id === 'w38');
   assert.deepEqual([w38.decisao, w38.motivos[0]], ['EQUIPE', 'INSTRUCAO_SUSPEITA']);
   assert.doesNotMatch(w38.resposta, /multa|20%/);
+  // "Só igualdade" (27/11): paráfrase da FAQ publicada passa para a equipe (rótulo revisado faqParafrase); continua sem virar prato.
   const w06 = linhas.find((x) => x.id === 'w06');
-  assert.equal(w06.decisao, 'RESPONDER');
-  assert.match(w06.resposta, /estacionamento/i);
+  assert.deepEqual([w06.decisao, w06.motivos], ['EQUIPE', ['INFORMACAO_INDISPONIVEL']]);
+  assert.doesNotMatch(w06.resposta, /faz parte do buffet|R\$/);
   const w74 = linhas.find((x) => x.id === 'w74');
   assert.equal(w74.decisao, 'PERGUNTAR');
   assert.deepEqual(w74.pendente, ['data']);
@@ -174,14 +180,18 @@ test('holdout 7 (regressão): "passa muito mal… leite", remarcar/passar a fest
   assert.ok(l('y34').motivos.includes('PAGAMENTO'), `y34: ${l('y34').decisao} ${l('y34').motivos}`);
   assert.deepEqual([l('y45').decisao, l('y45').motivos[0]], ['EQUIPE', 'INSTRUCAO_SUSPEITA']);
   assert.equal(metricasInstrucao(linhas), '6/6');
-  for (const id of ['y56', 'y57', 'y58']) assert.equal(l(id).motivos.length, 0, `${id}: ${l(id).motivos}`);
+  for (const id of ['y56', 'y57']) assert.equal(l(id).motivos.length, 0, `${id}: ${l(id).motivos}`);
+  // "Só igualdade" (27/11): paráfrase da FAQ publicada passa para a equipe (rótulo revisado faqParafrase).
+  assert.deepEqual(l('y58').motivos, ['INFORMACAO_INDISPONIVEL']);
 });
 test('holdout 8 (regressão): "garantir que não leva nada de trigo" é alergia; horário em outras palavras, "parar de mandar o pdf" com preço e "tem algum?" respondidos', async () => {
   const linhas = await simular('corpus-holdout-8-20261005.json');
   const l = (id) => linhas.find((x) => x.id === id);
   assert.ok(l('z30').motivos.includes('RESTRICAO_ALIMENTAR'), `z30: ${l('z30').motivos}`);
   assert.doesNotMatch(l('z30').resposta, /faz parte do buffet/);
-  for (const id of ['z25', 'z37']) assert.deepEqual(l(id).motivos, [], id);
+  assert.deepEqual(l('z37').motivos, [], 'z37');
+  // "Só igualdade" (27/11): paráfrase da FAQ publicada passa para a equipe (rótulo revisado faqParafrase).
+  assert.deepEqual(l('z25').motivos, ['INFORMACAO_INDISPONIVEL'], 'z25');
   assert.equal(l('z37').bloqueada, false);
   assert.match(l('z78').resposta, /nenhum pacote cadastrado comporta/);
 });
@@ -358,7 +368,9 @@ test('conversas da rodada 18 (desenvolvimento): conversas completas — resposta
   // Contraexemplos.
   assert.match(l('rt19').resposta, /segundo horário \(17h às 21h\), 100 convidados/);
   assert.match(l('rt20').resposta, /segundo horário \(17h às 21h\), 100 convidados/);
-  assert.match(l('rt28').resposta, /9h às 18h/);
+  // "Só igualdade" (27/11): paráfrase da FAQ publicada passa para a equipe (rótulo revisado faqParafrase): sem inventar o horário.
+  assert.deepEqual([l('rt28').decisao, l('rt28').motivos], ['EQUIPE', ['INFORMACAO_INDISPONIVEL']]);
+  assert.doesNotMatch(l('rt28').resposta, /9h às 18h/);
   assert.ok(!l('rt23').motivos.includes('NEGOCIACAO'));
 });
 

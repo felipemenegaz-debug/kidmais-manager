@@ -423,7 +423,9 @@ test('PARAR pelo modelo: com outro pedido é ambíguo (equipe, em silêncio); tr
 test('pergunta sem fonte no caminho do modelo: um trecho que cobre a mensagem inteira não esconde a pergunta sem resposta', () => {
   const t = 'la tem acessibilidade pra cadeirante? minha vó vai e ela nao anda. e estacionamento tem?';
   const e = revalidarEntendimento(saidaModelo([{ tipo: 'DUVIDA', trecho: t, perguntaId: 'estacionamento', tema: null }]), t, catalogos);
-  assert.deepEqual(e.semFonte, ['la tem acessibilidade pra cadeirante']);
+  // "Só igualdade" (Felipe, 27/11/2026): "e estacionamento tem" não é igual à FAQ publicada, então também fica sem fonte (passagem segura), mesmo com
+  // a FAQ escolhida pelo modelo (o classificador do modelo não muda nesta fatia).
+  assert.deepEqual(e.semFonte, ['la tem acessibilidade pra cadeirante', 'e estacionamento tem']);
 });
 
 test('o modelo não desfaz um PARAR das regras', () => {
@@ -457,8 +459,10 @@ test('casos críticos restantes: alergia indireta, festa já contratada sem "min
 test('perguntas frequentes pela resposta publicada e por vocabulário comum; contrato com várias perguntas responde cada tema', async () => {
   const comResposta: Catalogos = { ...catalogos, perguntas: [{ id: 'estacionamento', pergunta: 'Vocês têm estacionamento próprio?', resposta: 'Sim, estacionamento gratuito no local.' }, { id: 'horario', pergunta: 'Qual é o horário de atendimento?', resposta: 'De terça a domingo, das 9h às 18h.' }] };
   const faq = (t: string) => entenderPorRegras(t, comResposta).intencoes.filter((i) => i.tipo === 'DUVIDA').map((i) => i.perguntaId);
-  assert.deepEqual(faq('tem onde parar o carro ai ou é so na rua? kkk'), ['estacionamento']);
-  assert.deepEqual(faq('e o horario de atendimento de vcs? sabado vcs abrem?'), ['horario']);
+  // "Só igualdade" (Felipe, 27/11/2026): só a pergunta igual à publicada; paráfrase e vocabulário comum não escolhem a FAQ.
+  assert.deepEqual(faq('tem onde parar o carro ai ou é so na rua? kkk'), []);
+  assert.deepEqual(faq('e o horario de atendimento de vcs? sabado vcs abrem?'), []);
+  assert.deepEqual(faq('vocês têm estacionamento próprio? qual é o horário de atendimento?'), ['estacionamento', 'horario']);
   assert.deepEqual(faq('vcs atendem em aguas claras?'), []);
   const temas = entenderPorRegras('criança de 4 anos entra na contagem de convidados? pode levar cerveja? e lança-confete é liberado?', catalogos).intencoes.filter((i) => i.tipo === 'CONTRATO').map((i) => i.tema);
   assert.deepEqual(temas, ['CORTESIA', 'BEBIDAS', 'LIMPEZA']);
@@ -548,9 +552,13 @@ test('rodada 4 — item ou fornecedor de fora: só com regra publicada; sem ela,
   assert.equal(r.passagem?.motivo, 'INFORMACAO_INDISPONIVEL');
   // Com a regra publicada (pergunta frequente sobre o bolo de fora), responde por ela e não passa.
   const perguntas = [...config.perguntas, { id: 'bolo-fora', pergunta: 'Posso levar bolo de fora?', resposta: 'Pode trazer o bolo; a taxa de serviço é cobrada à parte.' }];
-  const comRegra = await conversaCom({ ...catalogos, perguntas }, { ...config, perguntas }, ['posso levar o bolo da minha tia?']);
+  const comRegra = await conversaCom({ ...catalogos, perguntas }, { ...config, perguntas }, ['posso levar bolo de fora?']);
   assert.match(texto(comRegra.ultima), /Pode trazer o bolo/);
   assert.equal(comRegra.ultima.passagem, null);
+  // "Só igualdade" (Felipe, 27/11/2026): com outras palavras, a regra publicada não é escolhida e o bolo de fora continua com a equipe.
+  const parafrase = await conversaCom({ ...catalogos, perguntas }, { ...config, perguntas }, ['posso levar o bolo da minha tia?']);
+  assert.doesNotMatch(texto(parafrase.ultima), /Pode trazer o bolo/);
+  assert.equal(parafrase.ultima.passagem?.motivo, 'INFORMACAO_INDISPONIVEL');
   const foto = (await conversa(['o fotografo pode ser o nosso ou tem q ser o de vcs?'])).ultima;
   assert.match(texto(foto), /Sobre fotógrafo de fora: ainda não tenho essa regra cadastrada/);
   assert.equal(foto.passagem?.motivo, 'INFORMACAO_INDISPONIVEL');
@@ -640,8 +648,9 @@ test('rodada 4 — orçamento pede o que falta; "não manda o PDF" sem material;
 test('rodada 4 — caminho do modelo: FAQ sem id pelas regras; contratação e negociação validadas pelo trecho; número por extenso; continuação; item de fora', () => {
   const t1 = 'e onde eu deixo o carro? tem lugar ai perto?';
   const e1 = revalidarEntendimento(saidaModelo([{ tipo: 'DUVIDA', trecho: 'onde eu deixo o carro', perguntaId: null, tema: null }]), t1, catalogos);
-  assert.deepEqual(e1.intencoes.map((i) => [i.tipo, i.perguntaId]), [['DUVIDA', 'estacionamento']]);
-  assert.deepEqual(e1.semFonte, []);
+  // "Só igualdade" (Felipe, 27/11/2026): as regras não acham FAQ para "onde eu deixo o carro"; a dúvida fica sem id e as perguntas, sem fonte.
+  assert.deepEqual(e1.intencoes.map((i) => [i.tipo, i.perguntaId]), [['DUVIDA', null]]);
+  assert.ok((e1.semFonte ?? []).length > 0, JSON.stringify(e1.semFonte));
   const t2 = 'vcs tem o dia 24/10 a noite livre ainda? queria fazer o niver do meu filho ai';
   const e2 = revalidarEntendimento(saidaModelo([{ tipo: 'DISPONIBILIDADE', trecho: 'vcs tem o dia 24/10 a noite livre ainda', perguntaId: null, tema: null }, { tipo: 'CONTRATAR', trecho: 'queria fazer o niver do meu filho ai', perguntaId: null, tema: null }]), t2, catalogos);
   assert.deepEqual(e2.intencoes.map((i) => i.tipo), ['DISPONIBILIDADE']);
@@ -733,9 +742,9 @@ test('rodada 6 — "aqui é o dono/a gerente", "avisar aos clientes", "fala pro 
 });
 
 test('rodada 6 — "aí no buffet" é o lugar (estacionamento sem prato nem cardápio); prato fora do buffet antes do "pra"', async () => {
+  // "Só igualdade" (Felipe, 27/11/2026): a paráfrase da FAQ de estacionamento vai para a equipe; continua sem prato nem cardápio.
   const r = (await conversa(['tem onde deixar o carro aí no buffet?'])).ultima;
-  assert.equal(r.passagem, null);
-  assert.match(texto(r), /estacionamento/i);
+  assert.equal(r.passagem?.motivo, 'INFORMACAO_INDISPONIVEL');
   assert.doesNotMatch(texto(r), /buffet cadastrado|pacote/);
   assert.equal(pratoSemCadastro('tem onde deixar o carro ai no buffet?', ['Coxinha']), null);
   assert.ok(entenderPorRegras('o que vcs servem aí no buffet?', catalogos).intencoes.some((i) => i.tipo === 'CARDAPIO'));
@@ -884,9 +893,13 @@ test('rodada 9 — horário em outras palavras, "pode parar de mandar o pdf" com
   const horario = { id: 'horario', pergunta: 'Qual é o horário de atendimento?', resposta: 'Terça a domingo, das 9h às 18h.' };
   const cfg = { ...config, perguntas: [...config.perguntas, horario] };
   const cat = { ...catalogos, perguntas: [...catalogos.perguntas, horario] };
+  // "Só igualdade" (Felipe, 27/11/2026): horário em outras palavras não escolhe a FAQ (vai para a equipe); a pergunta igual continua respondida.
   const hor = (await conversaCom(cat, cfg, ['vcs atendem segunda? e fecham q horas?'])).ultima;
-  assert.equal(hor.passagem, null);
-  assert.match(texto(hor), /Terça a domingo/);
+  assert.equal(hor.passagem?.motivo, 'INFORMACAO_INDISPONIVEL');
+  assert.doesNotMatch(texto(hor), /Terça a domingo/);
+  const igual = (await conversaCom(cat, cfg, ['qual é o horário de atendimento?'])).ultima;
+  assert.equal(igual.passagem, null);
+  assert.match(texto(igual), /Terça a domingo/);
   const pdf = (await conversa(['pode parar de mandar o pdf, já recebi rs. quanto fica o premium pra 120 pessoas dia 5/12/2026 à noite?'])).ultima;
   assert.equal(pdf.passagem, null);
   assert.equal(pdf.saidas.some((s) => s.anexo), false);
@@ -1404,8 +1417,9 @@ test('rodada 18 — textos ao cliente: sem horário fora de contexto, sem pedido
     assert.doesNotMatch(texto(r), /9h às 18h/, `${t}: horário fora de contexto`);
   }
   assert.match(texto((await conversaCom(CAT_HORARIO, CFG_HORARIO, ['ah e a festa da minha cunhada aí sábado passado, ela já pagou tudo?'])).ultima), /^Por segurança, não consulto nem informo dados de contratos ou pagamentos por aqui\./);
-  // A pergunta do horário continua respondida pela pergunta frequente publicada.
-  for (const t of ['vcs abrem domingo?', 'qual o horário de atendimento?']) assert.match(texto((await conversaCom(CAT_HORARIO, CFG_HORARIO, [t])).ultima), /9h às 18h/, t);
+  // A pergunta do horário igual à publicada continua respondida; em outras palavras, vai para a equipe ("Só igualdade" (Felipe, 27/11/2026)).
+  assert.doesNotMatch(texto((await conversaCom(CAT_HORARIO, CFG_HORARIO, ['vcs abrem domingo?'])).ultima), /9h às 18h/);
+  for (const t of ['Qual é o horário de atendimento?', 'qual e o horario de atendimento']) assert.match(texto((await conversaCom(CAT_HORARIO, CFG_HORARIO, [t])).ultima), /9h às 18h/, t);
   assert.doesNotMatch(texto((await conversaCom(CAT_HORARIO, CFG_HORARIO, ['o atendimento de vcs é ótimo, obrigada'])).ultima), /9h às 18h/);
 });
 // ---------------------------------------------------------------- rodada 19
@@ -1453,7 +1467,13 @@ test('rodada 19 — "abre uma exceção?" não é horário; sem tabela, lista de
   const excecao = (await conversaCom(CAT_HORARIO, CFG_HORARIO, ['premium pra 170 pessoas, abre uma exceção?'])).ultima;
   assert.ok(excecao.passagem?.motivos.includes('NEGOCIACAO'));
   assert.doesNotMatch(texto(excecao), /9h às 18h/);
-  for (const t of ['vcs abrem segunda?', 'vcs abrem q dias?', 'que horas vcs abrem?']) assert.match(texto((await conversaCom(CAT_HORARIO, CFG_HORARIO, [t])).ultima), /9h às 18h/, t);
+  // "Só igualdade" (Felipe, 27/11/2026): horário em outras palavras vai para a equipe, sem inventar o horário.
+  for (const t of ['vcs abrem segunda?', 'vcs abrem q dias?', 'que horas vcs abrem?']) {
+    const r = (await conversaCom(CAT_HORARIO, CFG_HORARIO, [t])).ultima;
+    assert.doesNotMatch(texto(r), /9h às 18h/, t);
+    assert.equal(r.passagem?.motivo, 'INFORMACAO_INDISPONIVEL', t);
+  }
+  assert.match(texto((await conversaCom(CAT_HORARIO, CFG_HORARIO, ['Qual é o horário de atendimento?'])).ultima), /9h às 18h/);
   for (const t of ['qto é a taxa pra usar chuva de prata no parabéns?', 'não precisa mandar o pdf de novo. se o pessoal levar cerveja tem taxa? e se passar do horário quanto é?', 'quanto é o sinal pra segurar o dia 23/01?',
     'se eu tirar o kibe do pacote fica mais barato?', 'consegue um descontinho no completa?', 'a coxinha vem em todos os pacotes?', 'dá pra aumentar de 60 pra 75 convidados na minha festa do dia 17? vai ficar quanto?']) {
     // Itens do buffet cadastrados (CAT_BUFFET): "a coxinha vem em todos os pacotes?" é pergunta do cardápio.
@@ -2313,7 +2333,7 @@ test('rodada 32 — visita marcada × festa contratada: só a visita sem âncora
   assert.match(texto(r8), /maps\.example\.test\/aguas-claras/, 'aa08: o mapa da unidade pedida');
   assert.match(texto(r8), /Agendamentos de visita eu não consulto nem altero por aqui\./);
   assert.doesNotMatch(texto(r8), /dados de contratos/);
-  for (const t of ['agendei uma visita pra sábado, qual o endereço da asa sul?', 'vamos conhecer o salão semana que vem, vocês têm estacionamento?', 'tenho visita marcada amanhã, quanto custa o essencial pra 40 no dia 21/11 no almoço?']) {
+  for (const t of ['agendei uma visita pra sábado, qual o endereço da asa sul?', 'vamos conhecer o salão semana que vem. Vocês têm estacionamento próprio?', 'tenho visita marcada amanhã, quanto custa o essencial pra 40 no dia 21/11 no almoço?']) {
     const { r } = await viaModelo(t, [intencao('CONTRATO_PROPRIO', t)]);
     assert.deepEqual(r.cuidadosAfastados, [{ tipo: 'CONTRATO_PROPRIO', criterio: 'VISITA_MARCADA' }], t);
     assert.doesNotMatch(texto(r), /dados de contratos/, t);
@@ -2553,9 +2573,13 @@ test('rodada 34 — horário de entrada dos convidados × horário de atendiment
   const c = await conversaCom(CAT34, CFG34, ['quanto fica o completa pra 70 dia 21/11 a noite?', 'e a entrada dos convidados começa que horas?']);
   assert.match(texto(c.ultima), /No noite \(17h às 21h\), a entrada dos convidados é a partir das 17h|a partir das 17h/);
   assert.doesNotMatch(texto(c.ultima), /9h às 18h/);
-  // Horário de atendimento continua a pergunta frequente.
-  for (const t of ['vcs atendem até que horas?', 'o atendimento de vcs funciona no sábado?', 'o pessoal do atendimento trabalha até que horas?'])
-    assert.match(texto((await conversaCom(CAT34, CFG34, [t])).ultima), /9h às 18h/, t);
+  // Horário de atendimento continua a pergunta frequente quando igual à publicada; em outras palavras vai para a equipe ("Só igualdade" (Felipe, 27/11/2026)).
+  assert.match(texto((await conversaCom(CAT34, CFG34, ['Qual é o horário de atendimento?'])).ultima), /9h às 18h/);
+  for (const t of ['vcs atendem até que horas?', 'o atendimento de vcs funciona no sábado?', 'o pessoal do atendimento trabalha até que horas?']) {
+    const r = (await conversaCom(CAT34, CFG34, [t])).ultima;
+    assert.doesNotMatch(texto(r), /9h às 18h|entrada dos convidados/, t);
+    assert.equal(r.passagem?.motivo, 'INFORMACAO_INDISPONIVEL', t);
+  }
   // "Entrada" como pagamento ou lugar não é horário de entrada.
   for (const t of ['quanto é a entrada? pode ser no pix?', 'dá pra decorar a entrada do salão?'])
     assert.doesNotMatch(texto((await conversaCom(CAT34, CFG34, [t])).ultima), /entrada dos convidados/, t);
@@ -4471,12 +4495,18 @@ test('período pela hora: faixa e hora de início escolhem o turno exato entre t
 test('formas de pagamento na pré-venda: resposta cadastrada sem passar; sem ela, a equipe com frase de pré-venda; pedido ou aviso igual', async () => {
   const cfgPag: ConfiguracaoAtendimento = { ...config, perguntas: [...config.perguntas, { id: 'pagamento', pergunta: 'Quais as formas de pagamento?', resposta: 'Pix, cartão em até 10x ou boleto.' }] };
   const catPag: Catalogos = { ...catalogos, perguntas: [...catalogos.perguntas, { id: 'pagamento', pergunta: 'Quais as formas de pagamento?' }] };
-  for (const t of ['Formas de pagamento', 'quais as formas de pagamento?']) {
+  // "Só igualdade" (27/11): a FAQ responde só a pergunta igual à cadastrada (caixa, acento e pontuação à parte).
+  for (const t of ['Quais as formas de pagamento?', 'quais as formas de pagamento']) {
     const r = (await conversaCom(catPag, cfgPag, [t])).ultima;
     assert.match(texto(r), /Pix, cartão em até 10x ou boleto\./, t);
     assert.doesNotMatch(texto(r), /de uma festa|Vou passar/, t);
     assert.ok(!r.passagem, t);
   }
+  // Paráfrase da FAQ cadastrada ("Formas de pagamento") não casa: segue como pergunta de pagamento sem resposta, com a equipe.
+  const parafrase = (await conversaCom(catPag, cfgPag, ['Formas de pagamento'])).ultima;
+  assert.match(texto(parafrase), /As formas e condições de pagamento são combinadas com a equipe na contratação\./);
+  assert.doesNotMatch(texto(parafrase), /Pix, cartão em até 10x ou boleto\.|de uma festa/);
+  assert.equal(parafrase.passagem?.motivo, 'PAGAMENTO');
   for (const t of ['Formas de pagamento', 'aceitam cartão?', 'vcs parcelam?']) {
     const r = (await conversa([t])).ultima;
     assert.match(texto(r), /As formas e condições de pagamento são combinadas com a equipe na contratação\./, t);
@@ -4484,7 +4514,7 @@ test('formas de pagamento na pré-venda: resposta cadastrada sem passar; sem ela
     assert.equal(r.passagem?.motivo, 'PAGAMENTO', t);
   }
   // Pergunta cadastrada de outro assunto na mesma mensagem não dispensa a equipe para o pagamento.
-  const misto = (await conversaCom(catPag, cfgPag, ['aceitam cartão? tem estacionamento?'])).ultima;
+  const misto = (await conversaCom(catPag, cfgPag, ['aceitam cartão? Vocês têm estacionamento próprio?'])).ultima;
   assert.match(texto(misto), /Sim, estacionamento gratuito no local\./);
   assert.match(texto(misto), /As formas e condições de pagamento são combinadas com a equipe na contratação\./);
   assert.equal(misto.passagem?.motivo, 'PAGAMENTO');
