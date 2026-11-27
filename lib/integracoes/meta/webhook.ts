@@ -106,7 +106,11 @@ const valorEcos = z.object({
   metadata: z.object({ phone_number_id: idMeta }),
   message_echoes: z.array(z.unknown()).max(100).optional(),
 });
-const eco = z.object({ from: z.string().regex(/^\d{8,15}$/).optional().catch(undefined), to: z.string().regex(/^\d{8,15}$/), id: z.string().min(1).max(512), timestamp: segundos, type: z.string().max(64), text: z.object({ body: z.unknown() }).optional().catch(undefined) });
+// R1-4 (Astra, código r1): U+0000 não cabe num parâmetro de texto do PostgreSQL. Um eco com ele no id é descartado e, no
+// corpo, vira conteúdo sem texto; sem isso o lote inteiro falharia (503) e a Meta repetiria o mesmo item para sempre.
+const semNulo = (s: string) => !s.includes('\u0000');
+const eco = z.object({ from: z.string().regex(/^\d{8,15}$/).optional().catch(undefined), to: z.string().regex(/^\d{8,15}$/), id: z.string().min(1).max(512).refine(semNulo), timestamp: segundos, type: z.string().max(64), text: z.object({ body: z.unknown() }).optional().catch(undefined) });
+const textoEco = (tipo: string, corpo: unknown) => (typeof corpo === 'string' && !semNulo(corpo) ? null : textoOuNulo(tipo, corpo));
 const textoOuNulo = (tipo: string, corpo: unknown) => {
   const t = tipo === 'text' && typeof corpo === 'string' ? corpo.trim() : '';
   return t.length >= 1 && t.length <= 4000 ? t : null;
@@ -133,7 +137,7 @@ export function eventosMeta(valor: unknown): Required<EventosMeta> | null {
       for (const item of v.data.message_echoes ?? []) {
         const e = eco.safeParse(item);
         if (!e.success) continue;
-        eventos.ecos.push({ phoneNumberId, wabaId, id: e.data.id, contato: e.data.to, texto: textoOuNulo(e.data.type, e.data.text?.body), timestamp: Number(e.data.timestamp) * 1000 });
+        eventos.ecos.push({ phoneNumberId, wabaId, id: e.data.id, contato: e.data.to, texto: textoEco(e.data.type, e.data.text?.body), timestamp: Number(e.data.timestamp) * 1000 });
       }
       continue;
     }

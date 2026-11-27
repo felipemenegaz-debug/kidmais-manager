@@ -222,6 +222,13 @@ export const JANELA_ECO_DIAS = JANELA_REENTREGA_DIAS - 1;
  * custo real é de até cerca de 3 s: um eco enviado até ~3 s depois de uma exclusão é descartado (só o hash). Aceito.
  */
 export const MARGEM_CORTE_MS = 2000;
+/**
+ * Desvio futuro admissível do horário do eco (R1-2, Astra código r1): eco com t > agora + DESVIO_FUTURO_MS é descartado
+ * (NADA, nem hash) antes da decisão. Igual à margem do corte: um eco aceito com relógio adiantado em até isso e enviado
+ * antes de uma exclusão tem t <= excluido_em + MARGEM_CORTE_MS e é cortado. Premissa: o timestamp é do servidor da Meta;
+ * um adiantamento maior só não é visto se a entrega atrasar mais que o próprio adiantamento.
+ */
+export const DESVIO_FUTURO_MS = MARGEM_CORTE_MS;
 /** Hash do id do eco (R4-2): o MESMO valor que a exclusão calcula em SQL (encode(sha256(convert_to('eco:' || id,'UTF8')),'hex')). */
 export const hashEco = (id: string) => createHash('sha256').update('eco:' + id, 'utf8').digest('hex');
 /** Corte por contato gravado na exclusão (R5-1): só o hash e a hora, nunca o contato. */
@@ -240,26 +247,35 @@ export type DecisaoEco = 'MENSAGEM' | 'SO_HASH' | 'NADA';
  * Guardas iguais às de receberEntrada (chave própria desligada, contato fora da lista, empresa suspensa ou sem o recurso:
  * confirma sem gravar) e exige a 082 (fonte, hashes e corte): sem ela, confirma sem gravar nada (R3-4).
  *
- * Travas: provedor (R5-2) → contato → conversa FOR UPDATE. Depois delas, UMA instrução com CTEs MATERIALIZED que leem
- * clock_timestamp() uma vez e decidem (requisito 1 da Astra r6):
- *  - fora da janela de JANELA_ECO_DIAS (igualdade exata incluída) ou já visto (hash eco: ou mensagem da conversa): NADA;
+ * Travas: empresa (FOR KEY SHARE, R1-3: a mesma ordem da exclusão e da retenção; sem ela, a chave estrangeira do INSERT
+ * esperaria a empresa travada pela exclusão a pedido, que espera a conversa: deadlock) → conexão do número (FOR SHARE,
+ * R1-1: o número precisa ser da empresa, CONFIGURADO, no instante da gravação; uma desconexão em curso termina antes e o
+ * eco é descartado) → provedor (R5-2) → contato → conversa FOR UPDATE. Depois delas, UMA instrução com CTEs MATERIALIZED
+ * que leem clock_timestamp() uma vez e decidem (requisito 1 da Astra r6):
+ *  - fora da janela de JANELA_ECO_DIAS (igualdade exata incluída), adiantado além de DESVIO_FUTURO_MS (R1-2) ou já visto
+ *    (hash eco: ou mensagem da conversa): NADA;
  *  - conversa existente e sem corte posterior ao eco (excluido_em >= t_eco - MARGEM_CORTE_MS): MENSAGEM;
  *  - sem conversa, ou com corte: SO_HASH (o hash eco: impede que um retry entre numa conversa recriada, R3-2/R5-1).
  * Premissa declarada (R5-2): o id da Meta é único por mensagem. Defesa: id que já é de uma saída da API não grava nada.
  */
-export async function receberEco(eco: Eco, opcoes: { empresa?: string; env?: NodeJS.ProcessEnv } = {}): Promise<DecisaoEco> {
+export async function receberEco(eco: Eco, opcoes: { empresa?: string; numero?: { phoneNumberId: string; wabaId: string }; env?: NodeJS.ProcessEnv } = {}): Promise<DecisaoEco> {
   if (!ecosMetaAtivos(opcoes.env)) return 'NADA';
-  const empresa = opcoes.empresa, ambiente = ambienteAtendimento();
-  if (!empresa) return 'NADA';
+  const empresa = opcoes.empresa, numero = opcoes.numero;
+  if (!empresa || !numero || !/^[0-9]{1,32}$/.test(numero.phoneNumberId) || !/^[0-9]{1,32}$/.test(numero.wabaId)) return 'NADA';
+  if (typeof eco.id !== 'string' || !eco.id.length || eco.id.length > 512 || eco.id.includes('\u0000')) return 'NADA';
   if (!/^\d{8,15}$/.test(eco.contato) || !contatoPermitido(eco.contato)) return 'NADA';
-  if (typeof eco.id !== 'string' || !eco.id.length || eco.id.length > 512) return 'NADA';
   if (eco.texto !== null && (typeof eco.texto !== 'string' || eco.texto.length > 4000)) return 'NADA';
+  // R1-4: defesa além do parser. U+0000 no corpo = conteúdo sem texto (o PostgreSQL recusaria o parâmetro).
+  if (eco.texto?.includes('\u0000')) eco = { ...eco, texto: null };
   // Atalho só para não abrir a transação: a decisão que vale é a do banco, depois das travas (JANELA_ECO_DIAS).
   if (!Number.isSafeInteger(eco.timestamp) || eco.timestamp < 0 || eco.timestamp < Date.now() - JANELA_REENTREGA_DIAS * 86_400_000) return 'NADA';
+  const ambiente = ambienteAtendimento();
   return withTransaction(async (tx): Promise<DecisaoEco> => {
     if (!(await temControlesPrivacidade(tx))) return 'NADA';
-    if (!(await tx.query("SELECT id FROM empresas WHERE id=$1 AND status='ATIVA'", [empresa])).rows.length) return 'NADA';
+    if (!(await tx.query("SELECT id FROM empresas WHERE id=$1 AND status='ATIVA' FOR KEY SHARE", [empresa])).rows.length) return 'NADA';
     if (!(await empresaOperaAtendimento(tx, empresa, { piloto: pilotoOpcional(empresaPiloto), ambiente }))) return 'NADA';
+    if (!(await tx.query("SELECT 1 FROM whatsapp_conexoes WHERE ambiente=$1 AND empresa_id=$2::uuid AND phone_number_id=$3 AND waba_id=$4 AND status='CONFIGURADA' FOR SHARE",
+      [ambiente === 'production' ? 'PRODUCTION' : 'STAGING', empresa, numero.phoneNumberId, numero.wabaId])).rows.length) return 'NADA';
     await travarProvedor(tx, ambiente, eco.id);
     await tx.query('SELECT pg_advisory_xact_lock(hashtextextended($1,0))', [`wa:${ambiente}:${empresa}:${eco.contato}`]);
     if ((await saidasDoIdentificador(tx, ambiente, eco.id)).length) { await marcarEcoComIdDeSaida(tx, ambiente, eco.id); return 'NADA'; }
@@ -269,7 +285,7 @@ export async function receberEco(eco: Eco, opcoes: { empresa?: string; env?: Nod
         SELECT clock_timestamp() AS agora, to_timestamp($5::bigint / 1000.0) AS t),
       d AS MATERIALIZED (
         SELECT r.agora, r.t,
-          r.t > r.agora - make_interval(days => $9::int) AS dentro_da_janela,
+          (r.t > r.agora - make_interval(days => $9::int) AND r.t <= r.agora + make_interval(secs => $12::double precision / 1000.0)) AS dentro_da_janela,
           EXISTS (SELECT 1 FROM whatsapp_atendimento_eventos_excluidos x WHERE x.empresa_id=$1 AND x.ambiente=$2 AND x.provedor='GUPSHUP' AND x.evento_sha256=$8
             AND x.excluido_em >= r.t - make_interval(secs => $10::double precision / 1000.0)) AS cortado,
           EXISTS (SELECT 1 FROM whatsapp_atendimento_eventos_excluidos x WHERE x.empresa_id=$1 AND x.ambiente=$2 AND x.provedor='GUPSHUP' AND x.evento_sha256=$7) AS hash_existente,
@@ -287,7 +303,7 @@ export async function receberEco(eco: Eco, opcoes: { empresa?: string; env?: Nod
         INSERT INTO whatsapp_atendimento_eventos_excluidos(empresa_id,ambiente,provedor,evento_sha256)
         SELECT $1,$2,'GUPSHUP',$7 FROM decisao WHERE decisao.decisao='SO_HASH' ON CONFLICT DO NOTHING RETURNING 1)
       SELECT decisao.decisao, (SELECT count(*)::int FROM mensagem) AS mensagens, (SELECT count(*)::int FROM hash) AS hashes FROM decisao`,
-      [empresa, ambiente, conversa?.id ?? null, eco.id, eco.timestamp, eco.texto, hashEco(eco.id), hashCorte(eco.contato), JANELA_ECO_DIAS, MARGEM_CORTE_MS, conversa?.versao ?? 0])).rows[0];
+      [empresa, ambiente, conversa?.id ?? null, eco.id, eco.timestamp, eco.texto, hashEco(eco.id), hashCorte(eco.contato), JANELA_ECO_DIAS, MARGEM_CORTE_MS, conversa?.versao ?? 0, DESVIO_FUTURO_MS])).rows[0];
     return r.decisao;
   });
 }

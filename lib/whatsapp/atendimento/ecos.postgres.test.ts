@@ -1,12 +1,13 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { randomBytes, randomUUID } from "node:crypto";
+import { createHmac, randomBytes, randomUUID } from "node:crypto";
+import { SIGNATURE_HEADER, receberWebhookMeta } from "../../integracoes/meta/webhook.ts";
 import { hashCorte, hashEco } from "./service.ts";
 import { setTimeout as esperar } from "node:timers/promises";
 import { readFileSync } from "node:fs";
 import { conectarDescartavel } from "../../comercial/postgres-descartavel.ts";
 import { carregarComponente } from "../../../components/admin/teste-componente.ts";
-import { carregarAtendimento, cod, db, transporteSemRede, withTransaction } from "./harness-postgres.ts";
+import { carregarAtendimento, cod, db, noPrazo, transporteSemRede, withTransaction } from "./harness-postgres.ts";
 import * as credencial from "../credencial.ts";
 import * as core from "./core.ts";
 import * as configuracaoReal from "./configuracao.ts";
@@ -68,6 +69,18 @@ test("ecos do app WhatsApp Business: histórico sem mudar estado, corte, janela,
       await q(readFileSync("database/checks/20261123_135_postcheck.sql", "utf8"));
     }
     const id = async (sql: string, v: unknown[]) => (await q(sql, v)).rows[0].id as string;
+    // R1-1: o eco só grava com o número CONFIGURADO da empresa (conferido sob trava). Cada empresa sintética recebe uma
+    // conexão própria (credencial sintética: ninguém decifra aqui; o envio do harness é injetado).
+    const temConexoes = (await q("SELECT 1 FROM information_schema.columns WHERE table_name='whatsapp_conexoes' AND column_name='empresa_id'")).rows.length > 0;
+    let seqNumero = 0;
+    async function conectar(e: string, usuario: string, numero: string, waba: string) {
+      await q(`WITH instante AS (SELECT clock_timestamp() AS agora)
+        INSERT INTO whatsapp_conexoes(ambiente,empresa_id,meta_app_id,business_id,waba_id,phone_number_id,numero_exibicao,nome_verificado,coexistencia_confirmada,status,escopos,credencial_cifrada,credencial_iv,credencial_tag,credencial_chave_versao,token_tipo,token_expira_em,meta_validada_em,criada_por_usuario_id,sessao_referencia_id,criada_em,atualizada_em)
+        SELECT 'STAGING',$1::uuid,'1622943079270352','1591095999057604',$2,$3,'+55 61 90000-0000','Buffet sintético',true,'CONFIGURADA',ARRAY['whatsapp_business_messaging'],$4,$5,$6,1,'bearer',NULL,agora,$7::uuid,$8::uuid,agora,agora FROM instante`,
+        [e, waba, numero, randomBytes(48), randomBytes(12), randomBytes(16), usuario, randomUUID()]);
+    }
+    const desconectar = (e: string, usuario: string, cx: { query: typeof q } = { query: q }) =>
+      cx.query("UPDATE whatsapp_conexoes SET status='DESCONECTADA',desconectada_em=clock_timestamp(),desconectada_por_usuario_id=$2,motivo_desconexao='revogação sintética',revisao=revisao+1,atualizada_em=clock_timestamp() WHERE empresa_id=$1 AND status='CONFIGURADA'", [e, usuario]);
     async function empresa(rotulo: string, config: Record<string, unknown> = {}) {
       const e = await id(`INSERT INTO empresas (codigo, nome, status) VALUES ($1, $2, 'PROVISIONAMENTO') RETURNING id`, [cod("ec"), `Empresa sintética ${rotulo} (ecos)`]);
       await q(`UPDATE empresas SET status = 'ATIVA' WHERE id = $1::uuid`, [e]);
@@ -83,13 +96,16 @@ test("ecos do app WhatsApp Business: histórico sem mudar estado, corte, janela,
         "./service.ts": h.servico, "./configuracao.ts": { ambienteAtendimento: () => "staging", canalEnvio: () => "GUPSHUP", empresaPiloto: () => e },
         "./mes-sao-paulo.ts": mesSaoPaulo, "./teto-mensal.ts": tetoMensal,
       }).modulo as typeof import("./resultado.ts");
-      return { e, gestao, resultadoAtendimento, ...h };
+      seqNumero += 1;
+      const numero = "39" + String(Date.now()).slice(-7) + seqNumero, waba = "29" + String(Date.now()).slice(-7) + seqNumero;
+      if (temConexoes) await conectar(e, u, numero, waba);
+      return { e, gestao, resultadoAtendimento, numero, waba, ...h };
     }
     type Emp = Awaited<ReturnType<typeof empresa>>;
     const receber = (h: Emp, contato: string, texto: string, timestamp = Date.now() - 1000) =>
       h.servico.receberEntrada({ id: cod("evt-"), app: "KidmaisManager", source: contato, texto, timestamp, nomePerfil: null });
     const eco = (h: Emp, contato: string, wamid: string, timestamp = seg(Date.now() - 5000), texto: string | null = "Resposta sintética pelo app", env = LIGADA) =>
-      h.servico.receberEco({ id: wamid, contato, texto, timestamp }, { empresa: h.e, env });
+      h.servico.receberEco({ id: wamid, contato, texto, timestamp }, { empresa: h.e, numero: { phoneNumberId: h.numero, wabaId: h.waba }, env });
     const conversa = async (emp: string, contato: string) => (await q("SELECT * FROM whatsapp_atendimento_conversas WHERE empresa_id = $1 AND ambiente = 'staging' AND contato = $2", [emp, contato])).rows[0];
     const retratoConversa = async (conv: string) => (await q("SELECT c::text AS t FROM whatsapp_atendimento_conversas c WHERE id = $1", [conv])).rows[0]?.t as string | undefined;
     const nEcos = async (emp: string, wamid?: string) => Number((await q(`SELECT count(*)::int AS n FROM whatsapp_atendimento_mensagens WHERE empresa_id = $1 ${tem082 ? "AND fonte->>'tipo' = 'APP_WHATSAPP'" : "AND false"}${wamid ? " AND fonte->>'id' = $2" : ""}`, wamid ? [emp, wamid] : [emp])).rows[0].n);
@@ -114,6 +130,24 @@ test("ecos do app WhatsApp Business: histórico sem mudar estado, corte, janela,
       const envios: string[] = [];
       await Z.worker.processarLote({ interpretar: async () => ({ intencao: "OUTRO" as const, perguntaId: null, data: null, convidados: null }), enviar: async (_c: string, conteudo: ConteudoSaida) => { envios.push(conteudo.tipo); return cod("gs-"); } }, { maxTarefas: 10 });
       await assert.rejects(Z.privacidade.excluirConversaAPedido(Z.gestao as never, { conversaId: cv0.id, motivo: "PEDIDO_DO_TITULAR" }), /082/, "E0: exclusão recusada como hoje");
+      // E0 (P2 do 2º parecer): POST assinado só com ecos, chave ligada, esquema sem a 083/082 → 200 e zero gravações.
+      const meta0 = carregarComponente("lib/whatsapp/atendimento/meta.ts", {
+        "../../db/postgres.ts": { db, withTransaction }, "../credencial.ts": credencial, "./configuracao.ts": { ...configuracaoReal, ambienteAtendimento: () => "staging", empresaPiloto: () => Z.e },
+        "./core.ts": core, "./service.ts": Z.servico, "./transporte.ts": transporteSemRede, "./multiempresa.ts": multiempresa,
+      }).modulo as typeof import("./meta.ts");
+      const segredo = "synthetic-meta-app-secret-not-real-0001";
+      const corpo = JSON.stringify({ object: "whatsapp_business_account", entry: [{ id: "1555933295860010", changes: [{ field: "smb_message_echoes", value: {
+        messaging_product: "whatsapp", metadata: { display_phone_number: "15550000000", phone_number_id: "1317246918141796" },
+        message_echoes: [{ from: "5561999990000", to: n0, id: cod("wamid.Z0-"), timestamp: String(Math.floor(Date.now() / 1000) - 5), type: "text", text: { body: "Resposta pelo app" } }] } }] }] });
+      const pedido = new Request("https://staging.example/api/integracoes/meta/webhook", { method: "POST", headers: { "Content-Type": "application/json", [SIGNATURE_HEADER]: "sha256=" + createHmac("sha256", segredo).update(corpo).digest("hex") }, body: corpo });
+      const mensagensPost = await nMensagens(Z.e);
+      const chaveAntes = process.env.WHATSAPP_ATENDIMENTO_ECOS_META;
+      process.env.WHATSAPP_ATENDIMENTO_ECOS_META = "true";
+      try {
+        const resp = await receberWebhookMeta(pedido, { META_APP_SECRET: segredo, KIDMAIS_DEPLOY_ENV: "staging" } as never, () => {}, (e) => meta0.receberEventosMeta(e));
+        assert.equal(resp.status, 200, "E0: POST só de ecos sem a 083: 200 (sem 503)");
+      } finally { if (chaveAntes === undefined) delete process.env.WHATSAPP_ATENDIMENTO_ECOS_META; else process.env.WHATSAPP_ATENDIMENTO_ECOS_META = chaveAntes; }
+      assert.equal(await nMensagens(Z.e), mensagensPost, "E0: POST: zero gravações");
       return;
     }
 
@@ -159,10 +193,15 @@ test("ecos do app WhatsApp Business: histórico sem mudar estado, corte, janela,
     assert.deepEqual(tela1.mensagens.filter((m) => m.origem === "APP_WHATSAPP").map((m) => m.texto), ["Resposta sintética pelo app"], "E1: a tela vê a origem do app");
     assert.ok(tela1.mensagens.filter((m) => m.direcao === "ENTRADA").every((m) => m.origem == null), "E1: entradas sem origem");
     assert.equal(await eco(A, n1, w1, t1), "NADA", "E1: reentrega não duplica");
-    // Eco do futuro (relógio da Meta adiantado): criada_em fica no relógio do banco.
-    const wF = cod("wamid.E1F-");
-    assert.equal(await eco(A, n1, wF, seg(Date.now() + 120_000)), "MENSAGEM");
-    assert.ok(new Date((await q("SELECT criada_em FROM whatsapp_atendimento_mensagens WHERE fonte->>'id' = $1", [wF])).rows[0].criada_em).getTime() <= Date.now() + 1000, "E1: LEAST(t, agora)");
+    // Eco do futuro (R1-2): adiantado dentro de DESVIO_FUTURO_MS entra com criada_em no relógio do banco (LEAST);
+    // adiantado além disso (2 min) é descartado: nem mensagem, nem hash.
+    const wF = cod("wamid.E1F-"), tF = Date.now() + 1500;
+    assert.equal(await eco(A, n1, wF, tF), "MENSAGEM", "E1: 1,5 s adiantado (dentro do desvio) entra");
+    const criadaF = new Date((await q("SELECT criada_em FROM whatsapp_atendimento_mensagens WHERE fonte->>'id' = $1", [wF])).rows[0].criada_em).getTime();
+    assert.ok(criadaF < tF && criadaF <= Date.now(), "E1: LEAST(t, agora)");
+    const wF2 = cod("wamid.E1F2-"), eventosF = await nEventos(A.e), mensagensF = await nMensagens(A.e);
+    assert.equal(await eco(A, n1, wF2, seg(Date.now() + 120_000)), "NADA", "E1: 2 min adiantado: descartado");
+    assert.equal(await nMensagens(A.e), mensagensF, "E1: adiantado: zero mensagens"); assert.equal(await nEventos(A.e), eventosF, "E1: adiantado: zero hashes");
     // Corrida: 6 recepções do mesmo eco ao mesmo tempo → uma mensagem.
     const wC = cod("wamid.E1C-");
     const corrida = await Promise.all(Array.from({ length: 6 }, () => eco(A, n1, wC)));
@@ -216,6 +255,9 @@ test("ecos do app WhatsApp Business: histórico sem mudar estado, corte, janela,
     const corteMs = new Date(corte5[0].excluido_em).getTime();
     const primeiroAceito = Math.floor(corteMs / 1000) * 1000 + 3000; // primeiro segundo inteiro > corte + 2 s (com fração; T+3 s)
     const igual = Math.floor(corteMs / 1000) * 1000 + 2000;
+    // R1-2: o corte é de agora; o primeiro segundo aceito fica ~3 s no futuro. Espera até ele caber no desvio admitido
+    // (≤ 1 s adiantado), para a fronteira testada ser só a do corte.
+    while (Date.now() < primeiroAceito - 1000) await esperar(100);
     assert.equal(await eco(A, n5, cod("wamid.E5b-"), igual), "SO_HASH", "E5: floor(corte) + 2 s não entra");
     assert.equal(await eco(A, n5, cod("wamid.E5c-"), primeiroAceito), "MENSAGEM", "E5: primeiro segundo inteiro depois de corte + 2 s entra");
 
@@ -294,8 +336,40 @@ test("ecos do app WhatsApp Business: histórico sem mudar estado, corte, janela,
     assert.equal(await nEcos(A.e, w9), 0); assert.equal(await nEventos(A.e), eventos9, "E9: zero hashes");
     const mensagens9 = await nMensagens(A.e);
     assert.equal(await eco(A, n9, cod("wamid.E9b-"), seg(Date.now() - 29 * DIA - 1000)), "NADA", "E9: 29 d + 1 s com conversa e sem corte: nada");
-    assert.equal(await eco(A, n9, cod("wamid.E9c-"), Date.now() - 29 * DIA), "NADA", "E9: 29 d no instante da chamada: nada");
+    // R1-5: 29 d exatos com o relógio da decisão FIXO (a transação do serviço troca o clock_timestamp() da CTE por um
+    // instante conhecido, com milissegundos): t = agora − 29 d → NADA, zero mensagens e zero hashes; t + 1 ms entra.
+    const fixo = seg(Date.now()) - 10_000 + 123;
+    let trocasRelogio = 0;
+    const relogioFixo = {
+      db,
+      withTransaction: <R,>(fn: Parameters<typeof withTransaction<R>>[0]) => withTransaction<R>((tx) => fn(new Proxy(tx, {
+        get(alvo, k) {
+          if (k === "query") return (sql: unknown, v?: unknown[]) => {
+            let s = sql;
+            if (typeof s === "string" && s.includes("SELECT clock_timestamp() AS agora, to_timestamp($5")) {
+              trocasRelogio += 1;
+              s = s.replace("SELECT clock_timestamp() AS agora", () => "SELECT '" + new Date(fixo).toISOString() + "'::timestamptz AS agora");
+            }
+            return (alvo.query as (a: unknown, b?: unknown[]) => unknown).call(alvo, s, v);
+          };
+          const val = (alvo as unknown as Record<string | symbol, unknown>)[k];
+          return typeof val === "function" ? (val as (...a: unknown[]) => unknown).bind(alvo) : val;
+        },
+      }))),
+    } as unknown as Parameters<typeof carregarAtendimento>[4];
+    const F = carregarAtendimento(A.e, "staging", {}, tetoMensal, relogioFixo);
+    const ecoFixo = (wamid: string, t: number) => F.servico.receberEco({ id: wamid, contato: n9, texto: "x", timestamp: t }, { empresa: A.e, numero: { phoneNumberId: A.numero, wabaId: A.waba }, env: LIGADA });
+    assert.equal(await ecoFixo(cod("wamid.E9c-"), fixo - 29 * DIA), "NADA", "E9 (R1-5): t = agora − 29 d exatos (relógio fixo): nada");
+    assert.ok(trocasRelogio >= 1, "E9 (R1-5): o relógio da CTE foi de fato fixado");
     assert.equal(await nMensagens(A.e), mensagens9, "E9: 29 d + 1 s e 29 d exatos: zero mensagens"); assert.equal(await nEventos(A.e), eventos9, "E9: 29 d + 1 s e 29 d exatos: zero hashes");
+    // Sem conversa: t = agora − 29 d → NADA e zero hashes (dentro da janela seria SO_HASH); + 1 ms → SO_HASH.
+    const ecoFixoSem = (wamid: string, t: number) => F.servico.receberEco({ id: wamid, contato: "5561900006225", texto: "x", timestamp: t }, { empresa: A.e, numero: { phoneNumberId: A.numero, wabaId: A.waba }, env: LIGADA });
+    const trocasAntes = trocasRelogio;
+    assert.equal(await ecoFixoSem(cod("wamid.E9s-"), fixo - 29 * DIA), "NADA", "E9 (R1-5): sem conversa, 29 d exatos: nada");
+    assert.ok(trocasRelogio > trocasAntes, "E9 (R1-5): relógio fixado também sem conversa");
+    assert.equal(await nEventos(A.e), eventos9, "E9 (R1-5): sem conversa, 29 d exatos: zero hashes");
+    assert.equal(await ecoFixoSem(cod("wamid.E9s2-"), fixo - 29 * DIA + 1), "SO_HASH", "E9 (R1-5): sem conversa, 29 d − 1 ms: só hash");
+    assert.equal(await ecoFixo(cod("wamid.E9c2-"), fixo - 29 * DIA + 1), "MENSAGEM", "E9 (R1-5): agora − 29 d + 1 ms entra");
     assert.equal(await eco(A, n9, cod("wamid.E9d-"), seg(Date.now() - 29 * DIA + 60_000)), "MENSAGEM", "E9: 29 d − 1 min entra");
     const eventos9b = await nEventos(A.e);
     assert.equal(await eco(A, "5561900006210", cod("wamid.E9e-"), seg(Date.now() - 29 * DIA - 3600_000)), "NADA", "E9: sem conversa a 29 d + 1 h: nada");
@@ -347,9 +421,97 @@ test("ecos do app WhatsApp Business: histórico sem mudar estado, corte, janela,
     await A.privacidade.excluirConversaAPedido(A.gestao as never, { conversaId: (await conversa(A.e, n13)).id, motivo: "PEDIDO_DO_TITULAR" });
     assert.equal(await nEcos(B.e, w13), 1, "E13: exclusão em A não toca B");
     assert.equal(await eco(B, n13, cod("wamid.E13b-"), seg(Date.now() - 60_000)), "MENSAGEM", "E13: o corte de A não corta B");
-    assert.equal(await A.servico.receberEco({ id: cod("wamid.E13c-"), contato: n13, texto: "x", timestamp: Date.now() }, { empresa: B.e, env: LIGADA }), "NADA", "E13: o harness de A (piloto A) não grava em B");
+    assert.equal(await A.servico.receberEco({ id: cod("wamid.E13c-"), contato: n13, texto: "x", timestamp: Date.now() }, { empresa: B.e, numero: { phoneNumberId: B.numero, wabaId: B.waba }, env: LIGADA }), "NADA", "E13: o harness de A (piloto A) não grava em B");
+
+    // R1-1 — o dono do número é conferido DENTRO da transação, sob trava da conexão CONFIGURADA.
+    if (temConexoes) {
+      const C = await empresa("conexão");
+      const nC = "5561900006220";
+      await receber(C, nC, "Oi C");
+      const ecoC = (wamid: string, numero = { phoneNumberId: C.numero, wabaId: C.waba }) =>
+        C.servico.receberEco({ id: wamid, contato: nC, texto: "Resposta sintética pelo app", timestamp: seg(Date.now() - 5000) }, { empresa: C.e, numero, env: LIGADA });
+      assert.equal(await ecoC(cod("wamid.R11a-")), "MENSAGEM", "R1-1: número CONFIGURADO da empresa: grava");
+      const mensagensC = await nMensagens(C.e), eventosC = await nEventos(C.e);
+      assert.equal(await ecoC(cod("wamid.R11b-"), { phoneNumberId: B.numero, wabaId: B.waba }), "NADA", "R1-1: número de outra empresa: nada");
+      assert.equal(await ecoC(cod("wamid.R11c-"), { phoneNumberId: C.numero, wabaId: B.waba }), "NADA", "R1-1: WABA diferente: nada");
+      // Corrida: a desconexão (não commitada) segura a linha; o eco espera e, depois do COMMIT, não grava nada.
+      const x = await conectarDescartavel({ travar: false });
+      try {
+        await x.query("BEGIN");
+        await desconectar(C.e, C.gestao.usuario_id, x as never);
+        const wR = cod("wamid.R11d-"), p = ecoC(wR);
+        p.catch(() => {});
+        for (let i = 0; ; i++) {
+          const n = Number((await q("SELECT count(*)::int AS n FROM pg_stat_activity WHERE datname = current_database() AND wait_event_type = 'Lock' AND query LIKE '%whatsapp_conexoes%FOR SHARE%'")).rows[0].n);
+          if (n > 0) break;
+          if (i > 200) throw new Error("R1-1: o eco não esperou a trava da conexão");
+          await esperar(25);
+        }
+        await x.query("COMMIT");
+        assert.equal(await p, "NADA", "R1-1: desconexão commitada durante a espera: nada");
+        assert.equal(await nEcos(C.e, wR), 0);
+      } finally { await x.end(); }
+      assert.equal(await ecoC(cod("wamid.R11e-")), "NADA", "R1-1: número desconectado: nada");
+      assert.equal(await nMensagens(C.e), mensagensC, "R1-1: zero mensagens"); assert.equal(await nEventos(C.e), eventosC, "R1-1: zero hashes");
+    }
+
+    // R1-3 — sem deadlock com quem trava a empresa (FOR UPDATE) e depois a conversa: o eco pega FOR KEY SHARE na empresa
+    // ANTES da conversa, então espera na empresa e não segura a conversa.
+    {
+      const D = await empresa("trava");
+      const nD = "5561900006221";
+      await receber(D, nD, "Oi D");
+      const cvD = await conversa(D.e, nD);
+      const x = await conectarDescartavel({ travar: false });
+      try {
+        await x.query("BEGIN");
+        const pidX = Number((await x.query("SELECT pg_backend_pid() AS pid")).rows[0].pid);
+        await x.query("SELECT id FROM empresas WHERE id = $1 FOR UPDATE", [D.e]);
+        const p = eco(D, nD, cod("wamid.R13-"));
+        p.catch(() => {});
+        for (let i = 0; ; i++) {
+          const n = Number((await q("SELECT count(*)::int AS n FROM pg_stat_activity WHERE datname = current_database() AND wait_event_type = 'Lock' AND pid <> $1", [pidX])).rows[0].n);
+          if (n > 0) break;
+          if (i > 200) throw new Error("R1-3: o eco não esperou a trava da empresa");
+          await esperar(25);
+        }
+        await noPrazo(x.query("SELECT id FROM whatsapp_atendimento_conversas WHERE id = $1 FOR UPDATE", [cvD.id]), 5000, "R1-3: conversa livre enquanto o eco espera a empresa");
+        await x.query("COMMIT");
+        assert.equal(await p, "MENSAGEM", "R1-3: sem 40P01, o eco grava depois do COMMIT");
+      } finally { await x.query("ROLLBACK").catch(() => {}); await x.end(); }
+    }
+
+    // R1-2 — conversa recriada depois da exclusão: eco 2 min no futuro não fura o corte (nada, nem hash).
+    {
+      const n = "5561900006222";
+      await receber(A, n, "Oi");
+      await A.privacidade.excluirConversaAPedido(A.gestao as never, { conversaId: (await conversa(A.e, n)).id, motivo: "PEDIDO_DO_TITULAR" });
+      await receber(A, n, "Voltei");
+      const mensagens = await nMensagens(A.e), eventos = await nEventos(A.e), w = cod("wamid.R12-");
+      assert.equal(await eco(A, n, w, seg(Date.now() + 120_000)), "NADA", "R1-2: futuro além do desvio com conversa recriada: nada");
+      assert.equal(await nMensagens(A.e), mensagens); assert.equal(await nEventos(A.e), eventos, "R1-2: zero hashes");
+    }
+
+    // R1-4 — U+0000: id com nulo é descartado; texto com nulo vira texto nulo; o eco válido seguinte grava.
+    {
+      const n = "5561900006223";
+      await receber(A, n, "Oi");
+      assert.equal(await eco(A, n, "wamid.nulo\u0000" + cod("x")), "NADA", "R1-4: id com U+0000: nada");
+      const wN = cod("wamid.R14-");
+      assert.equal(await eco(A, n, wN, undefined, "a\u0000b"), "MENSAGEM", "R1-4: texto com U+0000 entra sem texto");
+      assert.equal((await q("SELECT texto FROM whatsapp_atendimento_mensagens WHERE fonte->>'id' = $1", [wN])).rows[0].texto, null);
+      assert.equal(await eco(A, n, cod("wamid.R14b-")), "MENSAGEM", "R1-4: eco válido seguinte grava");
+    }
 
     assert.equal(await consumo(), consumo0, "E12: nenhum eco reservou consumo do teto mensal");
+    // P3 do 2º parecer: A e B são isentas no harness; aqui o teto injetado FALHA se o eco chamar reservarConsumo.
+    {
+      const tetoQueFalha = { ...tetoMensal, reservarConsumo: async () => { throw new Error("o eco reservou consumo do teto mensal"); } };
+      const Tf = carregarAtendimento(A.e, "staging", {}, tetoQueFalha);
+      const nT = "5561900006224";
+      await receber(A, nT, "Oi");
+      assert.equal(await Tf.servico.receberEco({ id: cod("wamid.TETO-"), contato: nT, texto: "x", timestamp: seg(Date.now() - 5000) }, { empresa: A.e, numero: { phoneNumberId: A.numero, wabaId: A.waba }, env: LIGADA }), "MENSAGEM", "E12: o eco não chama reservarConsumo");
+    }
 
     // E14 — retenção (lote de 1): o eco recente não segura a conversa antiga; o retry não volta.
     const n14 = "5561900006216", w14 = cod("wamid.E14-");
@@ -369,26 +531,24 @@ test("ecos do app WhatsApp Business: histórico sem mudar estado, corte, janela,
 
     // E15 — caminho real do webhook: receberEventosMeta resolve a empresa pelo número CONFIGURADO, grava as entradas e
     // DEPOIS os ecos do mesmo lote (a entrada cria a conversa, o eco da resposta entra nela); chave desligada: ignorado.
-    const temConexoes = (await q("SELECT 1 FROM information_schema.columns WHERE table_name='whatsapp_conexoes' AND column_name='empresa_id'")).rows.length > 0;
     if (temConexoes) {
       const envAntes = { ...process.env };
       Object.assign(process.env, { WHATSAPP_CREDENTIAL_ENCRYPTION_KEY: Buffer.alloc(32, 7).toString("base64"), WHATSAPP_CREDENTIAL_KEY_VERSION: "1", KIDMAIS_DEPLOY_ENV: "staging" });
       try {
-        const waba = "29" + String(Date.now()).slice(-8), numero = "39" + String(Date.now()).slice(-8);
+        // A já tem a conexão CONFIGURADA (uma por empresa, índice da 083): só troca a credencial sintética por uma cifrada de verdade.
+        const waba = A.waba, numero = A.numero;
         const cifra = credencial.cifrarCredencialWhatsapp("token-sintetico-ecos", { ambiente: "STAGING", appId: "1622943079270352", businessId: "1591095999057604", wabaId: waba, phoneNumberId: numero, empresaId: A.e });
-        await q(`WITH instante AS (SELECT clock_timestamp() AS agora)
-          INSERT INTO whatsapp_conexoes(ambiente,empresa_id,meta_app_id,business_id,waba_id,phone_number_id,numero_exibicao,nome_verificado,coexistencia_confirmada,status,escopos,credencial_cifrada,credencial_iv,credencial_tag,credencial_chave_versao,token_tipo,token_expira_em,meta_validada_em,criada_por_usuario_id,sessao_referencia_id,criada_em,atualizada_em)
-          SELECT 'STAGING',$1::uuid,'1622943079270352','1591095999057604',$2,$3,'+55 61 90000-0000','Buffet sintético',true,'CONFIGURADA',ARRAY['whatsapp_business_messaging'],$4,$5,$6,$7,'bearer',NULL,agora,$8::uuid,$9::uuid,agora,agora FROM instante`,
-          [A.e, waba, numero, cifra.ciphertext, cifra.iv, cifra.tag, cifra.keyVersion, A.gestao.usuario_id, randomUUID()]);
+        await q("UPDATE whatsapp_conexoes SET credencial_cifrada=$2, credencial_iv=$3, credencial_tag=$4, credencial_chave_versao=$5, revisao=revisao+1, atualizada_em=clock_timestamp() WHERE empresa_id=$1::uuid AND status='CONFIGURADA'",
+          [A.e, cifra.ciphertext, cifra.iv, cifra.tag, cifra.keyVersion]);
         const ecosA15 = await nEcos(A.e);
         const meta = carregarComponente("lib/whatsapp/atendimento/meta.ts", {
           "../../db/postgres.ts": { db, withTransaction }, "../credencial.ts": credencial, "./configuracao.ts": { ...configuracaoReal, ambienteAtendimento: () => "staging", empresaPiloto: () => A.e },
           "./core.ts": core, "./service.ts": A.servico, "./transporte.ts": transporteSemRede, "./multiempresa.ts": multiempresa,
         }).modulo as typeof import("./meta.ts");
         const n15 = "5561900006217", w15 = cod("wamid.E15-"), agora15 = seg(Date.now() - 3000);
-        const lote = (wEco: string, wIn: string) => ({
-          entradas: [{ phoneNumberId: numero, wabaId: waba, id: wIn, contato: n15, texto: "Oi pelo webhook", timestamp: agora15 - 1000, nomePerfil: null }],
-          status: [], ecos: [{ phoneNumberId: numero, wabaId: waba, id: wEco, contato: n15, texto: "Resposta pelo app", timestamp: agora15 }],
+        const lote = (wEco: string, wIn: string, contato = n15) => ({
+          entradas: [{ phoneNumberId: numero, wabaId: waba, id: wIn, contato, texto: "Oi pelo webhook", timestamp: agora15 - 1000, nomePerfil: null }],
+          status: [], ecos: [{ phoneNumberId: numero, wabaId: waba, id: wEco, contato, texto: "Resposta pelo app", timestamp: agora15 }],
         }) as unknown as Parameters<typeof meta.receberEventosMeta>[0];
         delete process.env.WHATSAPP_ATENDIMENTO_ECOS_META;
         const wDesligada = cod("wamid.E15off-");
@@ -396,8 +556,11 @@ test("ecos do app WhatsApp Business: histórico sem mudar estado, corte, janela,
         assert.ok(await conversa(A.e, n15), "E15: a entrada do lote criou a conversa");
         assert.equal(await nEcos(A.e, wDesligada), 0, "E15: chave desligada, eco ignorado");
         process.env.WHATSAPP_ATENDIMENTO_ECOS_META = "true";
-        await meta.receberEventosMeta(lote(w15, cod("wamid.IN15b-")));
-        assert.equal(await nEcos(A.e, w15), 1, "E15: eco do lote gravado na conversa da empresa dona do número");
+        // Contato NOVO no 2º lote (P3 do 2º parecer): só passa se a entrada do lote for gravada antes do eco.
+        const n15b = "5561900006218";
+        await meta.receberEventosMeta(lote(w15, cod("wamid.IN15b-"), n15b));
+        assert.equal(await nEcos(A.e, w15), 1, "E15: eco do lote gravado na conversa criada pela entrada do mesmo lote");
+        assert.equal(await nHash(A.e, hashEco(w15)), 0, "E15: não virou só hash (eco antes da entrada)");
         await meta.receberEventosMeta({ ...lote(cod("wamid.E15x-"), cod("wamid.IN15c-")), entradas: [], ecos: [{ phoneNumberId: "3999999999", wabaId: waba, id: cod("wamid.E15x-"), contato: n15, texto: "x", timestamp: agora15 }] } as never);
         assert.equal(await nEcos(A.e), ecosA15 + 1, "E15: número desconhecido não grava");
       } finally {

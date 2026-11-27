@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { createHash, createHmac } from 'node:crypto';
 import { SIGNATURE_HEADER, eventosMeta, receberWebhookMeta, type EventosMeta, type ResumoMeta } from '../../integracoes/meta/webhook.ts';
-import { JANELA_ECO_DIAS, MARGEM_CORTE_MS, hashCorte, hashEco, receberEco } from './service.ts';
+import { DESVIO_FUTURO_MS, JANELA_ECO_DIAS, MARGEM_CORTE_MS, hashCorte, hashEco, receberEco } from './service.ts';
 import { JANELA_REENTREGA_DIAS } from './core.ts';
 import { RETENCAO_DEDUP_DIAS } from './privacidade.ts';
 import { ecosMetaAtivos } from './configuracao.ts';
@@ -99,4 +99,38 @@ test('chave própria: só "true" liga; desligada, receberEco descarta sem abrir 
   assert.equal(ecosMetaAtivos(ENV({ WHATSAPP_ATENDIMENTO_ECOS_META: 'true' })), true);
   // Sem DATABASE_URL: se abrisse transação, rejeitaria. Desligada = NADA.
   assert.equal(await receberEco({ id: 'wamid.X', contato: CONTATO, texto: 'oi', timestamp: Date.now() }, { empresa: 'f0d2836a-2d70-46ec-a328-f7a9b896baad', env: ENV({}) }), 'NADA');
+});
+
+test('R1-4: U+0000 no id descarta o eco; no corpo vira texto nulo; o eco válido seguinte do lote segue', () => {
+  const e = eventosMeta(envelope(mudanca(valorEco([
+    ecoItem({ id: 'wamid.NU\u0000LO' }),
+    ecoItem({ id: 'wamid.CORPO', text: { body: 'a\u0000b' } }),
+    ecoItem({ id: 'wamid.BOM' }),
+  ]))))!;
+  assert.deepEqual(e.ecos.map((x) => [x.id, x.texto]), [['wamid.CORPO', null], ['wamid.BOM', 'Pode sim, às 15h']]);
+});
+
+test('R1-1/R1-4: sem número, número inválido ou id com U+0000, receberEco descarta sem abrir transação', async () => {
+  const ligada = ENV({ WHATSAPP_ATENDIMENTO_ECOS_META: 'true' }), empresa = 'f0d2836a-2d70-46ec-a328-f7a9b896baad';
+  const eco = { id: 'wamid.X', contato: CONTATO, texto: 'oi', timestamp: Date.now() };
+  assert.equal(await receberEco(eco, { empresa, env: ligada }), 'NADA');
+  assert.equal(await receberEco(eco, { empresa, numero: { phoneNumberId: 'x', wabaId: WABA }, env: ligada }), 'NADA');
+  assert.equal(await receberEco(eco, { empresa, numero: { phoneNumberId: NUMERO, wabaId: '' }, env: ligada }), 'NADA');
+  assert.equal(await receberEco({ ...eco, id: 'wamid.\u0000' }, { empresa, numero: { phoneNumberId: NUMERO, wabaId: WABA }, env: ligada }), 'NADA');
+});
+
+test('R1-2: o desvio futuro admitido não passa da margem do corte', () => {
+  assert.ok(DESVIO_FUTURO_MS > 0 && DESVIO_FUTURO_MS <= MARGEM_CORTE_MS);
+});
+
+test('R1-4: lote misto (eco com U+0000 no id, eco com U+0000 no corpo, eco válido e status) → 200 e o status chega à persistência', async () => {
+  const persistidos: EventosMeta[] = [];
+  const corpo = { object: 'whatsapp_business_account', entry: [{ id: WABA, changes: [
+    mudanca(valorEco([ecoItem({ id: 'wamid.NU\u0000LO' }), ecoItem({ id: 'wamid.CORPO', text: { body: 'a\u0000b' } }), ecoItem({ id: 'wamid.BOM' })])),
+    mudanca({ messaging_product: 'whatsapp', metadata: { phone_number_id: NUMERO }, statuses: [{ id: 'wamid.S', status: 'delivered' }] }, 'messages'),
+  ] }] };
+  const r = await receberWebhookMeta(post(corpo), env, () => {}, async (e) => { persistidos.push(e); });
+  assert.equal(r.status, 200);
+  assert.deepEqual(persistidos[0].ecos!.map((x) => [x.id, x.texto]), [['wamid.CORPO', null], ['wamid.BOM', 'Pode sim, às 15h']]);
+  assert.deepEqual(persistidos[0].status.map((s) => [s.id, s.tipo]), [['wamid.S', 'delivered']]);
 });
