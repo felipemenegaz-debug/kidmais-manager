@@ -9,7 +9,7 @@ import styles from './marketing.module.css';
 type Dados = { vigente: Atribuicao | null; herdadaDoCliente?: Atribuicao | null; historico: Atribuicao[]; origens: OpcaoOrigem[]; campanhas: Array<{ id: string; nome: string }> };
 
 const CANAIS: Array<[string, string]> = [['', 'Não informado'], ['WHATSAPP', 'WhatsApp'], ['TELEFONE', 'Telefone'], ['PRESENCIAL', 'Presencial'], ['EMAIL', 'E-mail'], ['FORMULARIO_SITE', 'Formulário do site'], ['OUTRO', 'Outro']];
-const METODO: Record<string, string> = { CAPTURADO: 'capturada pelo link', INFORMADO: 'informada pela equipe', HERDADO: 'herdada do contato', DESCONHECIDO: 'sem evidência' };
+const METODO: Record<string, string> = { CAPTURADO: 'capturada pelo link', INFORMADO: 'informada', HERDADO: 'herdada do contato', DESCONHECIDO: 'sem evidência' };
 
 function rotulo(codigo: string, origens: OpcaoOrigem[]) {
   if (codigo === 'DESCONHECIDA') return 'Desconhecida';
@@ -36,6 +36,10 @@ export default function OrigemPainel({ alvoTipo, alvoId, titulo }: { alvoTipo: A
   if (falha) return falha.codigo === 'MARKETING_INDISPONIVEL' ? null : <p className={styles.muted}>Origem indisponível: {falha.mensagem}</p>;
   if (!dados) return null;
   const v = dados.vigente;
+  // Contato registrado sem origem nasce com "desconhecida (sem evidência)". Informar a primeira de verdade não é corrigir
+  // um erro: a troca continua no histórico, com motivo fixo, sem pedir justificativa à equipe.
+  const informarSobreDesconhecida = alvoTipo === 'CONTATO' && v?.metodo === 'DESCONHECIDO';
+  const pedeMotivo = !!v && !informarSobreDesconhecida;
 
   function abrir() {
     setOrigem(v && v.origemCodigo !== 'DESCONHECIDA' ? v.origemCodigo : ''); setCanal(v?.canalAtendimento ?? ''); setCampanhaId(v?.campanhaId ?? '');
@@ -48,7 +52,7 @@ export default function OrigemPainel({ alvoTipo, alvoId, titulo }: { alvoTipo: A
     try {
       await enviarMarketing('/api/admin/marketing/atribuicoes', {
         alvoTipo, alvoId, origemCodigo: origem, canalAtendimento: canal || null, campanhaId: campanhaId || null, detalhe: detalhe || null,
-        ...(v ? { corrigeId: v.id, motivo } : {}),
+        ...(v ? { corrigeId: v.id, motivo: pedeMotivo ? motivo : 'Origem informada pela equipe (antes sem evidência).' } : {}),
       });
       setEditando(false); recarregar();
     } catch (erro) { setAviso(erro instanceof Error ? erro.message : 'Não foi possível salvar.'); }
@@ -62,7 +66,7 @@ export default function OrigemPainel({ alvoTipo, alvoId, titulo }: { alvoTipo: A
       : dados.herdadaDoCliente ? <p><strong>{rotulo(dados.herdadaDoCliente.origemCodigo, dados.origens)}</strong>{dados.herdadaDoCliente.campanhaNome ? ` · campanha ${dados.herdadaDoCliente.campanhaNome}` : ''}
         <br /><span className={styles.muted}>herdada do cliente: é a primeira negociação dele e não tem origem própria. Informe outra se esta negociação veio por outro caminho.</span></p>
       : <p className={styles.muted}>Não registrada. {alvoTipo === 'CLIENTE' ? 'Sem evidência, a origem fica desconhecida (nada é presumido).' : 'Informe como este contato chegou.'}</p>}
-    {!editando && <button type="button" className={styles.secundario} onClick={abrir}>{v ? 'Corrigir origem' : 'Informar origem'}</button>}
+    {!editando && <button type="button" className={styles.secundario} onClick={abrir}>{pedeMotivo ? 'Corrigir origem' : 'Informar origem'}</button>}
     {editando && <form onSubmit={salvar} className={styles.editor} style={{ marginTop: 12 }}>
       <div className={styles.grade2}>
         <label className={styles.campo}>Origem<select value={origem} onChange={(e) => setOrigem(e.target.value)} required>
@@ -73,14 +77,14 @@ export default function OrigemPainel({ alvoTipo, alvoId, titulo }: { alvoTipo: A
           <option value="">Nenhuma</option>{dados.campanhas.map((c) => <option key={c.id} value={c.id}>{c.nome}</option>)}</select></label>}
         <label className={styles.campo}>Detalhe (indicador, parceiro…)<input maxLength={200} value={detalhe} onChange={(e) => setDetalhe(e.target.value)} /></label>
       </div>
-      {v && <label className={styles.campo}>Motivo da correção (fica no histórico)<input required minLength={3} maxLength={300} value={motivo} onChange={(e) => setMotivo(e.target.value)} /></label>}
+      {pedeMotivo && <label className={styles.campo}>Motivo da correção (fica no histórico)<input required minLength={3} maxLength={300} value={motivo} onChange={(e) => setMotivo(e.target.value)} /></label>}
       {aviso && <p className={styles.erro} role="alert">{aviso}</p>}
       <div className={styles.acoes}><button type="button" className={styles.fantasma} onClick={() => setEditando(false)} disabled={enviando}>Cancelar</button>
         <button type="submit" className={styles.secundario} disabled={enviando}>{enviando ? 'Salvando…' : 'Salvar origem'}</button></div>
     </form>}
     {dados.historico.length > 1 && <details className={styles.definicoes} style={{ marginTop: 12 }}><summary>Histórico ({dados.historico.length})</summary>
       <ul className={styles.historico}>{dados.historico.map((a) => <li key={a.id} data-vigente={a.vigente}>
-        {rotulo(a.origemCodigo, dados.origens)}{a.campanhaNome ? ` · ${a.campanhaNome}` : ''} — {METODO[a.metodo] ?? a.metodo}, {dataHoraBr(a.registradoEm)}
+        {rotulo(a.origemCodigo, dados.origens)}{a.campanhaNome ? ` · ${a.campanhaNome}` : ''} — {METODO[a.metodo] ?? a.metodo}, {dataHoraBr(a.registradoEm)}{a.registradoPorNome ? ` · ${a.registradoPorNome}` : ''}
         {a.motivo ? ` · motivo: ${a.motivo}` : ''}{a.vigente ? ' · vigente' : ''}</li>)}</ul></details>}
   </section>;
 }

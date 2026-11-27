@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { pedidoDeParar } from './opt-out.ts';
+import { avisoEquipeSchema, horarioEquipeSchema, retornoForaDoHorario, type HorarioEquipe } from './horario.ts';
 import type { Passagem } from './walle/tipos.ts';
 import { ALERGIA } from './walle/alergia.ts';
 
@@ -13,6 +14,10 @@ export const configuracaoSchema = z.object({
   // Wall-e (082): atendimento com fontes oficiais (agenda, pacotes, preço, buffet, biblioteca autorizada, contrato modelo).
   // Ausente ou desligado: o atendimento da fase B (respostas publicadas e encaminhamento). Sem a 082, fica desligado.
   wallE: z.object({ ativo: z.boolean() }).strict().optional(),
+  // Fatia 8 (25/11/2026, sem migration): horário da equipe por dia (fuso de São Paulo) e e-mails de aviso da passagem.
+  // Opcionais: sem horário, a frase da passagem não muda; sem e-mails, nenhum aviso sai (horario.ts, aviso-equipe.ts).
+  horarioEquipe: horarioEquipeSchema.optional(),
+  avisoEquipe: avisoEquipeSchema.optional(),
 }).strict().refine(v => new Set(v.perguntas.map(p => p.id)).size === v.perguntas.length, 'Identificadores repetidos.');
 export type ConfiguracaoAtendimento = z.infer<typeof configuracaoSchema>;
 /** Texto fixo quando a IA não pode responder (modelo indisponível ou orçamento recusado): encaminha sem inventar conteúdo.
@@ -24,6 +29,28 @@ export type ConfiguracaoAtendimento = z.infer<typeof configuracaoSchema>;
  */
 export const JANELA_REENTREGA_DIAS = 30;
 export const MENSAGEM_ENCAMINHAMENTO = 'Não consigo responder automaticamente agora. Encaminhei sua mensagem para a equipe; a resposta dependerá do horário de atendimento.';
+const ENCAMINHAMENTO_COM_HORARIO = 'Não consigo responder automaticamente agora. Encaminhei sua mensagem para a equipe. ';
+/**
+ * Fatia 8 (Astra r1, P2): texto fixo do encaminhamento de contingência. Fora do horário cadastrado, diz quando a equipe
+ * responde (frase escrita por código); sem horário ou dentro dele, o texto é exatamente MENSAGEM_ENCAMINHAMENTO.
+ */
+export function mensagemEncaminhamento(horario: HorarioEquipe | undefined | null, agora: Date) {
+  const retorno = retornoForaDoHorario(horario, agora);
+  return retorno ? ENCAMINHAMENTO_COM_HORARIO + retorno : MENSAGEM_ENCAMINHAMENTO;
+}
+/** Origem gravada em `fonte` da saída de contingência (com a 082): é ela, e não o texto, que isenta a saída da revogação. */
+export const ORIGEM_ENCAMINHAMENTO = 'ENCAMINHAMENTO_FIXO';
+export const fonteEncaminhamento = () => JSON.stringify({ origem: ORIGEM_ENCAMINHAMENTO });
+/**
+ * Saída é o encaminhamento fixo de contingência (isento da revogação por configuração no envio). Fatia 8 (Astra r2, P2):
+ * reconhecido pela ORIGEM gravada na saída, nunca pelo formato do texto (uma FAQ ou resposta do Wall-e com o mesmo texto
+ * continua sujeita à revogação). Astra r3 (P2): linha sem `fonte` (FAQ da fase B, base sem a 082, linha antiga) nunca é
+ * isenta, nem com o texto exato: passa pela revalidação da configuração como qualquer saída automática.
+ */
+export function ehEncaminhamentoFixo(mensagem: { texto?: string | null; fonte?: unknown }) {
+  const fonte = mensagem.fonte;
+  return !!fonte && typeof fonte === 'object' && !Array.isArray(fonte) && (fonte as { origem?: unknown }).origem === ORIGEM_ENCAMINHAMENTO && Object.keys(fonte).length === 1;
+}
 /**
  * O JSON Schema enviado ao modelo só garante `string | null` em `data`; o modelo pode devolver a data como o cliente
  * escreveu (14/11/2027). Normalização determinística, só de FORMA e sem suposição: DD/MM/AAAA (ou AAAA/MM/DD)
@@ -249,9 +276,12 @@ export function passagemSemRespostaAutomatica(contexto: unknown, em: string, pau
     coletado: { data: texto(c.data, 10), turno: null, convidados: Number.isInteger(c.convidados) ? (c.convidados as number) : null, pacote: null, unidade: null, tema: texto(c.tema, 60) } };
 }
 /** O modelo escolhe uma resposta publicada; nunca escreve preço, promessa ou cláusula. */
-export function responder(config: ConfiguracaoAtendimento, plano: Interpretacao, interesse: { data: string | null; convidados: number | null }, hoje = hojeOperacao()) {
+export function responder(config: ConfiguracaoAtendimento, plano: Interpretacao, interesse: { data: string | null; convidados: number | null }, hoje = hojeOperacao(), agora = new Date()) {
   if (plano.intencao === 'PARAR') return { texto: null, humano: false, encerrada: true };
-  if (plano.intencao === 'HUMANO') return { texto: 'Vou encaminhar seu pedido para um atendente. A resposta dependerá do horário da equipe.', humano: true, encerrada: false };
+  // Fatia 9 (Astra r4 da fatia 8, P-F8-2): fora do horário cadastrado, a passagem da fase B diz quando a equipe volta
+  // (frase escrita por código, no relógio da composição); sem horário ou dentro dele, o texto é o de antes.
+  const retorno = retornoForaDoHorario(config.horarioEquipe, agora);
+  if (plano.intencao === 'HUMANO') return { texto: retorno ? `Vou encaminhar seu pedido para um atendente. ${retorno}` : 'Vou encaminhar seu pedido para um atendente. A resposta dependerá do horário da equipe.', humano: true, encerrada: false };
   if (plano.data && !dataValida(plano.data)) return { texto: 'Essa data não existe no calendário. Qual é a data completa da festa, incluindo o ano?', humano: false, encerrada: false };
   if (plano.data && plano.data < hoje) return { texto: 'Essa data já passou. Qual é a data desejada para a festa, incluindo o ano?', humano: false, encerrada: false };
   const faq = config.perguntas.find(p => p.id === plano.perguntaId);
@@ -259,8 +289,11 @@ export function responder(config: ConfiguracaoAtendimento, plano: Interpretacao,
   if (plano.intencao === 'INTERESSE') {
     if (!interesse.data) return { texto: 'Qual é a data desejada para a festa? Informe também o ano.', humano: false, encerrada: false };
     if (!interesse.convidados) return { texto: 'Quantas pessoas você pretende convidar?', humano: false, encerrada: false };
-    return { texto: `Registrei seu interesse para ${interesse.data.split('-').reverse().join('/')} e ${interesse.convidados} pessoas. Vou encaminhar para a equipe conferir disponibilidade, pacote e valores. A data ainda não está reservada.`, humano: true, encerrada: false };
+    return { texto: `Registrei seu interesse para ${interesse.data.split('-').reverse().join('/')} e ${interesse.convidados} pessoas. Vou encaminhar para a equipe conferir disponibilidade, pacote e valores. A data ainda não está reservada.${retorno ? ` ${retorno}` : ''}`, humano: true, encerrada: false };
   }
+  // Fatia 9 r2 (Astra r1, P-F9-2): dúvida sem resposta publicada também vai para a equipe; fora do horário, a resposta diz
+  // que foi encaminhada e quando a equipe volta. Sem previsão (dentro do horário ou sem horário), o texto de antes.
+  if (plano.intencao === 'DUVIDA' && retorno) return { texto: `Não encontrei essa informação nas respostas publicadas. Vou encaminhar sua pergunta para a equipe. ${retorno}`, humano: true, encerrada: false };
   return { texto: 'Sou o atendimento virtual da ' + config.nome + '. Posso ajudar com as informações publicadas e encaminhar sua festa para a equipe. Para falar com uma pessoa, escreva “atendente”.', humano: plano.intencao === 'DUVIDA', encerrada: false };
 }
 

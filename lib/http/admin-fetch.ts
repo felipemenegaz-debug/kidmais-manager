@@ -121,16 +121,17 @@ function descartarPagina(aviso: string | undefined, destino: string | undefined,
  * leitura da sessão. Essa falha não diz nada do servidor: é local (sem aviso, sem descarte, sem alimentar a troca de host),
  * e nada é entregue, como em toda falha. O `beforeunload` vale só por um prazo curto, porque a saída pode ser cancelada
  * (pergunta de alterações não salvas) ou virar download; `pageshow` (volta do bfcache) zera tudo.
+ * O prazo usa o relógio monotônico (`performance.now()`): um ajuste do relógio do sistema não estica nem encurta a janela.
  */
 const PRAZO_DA_SAIDA_MS = 10_000;
 let saidaPedidaEm: number | null = null;
 let paginaEscondida = false;
 if (typeof window !== 'undefined' && typeof window.addEventListener === 'function') {
-    window.addEventListener('beforeunload', () => { saidaPedidaEm = Date.now(); });
+    window.addEventListener('beforeunload', () => { saidaPedidaEm = performance.now(); });
     window.addEventListener('pagehide', () => { paginaEscondida = true; });
     window.addEventListener('pageshow', () => { paginaEscondida = false; saidaPedidaEm = null; });
 }
-const paginaSaindo = () => paginaEscondida || (saidaPedidaEm !== null && Date.now() - saidaPedidaEm < PRAZO_DA_SAIDA_MS);
+const paginaSaindo = () => paginaEscondida || (saidaPedidaEm !== null && performance.now() - saidaPedidaEm < PRAZO_DA_SAIDA_MS);
 async function confirmarSessao(signal?: AbortSignal | null, releitura = false): Promise<Confirmacao> {
     const marca = marcaDaSessao();
     try {

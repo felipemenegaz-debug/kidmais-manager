@@ -17,6 +17,7 @@ import * as preferencias from "../../marketing/automacoes/preferencias.ts";
 import type { ConteudoSaida } from "./transporte.ts";
 import { transporteSemRede } from "./harness-postgres.ts";
 import * as multiempresa from "./multiempresa.ts";
+import * as avisoEquipe from "./aviso-equipe.ts";
 import * as motivoFalha from "./motivo-falha.ts";
 import * as tetoMensal from "./teto-mensal.ts";
 import * as oportunidade from "./walle/oportunidade.ts";
@@ -88,11 +89,11 @@ function carregar(empresaPiloto: string) {
     "./walle/entendimento.ts": entendimento,
     "../../satisfacao/supressao.ts": supressao,
     "../../marketing/automacoes/preferencias.ts": preferencias,
-    "./multiempresa.ts": multiempresa,
+    "./multiempresa.ts": multiempresa, "./aviso-equipe.ts": avisoEquipe,
     "./teto-mensal.ts": tetoMensal,
   }).modulo as Servico;
   const worker = carregarComponente("lib/whatsapp/atendimento/worker.ts", {
-    "../../db/postgres.ts": postgres, "./configuracao.ts": configuracao, "./core.ts": core, "./service.ts": servico, "./transporte.ts": transporteSemRede, "./arquivos.ts": arquivos, "./multiempresa.ts": multiempresa, "./motivo-falha.ts": motivoFalha, "./walle/oportunidade.ts": oportunidade, "./teto-mensal.ts": tetoMensal,
+    "../../db/postgres.ts": postgres, "./configuracao.ts": configuracao, "./core.ts": core, "./service.ts": servico, "./transporte.ts": transporteSemRede, "./arquivos.ts": arquivos, "./multiempresa.ts": multiempresa, "./aviso-equipe.ts": avisoEquipe, "./motivo-falha.ts": motivoFalha, "./walle/oportunidade.ts": oportunidade, "./teto-mensal.ts": tetoMensal,
   }).modulo as Worker;
   return { servico, worker };
 }
@@ -305,6 +306,17 @@ test("060: atendimento WhatsApp — isolamento, deduplicação, concorrência, t
     //      Estado depois do cancelamento: a IA conduzia, então a conversa vai para a equipe, sem responsável e com nova versão.
     const c111depois = await conversa("5561900000111");
     assert.deepEqual([c111depois.estado, c111depois.responsavel_id, Number(c111depois.versao)], ["AGUARDANDO_HUMANO", null, Number(c111.versao) + 1]);
+    //   b2) Astra r3 (fatia 8 r4): FAQ cuja resposta publicada é EXATAMENTE o texto fixo do encaminhamento. A fase B grava a saída
+    //       sem fonte (esta base nem tem a 082); sem origem comprovada não há isenção: removida a FAQ, a saída PENDENTE é cancelada.
+    await servico.salvarConfiguracao(representante, faq(core.MENSAGEM_ENCAMINHAMENTO));
+    await servico.receberEntrada(evento(118, "5561900000118", "Onde fica?"));
+    await worker.processarLote(registrando(), { maxTarefas: 1 });
+    const c118 = await conversa("5561900000118");
+    assert.deepEqual((await mensagens(c118.id)).map((m) => `${m.direcao}:${m.estado}:${m.texto}`), ["ENTRADA:PROCESSADA:Onde fica?", `SAIDA:PENDENTE:${core.MENSAGEM_ENCAMINHAMENTO}`], "b2: FAQ enfileirada com o texto fixo");
+    await servico.salvarConfiguracao(representante, faq(null));
+    await worker.processarLote(registrando(), { maxTarefas: 10 });
+    assert.equal((await mensagens(c118.id)).at(-1)?.estado, "CANCELADA", "b2: o texto igual ao fixo, sem origem, é revogado");
+    assert.ok(!textosEnviados.includes(core.MENSAGEM_ENCAMINHAMENTO), "b2: não chegou ao provedor");
     //   c) conversa já assumida por atendente: saída revogada é cancelada e estado/responsável humanos ficam como estão.
     await servico.salvarConfiguracao(representante, faq("Endereço vigente sintético."));
     await servico.receberEntrada(evento(112, "5561900000112", "Onde fica?"));

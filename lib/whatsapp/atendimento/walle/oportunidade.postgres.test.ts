@@ -53,6 +53,7 @@ import type { Entendimento, ResultadoWallE, TipoIntencao } from "./tipos.ts";
 const DOWN = "database/rollback/20261123_132_walle_oportunidades_down.sql";
 const ler = (f: string) => readFileSync(f, "utf8");
 const M132 = ["database/checks/20261123_132_precheck.sql", "database/migrations/20261123_132_walle_oportunidades.sql", "database/checks/20261123_132_postcheck.sql"].map(ler);
+const M136 = ["database/checks/20261124_136_precheck.sql", "database/migrations/20261124_136_campanha_destino_externo.sql", "database/checks/20261124_136_postcheck.sql"].map(ler);
 const SENHA = `scrypt$v=1$N=131072$r=8$p=1$${"A".repeat(22)}==$${"B".repeat(86)}==`;
 const hoje = new Intl.DateTimeFormat("sv-SE", { timeZone: "America/Sao_Paulo" }).format(new Date());
 const somarDias = (iso: string, d: number) => new Date(Date.parse(`${iso}T12:00:00Z`) + d * 86400000).toISOString().slice(0, 10);
@@ -592,7 +593,8 @@ test("Wall-e 1a: pedido de festa vira cartão no funil, sem duplicar, isolado, r
     // Negociação sintética na ordem das entradas reais: a trava da configuração da agenda antes das datas (114).
     await q("BEGIN");
     await travarConfiguracaoAgenda(executor(c as never), A.empresa, { modo: "COMPARTILHADA", linha: "KEY_SHARE" });
-    const negociacao = await fechamento(c as never, A.empresa, await comercial(c as never, A.empresa), clienteC, { data: DATA });
+    const baseComercial = await comercial(c as never, A.empresa);
+    const negociacao = await fechamento(c as never, A.empresa, baseComercial, clienteC, { data: DATA });
     await q("UPDATE marketing_contatos SET fechamento_id=$2 WHERE id=$1", [kc.id, negociacao]);
     await q("COMMIT");
     const ex11c = await aStg.privacidade.excluirConversaAPedido(A.sessao, { conversaId: (await conversa(A.empresa, "staging", f11c)).id, motivo: "PEDIDO_DO_TITULAR" });
@@ -916,6 +918,44 @@ test("Wall-e 1a: pedido de festa vira cartão no funil, sem duplicar, isolado, r
       }
       assert.equal((await cartoes(B.empresa, [fone30])).length, 1, "F30: o pedido do site foi gravado");
 
+      // Site externo: cada clique é agregado; apenas a mensagem recebida cria atribuição. r2 (136): só campanha com destino
+      // externo recebe clique e atribuição do site; a 136 é aplicada aqui e a campanha sem site é marcada.
+      for (const sql of M136) await q(sql);
+      await q("UPDATE marketing_campanhas SET destino_externo = true WHERE id = $1", [campanha35]);
+      process.env.MARKETING_SITE_KIDMAIS_EMPRESA_ID = A.empresa;
+      try {
+        const rotaSite = carregarComBanco("app/api/publico/marketing/site-kidmais/evento/route.ts", c as never, () => null, semSavepoint, cacheMarketing) as { POST(req: ReturnType<typeof pedido>): Promise<Response> };
+        const evento = (tipo: string, origem = "https://kidmaisfestas.com") => rotaSite.POST(pedido(
+          `http://localhost/api/publico/marketing/site-kidmais/evento?evento=${tipo}&campanha=${campanha35}`, undefined, "POST", { origin: origem }));
+        assert.equal((await evento("visita", "https://example.invalid")).status, 403);
+        assert.equal((await evento("visita")).status, 204);
+        assert.equal((await evento("whatsapp")).status, 204);
+        const contagem = await q("SELECT tipo, count(*)::int AS n FROM marketing_eventos WHERE empresa_id=$1 AND campanha_id=$2 GROUP BY tipo ORDER BY tipo", [A.empresa, campanha35]);
+        assert.deepEqual(contagem.rows, [{ tipo: "CLIQUE_LINK_CAMPANHA", n: 1 }, { tipo: "CLIQUE_WHATSAPP", n: 1 }]);
+        const textoSite = `${FESTA}\n\nOrigem: instagram | Campanha: ${campanha35} | Anúncio: criativo-A\nRef. iA.Fest: ${campanha35}`;
+        roteiro.set(textoSite, { tipos: ["PRECOS"], convidados: 60 });
+        const telefoneSite = "5561900008991";
+        const clienteSite = await id("INSERT INTO clientes (nome_completo,empresa_id,telefone,whatsapp,cpf) VALUES ('Contato site',$1,$2,$2,$3) RETURNING id", [A.empresa, telefoneSite, cpfValido()]);
+        await receber(aStg, telefoneSite, textoSite);
+        await processar(aStg);
+        const [cartaoSite] = await cartoes(A.empresa, [telefoneSite]);
+        const origem = (alvo: string) => q("SELECT campanha_id, origem_codigo, metodo FROM marketing_atribuicoes WHERE empresa_id=$1 AND alvo_id=$2 AND vigente", [A.empresa, alvo]);
+        assert.deepEqual((await origem(cartaoSite.id)).rows, [{ campanha_id: campanha35, origem_codigo: "INSTAGRAM", metodo: "INFORMADO" }]);
+        await receber(aStg, telefoneSite, textoSite);
+        await processar(aStg);
+        assert.equal((await origem(cartaoSite.id)).rows.length, 1);
+        await q("BEGIN");
+        try {
+          await travarConfiguracaoAgenda(txc, A.empresa, { modo: "COMPARTILHADA", linha: "KEY_SHARE" });
+          const negocioSite = await fechamento(c as never, A.empresa, baseComercial, clienteSite, { data: somarDias(DATA, 7) });
+          await conversao.vincularContatoNegociacao(txc, A.empresa, A.usuario, { id: cartaoSite.id, fechamentoId: negocioSite });
+          assert.deepEqual((await origem(negocioSite)).rows, [{ campanha_id: campanha35, origem_codigo: "INSTAGRAM", metodo: "HERDADO" }]);
+        } finally { await q("ROLLBACK"); }
+        await receber(bStg, telefoneSite, textoSite);
+        await processar(bStg);
+        assert.equal((await q("SELECT 1 FROM marketing_atribuicoes WHERE empresa_id=$1 AND campanha_id=$2", [B.empresa, campanha35])).rows.length, 0);
+      } finally { delete process.env.MARKETING_SITE_KIDMAIS_EMPRESA_ID; }
+
       // F23 (r4, P1-2) — atribuição que liga o cartão a OUTRO alvo (CLIENTE), sem texto da equipe: também revisar, com o id.
       const f23 = "5561900008601";
       await receber(aStg, f23, FESTA, "Duda WhatsApp");
@@ -932,6 +972,76 @@ test("Wall-e 1a: pedido de festa vira cartão no funil, sem duplicar, isolado, r
       assert.ok(d23.registrosParaRevisar.some((r) => r.tipo === "ATRIBUICAO" && r.rotulo === "Origem INSTAGRAM do cliente"), "F23: o detalhe mostra a atribuição de outro alvo que motivou o revisar (r5)");
       // Recorte: o detalhe de um cartão não anonimizado não traz registros a conferir.
       assert.deepEqual((await contatos.detalheContato(txc, A.empresa, kStg.id, { revisarPrivacidade: true })).registrosParaRevisar, [], "F23: só o anonimizado traz registros (r5)");
+
+      // F38 (r3, P2 do Astra r2) — duas conexões: a mudança comercial segura a empresa do opt-in com FOR NO KEY UPDATE
+      // (como as ofertas) e bloqueia o acesso; a captura com referência espera (FOR SHARE), e depois do COMMIT cria o
+      // cartão SEM atribuir. Com FOR KEY SHARE ela passaria da 1ª trava, travaria a conversa e só esperaria na trava FOR SHARE
+      // da atribuição (upgrade no meio da transação), o que as asserções de modo e de tabelas abaixo pegam.
+      process.env.MARKETING_SITE_KIDMAIS_EMPRESA_ID = A.empresa;
+      try {
+        assert.equal((await q("SELECT 1 FROM pg_class WHERE oid = to_regclass('public.empresa_assinaturas')")).rows.length, 1, "F38: modelo comercial (067) instalado");
+        assert.equal((await q("SELECT 1 FROM empresa_assinaturas WHERE empresa_id=$1", [A.empresa])).rows.length, 0, "F38: A sem assinatura (acesso completo)");
+        const pendente38 = (fone: string) => id(`INSERT INTO whatsapp_atendimento_conversas (empresa_id, ambiente, contato, oportunidade_pendente_em, contexto)
+          VALUES ($1, 'staging', $2, clock_timestamp(), jsonb_build_object('campanhaSitePendente', $3::text)) RETURNING id::text`, [A.empresa, fone, campanha35]);
+        const atribuida38 = async (fone: string) => {
+          const [k] = await cartoes(A.empresa, [fone]);
+          return { k, campanhas: k ? (await q<{ campanha_id: string }>("SELECT campanha_id::text FROM marketing_atribuicoes WHERE empresa_id=$1 AND alvo_id=$2 AND vigente", [A.empresa, k.id])).rows.map((r) => r.campanha_id) : [] };
+        };
+        // Controle: sem a mudança comercial, a mesma montagem atribui.
+        const controle38 = "5561900008381";
+        const cvControle38 = await pendente38(controle38);
+        assert.equal(await withTransaction((tx) => capturarOportunidade(tx, cvControle38)), "CRIADO", "F38 controle: cartão");
+        assert.deepEqual((await atribuida38(controle38)).campanhas, [campanha35], "F38 controle: atribui sem disputa");
+        const fone38 = "5561900008382";
+        const cv38 = await pendente38(fone38);
+        const comercial38 = await conectarDescartavel({ travar: false });
+        let emCurso38: Promise<unknown> | null = null;
+        try {
+          await comercial38.query("BEGIN");
+          await comercial38.query("SET LOCAL lock_timeout = '10s'");
+          await comercial38.query("SELECT id FROM empresas WHERE id=$1 FOR NO KEY UPDATE", [A.empresa]);
+          const pid38 = Number((await comercial38.query<{ pid: number }>("SELECT pg_backend_pid() AS pid")).rows[0].pid);
+          let marcarPid38!: (p: number) => void;
+          let falharPid38!: (e: unknown) => void;
+          const pidCaptura38 = new Promise<number>((r, f) => { marcarPid38 = r; falharPid38 = f; });
+          const captura38 = withTransaction(async (tx) => {
+            marcarPid38(Number((await tx.query<{ pid: number }>("SELECT pg_backend_pid() AS pid")).rows[0].pid));
+            return capturarOportunidade(tx, cv38);
+          });
+          // Falha antes de marcar o PID (conexão, pg_backend_pid) rejeita a espera em vez de deixá-la pendurada.
+          captura38.catch(falharPid38);
+          emCurso38 = captura38;
+          const pidC38 = await pidCaptura38;
+          const esperou38 = await esperarAte(q, `SELECT 1 FROM pg_stat_activity WHERE pid=${pidC38} AND ${pid38} = ANY(pg_blocking_pids(pid))`, 5_000);
+          const modo38 = (await q<{ mode: string }>("SELECT l.locktype || ':' || l.mode || ':' || l.granted AS mode FROM pg_locks l WHERE l.pid=$1 AND l.locktype IN ('tuple','transactionid') ORDER BY 1", [pidC38])).rows.map((r) => r.mode);
+          // Espera na 1ª trava: da conversa, só a leitura sem trava (AccessShareLock); nada mais em conversas nem em contatos.
+          const tabelas38 = (await q<{ t: string }>("SELECT l.relation::regclass::text AS t FROM pg_locks l WHERE l.pid=$1 AND l.locktype='relation' AND l.mode <> 'AccessShareLock' AND l.relation::regclass::text IN ('whatsapp_atendimento_conversas','marketing_contatos') ORDER BY 1", [pidC38])).rows.map((r) => r.t);
+          // Só agora o acesso é bloqueado: teste vencido há 300 dias. O gatilho da 074a toma a empresa FOR UPDATE neste INSERT;
+          // por isso a espera acima é medida antes dele, com a transação comercial segurando apenas FOR NO KEY UPDATE.
+          await comercial38.query(`INSERT INTO empresa_assinaturas (empresa_id, situacao, teste_inicio, teste_fim)
+            VALUES ($1, 'TESTE', clock_timestamp() - interval '330 days', clock_timestamp() - interval '300 days')`, [A.empresa]);
+          await comercial38.query("COMMIT");
+          assert.ok(modo38.some((m) => m.startsWith("tuple:RowShareLock")) && !modo38.some((m) => m.startsWith("tuple:AccessShareLock")), "F38: a 1ª trava pedida é FOR SHARE (RowShareLock), não FOR KEY SHARE");
+          assert.deepEqual(tabelas38, [], "F38: a captura esperou na 1ª trava (empresa), antes de travar a conversa");
+          assert.equal(esperou38, true, "F38: a captura esperou a mudança comercial (FOR SHARE × FOR NO KEY UPDATE)");
+          console.log("EVIDENCIA " + JSON.stringify({ cenario: "F38", esperou: esperou38, travaPedida: modo38, tabelasAntesDaEspera: tabelas38 }));
+          assert.equal(await captura38, "CRIADO", "F38: depois do COMMIT a captura cria o cartão");
+        } finally {
+          await comercial38.query("ROLLBACK").catch(() => undefined);
+          // Com a trava comercial liberada, a captura em curso termina antes de fechar a conexão e seguir.
+          if (emCurso38) await emCurso38.catch(() => undefined);
+          await comercial38.end();
+        }
+        const r38 = await atribuida38(fone38);
+        assert.ok(r38.k, "F38: cartão criado");
+        assert.deepEqual(r38.campanhas, [], "F38: sem atribuição (a decisão viu o acesso bloqueado, confirmado)");
+        const contexto38 = (await q<{ contexto: Record<string, unknown> | null; pendente: string | null }>("SELECT contexto, oportunidade_pendente_em::text AS pendente FROM whatsapp_atendimento_conversas WHERE id=$1", [cv38])).rows[0];
+        assert.deepEqual([Object.keys(contexto38.contexto ?? {}), contexto38.pendente], [[], null], "F38: marca e referência limpas, nada guardado");
+      } finally {
+        // O teste da assinatura só avança: volta o acesso completo para os cenários seguintes.
+        await q("UPDATE empresa_assinaturas SET teste_fim = clock_timestamp() + interval '30 days' WHERE empresa_id=$1", [A.empresa]);
+        delete process.env.MARKETING_SITE_KIDMAIS_EMPRESA_ID;
+      }
     } finally {
       if (ambienteAntes === undefined) delete process.env.KIDMAIS_DEPLOY_ENV; else process.env.KIDMAIS_DEPLOY_ENV = ambienteAntes;
     }

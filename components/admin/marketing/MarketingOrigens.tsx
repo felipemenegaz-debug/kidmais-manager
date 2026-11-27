@@ -10,6 +10,7 @@ import { adminFetch } from '@/lib/http/admin-fetch';
 import { clientesDaBusca, dataBr, dataHoraBr, ROTULO_STATUS_CONTATO } from '@/lib/marketing/apresentacao';
 import { AdminPrimaryButton } from '../AdminPrimaryButton';
 import { AtribuicaoExplicada } from './AtribuicaoExplicada';
+import OrigemPainel from './OrigemPainel';
 import { CabecalhoMarketing, EstadoCarga, enviarMarketing, novaChave, useMarketing } from './comum';
 import styles from './marketing.module.css';
 
@@ -116,9 +117,11 @@ export function DetalheDialogo({ id, podeEditar, aoFechar }: { id: string; podeE
           <p className={styles.muted}>Anotações que a equipe fez sobre este contato e que a anonimização não apaga. Confira e corrija, se tiverem dados pessoais.</p>
           <ul className={styles.historico}>{c.registrosParaRevisar.map((r) => <li key={r.tipo + r.id} data-registro-revisar={r.tipo}>{r.rotulo} · {dataHoraBr(r.quando)}{r.texto ? ' · ' + r.texto : ''}{r.por ? ' · por ' + r.por : ''}</li>)}</ul>
         </>}
-        <h3>Origem</h3>
+        {/* Pedido sem referência automática (telefone, indicação, conversa atendida): a equipe informa ou corrige como
+            conheceu enquanto não há negociação; depois do vínculo vale a origem da negociação, que tem painel próprio. */}
+        {editavel && !c.fechamentoId ? <OrigemPainel alvoTipo="CONTATO" alvoId={c.id} /> : <><h3>Origem</h3>
         <p>{origemTexto(c, dados.origens)}</p>
-        {c.atribuicoes.length > 1 && <ul className={styles.historico}>{c.atribuicoes.map((a) => <li key={a.id} data-vigente={a.vigente}>{a.origemCodigo} · {METODO[a.metodo]} · {dataHoraBr(a.registradoEm)}{a.motivo ? ` · ${a.motivo}` : ''}</li>)}</ul>}
+        {c.atribuicoes.length > 1 && <ul className={styles.historico}>{c.atribuicoes.map((a) => <li key={a.id} data-vigente={a.vigente}>{a.origemCodigo} · {METODO[a.metodo]} · {dataHoraBr(a.registradoEm)}{a.motivo ? ` · ${a.motivo}` : ''}</li>)}</ul>}</>}
         <h3>Cliente</h3>
         {c.clienteId ? <p><Link href={`/clientes/${c.clienteId}`}>{c.clienteNome}</Link> <span className={styles.muted}>({VINCULO[c.vinculoCliente] ?? c.vinculoCliente})</span>
           {c.origemCliente && <><br /><span className={styles.muted}>Primeira origem do cliente: {c.origemCliente.origemCodigo === 'DESCONHECIDA' ? 'desconhecida' : dados.origens.find((o) => o.codigo === c.origemCliente?.origemCodigo)?.rotulo ?? c.origemCliente.origemCodigo}</span></>}</p>

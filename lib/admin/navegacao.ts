@@ -4,6 +4,8 @@ export type ItemNavegacao = {
     grupo: 'Principal' | 'Operação' | 'Marketing' | 'Satisfação' | 'Financeiro' | 'Configurações';
     /** Número ao lado do item (ex.: retornos abertos); ausente ou 0 = sem número. */
     contador?: number;
+    /** Palavra lida junto do número pelo leitor de tela (padrão "abertos"). */
+    rotuloContador?: string;
 };
 
 const PRINCIPAL: ItemNavegacao[] = [
@@ -91,7 +93,7 @@ const CONFIGURACAO: Array<ItemNavegacao & { autoridade: 'empresa' | 'plataforma'
 /** `marketing: false` = plano sem Marketing ou pessoa sem capacidade nesta empresa. Ausente = mostrado (compatibilidade). */
 export type MenuSatisfacaoNavegacao = { ver: boolean; tratar: boolean; retornosAbertos: number };
 /** `satisfacao`: permissões do menu Satisfação devolvidas pelo servidor; ausente ou null = grupo oculto. */
-export type PermissoesNavegacao = { gestaoEmpresa: boolean; plataforma: boolean; financeiroCompleto?: boolean; marketing?: boolean; pedidosNovos?:number; satisfacao?: MenuSatisfacaoNavegacao | null };
+export type PermissoesNavegacao = { gestaoEmpresa: boolean; plataforma: boolean; financeiroCompleto?: boolean; marketing?: boolean; pedidosNovos?:number; atendimentoAguardando?: number; satisfacao?: MenuSatisfacaoNavegacao | null };
 
 /** Telas do financeiro completo; a mesma matriz de lib/assinatura/recursos-plano.ts recusa as APIs no servidor. */
 export const ROTAS_FINANCEIRO_COMPLETO = ['/admin/financeiro/contas-pagar', '/admin/financeiro/fluxo-caixa', '/admin/financeiro/relatorios'] as const;
@@ -102,7 +104,9 @@ export function itensNavegacao(permissoes: boolean | PermissoesNavegacao): ItemN
     const financeiro = p.financeiroCompleto === false
         ? FINANCEIRO.filter((item) => !(ROTAS_FINANCEIRO_COMPLETO as readonly string[]).includes(item.href))
         : FINANCEIRO;
-    const operacao = OPERACAO.filter(item=>item.href!=='/admin/oportunidades'||p.marketing!==false);
+    // Fatia 8: selo "aguardando" no Atendimento WhatsApp (conversas esperando a equipe; 0 = sem número).
+    const operacao = OPERACAO.filter(item=>item.href!=='/admin/oportunidades'||p.marketing!==false)
+        .map(item => item.href === '/admin/atendimento' ? { ...item, contador: p.atendimentoAguardando ?? 0, rotuloContador: 'aguardando' } : item);
     const base = [...PRINCIPAL, ...operacao, ...(p.marketing === false ? [] : MARKETING.map(i=>i.href==='/admin/marketing/origens'?{...i,contador:p.pedidosNovos??0}:i)), ...itensSatisfacao(p.satisfacao), ...financeiro];
     if (p.gestaoEmpresa) base.push(DEVOLUCOES_PRE_RESERVA);
     const config = CONFIGURACAO

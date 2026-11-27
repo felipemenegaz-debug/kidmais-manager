@@ -11,6 +11,7 @@ import * as arquivos from './arquivos.ts';
 import * as core from './core.ts';
 import { cod, db, withTransaction } from './harness-postgres.ts';
 import * as multiempresa from './multiempresa.ts';
+import * as avisoEquipe from './aviso-equipe.ts';
 import * as entendimento from './walle/entendimento.ts';
 import * as mesSaoPaulo from './mes-sao-paulo.ts';
 import * as tetoMensal from './teto-mensal.ts';
@@ -53,7 +54,7 @@ test('resultado: sessões de 24 h, virada, custos e isolamento de empresa e ambi
     const tenant = { withTenantTransaction: (s: SessaoParaTenant, e: string, w: Parameters<typeof executarNoTenant>[3]) => withTransaction((tx: DbExecutor) => executarNoTenant(tx, s, e, w)) };
     const servico = carregarComponente('lib/whatsapp/atendimento/service.ts', {
       '../../db/postgres.ts': { withTransaction, db }, '../../saas/provar-tenant.ts': tenant, './configuracao.ts': configuracao, './core.ts': core, './arquivos.ts': arquivos,
-      './walle/entendimento.ts': entendimento, './multiempresa.ts': multiempresa, './teto-mensal.ts': tetoMensal, '../../satisfacao/supressao.ts': supressao, '../../marketing/automacoes/preferencias.ts': preferencias,
+      './walle/entendimento.ts': entendimento, './multiempresa.ts': multiempresa, './aviso-equipe.ts': avisoEquipe, './teto-mensal.ts': tetoMensal, '../../satisfacao/supressao.ts': supressao, '../../marketing/automacoes/preferencias.ts': preferencias,
     }).modulo as typeof import('./service.ts');
     const { resultadoAtendimento } = carregarComponente('lib/whatsapp/atendimento/resultado.ts', {
       './service.ts': servico,

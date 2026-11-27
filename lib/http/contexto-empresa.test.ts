@@ -245,15 +245,53 @@ test('falha na confirmação ANTES do envio com a página saindo: nada é enviad
 });
 
 const DESCARTE = /Não foi possível confirmar a empresa ativa depois da leitura/;
-function comRelogio(corpo: (r: { agora: () => number; ir: (ms: number) => void; irDepoisDaLeitura: (ms: number) => void }) => Promise<void>) {
-    const original = Date.now;
-    const t0 = original();
+type Relogio = { agora: () => number; ir: (ms: number) => void; irDepoisDaLeitura: (ms: number) => void; mudarRelogioDoSistema: (ms: number) => void };
+/**
+ * Controla o relógio monotônico (`performance.now()`), que mede o prazo da saída. O relógio do sistema (`Date.now()`)
+ * fica separado: `mudarRelogioDoSistema` o desloca sem mexer no monotônico, como um ajuste de hora do computador.
+ */
+function comRelogio(corpo: (r: Relogio) => Promise<void>) {
+    const descritor = Object.getOwnPropertyDescriptor(performance, 'now');
+    const dateNow = Date.now;
+    // Origem inteira fixa: com a origem fracionária real, (t0 + 10_000) - t0 pode dar 9999,999… e mudar a fronteira.
+    const t0 = 1_000;
     let relogio = t0;
     let depois: number | null = null;
+    let deslocamento = 0;
     // `irDepoisDaLeitura`: a próxima leitura do relógio ainda vê o valor atual; as seguintes veem o novo.
-    Date.now = () => { const v = relogio; if (depois !== null) { relogio = depois; depois = null; } return v; };
-    return corpo({ agora: () => relogio, ir: (ms) => { relogio = t0 + ms; }, irDepoisDaLeitura: (ms) => { depois = t0 + ms; } }).finally(() => { Date.now = original; });
+    Object.defineProperty(performance, 'now', { configurable: true, writable: true, value: () => { const v = relogio; if (depois !== null) { relogio = depois; depois = null; } return v; } });
+    Date.now = () => dateNow() + deslocamento;
+    return corpo({ agora: () => relogio, ir: (ms) => { relogio = t0 + ms; }, irDepoisDaLeitura: (ms) => { depois = t0 + ms; }, mudarRelogioDoSistema: (ms) => { deslocamento = ms; } }).finally(() => {
+        if (descritor) Object.defineProperty(performance, 'now', descritor);
+        else delete (performance as unknown as { now?: unknown }).now;
+        Date.now = dateNow;
+    });
 }
+
+test('relógio do sistema recua 1 min depois do beforeunload: aos 11 s monotônicos a falha descarta como antes', async () => {
+    await comRelogio(async ({ ir, mudarRelogioDoSistema }) => {
+        const a = ambiente({ sessoes: [A, 'rede'], alvo: { status: 200, corpo: DADO } });
+        a.disparar('beforeunload');
+        mudarRelogioDoSistema(-60_000);
+        ir(11_000);
+        await assert.rejects(a.mod.adminFetch('/api/x'), DESCARTE);
+        assert.equal(a.navegacoes.at(-1), 'replace:/admin/dashboard');
+        assert.equal(a.decisoes(), 1);
+    });
+});
+
+test('relógio do sistema avança 1 h depois do beforeunload: a 1 s monotônico ainda é saída, sem descarte', async () => {
+    await comRelogio(async ({ ir, mudarRelogioDoSistema }) => {
+        const a = ambiente({ sessoes: [A, 'rede'], alvo: { status: 200, corpo: DADO } });
+        a.disparar('beforeunload');
+        mudarRelogioDoSistema(3_600_000);
+        ir(1_000);
+        await assert.rejects(a.mod.adminFetch('/api/x'), (e: Error) => !DESCARTE.test(e.message));
+        assert.deepEqual(a.navegacoes, []);
+        assert.equal(a.aviso(), null);
+        assert.equal(a.decisoes(), 0);
+    });
+});
 
 test('volta do bfcache (pageshow) depois de beforeunload + pagehide: a falha seguinte, ainda nos 10 s, descarta como antes', async () => {
     await comRelogio(async ({ ir }) => {

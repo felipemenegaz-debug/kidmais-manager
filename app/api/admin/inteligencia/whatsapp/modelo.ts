@@ -41,13 +41,16 @@ export function exigirTetoPorEmpresa(orcamento: Exclude<ReturnType<typeof orcame
   if (!Object.values(orcamento.porEmpresa ?? {}).some((v) => typeof v === 'number' && v > 0)) throw new Error('ATENDIMENTO_ORCAMENTO_SEM_TETO_EMPRESA');
 }
 
-/** Composition root do canal: o domínio recebe portas, sem depender dos modelos da IA. */
-export async function processarFilaAtendimento() {
+/**
+ * Composition root do canal: o domínio recebe portas, sem depender dos modelos da IA. `avisoEquipe` (fatia 8) vem da rota
+ * do processador, que monta o e-mail; esta pasta só importa a lista fechada de lib/inteligencia/arquitetura.test.ts.
+ */
+export async function processarFilaAtendimento(avisoEquipe?: Parameters<typeof processarLote>[0]['avisoEquipe']) {
   // Revisão final (M3): chave global desligada não deixa a fila esperando a IA voltar. Entradas pendentes vão para a
   // equipe sem resposta e saídas automáticas na fila são canceladas; nada é enviado nem interpretado.
   const portas = portasDeModeloAtendimento(process.env);
   // E-ME1: o envio recebe a empresa dona da saída (não piloto: só a conexão Meta dela).
-  return processarLote({interpretar:portas.interpretar,enviar:(contato, conteudo, alvo) => enviarPelaEmpresa(contato, conteudo, { alvo }),wallE:criarPortaWallE(portas.entender, { sinais: sinaisJev, direitoModelo: direitoModeloAtendimento }),direitoModelo:direitoModeloAtendimento},
+  return processarLote({interpretar:portas.interpretar,enviar:(contato, conteudo, alvo) => enviarPelaEmpresa(contato, conteudo, { alvo }),wallE:criarPortaWallE(portas.entender, { sinais: sinaisJev, direitoModelo: direitoModeloAtendimento }),direitoModelo:direitoModeloAtendimento,avisoEquipe},
     { semAutomacao: !inteligenciaAtiva(process.env) });
 }
 

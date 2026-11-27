@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto';
 import { trechoParaRegistro, type ConfiguracaoAtendimento } from '../core.ts';
+import { retornoForaDoHorario } from '../horario.ts';
 import type { Finalidade } from '../prontas.ts';
 import { comPendente, jaEnviado, mesclarContexto, registrarEnviado } from './contexto.ts';
 import { clausulasDoTema, modeloVigente } from './contrato-modelo.ts';
@@ -53,6 +54,11 @@ export const diaSemana = (iso: string) => DIAS[new Date(`${iso}T12:00:00Z`).getU
 const hora = (h: string) => { const [hh, mm] = h.split(':'); return mm && mm !== '00' ? `${Number(hh)}h${mm}` : `${Number(hh)}h`; };
 export const moeda = (v: number) => v.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
 const lista = (itens: string[]) => (itens.length <= 1 ? itens.join('') : `${itens.slice(0, -1).join(', ')} e ${itens.at(-1)}`);
+/** Faixa de convidados do cadastro em texto ("20 a 60", "até 80", "a partir de 20"); sem mínimo nem máximo, null. Nunca "null" no texto (production 25/11/2026). */
+const faixaConvidados = (p: Pick<PacoteResumo, 'convidadosMinimos' | 'convidadosMaximos'>) =>
+  p.convidadosMaximos ? (p.convidadosMinimos ? `${p.convidadosMinimos} a ${p.convidadosMaximos}` : `até ${p.convidadosMaximos}`) : p.convidadosMinimos ? `a partir de ${p.convidadosMinimos}` : null;
+/** "o pacote X (20 a 60)"; sem faixa cadastrada, só o nome. */
+const pacoteComFaixa = (p: PacoteResumo) => { const f = faixaConvidados(p); return `o pacote ${p.nome}${f ? ` (${f})` : ''}`; };
 const turnoTexto = (catalogos: Catalogos, codigo: string | null | undefined) => { const t = catalogos.turnos.find((x) => x.codigo === codigo); return t ? `${t.nome} (${hora(t.inicio)} às ${hora(t.fim)})` : null; };
 const nomePacote = (catalogos: Catalogos, codigo: string | null | undefined) => catalogos.pacotes.find((p) => p.codigo === codigo)?.nome ?? null;
 const nomeUnidade = (catalogos: Catalogos, id: string | null | undefined) => catalogos.unidades.find((u) => u.id === id)?.nome ?? null;
@@ -130,7 +136,7 @@ async function capacidade(e: Estado) {
     const cabem = todos.filter((x) => (!x.convidadosMaximos || x.convidadosMaximos >= n) && (!x.convidadosMinimos || x.convidadosMinimos <= n));
     const maior = [...todos].filter((x) => x.convidadosMaximos).sort((a, b) => b.convidadosMaximos! - a.convidadosMaximos!)[0];
     if (!cabem.length && !maior) return;
-    dizer(e, cabem.length ? `Para ${n} convidados: ${lista(cabem.map((x) => `o pacote ${x.nome} (${x.convidadosMinimos ? `${x.convidadosMinimos} a ` : 'até '}${x.convidadosMaximos})`))}.`
+    dizer(e, cabem.length ? `Para ${n} convidados: ${lista(cabem.map(pacoteComFaixa))}.`
       : `Para ${n} convidados, nenhum pacote cadastrado comporta: o maior, o pacote ${maior.nome}, vai até ${maior.convidadosMaximos}.`, (cabem.length ? cabem : [maior]).map((x) => ({ tipo: 'PACOTE', codigo: x.codigo, id: x.id } as Fonte)));
     return;
   }
@@ -400,13 +406,13 @@ async function pacotes(e: Estado) {
     const cabe = n <= unico.convidadosMaximos && (!unico.convidadosMinimos || n >= unico.convidadosMinimos);
     // O pacote da conversa não comporta ("e pra 90 serve?" com o Essencial): diz também quais comportam, pelo cadastro.
     const outros = !cabe && doContexto ? todos.filter((p) => p.codigo !== unico.codigo && (!p.convidadosMaximos || n <= p.convidadosMaximos) && (!p.convidadosMinimos || n >= p.convidadosMinimos)) : [];
-    dizer(e, `${cabe ? 'Sim' : 'Não'}: o pacote ${unico.nome} é para ${unico.convidadosMinimos ? `${unico.convidadosMinimos} a ${unico.convidadosMaximos}` : `até ${unico.convidadosMaximos}`} convidados${outros.length ? `; para ${n}, ${lista(outros.map((p) => `o pacote ${p.nome}`))} ${outros.length > 1 ? 'comportam' : 'comporta'}` : !cabe && (doContexto || !todos.some((p) => !p.convidadosMaximos || n <= p.convidadosMaximos)) ? `; para ${n}, nenhum pacote cadastrado comporta` : ''}.`,
+    dizer(e, `${cabe ? 'Sim' : 'Não'}: o pacote ${unico.nome} é para ${faixaConvidados(unico)} convidados${outros.length ? `; para ${n}, ${lista(outros.map((p) => `o pacote ${p.nome}`))} ${outros.length > 1 ? 'comportam' : 'comporta'}` : !cabe && (doContexto || !todos.some((p) => !p.convidadosMaximos || n <= p.convidadosMaximos)) ? `; para ${n}, nenhum pacote cadastrado comporta` : ''}.`,
       [unico, ...outros].map((p) => ({ tipo: 'PACOTE', codigo: p.codigo, id: p.id } as Fonte)));
   } else if (n && !unico && CABE.test(semAcento(e.texto))) {
     // "Cabe 160 em algum pacote?": quais comportam, pela faixa cadastrada (nenhum: diz o maior, sem prometer exceção).
     const cabem = todos.filter((p) => (!p.convidadosMaximos || n <= p.convidadosMaximos) && (!p.convidadosMinimos || n >= p.convidadosMinimos));
     const maior = [...todos].filter((p) => p.convidadosMaximos).sort((a, b) => b.convidadosMaximos! - a.convidadosMaximos!)[0];
-    dizer(e, cabem.length ? `Para ${n} convidados: ${lista(cabem.map((p) => `o pacote ${p.nome} (${p.convidadosMinimos ? `${p.convidadosMinimos} a ` : 'até '}${p.convidadosMaximos})`))}.`
+    dizer(e, cabem.length ? `Para ${n} convidados: ${lista(cabem.map(pacoteComFaixa))}.`
       : `Para ${n} convidados, nenhum pacote cadastrado comporta${maior ? `: o maior, o pacote ${maior.nome}, vai até ${maior.convidadosMaximos}` : ''}.`, (cabem.length ? cabem : maior ? [maior] : []).map((p) => ({ tipo: 'PACOTE', codigo: p.codigo, id: p.id } as Fonte)));
   }
   const horasPedidas = /\b(\d+|uma|duas|tres|quatro|cinco|seis) horas\b/.exec(semAcento(e.texto));
@@ -416,13 +422,12 @@ async function pacotes(e: Estado) {
     const com = alvo.filter((p) => p.duracaoMinutos);
     const dur = (p: PacoteResumo) => (p.duracaoMinutos! % 60 === 0 ? `${p.duracaoMinutos! / 60} horas` : `${p.duracaoMinutos} minutos`);
     // Rodada 28 (h28 aa51): "até quantas pessoas ele vai e quanto tempo dura": a faixa de convidados cadastrada junto.
-    const faixa = (p: PacoteResumo) => (p.convidadosMaximos ? (p.convidadosMinimos ? `${p.convidadosMinimos} a ${p.convidadosMaximos}` : `até ${p.convidadosMaximos}`) : null);
     const pedeCapacidade = /\b(?:quantas pessoas|quantos convidados|ate quant[oa]s|capacidade|maximo de (?:pessoas|convidados))\b/.test(t);
     if (com.length) {
-      const capacidade = pedeCapacidade ? com.filter((p) => faixa(p)) : [];
+      const capacidade = pedeCapacidade ? com.filter((p) => faixaConvidados(p)) : [];
       dizer(e, com.length === 1
-        ? `O pacote ${com[0].nome}${capacidade.length ? ` é para ${faixa(com[0])} convidados e` : ''} tem ${dur(com[0])} de festa.`
-        : `${capacidade.length ? 'Convidados e duração' : 'Duração'} de cada pacote: ${com.map((p) => `${p.nome}, ${capacidade.includes(p) ? `${faixa(p)} convidados e ` : ''}${dur(p)}`).join('; ')}.`, com.map((p) => ({ tipo: 'PACOTE', codigo: p.codigo, id: p.id } as Fonte)));
+        ? `O pacote ${com[0].nome}${capacidade.length ? ` é para ${faixaConvidados(com[0])} convidados e` : ''} tem ${dur(com[0])} de festa.`
+        : `${capacidade.length ? 'Convidados e duração' : 'Duração'} de cada pacote: ${com.map((p) => `${p.nome}, ${capacidade.includes(p) ? `${faixaConvidados(p)} convidados e ` : ''}${dur(p)}`).join('; ')}.`, com.map((p) => ({ tipo: 'PACOTE', codigo: p.codigo, id: p.id } as Fonte)));
       return;
     }
   }
@@ -438,7 +443,7 @@ async function pacotes(e: Estado) {
     const comp = await e.fontes.composicao(p.codigo);
     composicoes.set(p.codigo, comp);
     const partes = [
-      p.convidadosMaximos ? (p.convidadosMinimos ? `de ${p.convidadosMinimos} a ${p.convidadosMaximos} convidados` : `até ${p.convidadosMaximos} convidados`) : p.convidadosMinimos ? `a partir de ${p.convidadosMinimos} convidados` : 'quantidade de convidados a confirmar',
+      faixaConvidados(p) ? `${p.convidadosMinimos && p.convidadosMaximos ? 'de ' : ''}${faixaConvidados(p)} convidados` : 'quantidade de convidados a confirmar',
       p.duracaoMinutos ? `${p.duracaoMinutos % 60 === 0 ? `${p.duracaoMinutos / 60} horas` : `${p.duracaoMinutos} minutos`} de festa` : null,
       comp?.categorias.length ? `buffet com ${lista(comp.categorias.map((c) => c.nome.toLowerCase()))}` : null,
       comp?.inclusos.length ? `inclui ${lista(comp.inclusos.slice(0, 5).map((i) => i.nome))}` : null,
@@ -489,7 +494,7 @@ async function excecaoDeCapacidadePaga(e: Estado) {
 }
 /** Diferenças entre dois pacotes pelo cadastro (faixa de convidados, duração, buffet e inclusos): só o que difere. */
 function diferencas(a: PacoteResumo, b: PacoteResumo, ca: Composicao | null, cb: Composicao | null) {
-  const faixa = (p: PacoteResumo) => (p.convidadosMaximos ? (p.convidadosMinimos ? `${p.convidadosMinimos} a ${p.convidadosMaximos}` : `até ${p.convidadosMaximos}`) : 'sem faixa cadastrada');
+  const faixa = (p: PacoteResumo) => faixaConvidados(p) ?? 'sem faixa cadastrada';
   const horas = (p: PacoteResumo) => (p.duracaoMinutos ? (p.duracaoMinutos % 60 === 0 ? `${p.duracaoMinutos / 60} horas` : `${p.duracaoMinutos} minutos`) : 'sem duração cadastrada');
   const partes: string[] = [];
   if (faixa(a) !== faixa(b)) partes.push(`convidados (${a.nome}: ${faixa(a)}; ${b.nome}: ${faixa(b)})`);
@@ -1238,6 +1243,13 @@ export function partirMensagem(paragrafos: { texto: string; fontes: Fonte[] }[],
  * Uma rodada do Wall-e para a mensagem do cliente. `contexto` é a memória anterior; o resultado traz as mensagens a
  * enviar (texto + anexos autorizados, cada uma com as fontes), a memória nova e, se for o caso, o resumo da passagem.
  */
+/**
+ * Fatia 8: fecho da frase de passagem ao cliente. Dentro do horário da equipe, ou sem horário cadastrado, o texto de
+ * sempre; fora do horário, a frase fixa de retorno (horario.ts), montada por código, nunca pelo modelo.
+ */
+function fechoDaPassagem(config: ConfiguracaoAtendimento, agora: string) {
+  return retornoForaDoHorario(config.horarioEquipe, new Date(agora)) || 'Em breve alguém responde por aqui.';
+}
 export async function resolverWallE(entrada: { texto: string; entendimento: Entendimento; contexto: ContextoWallE; config: ConfiguracaoAtendimento; catalogos: Catalogos; agora: string }, fontes: FontesWallE, opcoes: { sugestao?: boolean } = {}): Promise<ResultadoWallE> {
   const { catalogos } = entrada;
   const afastados = cuidadosAfastaveis(entrada.entendimento);
@@ -1292,7 +1304,7 @@ export async function resolverWallE(entrada: { texto: string; entendimento: Ente
     // Rodada 18: sem motivo técnico ao cliente. Pedido sobre contrato ou pagamento (de outra pessoa, por exemplo): o aviso
     // de segurança, sem nenhum dado.
     const seguranca = motivos.includes('CONTRATO_PROPRIO') || motivos.includes('PAGAMENTO') ? 'Por segurança, não consulto nem informo dados de contratos ou pagamentos por aqui.\n\n' : '';
-    const aviso = `${seguranca}${PASSAGEM_AO_CLIENTE.INSTRUCAO_SUSPEITA} Em breve alguém responde por aqui.`;
+    const aviso = `${seguranca}${PASSAGEM_AO_CLIENTE.INSTRUCAO_SUSPEITA} ${fechoDaPassagem(entrada.config, entrada.agora)}`;
     return { saidas: opcoes.sugestao ? [] : [{ texto: aviso, anexo: null, fontes: [] }], contexto: comPendente(semDadosDaMensagem(e.ctx, entrada.contexto), [], 'OUTRO'), passagem };
   }
   if (s?.reclamacao) passar(e, 'RECLAMACAO');
@@ -1548,7 +1560,7 @@ export async function resolverWallE(entrada: { texto: string; entendimento: Ente
     // Rodada 18: com a passagem não há o que pedir — a abertura da coleta ("preciso de poucos dados") sai junto.
     // Rodada 26: a confirmação da data da contratação também não sai: a equipe confirma (fica nas pendências da passagem).
     e.paragrafos = e.paragrafos.filter((p) => p.texto !== COLETA && p.texto !== VALORES_DEPENDEM && !p.texto.startsWith(CONFIRMA_CONTRATACAO));
-    if (!opcoes.sugestao) dizer(e, motivo === 'CONTRATACAO' ? PASSAGEM_AO_CLIENTE.CONTRATACAO : `${PASSAGEM_AO_CLIENTE[motivo]} Em breve alguém responde por aqui.`);
+    if (!opcoes.sugestao) dizer(e, motivo === 'CONTRATACAO' ? [PASSAGEM_AO_CLIENTE.CONTRATACAO, retornoForaDoHorario(e.config.horarioEquipe, new Date(e.agora))].filter(Boolean).join(' ') : `${PASSAGEM_AO_CLIENTE[motivo]} ${fechoDaPassagem(e.config, e.agora)}`);
     passagem = {
       motivo, motivos: [...e.encaminhar], em: e.agora,
       coletado: { data: e.ctx.data ?? null, turno: turnoTexto(catalogos, e.ctx.turno), convidados: e.ctx.convidados ?? null, pacote: nomePacote(catalogos, e.ctx.pacote), unidade: nomeUnidade(catalogos, e.ctx.unidade), tema: e.ctx.tema ?? null },
