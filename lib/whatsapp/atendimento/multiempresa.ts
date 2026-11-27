@@ -233,10 +233,14 @@ export async function identificadorUnico(tx: DbExecutor, ambiente: string, prove
  * Ecos do app (F1, R5-2): defesa adicional à premissa de que o id da Meta (wamid) é único por mensagem. Um eco cujo id já
  * é de uma saída da API neste ambiente não é gravado (nem texto, nem hash); conta a anomalia (só o motivo, no log) e, com a
  * 117, grava a marca de colisão: enquanto ela existir (RETENCAO_COLISOES_DIAS), identificadorUnico recusa todo status do id.
- * Chamada sob travarProvedor(ambiente, id).
+ * Chamada sob travarProvedor(ambiente, id). Com a 117, a reentrega do mesmo eco (marca já vigente) não conta de novo;
+ * sem ela não há onde lembrar, e cada entrega conta.
  */
 export async function marcarEcoComIdDeSaida(tx: DbExecutor, ambiente: string, provedorId: string) {
-  if (await colisoesDisponivel(tx)) await tx.query('INSERT INTO whatsapp_atendimento_status_colisoes(ambiente,provedor_id) VALUES($1,$2) ON CONFLICT DO NOTHING', [ambiente, provedorId]);
+  if (await colisoesDisponivel(tx)) {
+    const nova = (await tx.query('INSERT INTO whatsapp_atendimento_status_colisoes(ambiente,provedor_id) VALUES($1,$2) ON CONFLICT DO NOTHING', [ambiente, provedorId])).rowCount;
+    if (!nova) return;
+  }
   anomalia('ECO_COM_ID_DE_SAIDA');
 }
 /** Saídas com o identificador no ambiente, em todas as empresas (somente leitura). */

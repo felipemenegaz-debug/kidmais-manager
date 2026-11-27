@@ -367,8 +367,9 @@ test("ecos do app WhatsApp Business: histórico sem mudar estado, corte, janela,
     const fixo = seg(Date.now()) - 10_000 + 123;
     instanteFixo = fixo;
     const ecoFixo = (wamid: string, t: number) => F.servico.receberEco({ id: wamid, contato: n9, texto: "x", timestamp: t }, { empresa: A.e, numero: { phoneNumberId: A.numero, wabaId: A.waba }, env: LIGADA });
+    const trocasE9 = trocasRelogio; // R3-2: o incremento tem de vir desta chamada, não de E1.
     assert.equal(await ecoFixo(cod("wamid.E9c-"), fixo - 29 * DIA), "NADA", "E9 (R1-5): t = agora − 29 d exatos (relógio fixo): nada");
-    assert.ok(trocasRelogio >= 1, "E9 (R1-5): o relógio da CTE foi de fato fixado");
+    assert.ok(trocasRelogio > trocasE9, "E9 (R1-5): o relógio da CTE foi de fato fixado nesta chamada");
     assert.equal(await nMensagens(A.e), mensagens9, "E9: 29 d + 1 s e 29 d exatos: zero mensagens"); assert.equal(await nEventos(A.e), eventos9, "E9: 29 d + 1 s e 29 d exatos: zero hashes");
     // Sem conversa: t = agora − 29 d → NADA e zero hashes (dentro da janela seria SO_HASH); + 1 ms → SO_HASH.
     const ecoFixoSem = (wamid: string, t: number) => F.servico.receberEco({ id: wamid, contato: "5561900006225", texto: "x", timestamp: t }, { empresa: A.e, numero: { phoneNumberId: A.numero, wabaId: A.waba }, env: LIGADA });
@@ -395,10 +396,18 @@ test("ecos do app WhatsApp Business: histórico sem mudar estado, corte, janela,
     const api = (await q("SELECT id, provedor_id, estado FROM whatsapp_atendimento_mensagens WHERE conversa_id = $1 AND provedor_id IS NOT NULL", [cv10.id])).rows[0];
     assert.ok(api?.provedor_id, "E10: saída da API com provedor_id");
     const anomalias = contadorAnomaliasStatus(), antes10 = await retratoConversa(cv10.id);
-    assert.equal(await eco(A, n10, api.provedor_id), "NADA", "E10: id de saída da API: o eco não grava");
+    const t10 = seg(Date.now() - 5000);
+    assert.equal(await eco(A, n10, api.provedor_id, t10), "NADA", "E10: id de saída da API: o eco não grava");
     assert.equal(await nEcos(A.e, api.provedor_id), 0); assert.equal(await nHash(A.e, hashEco(api.provedor_id)), 0, "E10: nem hash");
     assert.equal(contadorAnomaliasStatus(), anomalias + 1, "E10: anomalia ECO_COM_ID_DE_SAIDA contada");
     assert.equal(await retratoConversa(cv10.id), antes10);
+    // R3-1: reentrega do mesmo eco (mesmo wamid e timestamp) antes do failed: nada gravado; com a 117 a marca já vigente
+    // não conta de novo (sem a 117 não há onde lembrar e cada entrega conta).
+    assert.equal(await eco(A, n10, api.provedor_id, t10), "NADA", "E10 (R3-1): reentrega da colisão: nada");
+    assert.equal(await nEcos(A.e, api.provedor_id), 0, "E10 (R3-1): reentrega: zero mensagens de eco");
+    assert.equal(await nHash(A.e, hashEco(api.provedor_id)), 0, "E10 (R3-1): reentrega: zero hashes");
+    assert.equal(contadorAnomaliasStatus(), anomalias + (tem117 ? 1 : 2), "E10 (R3-1): reentrega com marca vigente não conta de novo");
+    assert.equal(await retratoConversa(cv10.id), antes10, "E10 (R3-1): reentrega não muda a conversa");
     if (tem117) {
       assert.equal(Number((await q("SELECT count(*)::int AS n FROM whatsapp_atendimento_status_colisoes WHERE ambiente = 'staging' AND provedor_id = $1", [api.provedor_id])).rows[0].n), 1, "E10: marca de colisão (117)");
       await A.servico.registrarStatus(A.e, api.provedor_id, "FALHOU");
