@@ -559,9 +559,10 @@ test('modo regras é conferido a cada uso: o worker lê a variável do canal (n�
   const worker=readFileSync('lib/whatsapp/atendimento/worker.ts','utf8');
   assert.match(worker,/if \(!comando && \(entendimentoSoRegras\(\) \|\| !deps\.interpretar\)\) return await encaminharSemModelo/);
   const porta=readFileSync('lib/whatsapp/atendimento/walle/porta.ts','utf8');
-  assert.match(porta,/const modelo = entender && !entendimentoSoRegras\(\) && !dadoSensivel\(e\.texto\) && \(!opcoes\.direitoModelo \|\| await opcoes\.direitoModelo\(e\.empresa\)\) \? entender : null;/);
+  assert.match(porta,/const modelo = entender && !entendimentoSoRegras\(\) && !dadoSensivel\(e\.texto\) && \(!opcoes\.direitoModelo \|\| await ler\(\(ex\) => opcoes\.direitoModelo!\(e\.empresa, ex\)\)\) \? entender : null;/);
   // Astra r3 (R-5, P2-2): direito comercial antes do modelo, inclusive para a piloto; leitura que falha nega o modelo.
-  assert.match(porta,/return direitoAtendimentoWhatsApp\(db\(\), empresaId\)\.catch\(\(\) => false\);/);
+  // Fatia 10a (Astra r1, P2-3): pelo executor da porta (pool na fila; transação somente leitura no teste).
+  assert.match(porta,/export async function direitoModeloAtendimento\(empresaId: string, ex: DbExecutor = db\(\)\) \{\n  return direitoAtendimentoWhatsApp\(ex, empresaId\)\.catch\(\(\) => false\);/);
   const raiz=readFileSync('app/api/admin/inteligencia/whatsapp/modelo.ts','utf8');
   assert.match(raiz,/interpretar: comModelo \? interpretarMensagem : null, entender: comModelo \? entenderComModelo : null/);
   // E-ME1: o envio leva a empresa dona da saída (alvo) para enviarPelaEmpresa.

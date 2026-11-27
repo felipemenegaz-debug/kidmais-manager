@@ -1,9 +1,10 @@
 import type { SessaoParaTenant } from '../../../saas/provar-tenant.ts';
-import { comandoDireto, hojeOperacao, type ConfiguracaoAtendimento } from '../core.ts';
+import { comandoDireto, hojeOperacao, pausaPedidaNaRecepcao, type ConfiguracaoAtendimento } from '../core.ts';
 import { ambienteAtendimento } from '../configuracao.ts';
 import { motivoSeguro } from '../motivo-falha.ts';
 import { acessoAtendimento, configuracao, tem082 } from '../service.ts';
 import type { PortaWallE } from '../worker.ts';
+import { registroDaPausa, registroDoBloqueio } from './entendimento.ts';
 import { NOME_MOTIVO, type Fonte, type ResultadoWallE } from './tipos.ts';
 
 /**
@@ -19,7 +20,9 @@ import { NOME_MOTIVO, type Fonte, type ResultadoWallE } from './tipos.ts';
  */
 export type DesfechoTeste = 'RESPONDE' | 'RESPONDE_E_PASSA' | 'PASSA_EM_SILENCIO' | 'BLOQUEIA_NA_RECEPCAO' | 'BLOQUEIA' | 'FALHA';
 export type RespostaTeste = { texto: string | null; anexo: { titulo: string; tipo: string } | null; fontes: string[] };
-export type ResultadoTeste = { desfecho: DesfechoTeste; entendidoPor: 'MODELO' | 'REGRAS' | null; respostas: RespostaTeste[]; motivos: string[] };
+/** `mensagem`: o texto testado, para a tela mostrar a qual pergunta o resultado responde (Astra r1, P3). `reclamacaoParaEquipe`:
+ * no bloqueio da recepção, a reclamação junto do pedido de parar fica na fila da equipe (registroDoBloqueio). */
+export type ResultadoTeste = { desfecho: DesfechoTeste; entendidoPor: 'MODELO' | 'REGRAS' | null; respostas: RespostaTeste[]; motivos: string[]; mensagem?: string; reclamacaoParaEquipe?: boolean };
 
 export const LIMITE_TEXTO_TESTE = 1000;
 const CONFIG_PADRAO: ConfiguracaoAtendimento = { ativo: false, nome: 'Kidmais', perguntas: [], limites: { respostasPor24h: 20 } };
@@ -43,6 +46,17 @@ export function rotuloFonte(f: Fonte, config: ConfiguracaoAtendimento, titulos: 
   }
 }
 
+/** Uma linha por fonte distinta: prontas pela identidade (id e versão), as demais pelo rótulo (mesma agenda, mesmo pacote). */
+function rotulosSemRepetir(fontes: Fonte[], config: ConfiguracaoAtendimento, titulos: Map<string, string>): string[] {
+  const vistos = new Map<string, string>();
+  for (const f of fontes) {
+    const rotulo = rotuloFonte(f, config, titulos);
+    const chave = f.tipo === 'PRONTA' ? `PRONTA ${f.id} ${f.versao}` : `ROTULO ${rotulo}`;
+    if (!vistos.has(chave)) vistos.set(chave, rotulo);
+  }
+  return [...vistos.values()];
+}
+
 /** Resultado da porta → o que a tela mostra, com o mesmo desfecho do worker. */
 export function resultadoDoTeste(r: ResultadoWallE, config: ConfiguracaoAtendimento): ResultadoTeste {
   const entendidoPor = r.entendidoPor ?? null;
@@ -50,12 +64,14 @@ export function resultadoDoTeste(r: ResultadoWallE, config: ConfiguracaoAtendime
   if (r.parar) return { desfecho: 'BLOQUEIA', entendidoPor, respostas: [], motivos };
   if (r.silencio && r.passagem) return { desfecho: 'PASSA_EM_SILENCIO', entendidoPor, respostas: [], motivos };
   if (!r.saidas.length) return { desfecho: 'FALHA', entendidoPor, respostas: [], motivos: [NOME_MOTIVO.FALHA] };
-  const titulos = new Map(r.saidas.filter((s) => s.anexo).map((s) => [s.anexo!.prontaId, s.anexo!.titulo]));
+  // Título de cada pronta lida pela porta (texto e link vão no corpo, sem anexo) e, por garantia, o dos anexos.
+  const titulos = new Map(Object.entries(r.titulosProntas ?? {}));
+  for (const s of r.saidas) if (s.anexo && !titulos.has(s.anexo.prontaId)) titulos.set(s.anexo.prontaId, s.anexo.titulo);
   // Como o worker grava: com anexo, o texto da mensagem é a legenda.
   const respostas = r.saidas.slice(0, 10).map((s) => ({
     texto: s.anexo ? s.anexo.legenda : s.texto,
     anexo: s.anexo ? { titulo: s.anexo.titulo, tipo: s.anexo.tipo } : null,
-    fontes: [...new Set(s.fontes.map((f) => rotuloFonte(f, config, titulos)))],
+    fontes: rotulosSemRepetir(s.fontes, config, titulos),
   }));
   return { desfecho: r.passagem ? 'RESPONDE_E_PASSA' : 'RESPONDE', entendidoPor, respostas, motivos };
 }
@@ -66,8 +82,20 @@ export async function testarWallE(sessao: SessaoParaTenant, texto: string, porta
     if (!(await tem082(tx))) throw new Error('ATENDIMENTO_RECURSO_082_INDISPONIVEL');
     return { empresa: empresaId, config: (await configuracao(tx, empresaId)) ?? CONFIG_PADRAO };
   });
-  // Espelho da recepção: pedido de parar inequívoco bloqueia o contato antes do Wall-e (nenhum modelo, nenhuma fonte).
-  if (comandoDireto(texto)?.intencao === 'PARAR') return { desfecho: 'BLOQUEIA_NA_RECEPCAO', entendidoPor: null, respostas: [], motivos: [NOME_MOTIVO.BLOQUEADO_A_PEDIDO] };
+  return { ...(await testarNaPorta(texto, porta, empresa, config, agora)), mensagem: texto };
+}
+
+async function testarNaPorta(texto: string, porta: PortaWallE, empresa: string, config: ConfiguracaoAtendimento, agora: Date): Promise<ResultadoTeste> {
+  // Espelho da recepção (service.receberEntrada), antes do Wall-e: nenhum modelo, nenhuma fonte.
+  // 1) Pedido de parar inequívoco bloqueia o contato; com reclamação junto, a reclamação fica na fila da equipe.
+  if (comandoDireto(texto)?.intencao === 'PARAR') {
+    const registro = registroDoBloqueio(texto, agora.toISOString());
+    return registro
+      ? { desfecho: 'BLOQUEIA_NA_RECEPCAO', entendidoPor: null, respostas: [], motivos: registro.motivos.map((m) => NOME_MOTIVO[m]), reclamacaoParaEquipe: true }
+      : { desfecho: 'BLOQUEIA_NA_RECEPCAO', entendidoPor: null, respostas: [], motivos: [NOME_MOTIVO.BLOQUEADO_A_PEDIDO] };
+  }
+  // 2) Pedido de pausa (opt-out ambíguo) nunca entra na fila: a conversa vai à equipe em silêncio, com o resumo da pausa.
+  if (pausaPedidaNaRecepcao(texto)) return { desfecho: 'PASSA_EM_SILENCIO', entendidoPor: null, respostas: [], motivos: registroDaPausa(texto, agora.toISOString(), {}).motivos.map((m) => NOME_MOTIVO[m]) };
   let r: ResultadoWallE;
   try {
     // Conversa nova: sem contato (nenhum cadastro procurado), sem histórico e sem memória.

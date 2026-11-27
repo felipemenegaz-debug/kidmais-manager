@@ -40,7 +40,9 @@ export default function TestarWallE() {
     </form>
     {erro && <p className={styles.erro} role="alert">{erro}</p>}
     {resultado && <div className={styles.resultadoTeste} role="status" aria-live="polite">
+      {resultado.mensagem && <p className={styles.nota}>Mensagem testada: “{resultado.mensagem}”</p>}
       <p><strong>{NOME_DESFECHO[resultado.desfecho]}</strong></p>
+      {resultado.reclamacaoParaEquipe && <p className={styles.nota}>Como a mensagem também traz uma reclamação, a conversa iria para a equipe responder (sem mensagem automática).</p>}
       {resultado.respostas.length > 0 && <ol className={styles.listaSimples}>{resultado.respostas.map((r, i) => <li key={i} className={styles.respostaTeste}>
         {r.anexo && <p className={styles.nota}>Anexo: {r.anexo.titulo}</p>}
         {r.texto && <p className={styles.textoTeste}>{r.texto}</p>}

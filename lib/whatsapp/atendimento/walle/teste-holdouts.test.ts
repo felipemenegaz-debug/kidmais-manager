@@ -59,6 +59,7 @@ test('holdouts: a caixa de teste dá o mesmo resultado do caminho real da fila, 
     '../configuracao.ts': { ambienteAtendimento: () => 'staging' },
     '../motivo-falha.ts': motivo,
     '../service.ts': { acessoAtendimento: async (_s: unknown, work: (tx: unknown, e: string, p: string) => unknown) => work({}, fixture.EMPRESA, 'ADMINISTRATIVO'), tem082: async () => true, configuracao: async () => fixture.CONFIG },
+    './entendimento.ts': ent,
     './tipos.ts': tipos,
   }).modulo as typeof import('./teste.ts');
   const m = { entenderPorRegras: ent.entenderPorRegras, revalidarEntendimento: ent.revalidarEntendimento, juntarSinais: ent.juntarSinais, resolverWallE: res.resolverWallE, comandoDireto: core.comandoDireto, pausaPedidaNaRecepcao: core.pausaPedidaNaRecepcao ?? null, lerContexto: ctx.lerContexto, mensagemAindaValida: worker.mensagemAindaValida, sinaisJev: modelo.sinaisJev, registroDoBloqueio: ent.registroDoBloqueio ?? null };
@@ -68,7 +69,7 @@ test('holdouts: a caixa de teste dá o mesmo resultado do caminho real da fila, 
   const arquivos = readdirSync(pastaAvaliacao).filter((a) => /^corpus-holdout-.*\.json$/.test(a)).sort();
   assert.ok(arquivos.length >= 40, 'todos os holdouts');
   const desfechos: Record<string, number> = {};
-  let total = 0;
+  let total = 0, pausas = 0, bloqueiosComReclamacao = 0;
   for (const arquivo of arquivos) {
     const corpus = JSON.parse(readFileSync(new URL(arquivo, pastaAvaliacao), 'utf8'));
     fontes = COM_LINK.has(arquivo) ? fixture.FONTES_COM_LINK : fixture.FONTES;
@@ -83,7 +84,26 @@ test('holdouts: a caixa de teste dá o mesmo resultado do caminho real da fila, 
         : linha.decisao === 'EQUIPE' ? (linha.motivos.includes('FALHA_SEM_SAIDA') || linha.motivos.includes('FALHA') ? 'FALHA' : linha.saidas.length ? 'RESPONDE_E_PASSA' : 'PASSA_EM_SILENCIO')
           : 'RESPONDE';
       assert.equal(r.desfecho, esperado, `${id}: desfecho`);
-      if (r.desfecho === 'BLOQUEIA_NA_RECEPCAO') { assert.equal(bruto, null, `${id}: recepção bloqueia antes do Wall-e`); continue; }
+      // Recepção (Astra r1, P2-2): bloqueio antes do Wall-e com os mesmos motivos (parar com reclamação deixa a reclamação
+      // com a equipe, como registroDoBloqueio).
+      if (r.desfecho === 'BLOQUEIA_NA_RECEPCAO') {
+        assert.equal(bruto, null, `${id}: recepção bloqueia antes do Wall-e`);
+        assert.deepEqual(r.motivos, linha.motivos.length > 1 ? linha.motivos.slice(1).map(nome) : [nome('BLOQUEADO_A_PEDIDO')], `${id}: motivos do bloqueio`);
+        assert.equal(r.reclamacaoParaEquipe ?? false, linha.motivos.includes('RECLAMACAO'), `${id}: reclamação com a equipe`);
+        bloqueiosComReclamacao += r.reclamacaoParaEquipe ? 1 : 0;
+        continue;
+      }
+      // Pausa (Astra r1, P2-1): a recepção real nunca põe a pausa na fila; a caixa não chama a porta e devolve o resumo da
+      // pausa. A simulação (conversa nova) leva a pausa ao Wall-e, que passa em silêncio com o mesmo resumo.
+      if (core.pausaPedidaNaRecepcao(item.texto)) {
+        assert.equal(bruto, null, `${id}: pausa fora da porta`);
+        assert.equal(r.desfecho, 'PASSA_EM_SILENCIO', `${id}: pausa em silêncio`);
+        assert.deepEqual(linha.saidas, [], `${id}: nada enviado`);
+        assert.deepEqual(r.motivos, linha.motivos.map(nome), `${id}: motivos da pausa`);
+        assert.equal(r.entendidoPor, null);
+        pausas++;
+        continue;
+      }
       // Mesmas saídas e fontes da porta, e a tela mostra o que o worker gravaria (legenda quando há anexo).
       assert.deepEqual(semHora(bruto.saidas.map((s: any) => ({ texto: s.texto, anexo: s.anexo?.prontaId ?? null, fontes: s.fontes }))), semHora(linha.saidas), `${id}: saídas`);
       if (r.desfecho === 'RESPONDE' || r.desfecho === 'RESPONDE_E_PASSA') {
@@ -101,5 +121,6 @@ test('holdouts: a caixa de teste dá o mesmo resultado do caminho real da fila, 
   assert.ok(sql.every((q) => q === 'SET TRANSACTION READ ONLY' || q === 'ROLLBACK'), 'só a abertura somente leitura e o desfazer');
   // A comparação cobre todos os desfechos relevantes (não só respostas simples).
   for (const d of ['RESPONDE', 'RESPONDE_E_PASSA', 'PASSA_EM_SILENCIO', 'BLOQUEIA_NA_RECEPCAO']) assert.ok((desfechos[d] ?? 0) > 0, `holdouts cobrem ${d}: ${JSON.stringify(desfechos)}`);
-  console.log('[teste-holdouts] %d mensagens comparadas: %j', total, desfechos);
+  assert.ok(pausas > 0 && bloqueiosComReclamacao > 0, `holdouts cobrem pausa (${pausas}) e parar com reclamação (${bloqueiosComReclamacao})`);
+  console.log('[teste-holdouts] %d mensagens comparadas: %j; pausas %d, parar com reclamação %d', total, desfechos, pausas, bloqueiosComReclamacao);
 });

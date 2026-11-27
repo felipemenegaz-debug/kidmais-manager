@@ -3,6 +3,7 @@ import { test } from 'node:test';
 import { carregarComponente, cssFalso, elementos, texto, tique } from '../../../../components/admin/teste-componente.ts';
 import * as core from '../core.ts';
 import { motivoSeguro } from '../motivo-falha.ts';
+import * as ent from './entendimento.ts';
 import * as tipos from './tipos.ts';
 
 /**
@@ -13,7 +14,9 @@ const ESCRITA = /\b(insert|update|delete|merge|upsert|truncate|copy|alter|create
 const config = { ativo: false, nome: 'Buffet', perguntas: [{ id: 'faq_1', pergunta: 'Pode levar bolo?', resposta: 'Pode sim.' }], limites: { respostasPor24h: 20 } };
 const entrada = { empresa: 'e1', ambiente: 'staging', contato: '', texto: 'quanto custa?', historico: [], contexto: {}, config, hoje: '2026-10-09', agora: '2026-10-09T12:00:00.000Z' } as never;
 
-function carregarPorta(registro: { sql: string[]; transacoes: string[]; proibidas: string[]; alvo?: { linkContratoProprio: () => Promise<string | null> } }, fontesQueEscrevem = false) {
+type OpcoesPorta = { fontesQueEscrevem?: boolean; soRegras?: boolean; direito?: (ex: { query: (q: string) => Promise<unknown> }, empresa: string) => Promise<boolean>; prontas?: { id: string; titulo: string }[] };
+function carregarPorta(registro: { sql: string[]; transacoes: string[]; proibidas: string[]; alvo?: { linkContratoProprio: () => Promise<string | null> } }, op: OpcoesPorta = {}) {
+  const fontesQueEscrevem = !!op.fontesQueEscrevem;
   const proibida = (nome: string) => async () => { registro.proibidas.push(nome); throw new Error(`${nome} proibido no teste`); };
   // Executor da transação: como o PostgreSQL, recusa escrita depois de SET TRANSACTION READ ONLY.
   const executor = () => { let somenteLeitura = false; return { query: async (q: string) => {
@@ -32,18 +35,18 @@ function carregarPorta(registro: { sql: string[]; transacoes: string[]; proibida
     '../../../clientes/repositories/cliente.repository': { buscarClientesPorContatoExato: proibida('cliente') },
     '../../../fechamentos/contratacoes.ts': { listarContratacoes: proibida('contratacoes') },
     '../core.ts': core,
-    '../configuracao.ts': { entendimentoSoRegras: () => true, modoEntendimento: () => ({ modo: 'REGRAS' }) },
-    '../multiempresa.ts': { direitoAtendimentoWhatsApp: proibida('direito') },
+    '../configuracao.ts': { entendimentoSoRegras: () => op.soRegras ?? true, modoEntendimento: () => ({ modo: 'REGRAS' }) },
+    '../multiempresa.ts': { direitoAtendimentoWhatsApp: op.direito ?? proibida('direito') },
     '../motivo-falha.ts': { motivoSeguro },
     '../prontas-link.ts': { resolverLinkFechamento: proibida('linkFechamento') },
     './contexto.ts': { lerContexto: (c: unknown) => (c ?? {}) },
     './entendimento.ts': { ESQUEMA_JSON_MODELO: {}, esquemaModelo: { parse: (v: unknown) => v }, entenderPorRegras: () => ({ sinais: {} }), revalidarEntendimento: () => ({ sinais: {} }), juntarSinais: (a: unknown) => a },
     './fontes-postgres.ts': {
       catalogosWallE: async (ex: { query: (q: string) => Promise<unknown> }) => { await ex.query('SELECT catalogos'); return {}; },
-      fontesPostgres: (ex: { query: (q: string) => Promise<unknown> }, alvo: { linkContratoProprio: () => Promise<string | null> }) => { registro.alvo = alvo; return { async pacotes() { await ex.query('SELECT pacotes'); if (fontesQueEscrevem) await ex.query('INSERT INTO whatsapp_mensagens VALUES (1)'); return []; } }; },
+      fontesPostgres: (ex: { query: (q: string) => Promise<unknown> }, alvo: { linkContratoProprio: () => Promise<string | null> }) => { registro.alvo = alvo; return { async pacotes() { await ex.query('SELECT pacotes'); if (fontesQueEscrevem) await ex.query('INSERT INTO whatsapp_mensagens VALUES (1)'); return []; }, async prontasAutorizadas() { await ex.query('SELECT prontas'); return op.prontas ?? []; } }; },
     },
     './link-disponibilidade.ts': { ambienteDoLink: () => 'staging', linkDisponibilidadeDaEmpresa: async (_e: string, _a: string, ex: () => { query: (q: string) => Promise<unknown> }) => { await ex().query('SELECT link'); return { ok: false }; } },
-    './resolver.ts': { resolverWallE: async (_e: unknown, f: { pacotes: () => Promise<unknown> }) => { await f.pacotes(); await registro.alvo!.linkContratoProprio(); return { saidas: [{ texto: 'ok', anexo: null, fontes: [] }], contexto: {}, passagem: null }; } },
+    './resolver.ts': { resolverWallE: async (_e: unknown, f: { pacotes: () => Promise<unknown>; prontasAutorizadas: (fin: string) => Promise<unknown> }) => { await f.pacotes(); if (op.prontas) await f.prontasAutorizadas('INFORMACAO'); await registro.alvo!.linkContratoProprio(); return { saidas: [{ texto: 'ok', anexo: null, fontes: [] }], contexto: {}, passagem: null }; } },
   }).modulo as typeof import('./porta.ts');
 }
 
@@ -60,7 +63,7 @@ test('porta sem efeito: toda leitura em transação somente leitura sempre desfe
 
 test('porta sem efeito: escrita numa fonte é recusada pela transação somente leitura e nada é confirmado', async () => {
   const registro = { sql: [] as string[], transacoes: [] as string[], proibidas: [] as string[] };
-  await assert.rejects(carregarPorta(registro, true).criarPortaWallE(null, { semEfeito: true }).responder(entrada), /read-only/);
+  await assert.rejects(carregarPorta(registro, { fontesQueEscrevem: true }).criarPortaWallE(null, { semEfeito: true }).responder(entrada), /read-only/);
   assert.ok(!registro.transacoes.includes('COMMIT'));
 });
 
@@ -82,6 +85,7 @@ function carregarTeste(sql: string[], porta: { responder: (e: unknown) => Promis
       tem082: async (t: typeof tx) => { await t.query('SELECT 082'); return opcoes.tem082 ?? true; },
       configuracao: async (t: typeof tx) => { await t.query('SELECT configuracao'); return config; },
     },
+    './entendimento.ts': ent,
     './tipos.ts': tipos,
   }).modulo as typeof import('./teste.ts');
 }
@@ -92,7 +96,7 @@ test('testarWallE: só lê a configuração salva e chama a porta numa conversa 
   const r = await carregarTeste(sql, porta).testarWallE({} as never, 'Pode levar bolo?', porta as never, new Date('2026-10-09T12:00:00.000Z'));
   assert.deepEqual(sql, ['SELECT 082', 'SELECT configuracao']);
   assert.deepEqual(pedidos, [{ empresa: 'e1', ambiente: 'staging', contato: '', texto: 'Pode levar bolo?', historico: [], contexto: {}, config, hoje: '2026-10-09', agora: '2026-10-09T12:00:00.000Z' }]);
-  assert.deepEqual(r, { desfecho: 'RESPONDE', entendidoPor: 'REGRAS', respostas: [{ texto: 'Pode sim.', anexo: null, fontes: ['Resposta aprovada: “Pode levar bolo?”'] }], motivos: [] });
+  assert.deepEqual(r, { desfecho: 'RESPONDE', entendidoPor: 'REGRAS', respostas: [{ texto: 'Pode sim.', anexo: null, fontes: ['Resposta aprovada: “Pode levar bolo?”'] }], motivos: [], mensagem: 'Pode levar bolo?' });
 });
 
 test('testarWallE: pedido de parar bloqueia como na recepção, sem chamar a porta; sem a 082 recusa; falha da porta vira encaminhamento', async () => {
@@ -102,7 +106,7 @@ test('testarWallE: pedido de parar bloqueia como na recepção, sem chamar a por
   await assert.rejects(carregarTeste([], porta, { tem082: false }).testarWallE({} as never, 'oi', porta as never), /ATENDIMENTO_RECURSO_082_INDISPONIVEL/);
   assert.equal(chamadas, 0);
   const avisos: unknown[] = []; const aviso = console.warn; console.warn = (...a: unknown[]) => { avisos.push(a); };
-  try { assert.deepEqual(await carregarTeste([], porta).testarWallE({} as never, 'quanto custa?', porta as never), { desfecho: 'FALHA', entendidoPor: null, respostas: [], motivos: [tipos.NOME_MOTIVO.FALHA] }); }
+  try { assert.deepEqual(await carregarTeste([], porta).testarWallE({} as never, 'quanto custa?', porta as never), { desfecho: 'FALHA', entendidoPor: null, respostas: [], motivos: [tipos.NOME_MOTIVO.FALHA], mensagem: 'quanto custa?' }); }
   finally { console.warn = aviso; }
   assert.equal(chamadas, 1); assert.ok(!JSON.stringify(avisos).includes('quanto custa'), 'o texto digitado não vai para o log');
 });
@@ -121,11 +125,69 @@ test('resultadoDoTeste: desfechos do worker, legenda do anexo, fontes rotuladas 
     { texto: 'Cardápio do buffet', anexo: { titulo: 'Cardápio 2026', tipo: 'PDF' }, fontes: ['Biblioteca: Cardápio 2026'] },
     { texto: 'Valor', anexo: null, fontes: ['Pacote BASICO', 'Agenda de 07/11/2026', 'Resposta aprovada'] },
   ] });
+  // Astra r1 (P2-4): duas prontas de TEXTO distintas na mesma saída (sem anexo) aparecem cada uma com o seu título; a mesma
+  // pronta repetida aparece uma vez.
+  const prontas = resultadoDoTeste({ ...base, titulosProntas: { t1: 'Política de bolo', t2: 'Horário de visita' }, saidas: [
+    { texto: 'Pode trazer bolo. Visitas às terças.', anexo: null, fontes: [{ tipo: 'PRONTA', id: 't1', versao: 1, finalidade: 'INFORMACAO' }, { tipo: 'PRONTA', id: 't2', versao: 3, finalidade: 'INFORMACAO' }, { tipo: 'PRONTA', id: 't1', versao: 1, finalidade: 'INFORMACAO' }] },
+  ] } as never, config);
+  assert.deepEqual(prontas.respostas[0].fontes, ['Biblioteca: Política de bolo', 'Biblioteca: Horário de visita']);
+  // Mesmo título em prontas diferentes: duas linhas (a identidade é a pronta, não o rótulo).
+  const mesmoTitulo = resultadoDoTeste({ ...base, titulosProntas: { a: 'Regras', b: 'Regras' }, saidas: [
+    { texto: 'x', anexo: null, fontes: [{ tipo: 'PRONTA', id: 'a', versao: 1, finalidade: 'INFORMACAO' }, { tipo: 'PRONTA', id: 'b', versao: 1, finalidade: 'INFORMACAO' }] },
+  ] } as never, config);
+  assert.equal(mesmoTitulo.respostas[0].fontes.length, 2);
+});
+
+test('testarWallE: pedido de pausa vai à equipe em silêncio como na recepção, sem chamar a porta (Astra r1, P2-1)', async () => {
+  let chamadas = 0; const porta = { responder: async () => { chamadas++; throw new Error('a porta não pode ser chamada'); } };
+  const texto = 'por enquanto não precisa me mandar mais nada, depois eu chamo vocês';
+  assert.ok(core.pausaPedidaNaRecepcao(texto), 'o exemplo é pausa para a recepção');
+  const r = await carregarTeste([], porta).testarWallE({} as never, texto, porta as never, new Date('2026-10-09T12:00:00.000Z'));
+  assert.equal(chamadas, 0);
+  assert.deepEqual(r, { desfecho: 'PASSA_EM_SILENCIO', entendidoPor: null, respostas: [], motivos: ent.registroDaPausa(texto, '2026-10-09T12:00:00.000Z', {}).motivos.map((m) => tipos.NOME_MOTIVO[m]), mensagem: texto });
+  assert.ok(r.motivos.includes(tipos.NOME_MOTIVO.PARAR_A_CONFIRMAR));
+});
+
+test('testarWallE: parar com reclamação bloqueia e deixa a reclamação com a equipe, como registroDoBloqueio (Astra r1, P2-2)', async () => {
+  let chamadas = 0; const porta = { responder: async () => { chamadas++; throw new Error('a porta não pode ser chamada'); } };
+  const texto = 'não quero mais propaganda de vcs. aliás a festa do meu filho foi péssima, salgado frio e monitor sumido';
+  const r = await carregarTeste([], porta).testarWallE({} as never, texto, porta as never);
+  assert.equal(chamadas, 0);
+  assert.equal(r.desfecho, 'BLOQUEIA_NA_RECEPCAO');
+  assert.deepEqual(r.motivos, [tipos.NOME_MOTIVO.RECLAMACAO, tipos.NOME_MOTIVO.BLOQUEADO_A_PEDIDO]);
+  assert.equal(r.reclamacaoParaEquipe, true);
+  const simples = await carregarTeste([], porta).testarWallE({} as never, 'PARAR', porta as never);
+  assert.deepEqual(simples.motivos, [tipos.NOME_MOTIVO.BLOQUEADO_A_PEDIDO]);
+  assert.equal(simples.reclamacaoParaEquipe, undefined);
+});
+
+test('porta sem efeito: o direito ao modelo é lido dentro da transação somente leitura, nunca pelo pool (Astra r1, P2-3)', async () => {
+  const registro = { sql: [] as string[], transacoes: [] as string[], proibidas: [] as string[] };
+  const porta = carregarPorta(registro, { soRegras: false, direito: async (ex) => { await ex.query('SELECT direito'); return false; } });
+  const r = await porta.criarPortaWallE(async () => { throw new Error('sem direito: o modelo não pode ser chamado'); }, { semEfeito: true, direitoModelo: porta.direitoModeloAtendimento }).responder(entrada);
+  assert.equal(r.entendidoPor, 'REGRAS');
+  assert.deepEqual(registro.proibidas, [], 'nenhum db() direto');
+  const i = registro.sql.indexOf('SELECT direito');
+  assert.ok(i > 0 && registro.sql[i - 1] === 'SET TRANSACTION READ ONLY', `direito na própria transação somente leitura: ${JSON.stringify(registro.sql)}`);
+  assert.deepEqual(registro.transacoes, ['ROLLBACK', 'ROLLBACK', 'ROLLBACK'], 'catálogos, direito e resolução: todas desfeitas');
+  assert.ok(!registro.transacoes.includes('COMMIT'));
+  // Na fila (sem semEfeito), o direito segue pelo pool, como antes.
+  const fila = { sql: [] as string[], transacoes: [] as string[], proibidas: [] as string[] };
+  const pf = carregarPorta(fila, { soRegras: false, direito: async (ex) => { await ex.query('SELECT direito'); return false; } });
+  await assert.rejects(pf.criarPortaWallE(async () => { throw new Error('x'); }, { direitoModelo: pf.direitoModeloAtendimento }).responder({ ...(entrada as object), contato: '5561900000000' } as never), /linkFechamento/);
+  assert.ok(fila.sql.includes('SELECT direito') && !fila.sql.includes('SET TRANSACTION READ ONLY')); assert.ok(fila.proibidas.includes('db'));
+});
+
+test('porta sem efeito: devolve o título de cada pronta lida, inclusive texto e link (Astra r1, P2-4)', async () => {
+  const registro = { sql: [] as string[], transacoes: [] as string[], proibidas: [] as string[] };
+  const prontas = [{ id: 't1', titulo: 'Política de bolo' }, { id: 't2', titulo: 'Horário de visita' }];
+  const r = await carregarPorta(registro, { prontas }).criarPortaWallE(null, { semEfeito: true }).responder(entrada);
+  assert.deepEqual(r.titulosProntas, { t1: 'Política de bolo', t2: 'Horário de visita' });
 });
 
 test('tela: testa pelo POST "testar", mostra desfecho, respostas, fontes e quem entendeu; nada é guardado além da tela', async () => {
   const pedidos: { url: string; corpo: unknown }[] = [];
-  const resposta = { desfecho: 'RESPONDE', entendidoPor: 'MODELO', motivos: [], respostas: [{ texto: 'Pode sim.', anexo: null, fontes: ['Resposta aprovada: “Pode levar bolo?”'] }] };
+  let resposta: Record<string, unknown> = { desfecho: 'RESPONDE', entendidoPor: 'MODELO', motivos: [], mensagem: 'Pode levar bolo?', respostas: [{ texto: 'Pode sim.', anexo: null, fontes: ['Resposta aprovada: “Pode levar bolo?”'] }] };
   const tela = carregarComponente('components/admin/atendimento/TestarWallE.tsx', {
     '@/lib/http/admin-fetch': { adminFetch: async (url: string, init: { body: string }) => { pedidos.push({ url, corpo: JSON.parse(init.body) }); return { ok: true, json: async () => ({ ok: true, data: resposta }) }; } },
     './atendimento.module.css': cssFalso,
@@ -145,6 +207,15 @@ test('tela: testa pelo POST "testar", mostra desfecho, respostas, fontes e quem 
   assert.match(t, /Pode sim\./);
   assert.match(t, /Fonte: Resposta aprovada: “Pode levar bolo\?”/);
   assert.match(t, /entendida pelo modelo de IA/);
+  // Astra r1 (P3): a mensagem testada aparece com o resultado, mesmo que o campo mude depois.
+  assert.match(t, /Mensagem testada: “Pode levar bolo\?”/);
+  (elementos(tela.render()).find((e) => e.type === 'textarea')!.props.onChange as (e: unknown) => void)({ target: { value: 'outra coisa' } });
+  assert.match(texto(tela.render()), /Mensagem testada: “Pode levar bolo\?”/);
+  // Bloqueio com reclamação: a tela diz que a reclamação iria para a equipe.
+  resposta = { desfecho: 'BLOQUEIA_NA_RECEPCAO', entendidoPor: null, motivos: [tipos.NOME_MOTIVO.RECLAMACAO, tipos.NOME_MOTIVO.BLOQUEADO_A_PEDIDO], respostas: [], mensagem: 'outra coisa', reclamacaoParaEquipe: true };
+  (elementos(tela.render()).find((e) => e.type === 'form')!.props.onSubmit as (e: unknown) => void)({ preventDefault() {} });
+  await tique(); await tique();
+  assert.match(texto(tela.render()), /reclamação, a conversa iria para a equipe/);
 });
 
 test('composição: a caixa usa a porta da fila em modo sem efeito, e a rota "testar" passa exatamente essa porta', async () => {

@@ -87,8 +87,10 @@ test("Testar o Wall-e: mesma porta, fontes reais, zero escrita no banco", { time
     // Porta REAL (walle/porta.ts) com as transações do harness (uma conexão por transação, como o pool).
     const proibido = async () => { throw new Error("cadastro procurado no teste"); };
     let modeloLigado = false; const chamadasModelo: string[] = [];
+    // Astra r1 (P2-3): toda leitura do modo sem efeito passa pela transação somente leitura; db() direto (pool) é contado.
+    let dbDireto = 0;
     const porta = carregarComponente("lib/whatsapp/atendimento/walle/porta.ts", {
-      "../../../db/postgres.ts": { db, withTransaction },
+      "../../../db/postgres.ts": { db: () => { dbDireto++; return db(); }, withTransaction },
       // Sem efeito: nenhum cadastro é procurado pelo telefone (falha se for).
       "../../../clientes/repositories/cliente.repository": { buscarClientesPorContatoExato: proibido }, "../../../fechamentos/contratacoes.ts": { listarContratacoes: proibido },
       "../core.ts": core, "../multiempresa.ts": multiempresa,
@@ -98,9 +100,11 @@ test("Testar o Wall-e: mesma porta, fontes reais, zero escrita no banco", { time
     }).modulo as typeof import("./porta.ts");
     // Modelo simulado (sem rede): classifica preço; o resto é revalidado pelas regras, como na fila.
     const entender = async (_e: string, texto: string) => { chamadasModelo.push(texto); return { intencoes: [{ tipo: "PRECOS", trecho: texto.slice(0, 20), perguntaId: null, tema: null }], data: null, turno: null, convidados: 40, pacotes: [], unidade: null, tema: null, reenviar: false, alergia: false } as never; };
-    const portaTeste = porta.criarPortaWallE(entender, { semEfeito: true, direitoModelo: async () => true });
+    // Composição da caixa (portaTesteWallE): direito comercial REAL ao modelo, lido pelo executor da porta.
+    const portaTeste = porta.criarPortaWallE(entender, { semEfeito: true, direitoModelo: porta.direitoModeloAtendimento });
+    const comDireito = await multiempresa.direitoAtendimentoWhatsApp(ex, A.empresa).catch(() => false);
     const teste = carregarComponente("lib/whatsapp/atendimento/walle/teste.ts", {
-      "../core.ts": core, "../configuracao.ts": { ambienteAtendimento: () => "staging" }, "../motivo-falha.ts": motivoFalha, "../service.ts": servico, "./tipos.ts": tipos,
+      "../core.ts": core, "../configuracao.ts": { ambienteAtendimento: () => "staging" }, "../motivo-falha.ts": motivoFalha, "../service.ts": servico, "./entendimento.ts": entendimento, "./tipos.ts": tipos,
     }).modulo as typeof import("./teste.ts");
 
     // Assinatura de TODAS as tabelas do schema public (conteúdo inteiro, não só contagem).
@@ -129,12 +133,26 @@ test("Testar o Wall-e: mesma porta, fontes reais, zero escrita no banco", { time
     // PARAR: bloqueio na recepção, sem chamar a porta.
     const r4 = await teste.testarWallE(A.sessao, "PARAR", portaTeste);
     assert.equal(r4.desfecho, "BLOQUEIA_NA_RECEPCAO");
-    // Modelo (simulado) com direito: entende pelo modelo, revalidado; o resto segue igual e nada é gravado.
+    // Pausa (Astra r1, P2-1): vai à equipe em silêncio, sem a porta.
+    const r6 = await teste.testarWallE(A.sessao, "por enquanto não precisa me mandar mais nada, depois eu chamo vocês", portaTeste);
+    assert.equal(r6.desfecho, "PASSA_EM_SILENCIO"); assert.ok(r6.motivos.includes(tipos.NOME_MOTIVO.PARAR_A_CONFIRMAR));
+    // Parar com reclamação (P2-2): bloqueio com a reclamação para a equipe.
+    const r7 = await teste.testarWallE(A.sessao, "não quero mais propaganda de vcs. aliás a festa do meu filho foi péssima, salgado frio e monitor sumido", portaTeste);
+    assert.equal(r7.desfecho, "BLOQUEIA_NA_RECEPCAO"); assert.equal(r7.reclamacaoParaEquipe, true);
+    // Modelo (simulado): o direito comercial real decide, lido na transação somente leitura; com direito, entende pelo
+    // modelo (revalidado); sem direito, regras e nenhuma chamada ao modelo. Nada é gravado de qualquer forma.
     modeloLigado = true;
     const r5 = await teste.testarWallE(A.sessao, "Qual o valor para 40 convidados?", portaTeste);
-    assert.equal(r5.entendidoPor, "MODELO", `T3 modelo: ${JSON.stringify(r5)}`);
-    assert.deepEqual(chamadasModelo, ["Qual o valor para 40 convidados?"]);
+    assert.equal(r5.entendidoPor, comDireito ? "MODELO" : "REGRAS", `T3 modelo: ${JSON.stringify(r5)}`);
+    assert.deepEqual(chamadasModelo, comDireito ? ["Qual o valor para 40 convidados?"] : []);
+    // Com direito forçado (dublê que lê pelo executor recebido): entende pelo modelo, ainda sem db() direto.
+    const executores: unknown[] = [];
+    const portaComDireito = porta.criarPortaWallE(entender, { semEfeito: true, direitoModelo: async (_e, tx) => { executores.push(tx); await tx.query("SELECT 1"); return true; } });
+    const r8 = await teste.testarWallE(A.sessao, "Qual o valor para 40 convidados?", portaComDireito);
+    assert.equal(r8.entendidoPor, "MODELO", `T3 modelo com direito: ${JSON.stringify(r8)}`);
+    assert.equal(executores.length, 1);
     modeloLigado = false;
+    assert.equal(dbDireto, 0, "P2-3: nenhuma leitura pelo pool no modo sem efeito");
 
     // T1 — nada mudou em nenhuma tabela.
     const depois = await assinatura();
