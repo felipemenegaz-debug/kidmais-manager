@@ -152,7 +152,7 @@ test('(4) recepção Meta desligada: assinatura conferida, 200, eventos descarta
     assert.equal(persistir, undefined, rotulo);
     const resumos: unknown[] = [];
     assert.equal((await receberWebhookMeta(requisicao(), ambienteWebhook, (r) => resumos.push(r), persistir)).status, 200, rotulo);
-    assert.deepEqual(resumos, [{ entradas: 1, status: 1 }], `${rotulo}: só a contagem`);
+    assert.deepEqual(resumos, [{ entradas: 1, status: 1, ecos: 0 }], `${rotulo}: só a contagem`);
     assert.equal(recebidos.length, 0, `${rotulo}: nada processado`);
     assert.equal((await receberWebhookMeta(requisicao('segredo-de-outro-app-0000002'), ambienteWebhook, () => {}, persistir)).status, 401, `${rotulo}: assinatura inválida continua 401`);
   }

@@ -3,9 +3,9 @@ import type { DbExecutor } from '../../db/contracts.ts';
 import type { AmbienteWhatsapp } from '../configuracao.ts';
 import { carregarChaveCredencial, decifrarCredencialWhatsapp } from '../credencial.ts';
 import type { EventosMeta } from '../../integracoes/meta/webhook.ts';
-import { ambienteAtendimento, canalEnvio, empresaPiloto, recepcaoMetaAtiva, recepcaoTecnicaAtiva } from './configuracao.ts';
+import { ambienteAtendimento, canalEnvio, ecosMetaAtivos, empresaPiloto, recepcaoMetaAtiva, recepcaoTecnicaAtiva } from './configuracao.ts';
 import { APP_META, nomePerfilSeguro, type Entrada } from './core.ts';
-import { receberEntrada, registrarStatus } from './service.ts';
+import { receberEco, receberEntrada, registrarStatus } from './service.ts';
 import { chaveMultiempresa, ehPilotoDe, pilotoOpcional } from './multiempresa.ts';
 import type { AlvoEnvio } from './worker.ts';
 import { enviarMensagem, type ConteudoSaida } from './transporte.ts';
@@ -66,6 +66,16 @@ export async function receberEventosMeta(eventos: EventosMeta, opcoes: { automac
     const empresa = (await numeroDe(e.phoneNumberId, e.wabaId)).dona;
     if (!empresa || (!multi && !ehPiloto(empresa))) continue;
     await receberEntrada(entradaMeta(e), { ...opcoes, empresa: ehPiloto(empresa) ? piloto! : empresa });
+  }
+  // Ecos do app WhatsApp Business (F1, só histórico), DEPOIS das entradas do mesmo lote (uma entrada que cria a conversa
+  // vem antes do eco da resposta). Chave própria desligada: descartados sem consultar o banco. Mesma resolução de empresa
+  // das entradas (número CONFIGURADO; fora do MULTI, só a piloto); receberEco aplica as demais guardas na transação.
+  if (eventos.ecos?.length && ecosMetaAtivos()) {
+    for (const e of eventos.ecos) {
+      const empresa = (await numeroDe(e.phoneNumberId, e.wabaId)).dona;
+      if (!empresa || (!multi && !ehPiloto(empresa))) continue;
+      await receberEco({ id: e.id, contato: e.contato, texto: e.texto, timestamp: e.timestamp }, { empresa: ehPiloto(empresa) ? piloto! : empresa });
+    }
   }
   // Status: número desconhecido neste ambiente é descartado; conhecido (mesmo DESCONECTADO) procura a saída primeiro.
   for (const s of eventos.status) {

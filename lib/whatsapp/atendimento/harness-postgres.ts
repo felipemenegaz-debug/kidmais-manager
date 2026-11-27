@@ -71,11 +71,11 @@ export const db = () => ({ query: async (sql: string, v?: unknown[]) => { const 
  * módulo em que a piloto, para o teto, é OUTRA empresa, para exercitar a reserva real no modo piloto do harness).
  */
 export function carregarAtendimento(empresaPiloto: string, ambiente = "staging", trocasWorker: Record<string, unknown> = {}, teto: Record<string, unknown> = tetoMensal) {
-  const configuracao = { entendimentoSoRegras: () => modoRegrasReal(process.env), origemMidia: () => "https://midia.kidmais.example", ambienteAtendimento: () => ambiente, empresaPiloto: () => empresaPiloto, atendimentoAtivo: () => true, recepcaoAtiva: () => true, receptorDoNumero: () => true, contatoPermitido: (contato: string) => contato.startsWith("55619") };
+  const configuracao = { ecosMetaAtivos: (env = process.env) => env.WHATSAPP_ATENDIMENTO_ECOS_META === "true", entendimentoSoRegras: () => modoRegrasReal(process.env), origemMidia: () => "https://midia.kidmais.example", ambienteAtendimento: () => ambiente, empresaPiloto: () => empresaPiloto, atendimentoAtivo: () => true, recepcaoAtiva: () => true, receptorDoNumero: () => true, contatoPermitido: (contato: string) => contato.startsWith("55619") };
   const postgres = { withTransaction, db };
   const tenant = { withTenantTransaction: (s: SessaoParaTenant, e: string, w: Parameters<typeof executarNoTenant>[3]) => withTransaction((tx) => executarNoTenant(tx, s, e, w)) };
   const servico = carregarComponente("lib/whatsapp/atendimento/service.ts", {
-    "../../db/postgres.ts": postgres, "../../saas/provar-tenant.ts": tenant, "./configuracao.ts": configuracao, "./core.ts": core, "./arquivos.ts": arquivos, "./walle/entendimento.ts": entendimento, "./multiempresa.ts": multiempresa, "./aviso-equipe.ts": avisoEquipe, "./teto-mensal.ts": teto,
+    "node:crypto": nodeCrypto, "../../db/postgres.ts": postgres, "../../saas/provar-tenant.ts": tenant, "./configuracao.ts": configuracao, "./core.ts": core, "./arquivos.ts": arquivos, "./walle/entendimento.ts": entendimento, "./multiempresa.ts": multiempresa, "./aviso-equipe.ts": avisoEquipe, "./teto-mensal.ts": teto,
     "../../satisfacao/supressao.ts": supressao, "../../marketing/automacoes/preferencias.ts": preferencias,
   }).modulo as typeof import("./service.ts");
   // D2/D3: módulo de privacidade REAL, com a mesma conexão por transação e o serviço do harness.

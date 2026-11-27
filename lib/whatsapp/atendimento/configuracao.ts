@@ -73,6 +73,11 @@ export function canalEnvio(env: NodeJS.ProcessEnv = process.env): CanalEnvio {
  * DESCARTADOS e a Meta não os reenvia; não há recuperação posterior pelo Kidmais.
  */
 export function recepcaoMetaAtiva(env: NodeJS.ProcessEnv = process.env) { return env.WHATSAPP_ATENDIMENTO_RECEPCAO_META === 'true'; }
+/**
+ * Ecos do app WhatsApp Business (F1, só histórico): as respostas que a equipe manda pelo app do número conectado entram no
+ * histórico do Atendimento como "Equipe · Enviada pelo app". Desligada por padrão; exige também a recepção da Meta.
+ */
+export function ecosMetaAtivos(env: NodeJS.ProcessEnv = process.env) { return env.WHATSAPP_ATENDIMENTO_ECOS_META === 'true'; }
 
 /**
  * Contatos que o canal pode receber e responder (WHATSAPP_ATENDIMENTO_CONTATOS_PERMITIDOS: números com DDI, só

@@ -1,5 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import * as nodeCrypto from "node:crypto";
 import { randomBytes } from "node:crypto";
 import { readFileSync } from "node:fs";
 import type { Client } from "pg";
@@ -81,6 +82,7 @@ function carregar(empresaPiloto: string) {
   const configuracao = { entendimentoSoRegras: () => modoRegrasReal(process.env), ambienteAtendimento: () => "staging", canalEnvio: () => canalReal(process.env), empresaPiloto: () => empresaPiloto, atendimentoAtivo: () => true, recepcaoAtiva: () => true, receptorDoNumero: () => true, contatoPermitido: (contato: string) => contato.startsWith("55619") };
   const postgres = { withTransaction, db };
   const servico = carregarComponente("lib/whatsapp/atendimento/service.ts", {
+    "node:crypto": nodeCrypto,
     "../../db/postgres.ts": postgres,
     "../../saas/provar-tenant.ts": { withTenantTransaction: (s: SessaoParaTenant, e: string, w: Parameters<typeof executarNoTenant>[3]) => withTransaction((tx) => executarNoTenant(tx, s, e, w)) },
     "./configuracao.ts": configuracao,

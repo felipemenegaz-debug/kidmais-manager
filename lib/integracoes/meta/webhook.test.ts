@@ -71,8 +71,8 @@ test('POST: evento assinado é persistido e o log leva só contagens', async () 
   const persistidos: EventosMeta[] = [], logs: ResumoMeta[] = [];
   const r = await receberWebhookMeta(post(), env, (l) => logs.push(l), async (e) => { persistidos.push(e); });
   assert.equal(r.status, 200);
-  assert.deepEqual(persistidos, [{ entradas: [{ phoneNumberId: '1317246918141796', wabaId: '1555933295860010', id: 'wamid.SINTETICO1', contato: '5511900000001', texto: 'Olá, quero orçamento', timestamp: 1789550000000, nomePerfil: 'Cliente Sintético' }], status: [] }]);
-  assert.deepEqual(logs, [{ entradas: 1, status: 0 }]);
+  assert.deepEqual(persistidos, [{ entradas: [{ phoneNumberId: '1317246918141796', wabaId: '1555933295860010', id: 'wamid.SINTETICO1', contato: '5511900000001', texto: 'Olá, quero orçamento', timestamp: 1789550000000, nomePerfil: 'Cliente Sintético' }], status: [], ecos: [] }]);
+  assert.deepEqual(logs, [{ entradas: 1, status: 0, ecos: 0 }]);
   // Recepção desligada (sem persistir): confirma.
   assert.equal((await receberWebhookMeta(post(), env, () => {})).status, 200);
   // Sem eventos de atendimento (ex.: só status "sent" ou outro campo): não chama a persistência.
