@@ -1,4 +1,5 @@
-import { db } from '../../../db/postgres.ts';
+import { db, withTransaction } from '../../../db/postgres.ts';
+import type { DbExecutor } from '../../../db/contracts.ts';
 import { buscarClientesPorContatoExato } from '../../../clientes/repositories/cliente.repository';
 import { listarContratacoes } from '../../../fechamentos/contratacoes.ts';
 import { dadoSensivel, ocultarDadosPessoais } from '../core.ts';
@@ -50,23 +51,50 @@ export function pedidoEntendimentoWallE(texto: string, contexto: ContextoWallE, 
  * Astra r3 (R-5, P2-2): o modelo do atendimento só é chamado para empresa cujo plano dá direito ao Atendimento WhatsApp
  * (C4), inclusive a piloto, que opera sem esse portão. Sem direito, ou leitura que falha, a mensagem segue pelas regras.
  */
-export async function direitoModeloAtendimento(empresaId: string) {
-  return direitoAtendimentoWhatsApp(db(), empresaId).catch(() => false);
+export async function direitoModeloAtendimento(empresaId: string, ex: DbExecutor = db()) {
+  return direitoAtendimentoWhatsApp(ex, empresaId).catch(() => false);
 }
+
+/**
+ * Fatia 10a ("Testar o Wall-e"): as leituras da porta numa transação SOMENTE LEITURA do PostgreSQL, sempre desfeita no
+ * fim (ROLLBACK, nunca COMMIT). Qualquer escrita nas fontes, inclusive uma função que grave por baixo, é recusada pelo
+ * banco. O registro de uso do modelo segue na conexão própria do roteador: é o registro contábil permitido, que conta
+ * no teto de IA da empresa.
+ */
+const DESFAZER = Symbol('desfazer');
+export async function lerSemEfeito<T>(ler: (ex: DbExecutor) => Promise<T>): Promise<T> {
+  let lido: { valor: T } | null = null;
+  try {
+    await withTransaction(async (tx) => {
+      await tx.query('SET TRANSACTION READ ONLY');
+      lido = { valor: await ler(tx) };
+      throw DESFAZER;
+    });
+  } catch (erro) { if (erro !== DESFAZER) throw erro; }
+  if (!lido) throw new Error('ATENDIMENTO_TESTE_SEM_LEITURA');
+  return (lido as { valor: T }).valor;
+}
+function lerDireto<T>(ler: (ex: DbExecutor) => Promise<T>) { return ler(db()); }
 
 /**
  * Porta do Wall-e para o worker: entende (modelo revalidado ou regras) e resolve só com as fontes oficiais da empresa,
  * lidas na hora e só lendo. Contrato particular: no máximo o link protegido (CPF + código), com vínculo inequívoco.
+ *
+ * `semEfeito` (fatia 10a, caixa "Testar o Wall-e"): a MESMA porta, com as mesmas fontes, entendimento e resolvedor. Muda
+ * só que as leituras correm em transação somente leitura (lerSemEfeito) e que o link do contrato particular não é
+ * procurado: quem testa não é um contato, e nenhum cadastro é consultado pelo telefone. Quem chama não grava nem envia
+ * nada com o resultado.
  */
-export function criarPortaWallE(entender: EntenderWallE | null, opcoes: { sinais?: (texto: string) => SinaisMensagem; direitoModelo?: (empresaId: string) => Promise<boolean> } = {}): PortaWallE {
+export function criarPortaWallE(entender: EntenderWallE | null, opcoes: { sinais?: (texto: string) => SinaisMensagem; direitoModelo?: (empresaId: string, ex: DbExecutor) => Promise<boolean>; semEfeito?: boolean } = {}): PortaWallE {
+  const ler = opcoes.semEfeito ? lerSemEfeito : lerDireto;
   return { async responder(e) {
-    const catalogos = await catalogosWallE(db(), e.empresa, e.config, e.hoje);
+    const catalogos = await ler((ex) => catalogosWallE(ex, e.empresa, e.config, e.hoje));
     const contexto = lerContexto(e.contexto);
     // Proteção final: em modo regras o modelo nunca é chamado, mesmo que a porta tenha sido montada com ele.
     // D1: mensagem com dado de saúde (alergia, condição, medicação…) também não: entende pelas regras (alergia segue
     // para a equipe pelo próprio resolvedor).
     // Astra r3 (P2-2): sem direito comercial ao atendimento, nada de modelo (a piloto também).
-    const modelo = entender && !entendimentoSoRegras() && !dadoSensivel(e.texto) && (!opcoes.direitoModelo || await opcoes.direitoModelo(e.empresa)) ? entender : null;
+    const modelo = entender && !entendimentoSoRegras() && !dadoSensivel(e.texto) && (!opcoes.direitoModelo || await ler((ex) => opcoes.direitoModelo!(e.empresa, ex))) ? entender : null;
     // 20/11: falha do modelo (orçamento, chave, provedor, alerta do roteador, resposta inválida) não derruba o
     // atendimento: registra o motivo (código, nunca o texto do cliente) e segue pelas regras, como no modo regras.
     let entendimento: ReturnType<typeof entenderPorRegras> | null = null;
@@ -74,10 +102,12 @@ export function criarPortaWallE(entender: EntenderWallE | null, opcoes: { sinais
       try { entendimento = revalidarEntendimento(await modelo(e.empresa, e.texto, contexto, catalogos), e.texto, catalogos, contexto); }
       catch (erro) { console.warn('[Atendimento WhatsApp] Wall-e: modelo falhou (%s); seguindo pelas regras.', motivoSeguro(erro)); }
     }
+    const entendidoPor = entendimento ? 'MODELO' as const : 'REGRAS' as const;
     entendimento ??= entenderPorRegras(e.texto, catalogos, contexto);
     // Sinais locais (regras) + triagem do JEV: basta uma origem para valer.
     if (opcoes.sinais) entendimento.sinais = juntarSinais(entendimento.sinais, opcoes.sinais(e.texto), e.texto);
-    const linkContratoProprio = async () => {
+    const entendido = entendimento;
+    const linkContratoProprio = opcoes.semEfeito ? async () => null : async () => {
       const r = await resolverLinkFechamento(e.empresa, e.contato, {
         clientesPorTelefone: (telefone) => buscarClientesPorContatoExato(telefone, e.empresa, db()),
         contratacoesDoCliente: (clienteId) => listarContratacoes(db(), e.empresa, clienteId),
@@ -85,9 +115,19 @@ export function criarPortaWallE(entender: EntenderWallE | null, opcoes: { sinais
       });
       return r.ok ? r.link : null;
     };
-    const link = await linkDisponibilidadeDaEmpresa(e.empresa, ambienteDoLink(), db);
-    return resolverWallE({ texto: e.texto, entendimento, contexto, config: e.config, catalogos, agora: e.agora },
-      fontesPostgres(db(), { empresaId: e.empresa, ambiente: e.ambiente, hoje: e.hoje, linkContratoProprio,
-        linkDisponibilidade: link.ok ? link.link : null }));
+    // Modo sem efeito: guarda o título de cada pronta lida para a tela rotular a fonte (texto e link inclusive).
+    const titulosProntas: Record<string, string> = {};
+    const resultado = await ler(async (ex) => {
+      const link = await linkDisponibilidadeDaEmpresa(e.empresa, ambienteDoLink(), () => ex);
+      const fontes = fontesPostgres(ex, { empresaId: e.empresa, ambiente: e.ambiente, hoje: e.hoje, linkContratoProprio,
+        linkDisponibilidade: link.ok ? link.link : null });
+      const lidas = opcoes.semEfeito ? { ...fontes, async prontasAutorizadas(finalidade: Parameters<typeof fontes.prontasAutorizadas>[0]) {
+        const prontas = await fontes.prontasAutorizadas(finalidade);
+        for (const p of prontas) titulosProntas[p.id] = p.titulo;
+        return prontas;
+      } } : fontes;
+      return resolverWallE({ texto: e.texto, entendimento: entendido, contexto, config: e.config, catalogos, agora: e.agora }, lidas);
+    });
+    return { ...resultado, entendidoPor, ...(opcoes.semEfeito ? { titulosProntas } : {}) };
   } };
 }

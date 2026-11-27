@@ -122,3 +122,6 @@
 .itemSemFonte{display:grid;gap:6px;padding:12px;border-radius:10px;border:1px solid var(--km-border);background:var(--km-card);overflow-wrap:anywhere}.itemSemFonte q{color:var(--km-text);font-weight:600}.itemSemFonte button{justify-self:start;min-height:44px}
 .seloSemFonte{justify-self:start;padding:4px 10px;border-radius:999px;border:1px solid var(--km-teal);color:var(--km-teal);font-size:.85rem;font-weight:600}
 .limiteEsgotado{margin:0;padding:10px 12px;border-radius:10px;border:1px solid var(--km-orange);color:var(--km-text)}
+.testeWallE{margin-top:16px}.testeWallE form{display:grid;gap:10px}.testeWallE button{justify-self:start;min-height:44px}
+.resultadoTeste{display:grid;gap:8px;padding:14px;border-radius:12px;border:1px solid var(--km-border);background:var(--km-card-2)}.resultadoTeste p{margin:0}
+.respostaTeste{display:grid;gap:4px;padding:10px 12px;border-radius:10px;border:1px solid var(--km-border);background:var(--km-card);overflow-wrap:anywhere}.textoTeste{white-space:pre-wrap;color:var(--km-text)}

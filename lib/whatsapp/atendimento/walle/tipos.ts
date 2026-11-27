@@ -222,4 +222,8 @@ export type Passagem = {
  * `parar`: pedido inequívoco de parar — o worker bloqueia a conversa (definitivo), cancela as saídas na fila e não envia
  * nada. `silencio`: pedido ambíguo — nada é enviado e a conversa vai para a equipe (`passagem`), sem bloqueio.
  */
-export type ResultadoWallE = { saidas: Saida[]; contexto: ContextoWallE; passagem: Passagem | null; parar?: boolean; silencio?: boolean; cuidadosAfastados?: Array<{ tipo: TipoIntencao; criterio: CriterioConsultaComum }> };
+export type ResultadoWallE = { saidas: Saida[]; contexto: ContextoWallE; passagem: Passagem | null; parar?: boolean; silencio?: boolean; cuidadosAfastados?: Array<{ tipo: TipoIntencao; criterio: CriterioConsultaComum }>;
+  /** Fatia 10a: quem entendeu a mensagem (o modelo revalidado, ou as regras). Lido só pela caixa "Testar o Wall-e". */
+  entendidoPor?: 'MODELO' | 'REGRAS';
+  /** Fatia 10a (Astra r1, P2-4): título de cada pronta lida, por id. Só no modo sem efeito, para rotular a fonte na tela. */
+  titulosProntas?: Record<string, string> };
