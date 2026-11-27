@@ -171,3 +171,31 @@ test('sem fonte: achados do Astra r3 que o desenho novo ainda fecha na regra (P1
   const registrado = trechoParaRegistro(`Tem wifi?${' '.repeat(481)}3456-7890`);
   assert.equal(perguntaSugerida(registrado), 'Tem wifi?');
 });
+
+test('sem fonte: achados do Astra r4', () => {
+  // P2: "chamar" sem sujeito pessoal é pergunta geral: aparece na lista e o salvar aceita.
+  for (const t of ['Como chamo a equipe durante a festa?', 'Como se chama o salão?', 'Qual salão se chama Jardim?', 'Ela chama o garçom ou eu peço no balcão?']) {
+    assert.equal(perguntaSugerida(t), t, t);
+    assert.equal(perguntaComDadoPessoal(t), false, t);
+  }
+  // A apresentação continua omitida: "me chamo", "ele/ela se chama", parente "se chama", "chamo"/"chama-se" abrindo a mensagem.
+  for (const t of ['me chamo ana silva, tem wifi?', 'meu filho se chama pedro', 'Ela se chama Bia, tem wifi?', 'Oi, chamo ana, tem fraldário?', 'Chama-se Pedro o aniversariante, tem wifi?', 'Bom dia! Eu chamo Carla, tem wifi?']) {
+    assert.equal(perguntaSugerida(t), null, t);
+    assert.equal(perguntaComDadoPessoal(t), true, t);
+  }
+  // P3: o selo compara como o schema do salvar (espaços das pontas tirados).
+  const g = { id: 'g1', texto: 'Tem fraldário?' };
+  assert.equal(estadoDoGrupo(g, [{ id: 'faq_1', pergunta: 'Tem fraldário?' }], [{ id: 'faq_1', pergunta: 'Tem fraldário? ' }], { faq_1: 'g1' }), 'publicada');
+  assert.equal(estadoDoGrupo(g, [{ id: 'faq_1', pergunta: 'Tem fraldário?' }], [{ id: 'faq_1', pergunta: 'Tem fraldário? Sim' }], { faq_1: 'g1' }), 'rascunho');
+  // P3: hash de 32 bits coincidente não junta dois grupos; o sufixo segue a ordem das chaves, não a frequência.
+  const a = 'Tem lugar para 219 crianças no almoço?', b = 'Posso reservar para 17 professores à noite?';
+  const r1 = agruparSemFonte([{ ultimaMensagem: a, em: '2027-01-19T10:00:00.000Z' }, { ultimaMensagem: b, em: '2027-01-19T09:00:00.000Z' }], []);
+  const r2 = agruparSemFonte([{ ultimaMensagem: b, em: '2027-01-19T10:00:00.000Z' }, { ultimaMensagem: b, em: '2027-01-19T09:00:00.000Z' }, { ultimaMensagem: a, em: '2027-01-19T08:00:00.000Z' }], []);
+  const ids = (r: typeof r1) => Object.fromEntries(r.grupos.map((x) => [x.texto, x.id]));
+  assert.equal(new Set(r1.grupos.map((x) => x.id)).size, 2);
+  assert.deepEqual(ids(r1), ids(r2));
+  assert.equal(agruparSemFonte([{ ultimaMensagem: a, em: '2027-01-19T10:00:00.000Z' }], []).grupos[0].id.length, 8, 'sem colisão o id fica igual');
+  // Segundo grupo mantém o botão quando o primeiro ganha resposta.
+  const [ga, gb] = r1.grupos;
+  assert.equal(estadoDoGrupo(gb, [], [{ id: 'faq_a', pergunta: '' }], { faq_a: ga.id }), 'criar');
+});

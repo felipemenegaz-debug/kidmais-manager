@@ -197,10 +197,14 @@ const MARCADOR_OMITIDO = /\[[^\]\n]{0,40}omitid[ao][^\]\n]{0,40}\]/iu;
  * também sai da lista (é pergunta pessoal, não pergunta geral para uma resposta aprovada). Parentes adultos também
  * ("minha irmã ana", Astra r3). Depois do gatilho, espaço obrigatório (Astra r3, P2: "sou obrigado" não é apresentação).
  * "O pai do aniversariante paga?" (papel, sem "sou" nem "meu/minha") continua valendo.
+ * "Chamar" só é apresentação com sujeito pessoal (Astra r4, P2): "me chamo", "ele/ela se chama", "[parente] se chama"
+ * (pela regra de parentesco) ou "chamo"/"chama-se" abrindo a mensagem (depois de um cumprimento). "Como se chama o
+ * salão?" e "Como chamo a equipe durante a festa?" são perguntas gerais e continuam valendo.
  */
 const PARENTESCO = '(?:filho|filha|neto|neta|sobrinho|sobrinha|enteado|enteada|afilhado|afilhada|bebe|menino|menina'
   + '|irma|irmao|mae|pai|avo|tio|tia|primo|prima|esposa|esposo|marido)s?';
-const APRESENTACAO = new RegExp('(?<![\\p{L}])(?:meu nome e|me chamo|eu chamo|chamo|se chama|chama se|aqui e (?:a|o)|sou (?:a|o)'
+const APRESENTACAO = new RegExp('(?<![\\p{L}])(?:meu nome e|me chamo|(?:ele|ela) se chama'
+  + '|^(?:(?:oi|ola|bom dia|boa tarde|boa noite) )?(?:eu chamo|chamo|chama se)|aqui e (?:a|o)|sou (?:a|o)'
   + '|sou (?:mae|pai|avo|tia|tio|madrinha|padrinho|irma|irmao) d[ao]|nome d(?:ele|ela|o|a|os|as)(?: \\p{L}+){0,3} e'
   + '|(?:o|a) aniversariante (?:e|se chama)|(?:meu|minha|meus|minhas) ' + PARENTESCO + ')\\s+(?:\\[|\\p{L})', 'u');
 /**

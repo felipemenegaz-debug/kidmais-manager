@@ -15,7 +15,8 @@ function montar(perguntasIniciais: { id: string; pergunta: string; resposta: str
   let salva: { perguntas: { id: string; pergunta: string; resposta: string }[] } & Record<string, unknown> = { ativo: false, nome: 'Empresa sintética', perguntas: perguntasIniciais, limites: { respostasPor24h: 20 }, wallE: { ativo: false } };
   const gets: string[] = [];
   const adminFetch = async (url: string, init?: { method?: string; body?: unknown }) => {
-    if (init?.method === 'POST') salva = JSON.parse(String(init.body)).configuracao;
+    // O servidor guarda o que o schema devolve (pergunta e resposta sem os espaços das pontas).
+    if (init?.method === 'POST') salva = core.configuracaoSchema.parse(JSON.parse(String(init.body)).configuracao) as typeof salva;
     else gets.push(url);
     const data = url.endsWith('/sem-fonte')
       ? { disponivel: true, dias: 30, grupos: [GRUPO], omitidasSensiveis: 0, limite: 30, publicadas: salva.perguntas.length }
@@ -48,6 +49,9 @@ test('sem fonte na tela: botão da lista abre pergunta vazia, a pessoa escreve, 
   let t = await m.render();
   let props = propsDaLista(t, m.Lista);
   let l = await m.renderLista(props);
+  // A nota não promete texto sem dado pessoal (Astra r4, P3).
+  assert.match(texto(l), /ainda podem conter dados pessoais/);
+  assert.doesNotMatch(texto(l), /sem os dados pessoais/);
 
   // 1) Clique no botão "Criar resposta" da lista renderizada: pergunta VAZIA no formulário, ligada ao grupo → rascunho.
   (achar(l, 'button', /Criar resposta/).props.onClick as () => void)();
@@ -62,7 +66,8 @@ test('sem fonte na tela: botão da lista abre pergunta vazia, a pessoa escreve, 
   assert.doesNotMatch(texto(l), /Já tem resposta aprovada/);
 
   // 2) A pessoa escreve a pergunta (com as palavras dela) e a resposta; salva: a configuração é recarregada da API.
-  digitar(campo, 'O salão tem trocador para bebê?');
+  // Com espaço no fim (Astra r4, P3): o servidor tira, o formulário mantém, o selo compara como o servidor.
+  digitar(campo, 'O salão tem trocador para bebê? ');
   t = await m.render();
   const resposta = elementos(t).find((e) => e.type === 'textarea' && String(e.props.id).startsWith('resposta-')) as Elemento;
   digitar(resposta, 'Temos fraldário nos dois banheiros.');
@@ -94,6 +99,10 @@ test('sem fonte na tela: pergunta antiga salva com dado pessoal não é marcada 
   let t = await m.render();
   let [campo] = inputsPergunta(t);
   assert.equal(campo.props['aria-invalid'], undefined, 'mesmo id e mesmo texto da configuração salva');
+  digitar(campo, ` ${antiga.pergunta} `);
+  t = await m.render();
+  [campo] = inputsPergunta(t);
+  assert.equal(campo.props['aria-invalid'], undefined, 'só espaço nas pontas: o servidor aceita igual (Astra r4, P3)');
   digitar(campo, 'Tem wi-fi? me liga 11987654322');
   t = await m.render();
   [campo] = inputsPergunta(t);

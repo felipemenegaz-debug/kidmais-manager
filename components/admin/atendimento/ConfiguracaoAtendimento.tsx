@@ -73,7 +73,7 @@ export default function ConfiguracaoAtendimento() {
   }
   /** Pergunta salva com o mesmo id e o mesmo texto: o servidor aceita (exceção das antigas); a tela só aponta as novas ou alteradas. */
   const salvasPorId = new Map((dados?.configuracao?.perguntas ?? []).map(p => [p.id, p.pergunta]));
-  const perguntaInvalida = (p: { id: string; pergunta: string }) => salvasPorId.get(p.id) !== p.pergunta && perguntaComDadoPessoal(p.pergunta);
+  const perguntaInvalida = (p: { id: string; pergunta: string }) => salvasPorId.get(p.id)?.trim() !== p.pergunta.trim() && perguntaComDadoPessoal(p.pergunta);
   const esgotado = (config?.perguntas.length ?? 0) >= LIMITE_PERGUNTAS_APROVADAS;
   const link = dados?.wallE?.linkPublico;
   const nome = config?.nome.trim() || 'sua empresa';

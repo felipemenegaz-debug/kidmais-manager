@@ -32,7 +32,7 @@ export default function PerguntasSemFonte({ salvas, formulario, vinculos, limite
     {!dados && !erro && <p aria-live="polite" className={styles.nota}>Carregando perguntas…</p>}
     {dados && !dados.disponivel && <p className={styles.nota}>Disponível depois da atualização deste ambiente (Wall-e).</p>}
     {dados?.disponivel && <>
-      <p className={styles.nota}>Últimos {dados.dias} dias, sem os dados pessoais do cliente. O texto do cliente fica só aqui: em “Criar resposta”, escreva a pergunta com suas palavras, de forma geral, e a resposta da empresa. O Wall-e passa a usar depois de salvar.</p>
+      <p className={styles.nota}>Últimos {dados.dias} dias. Os trechos têm mascaramento automático, mas ainda podem conter dados pessoais do cliente. O texto do cliente fica só aqui: em “Criar resposta”, escreva a pergunta com suas palavras, de forma geral, e a resposta da empresa. O Wall-e passa a usar depois de salvar.</p>
       {esgotado && <p className={styles.limiteEsgotado} role="status">Limite de {limite} respostas aprovadas atingido: remova uma resposta para criar outra.</p>}
       {dados.grupos.length === 0 && <p className={styles.nota}>Nenhuma pergunta sem resposta neste período.</p>}
       {dados.grupos.length > 0 && <ul className={styles.listaSemFonte}>{dados.grupos.map(g => {

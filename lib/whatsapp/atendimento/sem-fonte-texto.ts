@@ -84,6 +84,11 @@ export function agrupadorSemFonte(perguntasPublicadas: string[], maximo = 20) {
       }
     },
     resultado(): AgrupamentoSemFonte {
+      // Id único mesmo quando o hash de 32 bits coincide (Astra r4, P3): na colisão, sufixo pela ordem das chaves, que
+      // não depende da frequência (o mesmo grupo mantém o id entre recargas com o mesmo conjunto).
+      const porId = new Map<string, string[]>();
+      for (const chave of grupos.keys()) porId.set(idDoGrupo(chave), [...(porId.get(idDoGrupo(chave)) ?? []), chave]);
+      for (const [id, chaves] of porId) if (chaves.length > 1) chaves.sort().forEach((c, i) => { grupos.get(c)!.id = `${id}-${i + 1}`; });
       const ordenados = [...grupos.values()].sort((a, b) => Number(a.jaPublicada) - Number(b.jaPublicada) || b.ocorrencias - a.ocorrencias || b.ultimaEm.localeCompare(a.ultimaEm));
       return { grupos: ordenados.slice(0, maximo), omitidasSensiveis };
     },
@@ -98,6 +103,10 @@ export function agruparSemFonte(passagens: PassagemSemFonte[], perguntasPublicad
 }
 
 export type PerguntaAprovada = { id: string; pergunta: string };
+/** Mesma resposta salva: mesmo id e mesmo texto depois de tirar os espaços das pontas, como o schema do salvar (Astra r4, P3). */
+export function mesmaPergunta(salva: PerguntaAprovada | undefined, formulario: PerguntaAprovada) {
+  return !!salva && salva.id === formulario.id && salva.pergunta.trim() === formulario.pergunta.trim();
+}
 /**
  * Estado de um grupo na tela. Desenho novo (decisão de Felipe depois do Astra r3): "Criar resposta" NÃO copia o texto do
  * cliente; abre uma pergunta vazia ligada ao grupo (`vinculos`: id da resposta → id do grupo, só na memória da tela) e a
@@ -107,7 +116,7 @@ export type PerguntaAprovada = { id: string; pergunta: string };
  */
 export function estadoDoGrupo(grupo: { id: string; texto: string }, salvas: PerguntaAprovada[], formulario: PerguntaAprovada[], vinculos: Record<string, string> = {}): 'publicada' | 'rascunho' | 'criar' {
   const ligadas = formulario.filter((p) => vinculos[p.id] === grupo.id);
-  if (ligadas.length) return ligadas.some((p) => p.pergunta.trim() && salvas.some((s) => s.id === p.id && s.pergunta === p.pergunta)) ? 'publicada' : 'rascunho';
+  if (ligadas.length) return ligadas.some((p) => p.pergunta.trim() && salvas.some((s) => mesmaPergunta(s, p))) ? 'publicada' : 'rascunho';
   const chave = chaveDoGrupo(grupo.texto);
   const noFormulario = formulario.filter((p) => chaveDoGrupo(p.pergunta) === chave);
   if (!noFormulario.length) return 'criar';
